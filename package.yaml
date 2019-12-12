@@ -24,6 +24,9 @@ dependencies:
 
 library:
   source-dirs: src
+  dependencies:
+  - z3 >= 4.3.1
+  - mtl >= 2.2.2
 
 executables:
   compiler-exe:
