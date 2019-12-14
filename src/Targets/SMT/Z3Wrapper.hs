@@ -9,102 +9,106 @@ type Sort = Z.Sort
 type Node = Z.AST
 type AST = Z.AST
 
-
 solverToString :: MonadZ3 z3 => z3 String
 solverToString = do
   Z.setASTPrintMode Z.Z3_PRINT_SMTLIB2_COMPLIANT
   Z.solverToString
 
-implies :: MonadZ3 z3 => AST -> AST -> z3 ()
-implies a b = Z.mkImplies a b >>= assert
+push :: MonadZ3 z3 => z3 ()
+push = Z.push
 
+pop :: MonadZ3 z3 => z3 ()
+pop = Z.pop 1
+
+-- | Assert a statement. The statement must be a boolean type (for us, either
+-- a bool sort or a bitvector sort of size one, because of funkiness within z3 bindings)
 assert :: MonadZ3 z3 => AST -> z3 ()
-assert a = do
-  sort <- Z.getSort a
+assert stmt = do
+  sort <- Z.getSort stmt
   kind <- Z.getSortKind sort
-  a' <- case kind of
-    Z.Z3_BOOL_SORT -> return a
+  stmt' <- case kind of
+    Z.Z3_BOOL_SORT -> return stmt
     Z.Z3_BV_SORT -> do
       size <- Z.getBvSortSize sort
-      unless (size == 1) $ error "Cannot assert multibit BV"
+      unless (size == 1) $ error "Cannot assert non-bool statement"
       bvTrue <- Z.mkBvNum 1 (1 :: Integer)
-      Z.mkEq a bvTrue
+      Z.mkEq stmt bvTrue
     s              -> error $ unwords ["Can't assert sort", show s]
-  Z.assert a'
+  Z.assert stmt'
 
-typeSafeUnary' :: MonadZ3 z3 => String -> AST -> z3 Z.Sort
-typeSafeUnary' op ast = do
+---
+---
+---
+
+-- | Get the bitvector sort of ast. If ast does not have bitvector sort, error
+getBVSort :: MonadZ3 z3 => String -> AST -> z3 Z.Sort
+getBVSort op ast = do
   sort <- Z.getSort ast
   kind <- Z.getSortKind sort
   case kind of
     Z.Z3_BV_SORT -> return sort
     s            -> error $ unwords ["Expected BV sort, not", show s, "in", op]
 
+getBVSortSize op ast = do
+  sort <- Z.getSort ast
+  kind <- Z.getSortKind sort
+  case kind of
+    Z.Z3_BV_SORT -> Z.getBvSortSize sort
+    s            -> error $ unwords ["Expected BV sort, not", show s, "in", op]
+
+-- | Perform the given binary operation op in a type safe way
 typeSafeBinary :: MonadZ3 z3 => String -> AST -> AST -> z3 ()
 typeSafeBinary op ast1 ast2 = do
-  s1 <- typeSafeUnary' op ast1
-  s2 <- typeSafeUnary' op ast2
+  s1 <- getBVSort op ast1
+  s2 <- getBVSort op ast2
   size1 <- Z.getBvSortSize s1
   size2 <- Z.getBvSortSize s2
   unless (size1 == size2) $ error $ unwords [op, ": bit-widths must match"]
 
+--mkTypeSafeBinary :: MonadZ3 z3 => String -> AST -> AST -> z3 ()
+mkTypeSafeBinary op opName a b = do
+  typeSafeBinary opName a b
+  op a b
+
+---
+--- Operations
+---
+
 eq :: MonadZ3 z3 => AST -> AST -> z3 AST
-eq = Z.mkEq
+eq = mkTypeSafeBinary Z.mkEq "eq"
 
 add :: MonadZ3 z3 => AST -> AST -> z3 AST
-add a b = do
-  typeSafeBinary "add" a b
-  Z.mkBvadd a b
+add = mkTypeSafeBinary Z.mkBvadd "add"
 
 sub :: MonadZ3 z3 => AST -> AST -> z3 AST
-sub a b = do
-  typeSafeBinary "sub" a b
-  Z.mkBvsub a b
+sub = mkTypeSafeBinary Z.mkBvsub "sub"
 
 mul :: MonadZ3 z3 => AST -> AST -> z3 AST
-mul a b = do
-  typeSafeBinary "mul" a b
-  Z.mkBvmul a b
+mul = mkTypeSafeBinary Z.mkBvmul "mul"
 
 sdiv :: MonadZ3 z3 => AST -> AST -> z3 AST
-sdiv a b = do
-  typeSafeBinary "sdiv" a b
-  Z.mkBvsdiv a b
+sdiv = mkTypeSafeBinary Z.mkBvsdiv "sdiv"
 
 udiv :: MonadZ3 z3 => AST -> AST -> z3 AST
-udiv a b = do
-  typeSafeBinary "udiv" a b
-  Z.mkBvudiv a b
+udiv = mkTypeSafeBinary Z.mkBvudiv "udiv"
 
 mod :: MonadZ3 z3 => AST -> AST -> z3 AST
-mod a b = do
-  typeSafeBinary "mod" a b
-  Z.mkBvsmod a b
+mod = mkTypeSafeBinary Z.mkBvsmod "mod"
 
 srem :: MonadZ3 z3 => AST -> AST -> z3 AST
-srem a b = do
-  typeSafeBinary "srem" a b
-  Z.mkBvsrem a b
+srem = mkTypeSafeBinary Z.mkBvsrem "srem"
 
 urem :: MonadZ3 z3 => AST -> AST -> z3 AST
-urem a b = do
-  typeSafeBinary "urem" a b
-  Z.mkBvurem a b
+urem = mkTypeSafeBinary Z.mkBvurem "urem"
 
 and :: MonadZ3 z3 => AST -> AST -> z3 AST
-and a b = do
-  typeSafeBinary "and" a b
-  Z.mkBvand a b
+and = mkTypeSafeBinary Z.mkBvand "and"
 
 or :: MonadZ3 z3 => AST -> AST -> z3 AST
-or a b = do
-  typeSafeBinary "or" a b
-  Z.mkBvor a b
+or = mkTypeSafeBinary Z.mkBvor "or"
 
 xor :: MonadZ3 z3 => AST -> AST -> z3 AST
-xor a b = do
-  typeSafeBinary "xor" a b
-  Z.mkBvxor a b
+xor = mkTypeSafeBinary Z.mkBvxor "xor"
 
 not :: MonadZ3 z3 => AST -> z3 AST
 not = Z.mkBvnot
@@ -113,75 +117,68 @@ neg :: MonadZ3 z3 => AST -> z3 AST
 neg = Z.mkBvneg
 
 sll :: MonadZ3 z3 => AST -> AST -> z3 AST
-sll a b = do
-  typeSafeBinary "sll" a b
-  Z.mkBvshl a b
+sll = mkTypeSafeBinary Z.mkBvshl "sll"
 
 srl :: MonadZ3 z3 => AST -> AST -> z3 AST
-srl a b = do
-  typeSafeBinary "srl" a b
-  Z.mkBvlshr a b
+srl = mkTypeSafeBinary Z.mkBvlshr "srl"
 
 sra :: MonadZ3 z3 => AST -> AST -> z3 AST
-sra a b = do
-  typeSafeBinary "sra" a b
-  Z.mkBvashr a b
+sra = mkTypeSafeBinary Z.mkBvashr "sra"
 
--- Comparisons
+---
+--- Comparisons
+---
 
+-- | Wrap a comparison operation.
+-- Comparisons return booleans, but all of our operations are on bitvectors.
+-- Therefore, we turn the boolean result into a one-bit bitvector result
 cmpWrapper :: MonadZ3 z3 => AST -> z3 AST
 cmpWrapper a = do
   true <- Z.mkBvNum 1 (1 :: Integer)
   false <- Z.mkBvNum 1 (0 :: Integer)
   Z.mkIte a true false
 
+mkTypeSafeCmp op opName a b = do
+  typeSafeBinary opName a b
+  op a b >>= cmpWrapper
+
 ugt :: MonadZ3 z3 => AST -> AST -> z3 AST
-ugt a b = do
-  typeSafeBinary "ugt" a b
-  Z.mkBvugt a b >>= cmpWrapper
+ugt = mkTypeSafeCmp Z.mkBvugt "ugt"
 
 sgt :: MonadZ3 z3 => AST -> AST -> z3 AST
-sgt a b = do
-  typeSafeBinary "sgt" a b
-  Z.mkBvsgt a b >>= cmpWrapper
+sgt = mkTypeSafeCmp Z.mkBvsgt "sgt"
 
 ugte :: MonadZ3 z3 => AST -> AST -> z3 AST
-ugte a b = do
-  typeSafeBinary "ugte" a b
-  Z.mkBvuge a b >>= cmpWrapper
+ugte = mkTypeSafeCmp Z.mkBvuge "ugte"
 
 sgte :: MonadZ3 z3 => AST -> AST -> z3 AST
-sgte a b = do
-  typeSafeBinary "sgte" a b
-  Z.mkBvsge a b >>= cmpWrapper
+sgte = mkTypeSafeCmp Z.mkBvsge "sgte"
 
 ult :: MonadZ3 z3 => AST -> AST -> z3 AST
-ult a b = do
-  typeSafeBinary "ult" a b
-  Z.mkBvult a b >>= cmpWrapper
+ult = mkTypeSafeCmp Z.mkBvult "ult"
 
 slt :: MonadZ3 z3 => AST -> AST -> z3 AST
-slt a b = do
-  typeSafeBinary "slt" a b
-  Z.mkBvslt a b >>= cmpWrapper
+slt = mkTypeSafeCmp Z.mkBvslt "slt"
 
 ulte :: MonadZ3 z3 => AST -> AST -> z3 AST
-ulte a b = do
-  typeSafeBinary "ulte" a b
-  Z.mkBvule a b >>= cmpWrapper
+ulte = mkTypeSafeCmp Z.mkBvule "ulte"
 
 slte :: MonadZ3 z3 => AST -> AST -> z3 AST
-slte a b = do
-  typeSafeBinary "slte" a b
-  Z.mkBvsle a b >>= cmpWrapper
+slte = mkTypeSafeCmp Z.mkBvsle "slte"
 
 iseq :: MonadZ3 z3 => AST -> AST -> z3 AST
-iseq a b = do
-  typeSafeBinary "iseq" a b
-  Z.mkEq a b >>= cmpWrapper
+iseq = mkTypeSafeCmp Z.mkEq "iseq"
+
+---
+--- Other operations
+---
 
 cond :: MonadZ3 z3 => AST -> AST -> AST -> z3 AST
 cond c a b = do
+  -- Type check c
+  size <- getBVSortSize "conditional" c
+  unless (size == 1) $ error $ unwords ["Cannot condition on non-boolean variable"]
+  -- Perform the computation
   bvTrue <- Z.mkBvNum 1 (1 :: Integer)
   isTrue <- Z.mkEq c bvTrue
   Z.mkIte isTrue a b
@@ -195,31 +192,9 @@ uext a i = Z.mkZeroExt i a
 slice :: MonadZ3 z3 => AST -> Int -> Int -> z3 AST
 slice a i1 i2 = Z.mkExtract i1 i2 a
 
--- rol :: MonadZ3 z3 => AST -> AST -> z3 AST
--- rol = mkExtRotateLeft
-
--- ror :: MonadZ3 z3 => AST -> AST -> z3 AST
--- ror = mkExtRotateRight
-
-push :: MonadZ3 z3 => z3 ()
-push = Z.push
-
-pop :: MonadZ3 z3 => z3 ()
-pop = Z.pop 1
-
--- | Safe boolector shift operations
---
--- Boolector puts restrictions on the widths of the arguments to shift operations.
--- As of Boolector 3, the widths of both operands must be the same.
--- As of Boolectors < 3, the width of the first operand had to be a power of 2,
--- and the width of the second operand had to be log 2 of the first.
--- We DO NOT support the Boolector < 3 restriction
-safeSll, safeSrl, safeSra {-, safeRol, safeRor -} :: MonadZ3 m => AST -> AST -> m AST
-safeSll = shiftWrapper sll
-safeSrl = shiftWrapper srl
-safeSra = shiftWrapper sra
--- safeRol = shiftWrapper rol
--- safeRor = shiftWrapper ror
+---
+--- Shifts
+---
 
 -- | Wrapper for boolector shift operations
 shiftWrapper :: (MonadZ3 m)
@@ -232,6 +207,16 @@ shiftWrapper shiftOp toShift shiftVal = do
   castVal <- Z.getBvSortSize toShiftSort >>= castToWidth shiftVal
   shiftOp toShift castVal
 
+-- | Shift operations
+safeSll, safeSrl, safeSra :: MonadZ3 m => AST -> AST -> m AST
+safeSll = shiftWrapper sll
+safeSrl = shiftWrapper srl
+safeSra = shiftWrapper sra
+
+---
+--- Casting
+---
+
 -- | Cast a node to a new width
 -- If the new width is larger, use unsigned extension
 -- If the new width is smaller, slice
@@ -242,7 +227,7 @@ castToWidth :: (MonadZ3 m)
 castToWidth varToCast newWidth = do
   sort <- Z.getSort varToCast
   sortKind <- Z.getSortKind sort
-  let isBv = {- sortKind == Z.Z3_BOOL_SORT || -} sortKind == Z.Z3_BV_SORT
+  let isBv = sortKind == Z.Z3_BV_SORT
   unless isBv $ error $ "Should never cast non-bitvector sort (" ++ show sort ++ ")"
   oldWidth' <- Z.getBvSortSize sort
   let oldWidth = fromIntegral oldWidth'
