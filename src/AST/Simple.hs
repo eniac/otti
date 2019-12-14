@@ -24,7 +24,7 @@ data Type = U8 | S8
           | Double
           deriving (Eq, Ord, Show)
 
-isSignedInt, isUnsignedInt :: Type -> Bool
+isSignedInt, isUnsignedInt, isDouble :: Type -> Bool
 isSignedInt S8  = True
 isSignedInt S16 = True
 isSignedInt S32 = True
@@ -34,6 +34,8 @@ isUnsignedInt U8  = True
 isUnsignedInt U16 = True
 isUnsignedInt U32 = True
 isUnsignedInt U64 = True
+isDouble Double = True
+isDouble _      = False
 
 -- | Class and struct fields, classes, and functions are identified by name
 type FieldName = String
