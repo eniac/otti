@@ -192,7 +192,7 @@ slice :: MonadZ3 z3 => AST -> Int -> Int -> z3 AST
 slice a i1 i2 = Z.mkExtract i1 i2 a
 
 ---
---- Shifts
+--- Shifts: Do we need these anymore or not? Get rid of if not
 ---
 
 -- | Wrapper for boolector shift operations

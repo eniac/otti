@@ -1,5 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module IR.SMTMonad where
+module Targets.SMT.SMTMonad where
 import           AST.Simple                 (Type (..))
 import           Control.Monad
 import           Control.Monad.State.Strict
