@@ -3,8 +3,10 @@ import           Prelude hiding (Num)
 
 {-|
 
-This module presents the simple AST that we parse in ourselves using John's
-parser (SimpleParser.hs).
+This module presents the part of the  simple AST that we parse in ourselves using John's
+parser (SimpleParser.hs). This file just includes expressions and statements.
+SimpleBuilder.hs provides top-level function declarations and class declarations,
+as well as the functions that create all AST nodes.
 
 -}
 
@@ -21,6 +23,17 @@ data Type = U8 | S8
           | Bool
           | Double
           deriving (Eq, Ord, Show)
+
+isSignedInt, isUnsignedInt :: Type -> Bool
+isSignedInt S8  = True
+isSignedInt S16 = True
+isSignedInt S32 = True
+isSignedInt S64 = True
+isSignedInt _   = False
+isUnsignedInt U8  = True
+isUnsignedInt U16 = True
+isUnsignedInt U32 = True
+isUnsignedInt U64 = True
 
 -- | Class and struct fields, classes, and functions are identified by name
 type FieldName = String
