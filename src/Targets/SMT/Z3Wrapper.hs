@@ -1,5 +1,4 @@
 module Targets.SMT.Z3Wrapper where
-
 import           Control.Monad.State.Strict (liftIO, unless)
 import           Prelude                    hiding (not, or)
 import           Z3.Monad                   (MonadZ3)
