@@ -1,4 +1,3 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module IR.SMT (
               ) where
 import           AST.Simple                 (Type (..))
@@ -23,31 +22,6 @@ data CInfo = CInfo { ctype  :: Type
 
 -- | An IR node for converting C/C++ into raw SMT
 type SMTNode = IRNode CInfo
-
----
---- Monad defintions
----
-
--- | State for keeping track of SMT-layer information
-data SMTState = SMTState { vars         :: M.Map String Node
-                         , solverResult :: SMTResult
-                         }
-
-newtype SMT a = SMT (StateT SMTState Z.Z3 a)
-    deriving (Functor, Applicative, Monad, MonadState SMTState, MonadIO)
-
-instance Z.MonadZ3 SMT where
-    getSolver = SMT $ lift $ Z.getSolver
-    getContext = SMT $ lift $ Z.getContext
-
-data SMTResult = SolverSat { example :: (M.Map String Double) }
-               | SolverUnsat
-               | SolverFailed
-               deriving (Eq, Ord, Show)
-
----
---- IR functions
----
 
 newVar :: Type
        -> String
