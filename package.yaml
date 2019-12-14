@@ -28,6 +28,8 @@ library:
   - z3 >= 4.3.1
   - mtl >= 2.2.2
   - containers >= 0.6
+  - data-binary-ieee754
+  - split >= 0.2.3.3  
 
 executables:
   compiler-exe:
