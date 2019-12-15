@@ -92,7 +92,90 @@ cppGte left right = cppCompareWrapper left right SMT.ugte SMT.sgte SMT.fpGte
 cppLt left right = cppCompareWrapper left right SMT.ult SMT.slt SMT.fpLt
 cppLte left right = cppCompareWrapper left right SMT.ulte SMT.slte SMT.fpLte
 
+-- Binary operators
+
+binOpWrapper :: SMTNode -- ^ Left operand
+             -> SMTNode -- ^ Right operand
+             -> (Node -> Node -> SMT Node) -- ^ Operation
+             -> Maybe (Bool -> Node -> Node -> SMT Node) -- ^ Overflow detection operation
+             -> String -- ^ Operation name
+             -> SMT SMTNode -- ^ Result
+binOpWrapper left right op overflowOp opName = do
+  unless (numBits (t left) == numBits (t right)) $
+    error $ unwords ["Mismatched types to operation"
+                    , opName
+                    , ":"
+                    , show $ numBits $ t left
+                    , "and"
+                    , show $ numBits $ t right
+                    ]
+  when (isDouble $ t left) $ unless (isDouble $ t right) $
+    error $ unwords ["Expected two doubles to", opName]
+  parentsUndef <- SMT.or (u left) (u right)
+  canOverflow <- case overflowOp of
+                   -- No overflow-checking op provided: there isn't the opertunity
+                   -- to overflow/underflow and cause undefined behavior
+                   Nothing  -> return parentsUndef
+                   -- There is an overflow op, so if there's overflow or the parents are
+                   -- undef, the child node is also undef
+                   Just oop -> do
+                     flow <- oop (isSignedInt $ t left) (n left) (n right)
+                     SMT.or parentsUndef flow
+  result <- op (n left) (n right)
+  let ty = if t left == t right
+           then t left
+           else if isSignedInt $ t left then t left else t right
+  return $ mkNode result ty canOverflow
+
+cppOr, cppAnd, cppSub, cppMul, cppAdd, cppMin, cppMax :: SMTNode -> SMTNode -> SMT SMTNode
+
+cppOr left right
+  | (isDouble $ t left) || (isDouble $ t right) = error "No bitwise or for doubles"
+  | otherwise = binOpWrapper left right SMT.or Nothing "or"
+
+cppAnd left right
+  | (isDouble $ t left) || (isDouble $ t right) = error "No bitwise and for doubles"
+  | otherwise = binOpWrapper left right SMT.and Nothing "and"
+
+cppSub left right
+  | isDouble (t left) || isDouble (t right) = binOpWrapper left right SMT.fpSub Nothing "sub"
+  | otherwise = binOpWrapper left right SMT.sub (Just SMT.subUndef) "sub"
+
+cppMul left right
+  | isDouble (t left) || isDouble (t right) = binOpWrapper left right SMT.fpMul Nothing "mul"
+  | otherwise = binOpWrapper left right SMT.mul (Just SMT.mulUndef) "mul"
+
+cppAdd left right
+  | isDouble (t left) || isDouble (t right) = binOpWrapper left right SMT.fpAdd Nothing "add"
+  | otherwise = binOpWrapper left right SMT.add (Just SMT.addUndef) "add"
+
+cppMin right left
+  | isDouble (t right) || isDouble (t left) = binOpWrapper left right SMT.fpMin Nothing "min"
+  -- | isUnsigned (t right) && isUnsigned (t left) =
+  --     binOpWrapper left right SMT.umin Nothing "min"
+--  | isSigned (t right) && isSigned (t left) = binOpWrapper left right SMT.smin Nothing "min"
+  | otherwise = error "Compiler error: Can't use std:min on a signed and unsigned"
+
+cppMax right left
+  | isDouble (t right) || isDouble (t left) = binOpWrapper left right SMT.fpMax Nothing "max"
+  -- | isUnsigned (vtype right) && isUnsigned (vtype left) =
+  --     noopWrapper left right D.umax Nothing "max"
+  -- | isSigned (vtype right) && isSigned (vtype left) =
+  --     noopWrapper left right D.smax Nothing "max"
+  | otherwise = error "Compiler error: Can't use std:max on a signed and unsigned"
+
 -- Extra helpers
+
+numBits :: Type -> Int
+numBits U8     = 8
+numBits S8     = 8
+numBits U16    = 16
+numBits S16    = 16
+numBits U32    = 32
+numBits S32    = 32
+numBits U64    = 64
+numBits S64    = 64
+numBits Double = 64
 
 -- | Make a new node that is defined if its parents are defined
 maybeDefinedNode :: SMTNode -- ^ Parent 1
