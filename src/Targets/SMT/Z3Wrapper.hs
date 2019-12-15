@@ -124,6 +124,26 @@ srl = mkTypeSafeBinary Z.mkBvlshr "srl"
 sra :: MonadZ3 z3 => AST -> AST -> z3 AST
 sra = mkTypeSafeBinary Z.mkBvashr "sra"
 
+smin :: MonadZ3 z3 => AST -> AST -> z3 AST
+smin x y = do
+  isLess <- slte x y
+  cond isLess x y
+
+smax :: MonadZ3 z3 => AST -> AST -> z3 AST
+smax x y = do
+  isMore <- sgte x y
+  cond isMore x y
+
+umin :: MonadZ3 z3 => AST -> AST -> z3 AST
+umin x y = do
+  isLess <- ulte x y
+  cond isLess x y
+
+umax :: MonadZ3 z3 => AST -> AST -> z3 AST
+umax x y = do
+  isMore <- ugte x y
+  cond isMore x y
+
 ---
 --- Comparisons
 ---

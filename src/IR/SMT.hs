@@ -1,5 +1,4 @@
-module IR.SMT (
-              ) where
+module IR.SMT where
 import           AST.Simple                 (Type (..), isDouble, isSignedInt,
                                              isUnsignedInt)
 import           Control.Monad
@@ -151,17 +150,18 @@ cppAdd left right
 
 cppMin right left
   | isDouble (t right) || isDouble (t left) = binOpWrapper left right SMT.fpMin Nothing "min"
-  -- | isUnsigned (t right) && isUnsigned (t left) =
-  --     binOpWrapper left right SMT.umin Nothing "min"
---  | isSigned (t right) && isSigned (t left) = binOpWrapper left right SMT.smin Nothing "min"
+  | isUnsignedInt (t right) && isUnsignedInt (t left) =
+      binOpWrapper left right SMT.umin Nothing "min"
+  | isSignedInt (t right) && isSignedInt (t left) =
+      binOpWrapper left right SMT.smin Nothing "min"
   | otherwise = error "Compiler error: Can't use std:min on a signed and unsigned"
 
 cppMax right left
   | isDouble (t right) || isDouble (t left) = binOpWrapper left right SMT.fpMax Nothing "max"
-  -- | isUnsigned (vtype right) && isUnsigned (vtype left) =
-  --     noopWrapper left right D.umax Nothing "max"
-  -- | isSigned (vtype right) && isSigned (vtype left) =
-  --     noopWrapper left right D.smax Nothing "max"
+  | isUnsignedInt (t right) && isUnsignedInt (t left) =
+      binOpWrapper left right SMT.umax Nothing "max"
+  | isSignedInt (t right) && isSignedInt (t left) =
+      binOpWrapper left right SMT.smax Nothing "max"
   | otherwise = error "Compiler error: Can't use std:max on a signed and unsigned"
 
 -- Extra helpers
@@ -194,6 +194,7 @@ maybeDefinedNode parent1 parent2 node ty = do
 ---
 --- IR operations for translating verification statements to SMT
 ---
+
 
 
 

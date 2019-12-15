@@ -30,6 +30,10 @@ module Targets.SMT ( Sort
                    , neg
                    , sll
                    , sra
+                   , umin
+                   , umax
+                   , smin
+                   , smax
                      -- * Comparisons
                    , ugt
                    , sgt
