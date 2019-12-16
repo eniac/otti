@@ -1,6 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Targets.SMT.SMTMonad where
-import           AST.Simple                 (Type (..))
+import           Compiler.AST.SimplePure    (Type (..))
 import           Control.Monad
 import           Control.Monad.State.Strict
 import           Data.Binary.IEEE754

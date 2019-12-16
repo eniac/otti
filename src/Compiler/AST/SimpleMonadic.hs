@@ -1,5 +1,5 @@
-module AST.SimpleBuilder where
-import           AST.Simple
+module Compiler.AST.SimpleMonadic where
+import           Compiler.AST.SimplePure
 
 {-|
 

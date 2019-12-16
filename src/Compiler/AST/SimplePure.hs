@@ -1,10 +1,11 @@
-module AST.Simple where
+module Compiler.AST.SimplePure where
 import           Prelude hiding (Num)
 
 {-|
 
-This module presents the part of the  simple AST that we parse in ourselves using John's
+This module presents the pure part of the simple AST that we parse in ourselves using John's
 parser (SimpleParser.hs). This file just includes expressions and statements.
+
 SimpleBuilder.hs provides top-level function declarations and class declarations,
 as well as the functions that create all AST nodes.
 
