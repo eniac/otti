@@ -193,5 +193,19 @@ data Stmt = Decl Var
           | Push
           | Pop
 
+---
+--- Functions, classes, and programs
+---
+
+data Function = Function { fName :: FunctionName
+                         , fTy   :: WrappedType
+                         , fArgs :: [(VarName, WrappedType)]
+                         }
+
+-- | A class is fields and types and then any class functions
+data Class = Class ClassName [(FieldName, Type)] [Function]
+
+-- | A program is function definitions and class definitions
+data Program = Program [Function] [Class]
 
 
