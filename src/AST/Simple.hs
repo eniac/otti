@@ -34,24 +34,6 @@ isUnsignedInt U64 = True
 isDouble Double = True
 isDouble _      = False
 
--- | Class and struct fields, classes, and functions are identified by name
-type FieldName = String
-type ClassName = String
-type FunctionName = String
-
-data WrappedType = PrimType { primType :: Type}
-                 | ClassType { classType :: ClassName }
-                 | Void
-                 deriving (Eq, Ord, Show)
-
-isPrimType, isClassType, isVoidType :: WrappedType -> Bool
-isPrimType PrimType{} = True
-isPrimType _          = False
-isClassType ClassType{} = True
-isClassType _           = False
-isVoidType Void = True
-isVoidType _    = False
-
 ---
 --- Variables
 ---
@@ -62,19 +44,10 @@ type VarName = String
 
 -- | A variable: either a primitive type or a class. We may want to make this more general
 -- later (ie get rid of the distinction), especially once we add memory
-data Var = PrimVar { varTy   :: Type
-                   , varName :: VarName
-                   }
-         | ClassVar { varClass :: ClassName
-                    , varName  :: VarName
-                    }
-         deriving (Eq, Ord, Show)
-
-isPrimVar, isClassVar :: Var -> Bool
-isPrimVar PrimVar{} = True
-isPrimVar _         = False
-isClassVar ClassVar{} = True
-isClassVar _          = False
+data Var = Var { varTy   :: Type
+               , varName :: VarName
+               }
+           deriving (Eq, Ord, Show)
 
 ---
 --- Numbers
@@ -104,53 +77,26 @@ data Expr = VarExpr { varExpr :: Var }
           | NumExpr { numExpr :: Num }
           | Neg Expr
           | Not Expr
-          | JSNot Expr
           | Abs Expr
-          | JSAbs Expr
           | Eq Expr Expr
           | NEq Expr Expr
           | And Expr Expr
-          | JSAnd Expr Expr
           | Add Expr Expr
-          | JSAdd Expr Expr
           | Sub Expr Expr
-          | JSSub Expr Expr
           | Mul Expr Expr
-          | JSMul Expr Expr
           | Or Expr Expr
-          | JSOr Expr Expr
           | XOr Expr Expr
-          | JSXOr Expr Expr
           | Min Expr Expr
-          | JSMin Expr Expr
           | Max Expr Expr
-          | JSMax Expr Expr
           | Gt Expr Expr
           | Gte Expr Expr
           | Lt Expr Expr
           | Lte Expr Expr
-          | IsNan Expr
-          | IsInf Expr
-          | IsZero Expr
-          | IsNegative Expr
-          | IsNegativeZero Expr
-          | GetExp Expr
           | Shl Expr Expr
-          | JSLsh Expr Expr
           | Shr Expr Expr
-          | JSRsh Expr Expr
-          | JSUrsh Expr Expr
           | Tern Expr Expr Expr
           | Cast Expr Type
           | Call FunctionName [Expr]
-          | FieldExpr FieldName
-          | JSCeil Expr
-          | JSFloor Expr
-          | JSSign Expr
-          | JSDiv Expr Expr
-          | JSRem Expr Expr
-          | Undef Expr
-          | TestImplies Expr Expr
             deriving (Eq, Ord, Show)
 
 -- isCallExpr :: Expr -> Bool
@@ -170,28 +116,19 @@ data Stmt = Decl Var
           | If Expr [Stmt] [Stmt]
           | VoidCall FunctionName [Expr]
           | Return Expr
-          | Assert Expr
-          | Implies Expr Expr
-          | NotIff Expr Expr
-          | Iff Expr Expr
-          | Versioned Expr
---          | Expect (SMTResult -> Bool) (SMTResult -> IO ())
-          | Push
-          | Pop
 
 ---
---- Functions, classes, and programs
+--- Functions, classes, and programs. NOTE: for now I have gotten rid of classes
 ---
+
+type FunctionName = String
 
 data Function = Function { fName :: FunctionName
-                         , fTy   :: WrappedType
-                         , fArgs :: [(VarName, WrappedType)]
+                         , fTy   :: Type
+                         , fArgs :: [(VarName, Type)]
                          }
 
--- | A class is fields and types and then any class functions
-data Class = Class ClassName [(FieldName, Type)] [Function]
-
 -- | A program is function definitions and class definitions
-data Program = Program [Function] [Class]
+data Program = Program [Function]
 
 
