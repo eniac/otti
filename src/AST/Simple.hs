@@ -56,20 +56,14 @@ isVoidType _    = False
 --- Variables
 ---
 
--- | All variables in the AST are associated with versions.
--- This allows us to store an AST that is in SSA form, which we need for
--- any analysis, optimization, and eventual codegen
-type Version = Int
-
 -- | Variables have names. Right now, a name is just a string, but we
 -- may switch this type out later for better performance (e.g., to word)
 type VarName = String
 
 -- | A variable: either a primitive type or a class. We may want to make this more general
 -- later (ie get rid of the distinction), especially once we add memory
-data Var = PrimVar { varTy      :: Type
-                   , varName    :: VarName
-                   , varVersion :: Version
+data Var = PrimVar { varTy   :: Type
+                   , varName :: VarName
                    }
          | ClassVar { varClass :: ClassName
                     , varName  :: VarName
@@ -81,10 +75,6 @@ isPrimVar PrimVar{} = True
 isPrimVar _         = False
 isClassVar ClassVar{} = True
 isClassVar _          = False
-
-setVersion :: Var -> Int -> Var
-setVersion (PrimVar ty name _) ver = PrimVar ty name ver
-setVersion classVar _              = classVar
 
 ---
 --- Numbers
