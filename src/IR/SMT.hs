@@ -1,5 +1,5 @@
 module IR.SMT where
-import           Compiler.AST.SimplePure    (Type (..), isDouble, isSignedInt,
+import           AST.Simple                 (Type (..), isDouble, isSignedInt,
                                              isUnsignedInt)
 import           Control.Monad
 import           Control.Monad.State.Strict

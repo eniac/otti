@@ -1,5 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module Compiler.CompilerMonad where
+module Codegen.CompilerMonad where
 import           Control.Monad.Fail
 import           Control.Monad.Reader
 import           Control.Monad.State.Strict
