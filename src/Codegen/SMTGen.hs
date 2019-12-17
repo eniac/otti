@@ -1,7 +1,8 @@
 module Codegen.SMTGen where
 import           AST.Simple
-import           IR.IR
-import           Targets.SMT
+import           Codegen.CompilerMonad
+import           IR.SMT
+import           Prelude               hiding (Num)
 
 {-|
 
@@ -12,5 +13,13 @@ Codegen from AST to a circuit consists of the following challenges:
 
 -}
 
+genVarSMT :: Var -> Compiler SMTNode
+genVarSMT var = getNodeFor $ varName var
 
+genNumSMT :: Num -> Compiler SMTNode
+genNumSMT num = case num of
+                  INum ty _   | isDouble ty -> error "Cannot make int with double val"
+                  INum ty val -> liftSMT $ newInt ty val
+                  FNum ty _   | not $ isDouble ty -> error "Cannot make double with int val"
+                  FNum ty val -> liftSMT $ newDouble ty val
 

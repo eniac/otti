@@ -37,6 +37,18 @@ assert stmt = do
   Z.assert stmt'
 
 ---
+--- Numbers. Variables are in SMTMonad, since they change underlying state---but nums don't
+---
+
+bvNum :: MonadZ3 z3 => Int -> Integer -> z3 AST
+bvNum width val = Z.mkBitvector width val
+
+doubleNum :: MonadZ3 z3 => Double -> z3 AST
+doubleNum doub = do
+  doubSort <- Z.mkDoubleSort
+  Z.mkFpFromDouble doub doubSort
+
+---
 --- Sorts
 ---
 
@@ -264,10 +276,10 @@ castToWidth varToCast newWidth = do
 
 -- Floating point wrappers
 
-double :: MonadZ3 z3 => Double -> z3 AST
-double doub = do
-  doubSort <- Z.mkDoubleSort
-  Z.mkFpFromDouble doub doubSort
+-- double :: MonadZ3 z3 => Double -> z3 AST
+-- double doub = do
+--   doubSort <- Z.mkDoubleSort
+--   Z.mkFpFromDouble doub doubSort
 
 inf :: MonadZ3 z3 => Bool -> z3 AST
 inf positive = do

@@ -13,8 +13,10 @@ module Targets.SMT ( Sort
                    , push
                    , pop
                    , assert
-                     -- * Make variables of different sorts
+                     -- * Make variables and numbers
                    , newVar
+                   , bvNum
+                   , doubleNum
                    , bvSort
                    , doubSort
                      -- * Operations
@@ -52,7 +54,6 @@ module Targets.SMT ( Sort
                    , sext
                    , uext
                    , slice
-                   , double
                    , inf
                    , fpzero
                    , nan

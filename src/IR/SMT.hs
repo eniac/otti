@@ -47,6 +47,43 @@ newSMTVar ty name = do
   undefVar <- newVar (name ++ "_undef") undefSort
   return $ mkNode var ty undefVar
 
+newInt :: Type
+       -> Integer
+       -> SMT SMTNode
+newInt ty val = do
+  int <- case ty of
+           Bool | val <= 1 -> bvNum 1 val
+           Bool -> error $ unwords $ [show val, "is past the range of a boolean"]
+           U8 | val <= 255 -> bvNum 8 val
+           U8 -> error $ unwords $ [show val, "is past the range of an i8"]
+           S8 | val <= 127 -> bvNum 8 val
+           S8 -> error $ unwords $ [show val, "is past the range of a signed i8"]
+           U16 | val <= 65535 -> bvNum 16 val
+           U16 -> error $ unwords $ [show val, "is past the range of an i16"]
+           S16 | val <= 32767 -> bvNum 16 val
+           S16 -> error $ unwords $ [show val, "is past the range of a signed i16"]
+           U32 | val <= 4294967295 -> bvNum 32 val
+           U32 -> error $ unwords $ [show val, "is past the range of an i32"]
+           S32 | val <= 2147483647 -> bvNum 32 val
+           S32 -> error $ unwords $ [show val, "is past the range of a signed i32"]
+           U64 | val <= 18446744073709551615 -> bvNum 64 val
+           U64 -> error $ unwords $ [show val, "is past the range of an i64"]
+           S64 | val <= 9223372036854775807 -> bvNum 64 val
+           S64 -> error $ unwords $ [show val, "is past the range of a signed i64"]
+           _ -> error "Cannot make non-int types with newInt"
+  undef <- bvNum 1 0
+  return $ mkNode int ty undef
+
+newDouble :: Type
+          -> Double
+          -> SMT SMTNode
+newDouble ty val = do
+  double <- case ty of
+              Double -> doubleNum val
+              _      -> error "Cannot make non-double type with newDouble"
+  undef <- bvNum 1 0
+  return $ mkNode double ty undef
+
 ---
 --- IR operations for translating C++ to SMT
 ---
