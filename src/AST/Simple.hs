@@ -22,6 +22,18 @@ data Type = U8 | S8
           | Double
           deriving (Eq, Ord, Show)
 
+numBits :: Type -> Int
+numBits U8     = 8
+numBits S8     = 8
+numBits U16    = 16
+numBits S16    = 16
+numBits U32    = 32
+numBits S32    = 32
+numBits U64    = 64
+numBits S64    = 64
+numBits Bool   = 1
+numBits Double = 64
+
 isSignedInt, isUnsignedInt, isDouble :: Type -> Bool
 isSignedInt S8  = True
 isSignedInt S16 = True

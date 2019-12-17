@@ -39,6 +39,12 @@ assert stmt = do
 ---
 ---
 
+bvSort :: MonadZ3 z3 => Int -> z3 Z.Sort
+bvSort = Z.mkBvSort
+
+doubSort :: MonadZ3 z3 => z3 Z.Sort
+doubSort = Z.mkDoubleSort
+
 -- | Get the bitvector sort of ast. If ast does not have bitvector sort, error
 getBVSort :: MonadZ3 z3 => String -> AST -> z3 Z.Sort
 getBVSort op ast = do
@@ -393,7 +399,6 @@ bvSize :: MonadZ3 z3 => AST -> z3 Int
 bvSize bv = do
   sort <- Z.getSort bv
   Z.getBvSortSize sort
-
 
 ieeeBv :: MonadZ3 z3 => AST -> z3 AST
 ieeeBv = Z.mkFpIEEEBv

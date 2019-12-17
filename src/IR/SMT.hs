@@ -37,8 +37,21 @@ n = smtNode
 
 newVar :: Type
        -> String
-       -> SMTNode
-newVar ty name = error ""
+       -> SMT SMTNode
+newVar ty name = do
+  -- Check that the name hasn't already been used
+  -- Make the variable
+  varSort <- case ty of
+               Double -> doubSort
+               _      -> bvSort $ numBits ty
+  varName <- mkStringSymbol name
+  var <- mkVar varName varSort
+  -- Make the undefined bit
+  undefSort <- bvSort 1
+  undefName <- mkStringSymbol $ name ++ "_undef"
+  undefVar <- mkVar undefName undefSort
+  -- Wrap the variable up in the SMTNode type and return it
+  return $ mkNode var ty undefVar
 
 ---
 --- IR operations for translating C++ to SMT
