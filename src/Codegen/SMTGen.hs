@@ -3,6 +3,7 @@ import           AST.Simple
 import           Codegen.CompilerMonad
 import           IR.SMT
 import           Prelude               hiding (Num)
+import           Targets.SMT           (SMT)
 
 {-|
 
@@ -23,3 +24,28 @@ genNumSMT num = case num of
                   FNum ty _   | not $ isDouble ty -> error "Cannot make double with int val"
                   FNum ty val -> liftSMT $ newDouble ty val
 
+genExprSMT :: Expr -> Compiler SMTNode
+genExprSMT expr =
+  case expr of
+    VarExpr v -> genVarSMT v
+    NumExpr n -> genNumSMT n
+    Neg n     -> genExprSMT n >>= liftSMT . cppNeg
+    Not n     -> genExprSMT n >>= liftSMT . cppBitwiseNeg
+    Eq a b    -> genBinOpSMT a b cppEq
+    NEq a b   -> error ""
+    And a b   -> genBinOpSMT a b cppAnd
+    Add a b   -> genBinOpSMT a b cppAdd
+    Sub a b   -> genBinOpSMT a b cppSub
+    Mul a b   -> genBinOpSMT a b cppMul
+    Or a b    -> genBinOpSMT a b cppOr
+    XOr a b   -> error ":cppXOr a b"
+    _         -> error "Unsupported instruction"
+
+genBinOpSMT :: Expr
+            -> Expr
+            -> (SMTNode -> SMTNode -> SMT SMTNode)
+            -> Compiler SMTNode
+genBinOpSMT e1 e2 op = do
+  s1 <- genExprSMT e1
+  s2 <- genExprSMT e2
+  liftSMT $ op s1 s2
