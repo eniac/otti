@@ -230,17 +230,3 @@ maybeDefinedNode :: SMTNode -- ^ Parent 1
 maybeDefinedNode parent1 parent2 node ty = do
   childUndef <- SMT.or (u parent1) (u parent2)
   return $ mkNode node ty childUndef
-
----
---- IR operations for translating JS to SMT
----
-
----
---- IR operations for translating verification statements to SMT
----
-
-
-
-
-
-
