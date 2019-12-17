@@ -3,7 +3,8 @@ import           Prelude hiding (Num)
 
 {-|
 
-This module presents a simple AST. You can parse it in using whatever parser you want
+This module presents a simple AST. You can parse it in using whatever parser you want,
+or just write it raw for testing
 
 -}
 
@@ -42,8 +43,7 @@ isDouble _      = False
 -- may switch this type out later for better performance (e.g., to word)
 type VarName = String
 
--- | A variable: either a primitive type or a class. We may want to make this more general
--- later (ie get rid of the distinction), especially once we add memory
+-- | A variable has a name and a type. SSA-ing happens in codegen, *not* in the AST
 data Var = Var { varTy   :: Type
                , varName :: VarName
                }
@@ -53,6 +53,10 @@ data Var = Var { varTy   :: Type
 --- Numbers
 ---
 
+-- | I'm seperating out the different types of numbers here, especially because
+-- proof system code will want a variety of interesting number types (or, for that matter,
+-- crypto code for symexing). Representing all these numbers with a single Haskell type
+-- is not realistic, so we wrap the number type in an ADT
 data Num = INum { numTy  :: Type
                 , numVal :: Integer
                 }
@@ -65,14 +69,7 @@ data Num = INum { numTy  :: Type
 --- AST definition
 ---
 
--- | An AST expression
--- This includes both (1) normal C AST nodes (e.g., subtraction) and
---                    (2) JS nodes for verification, since we were using this system
---                        for verifying properties of a JavaScript JIT
---                    (3) nodes that query internal state for verification
---                        (e.g., Undef returns the undef bit of the given IR node)
--- We will certainly want to have some clearer breakdown of the AST into
--- verification-related nodes, other nodes, etc.
+-- | An AST expression: link
 data Expr = VarExpr { varExpr :: Var }
           | NumExpr { numExpr :: Num }
           | Neg Expr
@@ -97,28 +94,21 @@ data Expr = VarExpr { varExpr :: Var }
           | Tern Expr Expr Expr
           | Cast Expr Type
           | Call FunctionName [Expr]
+          | Load Expr
             deriving (Eq, Ord, Show)
 
--- isCallExpr :: Expr -> Bool
--- isCallExpr Call{} = True
--- isCallExpr _      = False
-
--- isClassExpr :: Expr -> Bool
--- isClassExpr (VarExpr v) = not $ isPrimType v
--- isClassExpr _           = False
-
--- isPrimVarExpr :: Expr -> Bool
--- isPrimVarExpr (VarExpr v) = isPrimType v
--- isPrimVarExpr _           = False
-
+-- | An AST statement: link
 data Stmt = Decl Var
           | Assign Expr Expr
+          | Store Expr Expr
           | If Expr [Stmt] [Stmt]
+          | While Expr [Stmt]
+          | For Expr Expr Expr [Stmt]
           | VoidCall FunctionName [Expr]
           | Return Expr
 
 ---
---- Functions, classes, and programs. NOTE: for now I have gotten rid of classes
+--- Functions and programs
 ---
 
 type FunctionName = String
