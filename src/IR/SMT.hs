@@ -35,22 +35,16 @@ u = cundef . extraState
 n :: SMTNode -> Node
 n = smtNode
 
-newVar :: Type
-       -> String
-       -> SMT SMTNode
-newVar ty name = do
-  -- Check that the name hasn't already been used
-  -- Make the variable
-  varSort <- case ty of
-               Double -> doubSort
-               _      -> bvSort $ numBits ty
-  varName <- mkStringSymbol name
-  var <- mkVar varName varSort
-  -- Make the undefined bit
+newSMTVar :: Type
+          -> String
+          -> SMT SMTNode
+newSMTVar ty name = do
+  sort <- case ty of
+            Double -> doubSort
+            _      -> bvSort $ numBits ty
+  var <- newVar name sort
   undefSort <- bvSort 1
-  undefName <- mkStringSymbol $ name ++ "_undef"
-  undefVar <- mkVar undefName undefSort
-  -- Wrap the variable up in the SMTNode type and return it
+  undefVar <- newVar (name ++ "_undef") undefSort
   return $ mkNode var ty undefVar
 
 ---

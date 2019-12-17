@@ -6,6 +6,7 @@ import           Control.Monad.Reader
 import           Control.Monad.State.Strict
 import           Data.List                  (isInfixOf)
 import qualified Data.Map                   as M
+import           IR.SMT
 import           Targets.SMT
 import qualified Z3.Monad                   as Z
 
@@ -40,7 +41,7 @@ data CompilerState = CompilerState { -- Mapping AST variables to information
                                    , callStack        :: [FunctionName]
                                    , conditionalGuard :: Maybe Node
                                      -- SMT variables and memory
-                                   , vars             :: M.Map CodegenVar Node
+                                   , vars             :: M.Map CodegenVar SMTNode
                                    }
 
 newtype Compiler a = Compiler (StateT CompilerState SMT a)
@@ -98,6 +99,13 @@ codegenVar varName = do
   ver <- getVer varName
   return $ CodegenVar var ver
 
+codegenToName :: CodegenVar -> String
+codegenToName (CodegenVar (ASTVar varName allFuns) ver) = varName ++ show allFuns ++ show ver
+
+---
+---
+---
+
 -- | Declare a new variable, or error if the variable is already declared.
 -- This adds the variable's version information (for SSA-ing) and type information
 -- to the compiler state.
@@ -142,7 +150,7 @@ getType varName = do
     _       -> error $ unwords ["Cannot get type of undeclared", varName]
 
 -- | Get an SMT node representing the given var
-getNodeFor :: VarName -> Compiler Node
+getNodeFor :: VarName -> Compiler SMTNode
 getNodeFor varName = do
   var <- codegenVar varName
   s0 <- get
@@ -151,7 +159,7 @@ getNodeFor varName = do
     Just node -> return node
     Nothing -> do
       ty <- getType varName
-      let node = undefined
+      node <- liftSMT $ newSMTVar ty $ codegenToName var
       put $ s0 { vars = M.insert var node allVars }
       return node
 

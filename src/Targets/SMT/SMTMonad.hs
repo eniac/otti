@@ -11,7 +11,7 @@ import qualified Data.Map.Strict            as M
 import           Data.Maybe                 (catMaybes)
 import           IR.IR
 import           Targets.SMT.Z3Wrapper
-import           Z3.Monad                   as Z
+import qualified Z3.Monad                   as Z
 
 ---
 --- Monad defintions
@@ -60,6 +60,18 @@ data SMTResult = SolverSat { example :: (M.Map String Double) }
 
 getVars :: SMT (M.Map String Node)
 getVars = vars `liftM` get
+
+newVar :: String -> Sort -> SMT Node
+newVar name sort = do
+  s0 <- get
+  let allVars = vars s0
+  case M.lookup name allVars of
+    Nothing -> do
+      varName <- Z.mkStringSymbol name
+      var <- Z.mkVar varName sort
+      put $ s0 { vars = M.insert name var allVars }
+      return var
+    _ -> error $ unwords ["Already created variable", name]
 
 runSolver :: SMT SMTResult
 runSolver = do

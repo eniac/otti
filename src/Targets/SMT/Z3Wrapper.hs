@@ -1,5 +1,6 @@
 module Targets.SMT.Z3Wrapper where
 import           Control.Monad.State.Strict (liftIO, unless)
+import qualified Data.Map.Strict            as M
 import           Prelude                    hiding (not, or)
 import           Z3.Monad                   (MonadZ3)
 import qualified Z3.Monad                   as Z
@@ -36,7 +37,7 @@ assert stmt = do
   Z.assert stmt'
 
 ---
----
+--- Sorts
 ---
 
 bvSort :: MonadZ3 z3 => Int -> z3 Z.Sort

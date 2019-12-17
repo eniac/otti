@@ -13,12 +13,10 @@ module Targets.SMT ( Sort
                    , push
                    , pop
                    , assert
-                     -- * Sorts
+                     -- * Make variables of different sorts
+                   , newVar
                    , bvSort
                    , doubSort
-                     -- * Variables
-                   , mkStringSymbol
-                   , mkVar
                      -- * Operations
                    , eq
                    , add
@@ -105,4 +103,3 @@ module Targets.SMT ( Sort
 import           Prelude               hiding (and, mod, not, or)
 import           Targets.SMT.SMTMonad
 import           Targets.SMT.Z3Wrapper
-import           Z3.Monad              (mkStringSymbol, mkVar)
