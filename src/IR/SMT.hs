@@ -76,7 +76,7 @@ newInt ty val = do
   undef <- SMT.bvNum 1 0
   return $ mkNode int ty undef
 
-newDouble :: Type
+newDouble :: Type -- ^ One day we will support different floating point type arguments
           -> Double
           -> SMT SMTNode
 newDouble ty val = do

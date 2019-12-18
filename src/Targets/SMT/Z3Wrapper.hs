@@ -41,9 +41,15 @@ assign n1 n2 = do
   sort1 <- Z.getSort n1
   sort2 <- Z.getSort n2
   unless (sort1 == sort2) $ error "Can't assign nodes of different sorts"
-  size1 <- Z.getBvSortSize sort1
-  size2 <- Z.getBvSortSize sort2
-  unless (size1 == size2) $ error "Can't assign nodes of different widths"
+  kind1 <- Z.getSortKind sort1
+  kind2 <- Z.getSortKind sort2
+  unless (kind1 == kind2) $ error "Can't assign nodes of different kinds"
+  case kind1 of
+    Z.Z3_BV_SORT -> do
+      size1 <- Z.getBvSortSize sort1
+      size2 <- Z.getBvSortSize sort2
+      unless (size1 == size2) $ error "Can't assign nodes of different widths"
+    _ -> return ()
   Z.mkEq n1 n2 >>= Z.assert
 
 ---
