@@ -13,6 +13,7 @@ irTests = benchTestGroup "IR tests" [ negTest
                                     , bitwiseNegTest
                                     , compareTest
                                     , bitwiseOpTest
+                                    , subTest
                                     , addTest
                                     ]
 
@@ -145,6 +146,32 @@ bitwiseOpTest = benchTestCase "bitwise op" $ do
                        ]
   satTest r
 
+subTest :: BenchTest
+subTest = benchTestCase "sub" $ do
+
+  r <- evalSMT Nothing $ do
+
+    uOne <- newInt U32 1
+    uTwo <- newInt U32 2
+    uMax <- newInt U32 4294967295
+    sOne <- newInt U32 1
+    sTwo <- newInt U32 2
+    sMax <- newInt U32 4294967295
+
+    result0 <- newSMTVar U32 "result0"
+    cppSub uTwo uOne >>= smtAssign result0
+
+    result1 <- newSMTVar U32 "result1"
+    cppSub uOne uTwo >>= smtAssign result1
+
+    runSolver
+
+  vtest r $ M.fromList [ ("result0", 1)
+                       , ("result0_undef", 0)
+                       , ("result1", 4294967295)
+                       , ("result1_undef", 0)
+                       ]
+  satTest r
 
 addTest :: BenchTest
 addTest = benchTestCase "add" $ do
