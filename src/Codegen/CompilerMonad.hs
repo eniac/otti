@@ -165,21 +165,6 @@ getNodeFor varName = do
       put $ s0 { vars = M.insert var node allVars }
       return node
 
-getNodeForPrev :: VarName -> Compiler SMTNode
-getNodeForPrev varName = do
-  curVer <- getVer varName
-  if curVer == 0
-  then error ""
-  else do
-    s0 <- get
-    -- Make the previous version of the codegen var
-    astV <- astVar varName
-    let prevVer = curVer - 1
-        codegenV = CodegenVar astV prevVer
-        allVars = vars s0
-    -- The previous version should always exist
-    return $ allVars M.! codegenV
-
 ---
 --- Functions
 ---
