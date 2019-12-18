@@ -1,11 +1,12 @@
 module IR.SMT where
-import           AST.Simple                 (Type (..), isDouble, isSignedInt,
-                                             isUnsignedInt)
+import           AST.Simple                 (Type (..), int32, isDouble,
+                                             isSignedInt, isUnsignedInt)
 import           Control.Monad
 import           Control.Monad.State.Strict
 import qualified Data.Map                   as M
 import           IR.IR
-import           Targets.SMT                as SMT
+import           Targets.SMT                (Node, SMT)
+import qualified Targets.SMT                as SMT
 import           Z3.Monad                   as Z
 
 {-|
@@ -40,11 +41,11 @@ newSMTVar :: Type
           -> SMT SMTNode
 newSMTVar ty name = do
   sort <- case ty of
-            Double -> doubSort
-            _      -> bvSort $ numBits ty
-  var <- newVar name sort
-  undefSort <- bvSort 1
-  undefVar <- newVar (name ++ "_undef") undefSort
+            Double -> SMT.doubSort
+            _      -> SMT.bvSort $ numBits ty
+  var <- SMT.newVar name sort
+  undefSort <- SMT.bvSort 1
+  undefVar <- SMT.newVar (name ++ "_undef") undefSort
   return $ mkNode var ty undefVar
 
 newInt :: Type
@@ -52,26 +53,26 @@ newInt :: Type
        -> SMT SMTNode
 newInt ty val = do
   int <- case ty of
-           Bool | val <= 1 -> bvNum 1 val
+           Bool | val <= 1 -> SMT.bvNum 1 val
            Bool -> error $ unwords $ [show val, "is past the range of a boolean"]
-           U8 | val <= 255 -> bvNum 8 val
+           U8 | val <= 255 -> SMT.bvNum 8 val
            U8 -> error $ unwords $ [show val, "is past the range of an i8"]
-           S8 | val <= 127 -> bvNum 8 val
+           S8 | val <= 127 -> SMT.bvNum 8 val
            S8 -> error $ unwords $ [show val, "is past the range of a signed i8"]
-           U16 | val <= 65535 -> bvNum 16 val
+           U16 | val <= 65535 -> SMT.bvNum 16 val
            U16 -> error $ unwords $ [show val, "is past the range of an i16"]
-           S16 | val <= 32767 -> bvNum 16 val
+           S16 | val <= 32767 -> SMT.bvNum 16 val
            S16 -> error $ unwords $ [show val, "is past the range of a signed i16"]
-           U32 | val <= 4294967295 -> bvNum 32 val
+           U32 | val <= 4294967295 -> SMT.bvNum 32 val
            U32 -> error $ unwords $ [show val, "is past the range of an i32"]
-           S32 | val <= 2147483647 -> bvNum 32 val
+           S32 | val <= 2147483647 -> SMT.bvNum 32 val
            S32 -> error $ unwords $ [show val, "is past the range of a signed i32"]
-           U64 | val <= 18446744073709551615 -> bvNum 64 val
+           U64 | val <= 18446744073709551615 -> SMT.bvNum 64 val
            U64 -> error $ unwords $ [show val, "is past the range of an i64"]
-           S64 | val <= 9223372036854775807 -> bvNum 64 val
+           S64 | val <= 9223372036854775807 -> SMT.bvNum 64 val
            S64 -> error $ unwords $ [show val, "is past the range of a signed i64"]
            _ -> error "Cannot make non-int types with newInt"
-  undef <- bvNum 1 0
+  undef <- SMT.bvNum 1 0
   return $ mkNode int ty undef
 
 newDouble :: Type
@@ -79,9 +80,9 @@ newDouble :: Type
           -> SMT SMTNode
 newDouble ty val = do
   double <- case ty of
-              Double -> doubleNum val
+              Double -> SMT.doubleNum val
               _      -> error "Cannot make non-double type with newDouble"
-  undef <- bvNum 1 0
+  undef <- SMT.bvNum 1 0
   return $ mkNode double ty undef
 
 ---
@@ -207,6 +208,47 @@ cppMax right left
   | isSignedInt (t right) && isSignedInt (t left) =
       binOpWrapper left right SMT.smax Nothing "max"
   | otherwise = error "Compiler error: Can't use std:max on a signed and unsigned"
+
+-- | Make this more general
+cppShiftLeft left right
+  | not (int32 $ t left) || not (int32 $ t right) =
+      error "Only support 32 bit SHL"
+  | isUnsignedInt $ t left = do
+      parentsUndef <- SMT.or (u left) (u right)
+        -- If the right is signed and negative, undefined behavior
+      undef <- if isSignedInt $ t right
+               then do
+                 zero <- SMT.bvNum 32 0
+                 opUndef <- SMT.slt (n right) zero
+                 SMT.or parentsUndef opUndef
+               else return parentsUndef
+
+      result <- SMT.sll (n left) (n right)
+      return $ mkNode result (t left) undef
+  | otherwise = do
+
+      -- Do the operation in 64-bits and see if any of the left bits are set.
+      -- If so, the operation has undefined behavior because some bit was
+      -- shifted off the end of the 32-bit variable
+      left64 <- SMT.uext (n left) 32
+      right64 <- SMT.uext (n right) 32
+      result64 <- SMT.sll left64 right64
+      top32 <- SMT.slice result64 63 32
+      zero <- SMT.bvNum 32 0
+
+      -- If the right is greater than 32, it is definitely undef
+      -- This will also catch trying to shift by a negative
+      thirtyTwo <- SMT.bvNum 32 32
+
+      -- Is it undef?
+      opUndef1 <- SMT.eq top32 zero >>= SMT.not
+      opUndef2 <- SMT.ugt (n right) thirtyTwo
+      opUndef <- SMT.or opUndef1 opUndef2
+      parentsUndef <- SMT.or (n left) (n right)
+      undef <- SMT.or opUndef parentsUndef
+
+      result <- SMT.sll (n left) (n right)
+      return $ mkNode result (t left) result
 
 -- Extra helpers
 

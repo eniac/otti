@@ -68,3 +68,5 @@ genBinOpSMT e1 e2 op = do
   s1 <- genExprSMT e1
   s2 <- genExprSMT e2
   liftSMT $ op s1 s2
+
+genCallSMT = undefined
