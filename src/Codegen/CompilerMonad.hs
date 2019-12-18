@@ -34,12 +34,14 @@ data CodegenVar = CodegenVar ASTVar Version
                 deriving (Eq, Ord, Show)
 
 -- | Internal state of the compiler for code generation
-data CompilerState = CompilerState { -- Mapping AST variables to information
+data CompilerState = CompilerState { -- Mapping AST variables etc to information
                                      vers             :: M.Map ASTVar Version
                                    , tys              :: M.Map ASTVar Type
+                                   , funs             :: M.Map FunctionName Function
                                      -- Codegen context information
                                    , callStack        :: [FunctionName]
-                                   , conditionalGuard :: Maybe Node
+                                   , conditionalGuard :: Maybe SMTNode
+                                   , returnValues     :: [SMTNode]
                                      -- SMT variables and memory
                                    , vars             :: M.Map CodegenVar SMTNode
                                    }
@@ -59,7 +61,7 @@ instance MonadFail Compiler where
 ---
 
 emptyCompilerState :: CompilerState
-emptyCompilerState = CompilerState M.empty M.empty [] Nothing M.empty
+emptyCompilerState = CompilerState M.empty M.empty M.empty [] Nothing [] M.empty
 
 liftSMT :: SMT a -> Compiler a
 liftSMT = Compiler . lift
@@ -163,3 +165,32 @@ getNodeFor varName = do
       put $ s0 { vars = M.insert var node allVars }
       return node
 
+---
+--- Functions
+---
+
+pushFunction :: FunctionName
+             -> SMTNode
+             -> Compiler ()
+pushFunction funName returnVal = do
+  s0 <- get
+  put $ s0 { callStack = funName:callStack s0
+           , returnValues = returnVal:returnValues s0
+           }
+
+popFunction :: Compiler ()
+popFunction = do
+  s0 <- get
+  when (null $ callStack s0) $ error "Tried to pop context off empty call stack"
+  when (null $ returnValues s0) $ error "Tried to pop return val off empty stack"
+  put $ s0 { callStack = tail $ callStack s0
+           , returnValues = tail $ returnValues s0
+           }
+
+getFunction :: FunctionName
+             -> Compiler Function
+getFunction funName = do
+  functions <- funs `liftM` get
+  case M.lookup funName functions of
+    Just function -> return function
+    Nothing       -> error $ unwords $ ["Called undeclared function", funName]

@@ -142,6 +142,7 @@ type FunctionName = String
 data Function = Function { fName :: FunctionName
                          , fTy   :: Type
                          , fArgs :: [(VarName, Type)]
+                         , fBody :: [Stmt]
                          }
 
 -- | A program is function definitions and class definitions

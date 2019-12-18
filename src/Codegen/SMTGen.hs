@@ -1,9 +1,10 @@
 module Codegen.SMTGen where
 import           AST.Simple
 import           Codegen.CompilerMonad
+import           Control.Monad.State.Strict (forM, forM_, unless)
 import           IR.SMT
-import           Prelude               hiding (Num)
-import           Targets.SMT           (SMT)
+import           Prelude                    hiding (Num)
+import           Targets.SMT                (SMT)
 
 {-|
 
@@ -55,7 +56,7 @@ genExprSMT expr =
     Cast v t -> do
       v' <- genExprSMT v
       liftSMT $ cppCast v' t
-    Call name args -> error ""
+    Call name args -> genCallSMT name args
     _          -> error "Unsupported instruction"
 
 genBinOpSMT :: Expr
@@ -67,4 +68,26 @@ genBinOpSMT e1 e2 op = do
   s2 <- genExprSMT e2
   liftSMT $ op s1 s2
 
-genCallSMT = undefined
+genCallSMT name args = do
+  -- Get the arguments
+  smtArgs <- mapM genExprSMT args
+  -- Make a new return value for the function and push it onto the stack
+  function <- getFunction name
+  returnVal <- error ""
+  pushFunction name returnVal
+  -- Get the formal arguments and set them equal to the arguments
+  let formalArgs = fArgs function
+  unless (length formalArgs == length args) $
+    error $ unwords ["Wrong number of args to", name]
+  smtFormalArgs <- forM formalArgs $ \(name, ty) -> do
+    declareVar name ty
+    getNodeFor name
+--  forM_ (zip smtArgs smtFormalArgs) $ \(arg, farg) -> assign arg farg
+  -- Execute the function
+  mapM genStmtSMT $ fBody function
+  -- Once done, pop the function back off the stack
+  popFunction
+  -- Return the return value
+  return returnVal
+
+genStmtSMT = undefined
