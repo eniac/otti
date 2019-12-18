@@ -1,6 +1,7 @@
 module IR.SMT where
-import           AST.Simple                 (Type (..), int32, isDouble,
-                                             isSignedInt, isUnsignedInt)
+import           AST.Simple                 (Type (..), int16, int32, int64,
+                                             int8, isDouble, isSignedInt,
+                                             isUnsignedInt)
 import           Control.Monad
 import           Control.Monad.State.Strict
 import qualified Data.Map                   as M
@@ -279,6 +280,67 @@ cppCond cond trueBr falseBr = do
   result <- SMT.cond (n cond) (n trueBr) (n falseBr)
   undef <- SMT.or (u cond) (u trueBr) >>= SMT.or (u falseBr)
   return $ mkNode result (t trueBr) undef
+
+cppCast node toTy
+  -- | isDouble fromTy = case toTy of
+  --                       Signed     -> do
+  --                         result <- D.castFp (vnode node) 32
+  --                         return $ VNode (vundef node) result Signed
+  --                       Signed64   -> do
+  --                         result <- D.castFp (vnode node) 64
+  --                         return $ VNode (vundef node) result Signed64
+  --                         _          -> error "We only suppor Double to int32 casts rn"
+    | int8 fromTy = case toTy of
+                      _ | int8 toTy -> return $ mkNode (n node) toTy (u node)
+                      _ | int16 toTy -> do
+                        result <- extend (n node) 8
+                        return $ mkNode result toTy (u node)
+                      _ | int32 toTy -> do
+                        result <- extend (n node) 24
+                        return $ mkNode result toTy (u node)
+                      _ | int64 toTy -> do
+                        result <- extend (n node) 56
+                        return $ mkNode result toTy (u node)
+                      _          -> error "Illegal cast types"
+    | int16 fromTy = case toTy of
+                       _ | int8 toTy -> do
+                         result <- SMT.slice (n node) 7 0
+                         return $ mkNode result toTy (u node)
+                       _ | int16 toTy -> return $ mkNode (n node) toTy (u node)
+                       _ | int32 toTy -> do
+                         result <- extend (n node) 16
+                         return $ mkNode result toTy (u node)
+                       _ | int64 toTy -> do
+                         result <- extend (n node) 48
+                         return $ mkNode result toTy (u node)
+                       _          -> error "Illegal cast types"
+    | int32 fromTy = case toTy of
+                       _ | int8 toTy -> do
+                         result <- SMT.slice (n node) 23 0
+                         return $ mkNode result toTy (u node)
+                       _ | int16 toTy -> do
+                         result <- SMT.slice (n node) 15 0
+                         return $ mkNode result toTy (u node)
+                       _ | int32 toTy -> return $ mkNode (n node) toTy (u node)
+                       _ | int64 toTy -> do
+                         result <- extend (n node) 32
+                         return $ mkNode result toTy (u node)
+                       _          -> error "Illegal cast types"
+    | int64 fromTy = case toTy of
+                       _ | int8 toTy -> do
+                         result <- SMT.slice (n node) 55 0
+                         return $ mkNode result toTy (u node)
+                       _ | int16 toTy -> do
+                         result <- SMT.slice (n node) 47 0
+                         return $ mkNode result toTy (u node)
+                       _ | int32 toTy -> do
+                         result <- SMT.slice (n node) 31 0
+                         return $ mkNode result toTy (u node)
+                       _ | int64 toTy -> return $ mkNode (n node) toTy (u node)
+                       _          -> error "Illegal cast types"
+    | otherwise = error "Illegal cast types"
+    where fromTy = t node
+          extend = if isSignedInt toTy then SMT.sext else SMT.uext
 
 -- Extra helpers
 

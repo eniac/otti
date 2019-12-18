@@ -54,8 +54,7 @@ genExprSMT expr =
       liftSMT $ cppCond c' t' f'
     Cast v t -> do
       v' <- genExprSMT v
-      error ""
-      -- liftSMT $ cppCast v' t
+      liftSMT $ cppCast v' t
     Call name args -> error ""
     _          -> error "Unsupported instruction"
 
