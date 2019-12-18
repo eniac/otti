@@ -35,15 +35,15 @@ data CodegenVar = CodegenVar ASTVar Version
 
 -- | Internal state of the compiler for code generation
 data CompilerState = CompilerState { -- Mapping AST variables etc to information
-                                     vers             :: M.Map ASTVar Version
-                                   , tys              :: M.Map ASTVar Type
-                                   , funs             :: M.Map FunctionName Function
+                                     vers              :: M.Map ASTVar Version
+                                   , tys               :: M.Map ASTVar Type
+                                   , funs              :: M.Map FunctionName Function
                                      -- Codegen context information
-                                   , callStack        :: [FunctionName]
-                                   , conditionalGuard :: Maybe SMTNode
-                                   , returnValues     :: [SMTNode]
+                                   , callStack         :: [FunctionName]
+                                   , conditionalGuards :: [SMTNode]
+                                   , returnValues      :: [SMTNode]
                                      -- SMT variables and memory
-                                   , vars             :: M.Map CodegenVar SMTNode
+                                   , vars              :: M.Map CodegenVar SMTNode
                                    }
 
 newtype Compiler a = Compiler (StateT CompilerState SMT a)
@@ -61,7 +61,7 @@ instance MonadFail Compiler where
 ---
 
 emptyCompilerState :: CompilerState
-emptyCompilerState = CompilerState M.empty M.empty M.empty [] Nothing [] M.empty
+emptyCompilerState = CompilerState M.empty M.empty M.empty [] [] [] M.empty
 
 liftSMT :: SMT a -> Compiler a
 liftSMT = Compiler . lift
@@ -165,6 +165,21 @@ getNodeFor varName = do
       put $ s0 { vars = M.insert var node allVars }
       return node
 
+getNodeForPrev :: VarName -> Compiler SMTNode
+getNodeForPrev varName = do
+  curVer <- getVer varName
+  if curVer == 0
+  then error ""
+  else do
+    s0 <- get
+    -- Make the previous version of the codegen var
+    astV <- astVar varName
+    let prevVer = curVer - 1
+        codegenV = CodegenVar astV prevVer
+        allVars = vars s0
+    -- The previous version should always exist
+    return $ allVars M.! codegenV
+
 ---
 --- Functions
 ---
@@ -200,4 +215,27 @@ getFunction funName = do
     Just function -> return function
     Nothing       -> error $ unwords $ ["Called undeclared function", funName]
 
+
+---
+--- If-statements
+---
+
+pushCondGuard :: SMTNode
+             -> Compiler ()
+pushCondGuard guardNode = do
+  s0 <- get
+  put $ s0 { conditionalGuards = guardNode:conditionalGuards s0 }
+
+popCondGuard :: Compiler ()
+popCondGuard = do
+  s0 <- get
+  when (null $ conditionalGuards s0) $ error "Tried to pop from empty guard stack"
+  put $ s0 { conditionalGuards = tail $ conditionalGuards s0 }
+
+getCurrentGuardNode :: Compiler SMTNode
+getCurrentGuardNode = do
+  guards <- conditionalGuards `liftM` get
+  liftSMT $ if null guards
+  then smtTrue
+  else foldM cppAnd (head guards) (init guards)
 

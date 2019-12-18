@@ -96,11 +96,25 @@ genStmtSMT stmt =
     Decl var           -> declareVar (varName var) (varTy var)
     Assign lhs rhs     -> do
       rhsSmt <- genExprSMT rhs
+      prevLhs <- genVarSMT lhs
       -- Bump the version number of the LHS to SSA the statement
       nextVer (varName lhs)
-      lhsSmt <- genVarSMT lhs
-      liftSMT $ smtAssign lhsSmt rhsSmt
-    If c t f           -> error ""
+      newLhs <- genVarSMT lhs
+      -- Guard the assignment with the possible conditional context
+      guard <- getCurrentGuardNode
+      condAssign <- cppCond guard rhsSmt prevLhs
+      liftSMT $ smtAssign newLhs condAssign
+    If c t f           -> do
+      trueCond <- genExprSMT c
+      falseCond <- liftSMT $ cppBitwiseNeg trueCond
+      -- Guard the true branch with the true condition
+      pushCondGuard trueCond
+      mapM_ genStmtSMT t
+      popCondGuard
+      -- Guard the false branch with the false condition
+      pushCondGuard falseCond
+      mapM_ genStmtSMT f
+      popCondGuard
     While c body       -> error ""
     VoidCall name args -> void $ genCallSMT name args
     Return e           -> do

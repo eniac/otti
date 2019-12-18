@@ -97,6 +97,12 @@ smtAssign n1 n2 = do
   SMT.assign (n n1) (n n2)
   SMT.assign (u n1) (u n2)
 
+smtTrue :: SMT SMTNode
+smtTrue = newInt Bool 1
+
+smtFalse :: SMT SMTNode
+smtFalse = newInt Bool 0
+
 -- Unary operations
 
 -- | C++ unary negation---meaning 5 becomes -5. This is not a bitwise negation
