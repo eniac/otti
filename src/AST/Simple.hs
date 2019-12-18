@@ -44,6 +44,7 @@ isUnsignedInt U8  = True
 isUnsignedInt U16 = True
 isUnsignedInt U32 = True
 isUnsignedInt U64 = True
+isUnsignedInt _   = False
 isDouble Double = True
 isDouble _      = False
 

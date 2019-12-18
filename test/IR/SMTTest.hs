@@ -11,6 +11,7 @@ import           Utils
 irTests :: BenchTest
 irTests = benchTestGroup "IR tests" [ negTest
                                     , bitwiseNegTest
+                                    , compareTest
                                     , addTest
                                     ]
 
@@ -59,6 +60,55 @@ bitwiseNegTest = benchTestCase "bitwise neg" $ do
   vtest r $ M.fromList [ ("result0", 0)
                        , ("result1", 0)
                        , ("result2", 4294967295)
+                       ]
+  satTest r
+
+compareTest :: BenchTest
+compareTest = benchTestCase "comparisons" $ do
+
+  r <- evalSMT Nothing $ do
+
+    sOne <- newInt S32 1
+    uOne <- newInt U32 1
+    sMax <- newInt S32 (-1)
+    uMax <- newInt U32 4294967295
+    d1 <- newDouble Double 75635.12
+    d2 <- newDouble Double 23.11
+
+    result0 <- newSMTVar Bool "result0"
+    cppEq sOne uOne >>= smtAssign result0
+
+    result1 <- newSMTVar Bool "result1"
+    cppGt uMax uOne >>= smtAssign result1
+
+    result2 <- newSMTVar Bool "result2"
+    cppGt sMax sOne >>= smtAssign result2
+
+    result3 <- newSMTVar Bool "result3"
+    cppGt uMax sOne >>= smtAssign result3
+
+    result4 <- newSMTVar Bool "result4"
+    cppLt uMax sOne >>= smtAssign result4
+
+    result5 <- newSMTVar Bool "result5"
+    cppGte sMax uOne >>= smtAssign result5
+
+    result6 <- newSMTVar Bool "result6"
+    cppLte uOne sMax >>= smtAssign result6
+
+    result7 <- newSMTVar Bool "result7"
+    cppLte d1 d2 >>= smtAssign result7
+
+    runSolver
+
+  vtest r $ M.fromList [ ("result0", 1)
+                       , ("result1", 1)
+                       , ("result2", 0)
+                       , ("result3", 1)
+                       , ("result4", 0)
+                       , ("result5", 1)
+                       , ("result6", 1)
+                       , ("result7", 0)
                        ]
   satTest r
 

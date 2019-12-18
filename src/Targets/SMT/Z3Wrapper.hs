@@ -40,9 +40,12 @@ assign :: MonadZ3 z3 => AST -> AST -> z3 ()
 assign n1 n2 = do
   sort1 <- Z.getSort n1
   sort2 <- Z.getSort n2
-  unless (sort1 == sort2) $ error "Can't assign nodes of different sorts"
   kind1 <- Z.getSortKind sort1
   kind2 <- Z.getSortKind sort2
+  unless (sort1 == sort2) $ error $ unwords [ "Can't assign nodes of different sorts"
+                                            , show kind1
+                                            , show kind2
+                                            ]
   unless (kind1 == kind2) $ error "Can't assign nodes of different kinds"
   case kind1 of
     Z.Z3_BV_SORT -> do
@@ -107,9 +110,6 @@ mkTypeSafeBinary op opName a b = do
 ---
 --- Operations
 ---
-
-eq :: MonadZ3 z3 => AST -> AST -> z3 AST
-eq = mkTypeSafeBinary Z.mkEq "eq"
 
 add :: MonadZ3 z3 => AST -> AST -> z3 AST
 add = mkTypeSafeBinary Z.mkBvadd "add"
@@ -196,6 +196,9 @@ mkTypeSafeCmp op opName a b = do
   typeSafeBinary opName a b
   op a b >>= cmpWrapper
 
+eq :: MonadZ3 z3 => AST -> AST -> z3 AST
+eq = mkTypeSafeCmp Z.mkEq "eq"
+
 ugt :: MonadZ3 z3 => AST -> AST -> z3 AST
 ugt = mkTypeSafeCmp Z.mkBvugt "ugt"
 
@@ -219,9 +222,6 @@ ulte = mkTypeSafeCmp Z.mkBvule "ulte"
 
 slte :: MonadZ3 z3 => AST -> AST -> z3 AST
 slte = mkTypeSafeCmp Z.mkBvsle "slte"
-
-iseq :: MonadZ3 z3 => AST -> AST -> z3 AST
-iseq = mkTypeSafeCmp Z.mkEq "iseq"
 
 ---
 --- Other operations
