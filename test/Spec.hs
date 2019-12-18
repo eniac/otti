@@ -1,4 +1,4 @@
-import           Codegen.SMTGen
+import           Codegen.SMTGenTest
 import           IR.SMT
 import           Targets.SMT
 
