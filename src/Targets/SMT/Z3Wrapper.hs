@@ -36,6 +36,16 @@ assert stmt = do
     s              -> error $ unwords ["Can't assert sort", show s]
   Z.assert stmt'
 
+assign :: MonadZ3 z3 => AST -> AST -> z3 ()
+assign n1 n2 = do
+  sort1 <- Z.getSort n1
+  sort2 <- Z.getSort n2
+  unless (sort1 == sort2) $ error "Can't assign nodes of different sorts"
+  size1 <- Z.getBvSortSize sort1
+  size2 <- Z.getBvSortSize sort2
+  unless (size1 == size2) $ error "Can't assign nodes of different widths"
+  Z.mkEq n1 n2 >>= Z.assert
+
 ---
 --- Numbers. Variables are in SMTMonad, since they change underlying state---but nums don't
 ---

@@ -73,7 +73,7 @@ genCallSMT name args = do
   smtArgs <- mapM genExprSMT args
   -- Make a new return value for the function and push it onto the stack
   function <- getFunction name
-  returnVal <- error ""
+  returnVal <- liftSMT $ newSMTVar (fTy function) (name ++ "_retVal")
   pushFunction name returnVal
   -- Get the formal arguments and set them equal to the arguments
   let formalArgs = fArgs function
@@ -82,7 +82,7 @@ genCallSMT name args = do
   smtFormalArgs <- forM formalArgs $ \(name, ty) -> do
     declareVar name ty
     getNodeFor name
---  forM_ (zip smtArgs smtFormalArgs) $ \(arg, farg) -> assign arg farg
+  forM_ (zip smtArgs smtFormalArgs) $ \(arg, farg) -> liftSMT $ smtAssign arg farg
   -- Execute the function
   mapM genStmtSMT $ fBody function
   -- Once done, pop the function back off the stack

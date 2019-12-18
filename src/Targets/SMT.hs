@@ -13,6 +13,7 @@ module Targets.SMT ( Sort
                    , push
                    , pop
                    , assert
+                   , assign
                      -- * Make variables and numbers
                    , newVar
                    , bvNum

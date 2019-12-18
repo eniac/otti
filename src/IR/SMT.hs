@@ -86,9 +86,16 @@ newDouble ty val = do
   undef <- SMT.bvNum 1 0
   return $ mkNode double ty undef
 
----
---- IR operations for translating C++ to SMT
----
+-- Asserting and assigning
+
+smtAssert :: SMTNode -> SMT ()
+smtAssert = SMT.assert . n
+
+smtAssign :: SMTNode -> SMTNode -> SMT ()
+smtAssign n1 n2 = do
+  unless (t n1 == t n2) $ error "Tried to assign nodes of different types"
+  SMT.assign (n n1) (n n2)
+  SMT.assign (u n1) (u n2)
 
 -- Unary operations
 
