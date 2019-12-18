@@ -187,6 +187,11 @@ popFunction = do
            , returnValues = tail $ returnValues s0
            }
 
+getReturnVal :: Compiler SMTNode
+getReturnVal = do
+  retVals <- returnValues `liftM` get
+  return $ head retVals
+
 getFunction :: FunctionName
              -> Compiler Function
 getFunction funName = do
@@ -194,3 +199,5 @@ getFunction funName = do
   case M.lookup funName functions of
     Just function -> return function
     Nothing       -> error $ unwords $ ["Called undeclared function", funName]
+
+

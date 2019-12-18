@@ -1,7 +1,7 @@
 module Codegen.SMTGen where
 import           AST.Simple
 import           Codegen.CompilerMonad
-import           Control.Monad.State.Strict (forM, forM_, unless)
+import           Control.Monad.State.Strict (forM, forM_, unless, void)
 import           IR.SMT
 import           Prelude                    hiding (Num)
 import           Targets.SMT                (SMT)
@@ -90,4 +90,21 @@ genCallSMT name args = do
   -- Return the return value
   return returnVal
 
-genStmtSMT = undefined
+genStmtSMT :: Stmt -> Compiler ()
+genStmtSMT stmt =
+  case stmt of
+    Decl var           -> declareVar (varName var) (varTy var)
+    Assign lhs rhs     -> do
+      rhsSmt <- genExprSMT rhs
+      -- Bump the version number of the LHS to SSA the statement
+      nextVer (varName lhs)
+      lhsSmt <- genVarSMT lhs
+      liftSMT $ smtAssign lhsSmt rhsSmt
+    If c t f           -> error ""
+    While c body       -> error ""
+    VoidCall name args -> void $ genCallSMT name args
+    Return e           -> do
+      toReturn <- genExprSMT e
+      retVal <- getReturnVal
+      liftSMT $ smtAssign retVal toReturn
+    VoidReturn         -> return ()
