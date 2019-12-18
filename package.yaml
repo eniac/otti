@@ -52,3 +52,14 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - compiler
+    - tasty
+    - tasty-golden    
+    - tasty-hunit
+    - QuickCheck
+    - tasty-quickcheck
+    - criterion
+    - directory
+    - bytestring
+    - mtl >= 2.2.2
+    - containers >= 0.6
+    - z3 >= 4.3.1    
