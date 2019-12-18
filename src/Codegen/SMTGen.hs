@@ -73,7 +73,7 @@ genCallSMT name args = do
   smtArgs <- mapM genExprSMT args
   -- Make a new return value for the function and push it onto the stack
   function <- getFunction name
-  returnVal <- liftSMT $ newSMTVar (fTy function) (name ++ "_retVal")
+  returnVal <- liftSMT $ newSMTVar (fTy function) (name ++ "_retVal") -- make more robust
   pushFunction name returnVal
   -- Get the formal arguments and set them equal to the arguments
   let formalArgs = fArgs function
@@ -118,7 +118,10 @@ genStmtSMT stmt =
     While c body       -> error ""
     VoidCall name args -> void $ genCallSMT name args
     Return e           -> do
+      guard <- getCurrentGuardNode
       toReturn <- genExprSMT e
       retVal <- getReturnVal
-      liftSMT $ smtAssign retVal toReturn
+      returnOccurs <- liftSMT $ cppEq retVal toReturn
+      -- Only set the return value equal to e if the guard is true
+      liftSMT $ smtImplies guard returnOccurs
     VoidReturn         -> return ()

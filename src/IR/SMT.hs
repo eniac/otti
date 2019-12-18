@@ -103,6 +103,13 @@ smtTrue = newInt Bool 1
 smtFalse :: SMT SMTNode
 smtFalse = newInt Bool 0
 
+smtImplies :: SMTNode
+           -> SMTNode
+           -> SMT ()
+smtImplies a b = do
+  notA <- cppBitwiseNeg a
+  cppOr notA b >>= smtAssert
+
 -- Unary operations
 
 -- | C++ unary negation---meaning 5 becomes -5. This is not a bitwise negation
