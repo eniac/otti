@@ -36,6 +36,7 @@ module Targets.SMT ( Sort
                    , neg
                    , sll
                    , sra
+                   , srl
                    , umin
                    , umax
                    , smin

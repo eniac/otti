@@ -171,11 +171,15 @@ binOpWrapper left right op overflowOp opName = do
            else if isSignedInt $ t left then t left else t right
   return $ mkNode result ty canOverflow
 
-cppOr, cppAnd, cppSub, cppMul, cppAdd, cppMin, cppMax :: SMTNode -> SMTNode -> SMT SMTNode
+cppOr, cppXor, cppAnd, cppSub, cppMul, cppAdd, cppMin, cppMax :: SMTNode -> SMTNode -> SMT SMTNode
 
 cppOr left right
   | (isDouble $ t left) || (isDouble $ t right) = error "No bitwise or for doubles"
   | otherwise = binOpWrapper left right SMT.or Nothing "or"
+
+cppXor left right
+  | (isDouble $ t left) || (isDouble $ t right) = error "No bitwise xor for doubles"
+  | otherwise = binOpWrapper left right SMT.xor Nothing "xor"
 
 cppAnd left right
   | (isDouble $ t left) || (isDouble $ t right) = error "No bitwise and for doubles"
@@ -209,7 +213,7 @@ cppMax right left
       binOpWrapper left right SMT.smax Nothing "max"
   | otherwise = error "Compiler error: Can't use std:max on a signed and unsigned"
 
--- | Make this more general
+-- | Make this more general: only supports 32-bit right now, bad!
 cppShiftLeft left right
   | not (int32 $ t left) || not (int32 $ t right) =
       error "Only support 32 bit SHL"
@@ -249,6 +253,32 @@ cppShiftLeft left right
 
       result <- SMT.sll (n left) (n right)
       return $ mkNode result (t left) result
+
+-- | Also make this more general (only supports 32)
+cppShiftRight left right
+  | not (int32 $ t left) || not (int32 $ t right) =
+      error "Only support 32 bit SHR"
+  | isUnsignedInt (t left) = do
+      undef <- makeUndef
+      result <- SMT.srl (n left) (n right)
+      return $ mkNode result U32 undef
+  | otherwise = do
+      undef <- makeUndef
+      result <- SMT.sra (n left) (n right)
+      return $ mkNode result S32 undef
+  where
+    makeUndef = do
+      zero <- SMT.bvNum 32 0
+      opUndef <- SMT.slt (n right) zero
+      parentsUndef <- SMT.or (u left) (u right)
+      SMT.or opUndef parentsUndef
+
+cppCond cond trueBr falseBr = do
+  unless (t cond == Bool) $ error "Conditional must be a boolean"
+  unless (t trueBr == t falseBr) $ error "Both branches of cond must have same type"
+  result <- SMT.cond (n cond) (n trueBr) (n falseBr)
+  undef <- SMT.or (u cond) (u trueBr) >>= SMT.or (u falseBr)
+  return $ mkNode result (t trueBr) undef
 
 -- Extra helpers
 
