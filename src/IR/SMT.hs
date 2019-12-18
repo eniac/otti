@@ -365,6 +365,7 @@ cppCast node toTy
 -- Extra helpers
 
 numBits :: Type -> Int
+numBits Bool   = 1
 numBits U8     = 8
 numBits S8     = 8
 numBits U16    = 16

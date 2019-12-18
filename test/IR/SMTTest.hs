@@ -10,6 +10,7 @@ import           Utils
 
 irTests :: BenchTest
 irTests = benchTestGroup "IR tests" [ negTest
+                                    , bitwiseNegTest
                                     , addTest
                                     ]
 
@@ -34,6 +35,33 @@ negTest = benchTestCase "neg" $ do
                        , ("result_double", -1.2)
                        ]
   satTest r
+
+bitwiseNegTest :: BenchTest
+bitwiseNegTest = benchTestCase "bitwise neg" $ do
+
+  r <- evalSMT Nothing $ do
+
+    one <- newInt Bool 1
+    umax <- newInt U32 4294967295
+    zero <- newInt U32 0
+
+    result0 <- newSMTVar Bool "result0"
+    cppBitwiseNeg one >>= smtAssign result0
+
+    result1 <- newSMTVar U32 "result1"
+    cppBitwiseNeg umax >>= smtAssign result1
+
+    result2 <- newSMTVar U32 "result2"
+    cppBitwiseNeg zero >>= smtAssign result2
+
+    runSolver
+
+  vtest r $ M.fromList [ ("result0", 0)
+                       , ("result1", 0)
+                       , ("result2", 4294967295)
+                       ]
+  satTest r
+
 
 addTest :: BenchTest
 addTest = benchTestCase "add" $ do
