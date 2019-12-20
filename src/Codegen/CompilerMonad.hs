@@ -8,7 +8,7 @@ import           Data.List                  (isInfixOf)
 import qualified Data.Map                   as M
 import           IR.IRMonad
 import           IR.SMT
-import           Targets.SMT
+import           Targets.SMT                (SMT, SMTResult, runSolver)
 import qualified Z3.Monad                   as Z
 
 {-|
@@ -166,7 +166,7 @@ getNodeFor varName = do
     Just node -> return node
     Nothing -> do
       ty <- getType varName
-      node <- liftIR $ newSMTVar ty $ codegenToName var
+      node <- liftIR $ newVar ty $ codegenToName var
       put $ s0 { vars = M.insert var node allVars }
       return node
 
@@ -225,7 +225,7 @@ popCondGuard = do
 getCurrentGuardNode :: Compiler SMTNode
 getCurrentGuardNode = do
   guards <- conditionalGuards `liftM` get
-  liftSMT $ if null guards
+  liftIR $ if null guards
   then smtTrue
   else foldM cppAnd (head guards) (init guards)
 

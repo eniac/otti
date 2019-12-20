@@ -2,6 +2,7 @@ module Codegen.SMTGen where
 import           AST.Simple
 import           Codegen.CompilerMonad
 import           Control.Monad.State.Strict (forM, forM_, unless, void)
+import           IR.IRMonad                 (IR)
 import           IR.SMT
 import           Prelude                    hiding (Num)
 import           Targets.SMT                (SMT)
@@ -21,19 +22,19 @@ genVarSMT var = getNodeFor $ varName var
 genNumSMT :: Num -> Compiler SMTNode
 genNumSMT num = case num of
                   INum ty _   | isDouble ty -> error "Cannot make int with double val"
-                  INum ty val -> liftSMT $ newInt ty val
+                  INum ty val -> liftIR $ newInt ty val
                   FNum ty _   | not $ isDouble ty -> error "Cannot make double with int val"
-                  FNum ty val -> liftSMT $ newDouble ty val
+                  FNum ty val -> liftIR $ newDouble ty val
 
 genExprSMT :: Expr -> Compiler SMTNode
 genExprSMT expr =
   case expr of
     VarExpr v  -> genVarSMT v
     NumExpr n  -> genNumSMT n
-    Neg n      -> genExprSMT n >>= liftSMT . cppNeg
-    Not n      -> genExprSMT n >>= liftSMT . cppBitwiseNeg
+    Neg n      -> genExprSMT n >>= liftIR . cppNeg
+    Not n      -> genExprSMT n >>= liftIR . cppBitwiseNeg
     Eq a b     -> genBinOpSMT a b cppEq
-    NEq a b    -> genBinOpSMT a b cppEq >>= liftSMT . cppBitwiseNeg
+    NEq a b    -> genBinOpSMT a b cppEq >>= liftIR . cppBitwiseNeg
     And a b    -> genBinOpSMT a b cppAnd
     Add a b    -> genBinOpSMT a b cppAdd
     Sub a b    -> genBinOpSMT a b cppSub
@@ -65,19 +66,19 @@ genExprSMT expr =
 
 genBinOpSMT :: Expr
             -> Expr
-            -> (SMTNode -> SMTNode -> SMT SMTNode)
+            -> (SMTNode -> SMTNode -> IR SMTNode)
             -> Compiler SMTNode
 genBinOpSMT e1 e2 op = do
   s1 <- genExprSMT e1
   s2 <- genExprSMT e2
-  liftSMT $ op s1 s2
+  liftIR $ op s1 s2
 
 genCallSMT name args = do
   -- Get the arguments
   smtArgs <- mapM genExprSMT args
   -- Make a new return value for the function and push it onto the stack
   function <- getFunction name
-  returnVal <- liftIR $ newSMTVar (fTy function) (name ++ "_retVal") -- make more robust
+  returnVal <- liftIR $ newVar (fTy function) (name ++ "_retVal") -- make more robust
   pushFunction name returnVal
   -- Get the formal arguments and set them equal to the arguments
   let formalArgs = fArgs function
@@ -110,7 +111,7 @@ genStmtSMT stmt =
       liftSMT $ smtAssign newLhs condAssign
     If c t f           -> do
       trueCond <- genExprSMT c
-      falseCond <- liftSMT $ cppBitwiseNeg trueCond
+      falseCond <- liftIR $ cppBitwiseNeg trueCond
       -- Guard the true branch with the true condition
       pushCondGuard trueCond
       mapM_ genStmtSMT t
@@ -125,7 +126,7 @@ genStmtSMT stmt =
       guard <- getCurrentGuardNode
       toReturn <- genExprSMT e
       retVal <- getReturnVal
-      returnOccurs <- liftSMT $ cppEq retVal toReturn
+      returnOccurs <- liftIR $ cppEq retVal toReturn
       -- Only set the return value equal to e if the guard is true
-      liftSMT $ smtImplies guard returnOccurs
+      liftIR $ smtImplies guard returnOccurs
     VoidReturn         -> return ()

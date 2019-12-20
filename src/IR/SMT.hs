@@ -38,10 +38,14 @@ u = cundef . extraState
 n :: SMTNode -> Node
 n = smtNode
 
-newSMTVar :: Type
-          -> String
-          -> IR SMTNode
-newSMTVar ty name = liftSMT' $ do
+---
+--- Variables and numbers
+---
+
+newVar :: Type
+       -> String
+       -> IR SMTNode
+newVar ty name = liftSMT' $ do
   sort <- case ty of
             Double -> SMT.doubSort
             _      -> SMT.bvSort $ numBits ty
@@ -52,8 +56,8 @@ newSMTVar ty name = liftSMT' $ do
 
 newInt :: Type
        -> Integer
-       -> SMT SMTNode
-newInt ty val = do
+       -> IR SMTNode
+newInt ty val = liftSMT' $ do
   int <- case ty of
            Bool | val <= 1 -> SMT.bvNum 1 val
            Bool -> error $ unwords $ [show val, "is past the range of a boolean"]
@@ -79,8 +83,8 @@ newInt ty val = do
 
 newDouble :: Type -- ^ One day we will support different floating point type arguments
           -> Double
-          -> SMT SMTNode
-newDouble ty val = do
+          -> IR SMTNode
+newDouble ty val = liftSMT' $ do
   double <- case ty of
               Double -> SMT.doubleNum val
               _      -> error "Cannot make non-double type with newDouble"
@@ -89,8 +93,8 @@ newDouble ty val = do
 
 -- Asserting and assigning
 
-smtAssert :: SMTNode -> SMT ()
-smtAssert = SMT.assert . n
+smtAssert :: SMTNode -> IR ()
+smtAssert = liftSMT' . SMT.assert . n
 
 smtAssign :: SMTNode -> SMTNode -> SMT ()
 smtAssign n1 n2 = do
@@ -98,15 +102,15 @@ smtAssign n1 n2 = do
   SMT.assign (n n1) (n n2)
   SMT.assign (u n1) (u n2)
 
-smtTrue :: SMT SMTNode
+smtTrue :: IR SMTNode
 smtTrue = newInt Bool 1
 
-smtFalse :: SMT SMTNode
+smtFalse :: IR SMTNode
 smtFalse = newInt Bool 0
 
 smtImplies :: SMTNode
            -> SMTNode
-           -> SMT ()
+           -> IR ()
 smtImplies a b = do
   notA <- cppBitwiseNeg a
   cppOr notA b >>= smtAssert
@@ -121,15 +125,15 @@ smtStore = undefined
 -- Unary operations
 
 -- | C++ unary negation---meaning 5 becomes -5. This is not a bitwise negation
-cppNeg :: SMTNode -> SMT SMTNode
-cppNeg node = do
+cppNeg :: SMTNode -> IR SMTNode
+cppNeg node = liftSMT' $ do
   let op = if isDouble $ t node then SMT.fpNeg else SMT.neg
   result <- op $ n node
   return $ mkNode result (t node) (u node)
 
 -- | C++ bitwise negation
-cppBitwiseNeg :: SMTNode -> SMT SMTNode
-cppBitwiseNeg node = do
+cppBitwiseNeg :: SMTNode -> IR SMTNode
+cppBitwiseNeg node = liftSMT' $ do
   when (isDouble $ t node) $ error "Cannot bitwise negate double"
   result <- SMT.not $ n node
   return $ mkNode result (t node) (u node)
@@ -145,20 +149,20 @@ cppCompareWrapper :: SMTNode -- ^ Left operand
                   -> (Node -> Node -> SMT Node) -- ^ Unsigned comparison op
                   -> (Node -> Node -> SMT Node) -- ^ Signed comparison op
                   -> (Node -> Node -> SMT Node) -- ^ Floating point comparison op
-                  -> SMT SMTNode -- ^ Result
+                  -> IR SMTNode -- ^ Result
 cppCompareWrapper left right uCompare sCompare fCompare
- | isDouble (t left) || isDouble (t right) = do
+ | isDouble (t left) || isDouble (t right) = liftSMT' $ do
      unless (t left == t right) $ error "Expected two doubles as argumnets to comparison"
      compare <- fCompare (n left) (n right)
      maybeDefinedNode left right compare Bool
- | isUnsignedInt (t left) || isUnsignedInt (t right) = do
+ | isUnsignedInt (t left) || isUnsignedInt (t right) = liftSMT' $ do
      compare <- uCompare (n left) (n right)
      maybeDefinedNode left right compare Bool
- | otherwise = do
+ | otherwise = liftSMT' $ do
      compare <- sCompare (n left) (n right)
      maybeDefinedNode left right compare Bool
 
-cppEq, cppGt, cppGte, cppLt, cppLte :: SMTNode -> SMTNode -> SMT SMTNode
+cppEq, cppGt, cppGte, cppLt, cppLte :: SMTNode -> SMTNode -> IR SMTNode
 cppEq left right = cppCompareWrapper left right SMT.eq SMT.eq SMT.fpEq
 cppGt left right = cppCompareWrapper left right SMT.ugt SMT.sgt SMT.fpGt
 cppGte left right = cppCompareWrapper left right SMT.ugte SMT.sgte SMT.fpGte
@@ -172,8 +176,8 @@ binOpWrapper :: SMTNode -- ^ Left operand
              -> (Node -> Node -> SMT Node) -- ^ Operation
              -> Maybe (Bool -> Node -> Node -> SMT Node) -- ^ Overflow detection operation
              -> String -- ^ Operation name
-             -> SMT SMTNode -- ^ Result
-binOpWrapper left right op overflowOp opName = do
+             -> IR SMTNode -- ^ Result
+binOpWrapper left right op overflowOp opName = liftSMT' $ do
   unless (numBits (t left) == numBits (t right)) $
     error $ unwords ["Mismatched types to operation"
                     , opName
@@ -200,7 +204,7 @@ binOpWrapper left right op overflowOp opName = do
            else if isSignedInt $ t left then t left else t right
   return $ mkNode result ty canOverflow
 
-cppOr, cppXor, cppAnd, cppSub, cppMul, cppAdd, cppMin, cppMax :: SMTNode -> SMTNode -> SMT SMTNode
+cppOr, cppXor, cppAnd, cppSub, cppMul, cppAdd, cppMin, cppMax :: SMTNode -> SMTNode -> IR SMTNode
 
 cppOr left right
   | (isDouble $ t left) || (isDouble $ t right) = error "No bitwise or for doubles"
