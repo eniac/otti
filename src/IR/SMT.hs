@@ -159,7 +159,49 @@ smtResult = liftSMT SMT.runSolver
 
 -- Memory
 
-smtLoad = undefined
+smtLoad :: SMTNode
+        -> SMTNode
+        -> IR SMTNode
+smtLoad addr mem = do
+  memStrat <- getMemoryStrategy
+  case memStrat of
+    Flat blockSize -> do
+      -- Figure out how many blocks to read
+      -- The following comment explains the three different cases we may face.
+      -- We don't special case now on whether the addr is concrete or symbolic, but we could
+
+      -- Consider a load of 32 bits off 0 and blockSize of 32
+      -- In this case, the load size is 32
+      -- The underestimate of the blocks to read is 1, which in this case is correct
+      -- The overestimate of the blocks to read is 2, which is one more than necessary
+
+      -- Now consider a load of 32 bits starting from 16 with the same block size
+      -- The underestimate of the blocks to read is 1, but this is too few! The read spans 2
+      -- The overestimate of the blocks to read is 2, which captures the span
+
+      -- Finally, consider a load of 16 bits starting from 0 with 32 size blocks
+      -- The underestimate of the blocks to read is 16/32, which is zero!
+      -- The estimate of the block size is now one, which sounds right.
+      -- Finally, the overestimate is again 2
+
+      let readSize = numBits $ pointeeType $ t addr
+          underEstimateBlocks = readSize `div` blockSize
+          estimateBlocks = if underEstimateBlocks == 0 then 1 else underEstimateBlocks
+          overEstimateBlocks = estimateBlocks + 1 -- if > 8
+          blocksToRead = overEstimateBlocks
+
+      when (blocksToRead > 2000) $ error "Load is too large"
+
+      reads <- forM [0..blocksToRead - 1] $ \offset -> do
+        nextPointer <- error ""
+        error "read is here"
+
+      wholeRead <- SMT.concatMany $ map n reads
+      readStart <- error "urem"
+      result <- SMT.getBitsFrom wholeRead readSize wholeRead
+
+      undef <- error ""
+      error ""
 
 smtStore = undefined
 
@@ -418,16 +460,23 @@ cppCast node toTy
 -- Extra helpers
 
 numBits :: Type -> Int
-numBits Bool   = 1
-numBits U8     = 8
-numBits S8     = 8
-numBits U16    = 16
-numBits S16    = 16
-numBits U32    = 32
-numBits S32    = 32
-numBits U64    = 64
-numBits S64    = 64
-numBits Double = 64
+numBits Bool    = 1
+numBits U8      = 8
+numBits S8      = 8
+numBits U16     = 16
+numBits S16     = 16
+numBits U32     = 32
+numBits S32     = 32
+numBits U64     = 64
+numBits S64     = 64
+numBits Double  = 64
+numBits Ptr64{} = 64
+numBits Ptr32{} = 32
+
+pointeeType :: Type -> Type
+pointeeType (Ptr64 ty) = ty
+pointeeType (Ptr32 ty) = ty
+pointeeType _          = error "Can't get pointee type of non-pointer"
 
 -- | Make a new node that is defined if its parents are defined
 maybeDefinedNode :: SMTNode -- ^ Parent 1

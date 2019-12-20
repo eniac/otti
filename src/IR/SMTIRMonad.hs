@@ -41,3 +41,23 @@ evalIR mt act = fst <$> runIR mt act
 
 execIR :: Maybe Integer -> IR a -> IO IRState
 execIR mt act = snd <$> runIR mt act
+
+---
+--- Getters and setters
+---
+
+getPointerSize :: IR Int
+getPointerSize = pointerSize `liftM` get
+
+getMemoryStrategy :: IR MemoryStrategy
+getMemoryStrategy = memoryStrategy `liftM` get
+
+setPointerSize :: Int -> IR ()
+setPointerSize size = do
+  s0 <- get
+  put $ s0 { pointerSize = size }
+
+setMemoryStrategy :: MemoryStrategy -> IR ()
+setMemoryStrategy strategy = do
+  s0 <- get
+  put $ s0 { memoryStrategy = strategy }

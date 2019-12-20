@@ -1,7 +1,7 @@
 module Targets.SMT.Z3Wrapper where
-import           Control.Monad.State.Strict (liftIO, unless)
+import           Control.Monad.State.Strict (foldM, liftIO, unless)
 import qualified Data.Map.Strict            as M
-import           Prelude                    hiding (not, or)
+import           Prelude                    hiding (and, concat, not, or)
 import           Z3.Monad                   (MonadZ3)
 import qualified Z3.Monad                   as Z
 
@@ -89,12 +89,13 @@ getBVSort op ast = do
     Z.Z3_BV_SORT -> return sort
     s            -> error $ unwords ["Expected BV sort, not", show s, "in", op]
 
-getBVSortSize op ast = do
+getBVSortSize :: MonadZ3 z3 => String -> AST -> z3 Int
+getBVSortSize opName ast = do
   sort <- Z.getSort ast
   kind <- Z.getSortKind sort
   case kind of
-    Z.Z3_BV_SORT -> Z.getBvSortSize sort
-    s            -> error $ unwords ["Expected BV sort, not", show s, "in", op]
+    Z.Z3_BV_SORT -> Z.getBvSortSize sort >>= return . fromIntegral
+    s            -> error $ unwords ["Expected BV sort, not", show s, "in", opName]
 
 -- | Perform the given binary operation op in a type safe way
 typeSafeBinary :: MonadZ3 z3 => String -> AST -> AST -> z3 ()
@@ -109,6 +110,75 @@ typeSafeBinary op ast1 ast2 = do
 mkTypeSafeBinary op opName a b = do
   typeSafeBinary opName a b
   op a b
+
+---
+--- Getting bits out of bitvectors, and setting bits in bitvectors
+---
+
+-- | Get a given number of bits from a structure starting from a given symbolic index
+getBitsFrom :: MonadZ3 z3
+            => AST -- ^ In this structure
+            -> Int -- ^ How large of a read
+            -> AST -- ^ Starting from this index
+            -> z3 AST
+getBitsFrom structure width index = do
+  castIndex <- castToWidth index 64
+  structureWidth <- getBVSortSize "getBitsFrom" structure
+  -- Shift structure so the start of the element is the high bit
+  elemAtHigh <- sll structure castIndex
+  -- Slice from the high bit to the width of the element
+  let elemStart = structureWidth - 1
+      elemEnd = structureWidth - width
+  slice elemAtHigh elemStart elemEnd
+
+-- | Set a given number of bits in a structure starting from a given symbolic index
+setBitsTo :: MonadZ3 z3
+          => AST -- ^ Set to this
+          -> AST -- ^ In this structure
+          -> AST -- ^ Starting from this index
+          -> z3 AST -- ^ result
+setBitsTo element structure index = do
+  castIndex <- castToWidth index 64
+  -- Information we will need later
+  structureWidth <- getBVSortSize "setBitsTo: structureWidth" structure
+  elementWidth <- getBVSortSize "setBitsTo: elemWidth" element
+  let widthDifference = structureWidth - elementWidth
+
+  if widthDifference == 0
+  -- Setting every bit is just the same as returning the element
+  then return element
+  -- Otherwise we have to change some bits while preserving others
+  else do
+
+  -- struct: 1001..01011...1011
+  -- mask:   1111..00000...1111
+  ----------------------------- AND
+  -- res:    1001..00000...1011
+  -- elem:   0000..10110...0000
+  ----------------------------- OR
+  -- final:  1001..10110...1011
+
+    -- Consturct *mask*:
+    -- (0) Make [1 repeat width(element)][0 repeat width(structure - element0]
+    ones <- error "Do not have ones"--Z.getSort element >>= B.ones
+    zeros <- bvNum widthDifference 0
+    preShiftMask <- concat ones zeros
+    -- (1) Right shift to start at the correct index
+    preNegMask <- srl preShiftMask castIndex
+    -- (2) Bitwise negate the whole thing
+    mask <- not preNegMask
+
+    -- And the struct with the mask
+    res <- and mask structure
+
+    -- Construct the *padded elemnt*:
+    -- (0) Make [element][0 repeat width(structure - element)]
+    preShiftElem <- concat element zeros
+    -- (2) Right shift to start at the correct index
+    finalElem <- srl preShiftElem castIndex
+
+    -- Or the two together!
+    or finalElem res
 
 ---
 --- Operations
@@ -147,9 +217,11 @@ or = mkTypeSafeBinary Z.mkBvor "or"
 xor :: MonadZ3 z3 => AST -> AST -> z3 AST
 xor = mkTypeSafeBinary Z.mkBvxor "xor"
 
+-- bitwise neg
 not :: MonadZ3 z3 => AST -> z3 AST
 not = Z.mkBvnot
 
+-- negation (9 -> -9)
 neg :: MonadZ3 z3 => AST -> z3 AST
 neg = Z.mkBvneg
 
@@ -240,6 +312,8 @@ cond c a b = do
   isTrue <- Z.mkEq c bvTrue
   Z.mkIte isTrue a b
 
+-- explicit because we may type check someday!
+
 sext :: MonadZ3 z3 => AST -> Int -> z3 AST
 sext a i = Z.mkSignExt i a
 
@@ -248,6 +322,13 @@ uext a i = Z.mkZeroExt i a
 
 slice :: MonadZ3 z3 => AST -> Int -> Int -> z3 AST
 slice a i1 i2 = Z.mkExtract i1 i2 a
+
+concat :: MonadZ3 z3 => AST -> AST -> z3 AST
+concat a b = Z.mkConcat a b
+
+concatMany :: MonadZ3 z3 => [AST] -> z3 AST
+concatMany [] = error "Cannot concat an empty list"
+concatMany xs = foldM concat (head xs) (tail xs)
 
 ---
 --- Shifts: Do we need these anymore or not? Get rid of if not

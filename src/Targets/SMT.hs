@@ -21,6 +21,9 @@ module Targets.SMT ( Sort
                    , bvSort
                    , doubSort
                    , arraySort
+                     -- * Accessing certain bits
+                   , getBitsFrom
+                   , setBitsTo
                      -- * Operations
                    , eq
                    , add
@@ -52,11 +55,14 @@ module Targets.SMT ( Sort
                    , slt
                    , ulte
                    , slte
-                     -- * Other floating and non-floating constants and operations
+                     -- * Other ops
                    , cond
                    , sext
                    , uext
                    , slice
+                   , concat
+                   , concatMany
+                     -- * Floating point
                    , inf
                    , fpzero
                    , nan
@@ -104,6 +110,6 @@ module Targets.SMT ( Sort
                    , subUnderflows
                    , subUndef
                    ) where
-import           Prelude               hiding (and, mod, not, or)
+import           Prelude               hiding (and, concat, mod, not, or)
 import           Targets.SMT.SMTMonad
 import           Targets.SMT.Z3Wrapper
