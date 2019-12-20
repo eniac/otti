@@ -96,7 +96,7 @@ newDouble ty val = liftSMT' $ do
 smtAssert :: SMTNode -> IR ()
 smtAssert = liftSMT' . SMT.assert . n
 
-smtAssign :: SMTNode -> SMTNode -> SMT ()
+smtAssign :: SMTNode -> SMTNode -> IR ()
 smtAssign n1 n2 = do
   unless (t n1 == t n2) $ error "Tried to assign nodes of different types"
   SMT.assign (n n1) (n n2)
