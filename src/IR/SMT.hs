@@ -39,8 +39,8 @@ n = smtNode
 
 newSMTVar :: Type
           -> String
-          -> SMT SMTNode
-newSMTVar ty name = do
+          -> IR SMTNode
+newSMTVar ty name = liftSMT $ do
   sort <- case ty of
             Double -> SMT.doubSort
             _      -> SMT.bvSort $ numBits ty
