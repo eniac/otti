@@ -53,10 +53,10 @@ genExprSMT expr =
       c' <- genExprSMT c
       t' <- genExprSMT t
       f' <- genExprSMT f
-      liftSMT $ cppCond c' t' f'
+      liftIR $ cppCond c' t' f'
     Cast v t -> do
       v' <- genExprSMT v
-      liftSMT $ cppCast v' t
+      liftIR $ cppCast v' t
     Call name args -> genCallSMT name args
     Load e -> do
       addr <- genExprSMT e
@@ -87,7 +87,7 @@ genCallSMT name args = do
   smtFormalArgs <- forM formalArgs $ \(name, ty) -> do
     declareVar name ty
     getNodeFor name
-  forM_ (zip smtArgs smtFormalArgs) $ \(arg, farg) -> liftSMT $ smtAssign arg farg
+  forM_ (zip smtArgs smtFormalArgs) $ \(arg, farg) -> liftIR $ smtAssign arg farg
   -- Execute the function
   mapM genStmtSMT $ fBody function
   -- Once done, pop the function back off the stack
@@ -107,8 +107,8 @@ genStmtSMT stmt =
       newLhs <- genVarSMT lhs
       -- Guard the assignment with the possible conditional context
       guard <- getCurrentGuardNode
-      condAssign <- cppCond guard rhsSmt prevLhs
-      liftSMT $ smtAssign newLhs condAssign
+      condAssign <- liftIR $ cppCond guard rhsSmt prevLhs
+      liftIR $ smtAssign newLhs condAssign
     If c t f           -> do
       trueCond <- genExprSMT c
       falseCond <- liftIR $ cppBitwiseNeg trueCond

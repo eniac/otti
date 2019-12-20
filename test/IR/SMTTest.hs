@@ -2,8 +2,9 @@ module IR.SMTTest where
 import           AST.Simple           (Type (..))
 import           BenchUtils
 import qualified Data.Map             as M
+import           IR.IRMonad
 import           IR.SMT
-import           Targets.SMT.SMTMonad
+import           Targets.SMT.SMTMonad (runSolver)
 import           Utils
 
 {-| Unit tests for the SMT IR layer. There are also automatically-generated quickcheck tests -}
@@ -20,19 +21,19 @@ irTests = benchTestGroup "IR tests" [ negTest
 negTest :: BenchTest
 negTest = benchTestCase "neg" $ do
 
-  r <- evalSMT Nothing $ do
+  r <- evalIR Nothing $ do
 
     one <- newInt S32 1
     onePointTwo <- newDouble Double 1.2
 
 
-    result <- newSMTVar S32 "result"
+    result <- newVar S32 "result"
     cppNeg one >>= smtAssign result
 
-    resultDouble <- newSMTVar Double "result_double"
+    resultDouble <- newVar Double "result_double"
     cppNeg onePointTwo >>= smtAssign resultDouble
 
-    runSolver
+    liftSMT' $ runSolver
 
   vtest r $ M.fromList [ ("result", 4294967295)
                        , ("result_double", -1.2)
@@ -42,22 +43,22 @@ negTest = benchTestCase "neg" $ do
 bitwiseNegTest :: BenchTest
 bitwiseNegTest = benchTestCase "bitwise neg" $ do
 
-  r <- evalSMT Nothing $ do
+  r <- evalIR Nothing $ do
 
     one <- newInt Bool 1
     umax <- newInt U32 4294967295
     zero <- newInt U32 0
 
-    result0 <- newSMTVar Bool "result0"
+    result0 <- newVar Bool "result0"
     cppBitwiseNeg one >>= smtAssign result0
 
-    result1 <- newSMTVar U32 "result1"
+    result1 <- newVar U32 "result1"
     cppBitwiseNeg umax >>= smtAssign result1
 
-    result2 <- newSMTVar U32 "result2"
+    result2 <- newVar U32 "result2"
     cppBitwiseNeg zero >>= smtAssign result2
 
-    runSolver
+    liftSMT' $ runSolver
 
   vtest r $ M.fromList [ ("result0", 0)
                        , ("result1", 0)
@@ -68,7 +69,7 @@ bitwiseNegTest = benchTestCase "bitwise neg" $ do
 compareTest :: BenchTest
 compareTest = benchTestCase "comparisons" $ do
 
-  r <- evalSMT Nothing $ do
+  r <- evalIR Nothing $ do
 
     sOne <- newInt S32 1
     uOne <- newInt U32 1
@@ -77,31 +78,31 @@ compareTest = benchTestCase "comparisons" $ do
     d1 <- newDouble Double 75635.12
     d2 <- newDouble Double 23.11
 
-    result0 <- newSMTVar Bool "result0"
+    result0 <- newVar Bool "result0"
     cppEq sOne uOne >>= smtAssign result0
 
-    result1 <- newSMTVar Bool "result1"
+    result1 <- newVar Bool "result1"
     cppGt uMax uOne >>= smtAssign result1
 
-    result2 <- newSMTVar Bool "result2"
+    result2 <- newVar Bool "result2"
     cppGt sMax sOne >>= smtAssign result2
 
-    result3 <- newSMTVar Bool "result3"
+    result3 <- newVar Bool "result3"
     cppGt uMax sOne >>= smtAssign result3
 
-    result4 <- newSMTVar Bool "result4"
+    result4 <- newVar Bool "result4"
     cppLt uMax sOne >>= smtAssign result4
 
-    result5 <- newSMTVar Bool "result5"
+    result5 <- newVar Bool "result5"
     cppGte sMax uOne >>= smtAssign result5
 
-    result6 <- newSMTVar Bool "result6"
+    result6 <- newVar Bool "result6"
     cppLte uOne sMax >>= smtAssign result6
 
-    result7 <- newSMTVar Bool "result7"
+    result7 <- newVar Bool "result7"
     cppLte d1 d2 >>= smtAssign result7
 
-    runSolver
+    liftSMT' runSolver
 
   vtest r $ M.fromList [ ("result0", 1)
                        , ("result1", 1)
@@ -117,7 +118,7 @@ compareTest = benchTestCase "comparisons" $ do
 bitwiseOpTest :: BenchTest
 bitwiseOpTest = benchTestCase "bitwise op" $ do
 
-  r <- evalSMT Nothing $ do
+  r <- evalIR Nothing $ do
 
     one <- newInt U32 1
     two <- newInt U32 2
@@ -125,19 +126,19 @@ bitwiseOpTest = benchTestCase "bitwise op" $ do
 
     -- Or, xor, and
 
-    result0 <- newSMTVar U32 "result0"
+    result0 <- newVar U32 "result0"
     cppAnd two umax >>= smtAssign result0
 
-    result1 <- newSMTVar U32 "result1"
+    result1 <- newVar U32 "result1"
     cppAnd two one >>= smtAssign result1
 
-    result2 <- newSMTVar U32 "result2"
+    result2 <- newVar U32 "result2"
     cppOr umax one >>= smtAssign result2
 
-    result3 <- newSMTVar U32 "result3"
+    result3 <- newVar U32 "result3"
     cppXor umax one >>= smtAssign result3
 
-    runSolver
+    liftSMT' runSolver
 
   vtest r $ M.fromList [ ("result0", 2)
                        , ("result1", 0)
@@ -149,7 +150,7 @@ bitwiseOpTest = benchTestCase "bitwise op" $ do
 subTest :: BenchTest
 subTest = benchTestCase "sub" $ do
 
-  r <- evalSMT Nothing $ do
+  r <- evalIR Nothing $ do
 
     uOne <- newInt U32 1
     uTwo <- newInt U32 2
@@ -158,13 +159,13 @@ subTest = benchTestCase "sub" $ do
     sTwo <- newInt U32 2
     sMax <- newInt U32 4294967295
 
-    result0 <- newSMTVar U32 "result0"
+    result0 <- newVar U32 "result0"
     cppSub uTwo uOne >>= smtAssign result0
 
-    result1 <- newSMTVar U32 "result1"
+    result1 <- newVar U32 "result1"
     cppSub uOne uTwo >>= smtAssign result1
 
-    runSolver
+    liftSMT' runSolver
 
   vtest r $ M.fromList [ ("result0", 1)
                        , ("result0_undef", 0)
@@ -176,19 +177,19 @@ subTest = benchTestCase "sub" $ do
 addTest :: BenchTest
 addTest = benchTestCase "add" $ do
 
-  r <- evalSMT Nothing $ do
+  r <- evalIR Nothing $ do
 
     one <- newInt U32 1
     two <- newInt U32 2
     umax <- newInt U32 4294967295
 
-    result <- newSMTVar U32 "result"
+    result <- newVar U32 "result"
     cppAdd one two >>= smtAssign result
 
-    overflow <- newSMTVar U32 "overflow"
+    overflow <- newVar U32 "overflow"
     cppAdd one umax >>= smtAssign overflow
 
-    runSolver
+    liftSMT' runSolver
 
   vtest r $ M.fromList [ ("result", 3)
                        , ("result_undef", 0)

@@ -247,10 +247,11 @@ cppMax right left
   | otherwise = error "Compiler error: Can't use std:max on a signed and unsigned"
 
 -- | Make this more general: only supports 32-bit right now, bad!
+cppShiftLeft :: SMTNode -> SMTNode -> IR SMTNode
 cppShiftLeft left right
   | not (int32 $ t left) || not (int32 $ t right) =
       error "Only support 32 bit SHL"
-  | isUnsignedInt $ t left = do
+  | isUnsignedInt $ t left = liftSMT' $ do
       parentsUndef <- SMT.or (u left) (u right)
         -- If the right is signed and negative, undefined behavior
       undef <- if isSignedInt $ t right
@@ -288,6 +289,7 @@ cppShiftLeft left right
       return $ mkNode result (t left) result
 
 -- | Also make this more general (only supports 32)
+cppShiftRight :: SMTNode -> SMTNode -> IR SMTNode
 cppShiftRight left right
   | not (int32 $ t left) || not (int32 $ t right) =
       error "Only support 32 bit SHR"
@@ -306,22 +308,19 @@ cppShiftRight left right
       parentsUndef <- SMT.or (u left) (u right)
       SMT.or opUndef parentsUndef
 
-cppCond cond trueBr falseBr = do
+cppCond :: SMTNode
+        -> SMTNode
+        -> SMTNode
+        -> IR SMTNode
+cppCond cond trueBr falseBr = liftSMT' $ do
   unless (t cond == Bool) $ error "Conditional must be a boolean"
   unless (t trueBr == t falseBr) $ error "Both branches of cond must have same type"
   result <- SMT.cond (n cond) (n trueBr) (n falseBr)
   undef <- SMT.or (u cond) (u trueBr) >>= SMT.or (u falseBr)
   return $ mkNode result (t trueBr) undef
 
+cppCast :: SMTNode -> Type -> IR SMTNode
 cppCast node toTy
-  -- | isDouble fromTy = case toTy of
-  --                       Signed     -> do
-  --                         result <- D.castFp (vnode node) 32
-  --                         return $ VNode (vundef node) result Signed
-  --                       Signed64   -> do
-  --                         result <- D.castFp (vnode node) 64
-  --                         return $ VNode (vundef node) result Signed64
-  --                         _          -> error "We only suppor Double to int32 casts rn"
     | int8 fromTy = case toTy of
                       _ | int8 toTy -> return $ mkNode (n node) toTy (u node)
                       _ | int16 toTy -> do
