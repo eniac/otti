@@ -2,10 +2,8 @@ module Codegen.SMTGen where
 import           AST.Simple
 import           Codegen.CompilerMonad
 import           Control.Monad.State.Strict (forM, forM_, unless, void)
-import           IR.IRMonad                 (IR)
 import           IR.SMT
 import           Prelude                    hiding (Num)
-import           Targets.SMT                (SMT)
 
 {-|
 

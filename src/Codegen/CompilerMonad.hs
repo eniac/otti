@@ -8,7 +8,6 @@ import           Data.List                  (isInfixOf)
 import qualified Data.Map                   as M
 import           IR.IRMonad
 import           IR.SMT
-import           Targets.SMT                (SMT, SMTResult, runSolver)
 import qualified Z3.Monad                   as Z
 
 {-|
@@ -65,9 +64,6 @@ instance MonadFail Compiler where
 emptyCompilerState :: CompilerState
 emptyCompilerState = CompilerState M.empty M.empty M.empty [] [] [] M.empty []
 
-liftSMT :: SMT a -> Compiler a
-liftSMT = liftIR . liftSMT'
-
 liftIR :: IR a -> Compiler a
 liftIR = Compiler . lift
 
@@ -83,7 +79,7 @@ execCodegen :: Maybe Integer -> Compiler a -> IO CompilerState
 execCodegen mt act = snd <$> runCodegen mt act
 
 runSolverOnSMT :: Compiler SMTResult
-runSolverOnSMT = liftSMT runSolver
+runSolverOnSMT = liftIR smtResult
 
 ---
 ---

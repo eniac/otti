@@ -1,10 +1,9 @@
 module IR.SMTTest where
-import           AST.Simple           (Type (..))
+import           AST.Simple (Type (..))
 import           BenchUtils
-import qualified Data.Map             as M
+import qualified Data.Map   as M
 import           IR.IRMonad
 import           IR.SMT
-import           Targets.SMT.SMTMonad (runSolver)
 import           Utils
 
 {-| Unit tests for the SMT IR layer. There are also automatically-generated quickcheck tests -}
@@ -33,7 +32,7 @@ negTest = benchTestCase "neg" $ do
     resultDouble <- newVar Double "result_double"
     cppNeg onePointTwo >>= smtAssign resultDouble
 
-    liftSMT' $ runSolver
+    smtResult
 
   vtest r $ M.fromList [ ("result", 4294967295)
                        , ("result_double", -1.2)
@@ -58,7 +57,7 @@ bitwiseNegTest = benchTestCase "bitwise neg" $ do
     result2 <- newVar U32 "result2"
     cppBitwiseNeg zero >>= smtAssign result2
 
-    liftSMT' $ runSolver
+    smtResult
 
   vtest r $ M.fromList [ ("result0", 0)
                        , ("result1", 0)
@@ -102,7 +101,7 @@ compareTest = benchTestCase "comparisons" $ do
     result7 <- newVar Bool "result7"
     cppLte d1 d2 >>= smtAssign result7
 
-    liftSMT' runSolver
+    smtResult
 
   vtest r $ M.fromList [ ("result0", 1)
                        , ("result1", 1)
@@ -138,7 +137,7 @@ bitwiseOpTest = benchTestCase "bitwise op" $ do
     result3 <- newVar U32 "result3"
     cppXor umax one >>= smtAssign result3
 
-    liftSMT' runSolver
+    smtResult
 
   vtest r $ M.fromList [ ("result0", 2)
                        , ("result1", 0)
@@ -165,7 +164,7 @@ subTest = benchTestCase "sub" $ do
     result1 <- newVar U32 "result1"
     cppSub uOne uTwo >>= smtAssign result1
 
-    liftSMT' runSolver
+    smtResult
 
   vtest r $ M.fromList [ ("result0", 1)
                        , ("result0_undef", 0)
@@ -189,7 +188,7 @@ addTest = benchTestCase "add" $ do
     overflow <- newVar U32 "overflow"
     cppAdd one umax >>= smtAssign overflow
 
-    liftSMT' runSolver
+    smtResult
 
   vtest r $ M.fromList [ ("result", 3)
                        , ("result_undef", 0)
