@@ -6,7 +6,6 @@ import           Control.Monad.Reader
 import           Control.Monad.State.Strict
 import           Data.List                  (isInfixOf)
 import qualified Data.Map                   as M
-import           IR.IRMonad
 import           IR.SMT
 import qualified Z3.Monad                   as Z
 

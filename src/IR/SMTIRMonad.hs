@@ -1,5 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module IR.IRMonad where
+module IR.SMTIRMonad where
 import           Control.Monad
 import           Control.Monad.State.Strict
 import qualified Data.Map                   as M

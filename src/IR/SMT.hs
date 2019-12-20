@@ -45,7 +45,7 @@ import           Control.Monad
 import           Control.Monad.State.Strict
 import qualified Data.Map                   as M
 import           IR.IR
-import           IR.IRMonad
+import           IR.SMTIRMonad
 import           Targets.SMT                (Node, SMT, SMTResult)
 import qualified Targets.SMT                as SMT
 import           Z3.Monad                   as Z
