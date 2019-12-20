@@ -6,6 +6,7 @@ import           Control.Monad.Reader
 import           Control.Monad.State.Strict
 import           Data.List                  (isInfixOf)
 import qualified Data.Map                   as M
+import           IR.IRMonad
 import           IR.SMT
 import           Targets.SMT
 import qualified Z3.Monad                   as Z
@@ -47,7 +48,7 @@ data CompilerState = CompilerState { -- Mapping AST variables etc to information
                                    , memory            :: [SMTNode]
                                    }
 
-newtype Compiler a = Compiler (StateT CompilerState SMT a)
+newtype Compiler a = Compiler (StateT CompilerState IR a)
     deriving (Functor, Applicative, Monad, MonadState CompilerState, MonadIO)
 
 instance Z.MonadZ3 Compiler where
@@ -65,12 +66,15 @@ emptyCompilerState :: CompilerState
 emptyCompilerState = CompilerState M.empty M.empty M.empty [] [] [] M.empty []
 
 liftSMT :: SMT a -> Compiler a
-liftSMT = Compiler . lift
+liftSMT = liftIR . liftSMT'
+
+liftIR :: IR a -> Compiler a
+liftIR = Compiler . lift
 
 runCodegen :: Maybe Integer -- ^ Optional timeout
            -> Compiler a       -- ^ Codegen computation
            -> IO (a, CompilerState)
-runCodegen mTimeout (Compiler act) = evalSMT mTimeout $ runStateT act emptyCompilerState
+runCodegen mTimeout (Compiler act) = evalIR mTimeout $ runStateT act emptyCompilerState
 
 evalCodegen :: Maybe Integer -> Compiler a -> IO a
 evalCodegen mt act = fst <$> runCodegen mt act
@@ -162,7 +166,7 @@ getNodeFor varName = do
     Just node -> return node
     Nothing -> do
       ty <- getType varName
-      node <- liftSMT $ newSMTVar ty $ codegenToName var
+      node <- liftIR $ newSMTVar ty $ codegenToName var
       put $ s0 { vars = M.insert var node allVars }
       return node
 

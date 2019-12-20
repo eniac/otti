@@ -27,8 +27,8 @@ instance Z.MonadZ3 IR where
 emptyIRState :: IRState
 emptyIRState = IRState 32 $ Flat 32
 
-liftSMT :: SMT a -> IR a
-liftSMT = IR . lift
+liftSMT' :: SMT a -> IR a
+liftSMT' = IR . lift
 
 -- | Run SMT computation
 runIR :: Maybe Integer -- ^ Optional timeout

@@ -6,6 +6,7 @@ import           Control.Monad
 import           Control.Monad.State.Strict
 import qualified Data.Map                   as M
 import           IR.IR
+import           IR.IRMonad
 import           Targets.SMT                (Node, SMT)
 import qualified Targets.SMT                as SMT
 import           Z3.Monad                   as Z
@@ -40,7 +41,7 @@ n = smtNode
 newSMTVar :: Type
           -> String
           -> IR SMTNode
-newSMTVar ty name = liftSMT $ do
+newSMTVar ty name = liftSMT' $ do
   sort <- case ty of
             Double -> SMT.doubSort
             _      -> SMT.bvSort $ numBits ty

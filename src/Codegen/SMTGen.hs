@@ -77,7 +77,7 @@ genCallSMT name args = do
   smtArgs <- mapM genExprSMT args
   -- Make a new return value for the function and push it onto the stack
   function <- getFunction name
-  returnVal <- liftSMT $ newSMTVar (fTy function) (name ++ "_retVal") -- make more robust
+  returnVal <- liftIR $ newSMTVar (fTy function) (name ++ "_retVal") -- make more robust
   pushFunction name returnVal
   -- Get the formal arguments and set them equal to the arguments
   let formalArgs = fArgs function
