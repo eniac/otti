@@ -57,6 +57,10 @@ genExprSMT expr =
       v' <- genExprSMT v
       liftSMT $ cppCast v' t
     Call name args -> genCallSMT name args
+    Load e -> do
+      addr <- genExprSMT e
+      memory <- getMemory
+      smtLoad memory addr
     _          -> error "Unsupported instruction"
 
 genBinOpSMT :: Expr

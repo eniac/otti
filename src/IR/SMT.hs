@@ -110,6 +110,13 @@ smtImplies a b = do
   notA <- cppBitwiseNeg a
   cppOr notA b >>= smtAssert
 
+-- Memory
+
+smtLoad = undefined
+
+smtStore = undefined
+
+
 -- Unary operations
 
 -- | C++ unary negation---meaning 5 becomes -5. This is not a bitwise negation

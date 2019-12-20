@@ -20,19 +20,23 @@ data Type = U8 | S8
           | U64 | S64
           | Bool
           | Double
+          | Ptr64 Type
+          | Ptr32 Type
           deriving (Eq, Ord, Show)
 
 numBits :: Type -> Int
-numBits U8     = 8
-numBits S8     = 8
-numBits U16    = 16
-numBits S16    = 16
-numBits U32    = 32
-numBits S32    = 32
-numBits U64    = 64
-numBits S64    = 64
-numBits Bool   = 1
-numBits Double = 64
+numBits U8      = 8
+numBits S8      = 8
+numBits U16     = 16
+numBits S16     = 16
+numBits U32     = 32
+numBits S32     = 32
+numBits U64     = 64
+numBits S64     = 64
+numBits Bool    = 1
+numBits Double  = 64
+numBits Ptr64{} = 64
+numBits Ptr32{} = 32
 
 isSignedInt, isUnsignedInt, isDouble :: Type -> Bool
 isSignedInt S8  = True
@@ -47,6 +51,9 @@ isUnsignedInt U64 = True
 isUnsignedInt _   = False
 isDouble Double = True
 isDouble _      = False
+isPointer Ptr64{} = True
+isPointer Ptr32{} = True
+isPointer _       = False
 
 int8, int16, int32, int64 :: Type -> Bool
 int8 S8 = True

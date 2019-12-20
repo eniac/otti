@@ -71,6 +71,9 @@ doubleNum doub = do
 --- Sorts
 ---
 
+arraySort :: MonadZ3 z3 => Z.Sort -> Z.Sort -> z3 Z.Sort
+arraySort = Z.mkArraySort
+
 bvSort :: MonadZ3 z3 => Int -> z3 Z.Sort
 bvSort = Z.mkBvSort
 

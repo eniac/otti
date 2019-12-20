@@ -20,6 +20,7 @@ module Targets.SMT ( Sort
                    , doubleNum
                    , bvSort
                    , doubSort
+                   , arraySort
                      -- * Operations
                    , eq
                    , add

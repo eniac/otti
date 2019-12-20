@@ -44,6 +44,7 @@ data CompilerState = CompilerState { -- Mapping AST variables etc to information
                                    , returnValues      :: [SMTNode]
                                      -- SMT variables and memory
                                    , vars              :: M.Map CodegenVar SMTNode
+                                   , memory            :: [SMTNode]
                                    }
 
 newtype Compiler a = Compiler (StateT CompilerState SMT a)
@@ -61,7 +62,7 @@ instance MonadFail Compiler where
 ---
 
 emptyCompilerState :: CompilerState
-emptyCompilerState = CompilerState M.empty M.empty M.empty [] [] [] M.empty
+emptyCompilerState = CompilerState M.empty M.empty M.empty [] [] [] M.empty []
 
 liftSMT :: SMT a -> Compiler a
 liftSMT = Compiler . lift
@@ -223,4 +224,11 @@ getCurrentGuardNode = do
   liftSMT $ if null guards
   then smtTrue
   else foldM cppAnd (head guards) (init guards)
+
+---
+--- Memory
+---
+
+getMemory :: Compiler SMTNode
+getMemory = undefined
 
