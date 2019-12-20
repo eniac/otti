@@ -162,7 +162,8 @@ smtResult = liftSMT SMT.runSolver
 smtLoad :: SMTNode
         -> SMTNode
         -> IR SMTNode
-smtLoad addr mem = do
+smtLoad addr memIR = do
+  let mem = n memIR
   memStrat <- getMemoryStrategy
   case memStrat of
     Flat blockSize -> do
@@ -192,12 +193,17 @@ smtLoad addr mem = do
 
       when (blocksToRead > 2000) $ error "Load is too large"
 
+      -- Read all the blocks and then smoosh them together into one bv
       reads <- forM [0..blocksToRead - 1] $ \offset -> do
         nextPointer <- error ""
-        error "read is here"
+        SMT.load mem nextPointer
+      wholeRead <- SMT.concatMany reads
 
-      wholeRead <- SMT.concatMany $ map n reads
-      readStart <- error "urem"
+      -- Get the start location of the read in wholeRead
+      widthSMT <- SMT.bvNum (numBits $ t addr) $ fromIntegral blockSize
+      readStart <- SMT.urem (n addr) widthSMT
+
+      -- Perform the read!
       result <- SMT.getBitsFrom wholeRead readSize wholeRead
 
       undef <- error ""

@@ -2,7 +2,6 @@ module IR.SMTTest where
 import           AST.Simple (Type (..))
 import           BenchUtils
 import qualified Data.Map   as M
-import           IR.IRMonad
 import           IR.SMT
 import           Utils
 

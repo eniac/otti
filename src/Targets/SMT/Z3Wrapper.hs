@@ -112,8 +112,21 @@ mkTypeSafeBinary op opName a b = do
   op a b
 
 ---
---- Getting bits out of bitvectors, and setting bits in bitvectors
+--- Loading, storing, getting, setting
 ---
+
+load :: MonadZ3 z3
+     => AST
+     -> AST
+     -> z3 AST
+load a i = Z.mkSelect a i
+
+store :: MonadZ3 z3
+      => AST
+      -> AST
+      -> AST
+      -> z3 AST
+store a i v = Z.mkStore a i v
 
 -- | Get a given number of bits from a structure starting from a given symbolic index
 getBitsFrom :: MonadZ3 z3

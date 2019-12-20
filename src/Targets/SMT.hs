@@ -21,9 +21,11 @@ module Targets.SMT ( Sort
                    , bvSort
                    , doubSort
                    , arraySort
-                     -- * Accessing certain bits
+                     -- * Accessing bits and arrays
                    , getBitsFrom
                    , setBitsTo
+                   , load
+                   , store
                      -- * Operations
                    , eq
                    , add
