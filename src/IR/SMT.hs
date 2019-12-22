@@ -185,7 +185,8 @@ smtLoad addr memIR = do
       -- The estimate of the block size is now one, which sounds right.
       -- Finally, the overestimate is again 2
 
-      let readSize = numBits $ pointeeType $ t addr
+      let pointeeTy = pointeeType $ t addr
+          readSize = numBits pointeeTy
           underEstimateBlocks = readSize `div` blockSize
           estimateBlocks = if underEstimateBlocks == 0 then 1 else underEstimateBlocks
           overEstimateBlocks = estimateBlocks + 1 -- if > 8
@@ -194,20 +195,20 @@ smtLoad addr memIR = do
       when (blocksToRead > 2000) $ error "Load is too large"
 
       -- Read all the blocks and then smoosh them together into one bv
+      let pointerSize = numBits $ t addr
       reads <- forM [0..blocksToRead - 1] $ \offset -> do
-        nextPointer <- error ""
+        nextPointer <- SMT.bvNum pointerSize $ fromIntegral offset
         SMT.load mem nextPointer
       wholeRead <- SMT.concatMany reads
 
       -- Get the start location of the read in wholeRead
-      widthSMT <- SMT.bvNum (numBits $ t addr) $ fromIntegral blockSize
+      widthSMT <- SMT.bvNum pointerSize $ fromIntegral blockSize
       readStart <- SMT.urem (n addr) widthSMT
 
       -- Perform the read!
       result <- SMT.getBitsFrom wholeRead readSize wholeRead
-
-      undef <- error ""
-      error ""
+      let undef = u addr
+      return $ mkNode result pointeeTy undef
 
 smtStore = undefined
 
