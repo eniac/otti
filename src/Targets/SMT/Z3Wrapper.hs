@@ -388,11 +388,6 @@ castToWidth varToCast newWidth = do
 
 -- Floating point wrappers
 
--- double :: MonadZ3 z3 => Double -> z3 AST
--- double doub = do
---   doubSort <- Z.mkDoubleSort
---   Z.mkFpFromDouble doub doubSort
-
 inf :: MonadZ3 z3 => Bool -> z3 AST
 inf positive = do
   doubSort <- Z.mkDoubleSort
