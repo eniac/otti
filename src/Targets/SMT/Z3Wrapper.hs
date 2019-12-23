@@ -137,7 +137,7 @@ store a i v = Z.mkStore a i v
 getBitsFrom :: MonadZ3 z3
             => AST -- ^ In this structure
             -> Int -- ^ How large of a read
-            -> AST -- ^ Starting from this index
+            -> AST -- ^ Starting from this index [n......0]
             -> z3 AST
 getBitsFrom structure width index = do
   castIndex <- castToWidth index 64
