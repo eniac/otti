@@ -1,4 +1,9 @@
-module Codegen.SMTGen where
+module Codegen.SMTGen ( genVarSMT
+                      , genNumSMT
+                      , genExprSMT
+                      , genStmtSMT
+                      ,
+                      ) where
 import           AST.Simple
 import           Codegen.CompilerMonad
 import           Control.Monad.State.Strict (forM, forM_, unless, void)

@@ -14,6 +14,7 @@ irTests = benchTestGroup "IR tests" [ negTest
                                     , bitwiseOpTest
                                     , subTest
                                     , addTest
+                                    , memTest
                                     ]
 
 negTest :: BenchTest
@@ -194,5 +195,15 @@ addTest = benchTestCase "add" $ do
                        , ("overflow", 0)
                        , ("overflow_undef", 1)
                        ]
+  satTest r
+
+memTest :: BenchTest
+memTest = benchTestCase "memory" $ do
+
+  r <- evalIR Nothing $ do
+
+    smtResult
+
+  vtest r $ M.fromList [ ]
   satTest r
 

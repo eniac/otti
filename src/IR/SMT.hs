@@ -206,7 +206,7 @@ smtLoad addr memIR = do
       readStart <- SMT.urem (n addr) widthSMT
 
       -- Perform the read!
-      result <- SMT.getBitsFrom wholeRead readSize wholeRead
+      result <- SMT.getBitsFrom wholeRead readSize readStart
       let undef = u addr
       return $ mkNode result pointeeTy undef
 
