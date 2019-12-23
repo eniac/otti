@@ -25,14 +25,14 @@ getBitsTest = benchTestCase "getBitsFrom" $ do
     -- 1010101010101010
     oneZero16 <- bvNum 16 43690
     result1 <- newVar "result1" bv8
-    index <- bvNum 8 3
+    index <- bvNum 8 12
     -- 01010101
     getBitsFrom oneZero16 8 index >>= assign result1
 
     -- 1011010001010101
     rando16 <- bvNum 16 46165
     result2 <- newVar "result2" bv16
-    index <- bvNum 16 0
+    index <- bvNum 16 15
     getBitsFrom rando16 16 index >>= assign result2
 
     runSolver

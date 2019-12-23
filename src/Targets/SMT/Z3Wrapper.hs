@@ -147,8 +147,12 @@ getBitsFrom :: MonadZ3 z3
 getBitsFrom structure width index = do
   castIndex <- castToWidth index 64
   structureWidth <- getBVSortSize "getBitsFrom" structure
+  -- Easier to think about slicing indeices [n..0] so convert the index
+  structureWidthSym <- bvNum 64 $ fromIntegral structureWidth
+  subIndex <- sub structureWidthSym castIndex
+  finalIndex <- bvNum 64 1 >>= sub subIndex
   -- Shift structure so the start of the element is the high bit
-  elemAtHigh <- sll structure castIndex
+  elemAtHigh <- sll structure finalIndex
   -- Slice from the high bit to the width of the element
   let elemStart = structureWidth - 1
       elemEnd = structureWidth - width
@@ -157,7 +161,7 @@ getBitsFrom structure width index = do
 -- | Set a given number of bits in a structure starting from a given symbolic index
 setBitsTo :: AST -- ^ Set to this
           -> AST -- ^ In this structure
-          -> AST -- ^ Starting from this index [0..n] AH!
+          -> AST -- ^ Starting from this index [0..n]
           -> SMT AST -- ^ result
 setBitsTo element structure index = do
   castIndex <- castToWidth index 64
