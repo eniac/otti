@@ -142,7 +142,7 @@ store a i v = Z.mkStore a i v
 getBitsFrom :: MonadZ3 z3
             => AST -- ^ In this structure
             -> Int -- ^ How large of a read
-            -> AST -- ^ Starting from this index [n......0]
+            -> AST -- ^ Starting from this index [0..n]
             -> z3 AST
 getBitsFrom structure width index = do
   castIndex <- castToWidth index 64
@@ -155,11 +155,10 @@ getBitsFrom structure width index = do
   slice elemAtHigh elemStart elemEnd
 
 -- | Set a given number of bits in a structure starting from a given symbolic index
-setBitsTo :: MonadZ3 z3
-          => AST -- ^ Set to this
+setBitsTo :: AST -- ^ Set to this
           -> AST -- ^ In this structure
-          -> AST -- ^ Starting from this index [n...0]
-          -> z3 AST -- ^ result
+          -> AST -- ^ Starting from this index [0..n] AH!
+          -> SMT AST -- ^ result
 setBitsTo element structure index = do
   castIndex <- castToWidth index 64
   -- Information we will need later
@@ -172,8 +171,6 @@ setBitsTo element structure index = do
   then return element
   -- Otherwise we have to change some bits while preserving others
   else do
-    liftIO $ print widthDifference
-
   -- struct: 1001..01011...1011
   -- mask:   1111..00000...1111
   ----------------------------- AND
@@ -191,8 +188,6 @@ setBitsTo element structure index = do
     preNegMask <- srl preShiftMask castIndex
     -- (2) Bitwise negate the whole thing
     mask <- not preNegMask
-    maskVar <- bvSort structureWidth >>= newVar "maskVar"
-    assign mask maskVar
 
     -- And the struct with the mask
     res <- and mask structure

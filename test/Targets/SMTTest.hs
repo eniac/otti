@@ -52,30 +52,15 @@ setBitsTest = benchTestCase "setBitsTo" $ do
     bv16 <- bvSort 16
     bv32 <- bvSort 32
 
-    ones16 <- ones 16
-    result0 <- newVar "result0" bv16
-    assign ones16 result0
-
-    -- 1111111111111110
-    result1 <- newVar "result1" bv16
-    bits16 <- bvNum 16 65534
-    one1 <- bvNum 1 1
-    index <- bvNum 4 0
-    -- 1111111111111111
-    setBitsTo one1 bits16 index >>= assign result1
-
-    -- result0 <- newVar "result0" bv8
-    -- highSet <- bvNum 8 240
-    -- lowSet <- bvNum 4 15
-    -- index <- bvNum 16 0
-    -- setBitsTo lowSet highSet index >>= assign result0
-
+    result0 <- newVar "result0" bv8
+    lowSet <- bvNum 8 15
+    highBits <- bvNum 4 15
+    index <- bvNum 16 0
+    setBitsTo highBits lowSet index >>= assign result0
 
 
     runSolver
 
-  vtest r $ M.fromList [-- ("result0", 255)
---                        ("result1", 65535)
-                       ("result0", 65535)
+  vtest r $ M.fromList [ ("result0", 255)
                        ]
 
