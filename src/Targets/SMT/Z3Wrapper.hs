@@ -67,6 +67,11 @@ doubleNum doub = do
   doubSort <- Z.mkDoubleSort
   Z.mkFpFromDouble doub doubSort
 
+ones :: MonadZ3 z3 => Int -> z3 AST
+ones width = do
+  one <- bvNum 1 1
+  replicate one width >>= concatMany
+
 ---
 --- Sorts
 ---
