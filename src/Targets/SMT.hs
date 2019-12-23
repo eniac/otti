@@ -21,6 +21,7 @@ module Targets.SMT ( Sort
                    , bvSort
                    , doubSort
                    , arraySort
+                   , ones
                      -- * Accessing bits and arrays
                    , getBitsFrom
                    , setBitsTo

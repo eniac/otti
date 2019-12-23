@@ -2,11 +2,11 @@ module Targets.SMT.Z3Wrapper where
 import           Control.Monad.State.Strict (foldM, liftIO, unless)
 import qualified Data.Map.Strict            as M
 import           Prelude                    hiding (and, concat, not, or)
+import           Targets.SMT.SMTMonad
 import           Z3.Monad                   (MonadZ3)
 import qualified Z3.Monad                   as Z
 
 type Sort = Z.Sort
-type Node = Z.AST
 type AST = Z.AST
 
 solverToString :: MonadZ3 z3 => z3 String
@@ -70,7 +70,7 @@ doubleNum doub = do
 ones :: MonadZ3 z3 => Int -> z3 AST
 ones width = do
   one <- bvNum 1 1
-  replicate one width >>= concatMany
+  concatMany $ replicate width one
 
 ---
 --- Sorts
@@ -158,7 +158,7 @@ getBitsFrom structure width index = do
 setBitsTo :: MonadZ3 z3
           => AST -- ^ Set to this
           -> AST -- ^ In this structure
-          -> AST -- ^ Starting from this index
+          -> AST -- ^ Starting from this index [n...0]
           -> z3 AST -- ^ result
 setBitsTo element structure index = do
   castIndex <- castToWidth index 64
@@ -172,6 +172,7 @@ setBitsTo element structure index = do
   then return element
   -- Otherwise we have to change some bits while preserving others
   else do
+    liftIO $ print widthDifference
 
   -- struct: 1001..01011...1011
   -- mask:   1111..00000...1111
@@ -183,7 +184,7 @@ setBitsTo element structure index = do
 
     -- Consturct *mask*:
     -- (0) Make [1 repeat width(element)][0 repeat width(structure - element0]
-    ones <- error "Do not have ones"--Z.getSort element >>= B.ones
+    ones <- ones elementWidth
     zeros <- bvNum widthDifference 0
     preShiftMask <- concat ones zeros
     -- (1) Right shift to start at the correct index

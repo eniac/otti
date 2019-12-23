@@ -1,5 +1,5 @@
 module IR.IR where
-import           Targets.SMT.Z3Wrapper
+import           Targets.SMT
 
 -- | IR node.
 -- An IR node consists of an SMT node and some optional other fields

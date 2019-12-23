@@ -9,9 +9,10 @@ import           Data.List                  (foldl')
 import           Data.List.Split
 import qualified Data.Map.Strict            as M
 import           Data.Maybe                 (catMaybes)
-import           IR.IR
-import           Targets.SMT.Z3Wrapper
+import           Z3.Monad                   (Sort)
 import qualified Z3.Monad                   as Z
+
+type Node = Z.AST
 
 ---
 --- Monad defintions

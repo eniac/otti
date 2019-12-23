@@ -6,7 +6,8 @@ import           Utils
 
 smtTests :: BenchTest
 smtTests = benchTestGroup "SMT tests" [ getBitsTest
-                                     ]
+                                      , setBitsTest
+                                      ]
 
 getBitsTest :: BenchTest
 getBitsTest = benchTestCase "getBitsFrom" $ do
@@ -41,4 +42,42 @@ getBitsTest = benchTestCase "getBitsFrom" $ do
                        , ("result2", 46165)
                        ]
   satTest r
+
+setBitsTest :: BenchTest
+setBitsTest = benchTestCase "setBitsTo" $ do
+
+  r <- evalSMT Nothing $ do
+
+    bv8 <- bvSort 8
+    bv16 <- bvSort 16
+    bv32 <- bvSort 32
+
+    ones16 <- ones 16
+    result0 <- newVar "result0" bv16
+    assign ones16 result0
+
+
+
+    -- 1111111111111110
+    result1 <- newVar "result1" bv16
+    bits16 <- bvNum 16 65534
+    one1 <- bvNum 1 1
+    index <- bvNum 4 0
+    -- 1111111111111111
+    setBitsTo one1 bits16 index >>= assign result1
+
+    -- result0 <- newVar "result0" bv8
+    -- highSet <- bvNum 8 240
+    -- lowSet <- bvNum 4 15
+    -- index <- bvNum 16 0
+    -- setBitsTo lowSet highSet index >>= assign result0
+
+
+
+    runSolver
+
+  vtest r $ M.fromList [-- ("result0", 255)
+--                        ("result1", 65535)
+                       ("result0", 65535)
+                       ]
 
