@@ -106,7 +106,12 @@ typeSafeBinary op ast1 ast2 = do
   size2 <- Z.getBvSortSize s2
   unless (size1 == size2) $ error $ unwords [op, ": bit-widths must match"]
 
---mkTypeSafeBinary :: MonadZ3 z3 => String -> AST -> AST -> z3 ()
+mkTypeSafeBinary :: MonadZ3 z3
+                 => (AST -> AST -> z3 AST)
+                 -> String
+                 -> AST
+                 -> AST
+                 -> z3 AST
 mkTypeSafeBinary op opName a b = do
   typeSafeBinary opName a b
   op a b
@@ -239,13 +244,13 @@ neg :: MonadZ3 z3 => AST -> z3 AST
 neg = Z.mkBvneg
 
 sll :: MonadZ3 z3 => AST -> AST -> z3 AST
-sll = mkTypeSafeBinary Z.mkBvshl "sll"
+sll = shiftWrapper $ mkTypeSafeBinary Z.mkBvshl "sll"
 
 srl :: MonadZ3 z3 => AST -> AST -> z3 AST
-srl = mkTypeSafeBinary Z.mkBvlshr "srl"
+srl = shiftWrapper $ mkTypeSafeBinary Z.mkBvlshr "srl"
 
 sra :: MonadZ3 z3 => AST -> AST -> z3 AST
-sra = mkTypeSafeBinary Z.mkBvashr "sra"
+sra = shiftWrapper $ mkTypeSafeBinary Z.mkBvashr "sra"
 
 smin :: MonadZ3 z3 => AST -> AST -> z3 AST
 smin x y = do
@@ -344,7 +349,7 @@ concatMany [] = error "Cannot concat an empty list"
 concatMany xs = foldM concat (head xs) (tail xs)
 
 ---
---- Shifts: Do we need these anymore or not? Get rid of if not
+--- Safe shifting wrapper, casts both operands to same width
 ---
 
 -- | Wrapper for boolector shift operations
@@ -357,12 +362,6 @@ shiftWrapper shiftOp toShift shiftVal = do
   toShiftSort <- Z.getSort toShift
   castVal <- Z.getBvSortSize toShiftSort >>= castToWidth shiftVal
   shiftOp toShift castVal
-
--- | Shift operations
-safeSll, safeSrl, safeSra :: MonadZ3 m => AST -> AST -> m AST
-safeSll = shiftWrapper sll
-safeSrl = shiftWrapper srl
-safeSra = shiftWrapper sra
 
 ---
 --- Casting
