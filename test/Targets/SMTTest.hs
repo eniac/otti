@@ -56,8 +56,6 @@ setBitsTest = benchTestCase "setBitsTo" $ do
     result0 <- newVar "result0" bv16
     assign ones16 result0
 
-
-
     -- 1111111111111110
     result1 <- newVar "result1" bv16
     bits16 <- bvNum 16 65534

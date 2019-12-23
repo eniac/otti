@@ -191,6 +191,8 @@ setBitsTo element structure index = do
     preNegMask <- srl preShiftMask castIndex
     -- (2) Bitwise negate the whole thing
     mask <- not preNegMask
+    maskVar <- bvSort structureWidth >>= newVar "maskVar"
+    assign mask maskVar
 
     -- And the struct with the mask
     res <- and mask structure
