@@ -81,6 +81,11 @@ isArray :: Type -> Bool
 isArray Array{} = True
 isArray _       = False
 
+pointeeType :: Type -> Type
+pointeeType (Ptr64 ty) = ty
+pointeeType (Ptr32 ty) = ty
+pointeeType _          = error "Can't get pointee type of non-pointer"
+
 ---
 --- Variables
 ---

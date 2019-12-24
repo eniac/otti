@@ -43,7 +43,8 @@ module IR.SMT ( SMTNode
               ) where
 import           AST.Simple                 (Type (..), int16, int32, int64,
                                              int8, isDouble, isSignedInt,
-                                             isUnsignedInt)
+                                             isUnsignedInt, numBits,
+                                             pointeeType)
 import           Control.Monad
 import           Control.Monad.State.Strict
 import qualified Data.Map                   as M
@@ -553,25 +554,6 @@ cppCast node toTy
           extend = if isSignedInt toTy then SMT.sext else SMT.uext
 
 -- Extra helpers
-
-numBits :: Type -> Int
-numBits Bool    = 1
-numBits U8      = 8
-numBits S8      = 8
-numBits U16     = 16
-numBits S16     = 16
-numBits U32     = 32
-numBits S32     = 32
-numBits U64     = 64
-numBits S64     = 64
-numBits Double  = 64
-numBits Ptr64{} = 64
-numBits Ptr32{} = 32
-
-pointeeType :: Type -> Type
-pointeeType (Ptr64 ty) = ty
-pointeeType (Ptr32 ty) = ty
-pointeeType _          = error "Can't get pointee type of non-pointer"
 
 -- | Make a new node that is defined if its parents are defined
 maybeDefinedNode :: SMTNode -- ^ Parent 1

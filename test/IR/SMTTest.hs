@@ -202,9 +202,13 @@ structTest :: BenchTest
 structTest = benchTestCase "structs" $ do
 
   r <- evalIR Nothing $ do
+    let structTy = Struct [U8, U8]
+    -- 00000011 | 00100100
+    struct <- newIntStruct structTy [3, 36]
+    newVar structTy "resultVar" >>= smtAssign struct
     smtResult
 
-  vtest r $ M.fromList []
+  vtest r $ M.fromList [ ("resultVar", 804) ]
   satTest r
 
 memTest :: BenchTest
