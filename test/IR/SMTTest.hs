@@ -206,9 +206,18 @@ structTest = benchTestCase "structs" $ do
     -- 00000011 | 00100100
     struct <- newIntStruct structTy [3, 36]
     newVar structTy "resultVar" >>= smtAssign struct
+
+    elemOne <- getField struct 0
+    elemTwo <- getField struct 1
+    newVar U8 "elemOne" >>= smtAssign elemOne
+    newVar U8 "elemTwo" >>= smtAssign elemTwo
+
     smtResult
 
-  vtest r $ M.fromList [ ("resultVar", 804) ]
+  vtest r $ M.fromList [ ("resultVar", 804)
+                       , ("elemOne", 3)
+                       , ("elemTwo", 36)
+                       ]
   satTest r
 
 memTest :: BenchTest

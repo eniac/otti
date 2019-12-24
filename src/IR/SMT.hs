@@ -20,6 +20,9 @@ module IR.SMT ( SMTNode
               , newIntStruct
               , newPtr
               , newDouble
+                -- * Struct
+              , getIdx
+              , getField
                 -- * C++ IR
               , cppNeg
               , cppBitwiseNeg
@@ -45,7 +48,7 @@ import           AST.Simple                 (Type (..), arrayBaseType, int16,
                                              int32, int64, int8, isArray,
                                              isDouble, isSignedInt,
                                              isUnsignedInt, numBits,
-                                             pointeeType)
+                                             pointeeType, structFieldTypes)
 import           Control.Monad
 import           Control.Monad.State.Strict
 import qualified Data.Map                   as M
@@ -107,7 +110,7 @@ newIntStruct ty vals = do
       unless (length tys == length vals) $ error "Wrong number of element args to struct"
       forM (zip tys vals) $ uncurry newInt
     _ -> error "Wrong type to newIntStruct"
-  result <- SMT.concatMany $ map n resultElems
+  result <- SMT.concatMany $ map n $ resultElems
   undef <- SMT.bvNum 1 0
   return $ mkNode result ty undef
 
@@ -199,7 +202,7 @@ smtImplies a b = do
 smtResult :: IR SMTResult
 smtResult = liftSMT SMT.runSolver
 
--- Struct access
+-- Struct and array access
 
 getIdx :: SMTNode
        -> SMTNode
@@ -213,6 +216,22 @@ getIdx arr idx = do
   result <- SMT.getBitsFromBE (n arr) elemSize idxBits
   undef <- SMT.or (u arr) (u idx)
   return $ mkNode result arrBaseType undef
+
+getField :: SMTNode
+         -> Int
+         -> IR SMTNode
+getField struct idx' = do
+  let structType = t struct
+      fieldTypes = structFieldTypes structType
+      -- Reverse index not from [0..n] but from [n..0] to make SMT.slice happy
+      idx = length fieldTypes - idx' - 1
+  unless (idx' < length fieldTypes) $ error "Out of bounds index for getField"
+  -- [ elems ] [ target elem] [ elems]
+  --          ^ start        ^ end
+  let startIdx = numBits $ Struct $ take idx fieldTypes
+      endIdx = (numBits $ Struct $ take (idx + 1) fieldTypes) - 1
+  result <- SMT.slice (n struct) endIdx startIdx
+  return $ mkNode result (fieldTypes !! idx) (u struct)
 
 -- Memory
 
