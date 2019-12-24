@@ -18,6 +18,7 @@ module IR.SMT ( SMTNode
               , newVar
               , newInt
               , newIntStruct
+              , newIntArray
               , newPtr
               , newDouble
                 -- * Struct

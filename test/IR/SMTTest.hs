@@ -225,19 +225,19 @@ arrayTest :: BenchTest
 arrayTest = benchTestCase "arrays" $ do
 
   r <- evalIR Nothing $ do
-    -- let structTy = Struct [U8, S8]
-    -- -- 00000011 | 00100100
-    -- struct <- newIntStruct structTy [3, 36]
-    -- newVar structTy "resultVar" >>= smtAssign struct
+    let arrayTy = Array 4 U8
+    -- 00000011 | 00000100 | 00000101 | 00000110
+    array <- newIntArray arrayTy [3, 4, 5, 6]
+    newVar arrayTy "resultVar" >>= smtAssign array
 
-    -- elemOne <- getField struct 0
-    -- elemTwo <- getField struct 1
-    -- newVar U8 "elemOne" >>= smtAssign elemOne
-    -- newVar S8 "elemTwo" >>= smtAssign elemTwo
+    idx <- newInt U32 2
+    elemThree <- getIdx array idx
+    newVar U8 "elemThree" >>= smtAssign elemThree
 
     smtResult
 
-  vtest r $ M.fromList [
+  vtest r $ M.fromList [ ("resultVar", 50595078)
+                       , ("elemThree", 5)
                        ]
   satTest r
 
