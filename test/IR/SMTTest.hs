@@ -201,9 +201,15 @@ memTest :: BenchTest
 memTest = benchTestCase "memory" $ do
 
   r <- evalIR Nothing $ do
+    initMem
+    addr <- newPtr (Ptr32 S32) 0
+    val <- newInt S32 123
+    smtStore addr val
+    result <- smtLoad addr
+    newVar S32 "resultVar" >>= smtAssign result
 
     smtResult
 
-  vtest r $ M.fromList [ ]
+  vtest r $ M.fromList [ ("resultVar", 123) ]
   satTest r
 

@@ -4,6 +4,7 @@ module IR.SMT ( SMTNode
               , runIR
               , evalIR
               , execIR
+              , initMem
                 -- * Interacting with the SMT solver
               , smtAssert
               , smtAssign
@@ -16,6 +17,7 @@ module IR.SMT ( SMTNode
                 -- * Variables
               , newVar
               , newInt
+              , newPtr
               , newDouble
                 -- * C++ IR
               , cppNeg
@@ -93,6 +95,17 @@ newVar ty name = liftSMT $ do
   undefVar <- SMT.newVar (name ++ "_undef") undefSort
   return $ mkNode var ty undefVar
 
+newPtr :: Type
+       -> Integer
+       -> IR SMTNode
+newPtr ty val = liftSMT $ do
+  result <- case ty of
+    Ptr32{} -> SMT.bvNum 32 val
+    Ptr64{} -> SMT.bvNum 64 val
+    _       -> error "Cannot make non-pointer with newPtr"
+  undef <- SMT.bvNum 1 0
+  return $ mkNode result ty undef
+
 newInt :: Type
        -> Integer
        -> IR SMTNode
@@ -160,9 +173,8 @@ smtResult = liftSMT SMT.runSolver
 -- Memory
 
 smtLoad :: SMTNode
-        -> SMTNode
         -> IR SMTNode
-smtLoad addr val = do
+smtLoad addr = do
   memStrat <- getMemoryStrategy
   case memStrat of
     Flat blockSize -> do
@@ -206,7 +218,7 @@ smtLoad addr val = do
       readStart <- SMT.urem (n addr) widthSMT
 
       -- Perform the read!
-      result <- SMT.getBitsFrom wholeRead readSize readStart
+      result <- SMT.getBitsFromBE wholeRead readSize readStart
       let undef = u addr
       return $ mkNode result pointeeTy undef
 

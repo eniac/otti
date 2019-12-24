@@ -41,9 +41,8 @@ data CompilerState = CompilerState { -- Mapping AST variables etc to information
                                    , callStack         :: [FunctionName]
                                    , conditionalGuards :: [SMTNode]
                                    , returnValues      :: [SMTNode]
-                                     -- SMT variables and memory
+                                     -- SMT variables
                                    , vars              :: M.Map CodegenVar SMTNode
-                                   , memory            :: [SMTNode]
                                    }
 
 newtype Compiler a = Compiler (StateT CompilerState IR a)
@@ -61,7 +60,7 @@ instance MonadFail Compiler where
 ---
 
 emptyCompilerState :: CompilerState
-emptyCompilerState = CompilerState M.empty M.empty M.empty [] [] [] M.empty []
+emptyCompilerState = CompilerState M.empty M.empty M.empty [] [] [] M.empty
 
 liftIR :: IR a -> Compiler a
 liftIR = Compiler . lift

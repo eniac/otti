@@ -20,26 +20,45 @@ getBitsTest = benchTestCase "getBitsFrom" $ do
 
     zero32 <- bvNum 32 0
     result0 <- newVar "result0" bv16
-    getBitsFrom zero32 16 zero32 >>= assign result0
+    getBitsFromLE zero32 16 zero32 >>= assign result0
 
     -- 1010101010101010
     oneZero16 <- bvNum 16 43690
     result1 <- newVar "result1" bv8
     index <- bvNum 8 12
     -- 01010101
-    getBitsFrom oneZero16 8 index >>= assign result1
+    getBitsFromLE oneZero16 8 index >>= assign result1
 
     -- 1011010001010101
     rando16 <- bvNum 16 46165
     result2 <- newVar "result2" bv16
     index <- bvNum 16 15
-    getBitsFrom rando16 16 index >>= assign result2
+    getBitsFromLE rando16 16 index >>= assign result2
+
+    rando16 <- bvNum 16 46165
+    result3 <- newVar "result3" bv16
+    index <- bvNum 16 0
+    getBitsFromBE rando16 16 index >>= assign result3
+
+    -- 1010101010101010
+    oneZero16 <- bvNum 16 43690
+    result4 <- newVar "result4" bv8
+    index <- bvNum 8 3
+    -- 01010101
+    getBitsFromBE oneZero16 8 index >>= assign result4
+
+    zero32 <- bvNum 32 0
+    result5 <- newVar "result5" bv16
+    getBitsFromBE zero32 16 zero32 >>= assign result5
 
     runSolver
 
   vtest r $ M.fromList [ ("result0", 0)
                        , ("result1", 85)
                        , ("result2", 46165)
+                       , ("result3", 46165)
+                       , ("result4", 85)
+                       , ("result5", 0)
                        ]
   satTest r
 

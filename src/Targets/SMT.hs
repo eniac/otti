@@ -23,7 +23,8 @@ module Targets.SMT ( Sort
                    , arraySort
                    , ones
                      -- * Accessing bits and arrays
-                   , getBitsFrom
+                   , getBitsFromBE
+                   , getBitsFromLE
                    , setBitsTo
                    , load
                    , store

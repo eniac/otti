@@ -63,8 +63,7 @@ genExprSMT expr =
     Call name args -> genCallSMT name args
     Load e -> do
       addr <- genExprSMT e
-      memory <- getMemory
-      liftIR $ smtLoad memory addr
+      liftIR $ smtLoad addr
     _          -> error "Unsupported instruction"
 
 genBinOpSMT :: Expr

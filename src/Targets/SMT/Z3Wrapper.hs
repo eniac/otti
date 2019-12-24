@@ -138,13 +138,13 @@ store :: MonadZ3 z3
       -> z3 AST
 store a i v = Z.mkStore a i v
 
--- | Get a given number of bits from a structure starting from a given symbolic index
-getBitsFrom :: MonadZ3 z3
-            => AST -- ^ In this structure
-            -> Int -- ^ How large of a read
-            -> AST -- ^ Starting from this index [0..n]
-            -> z3 AST
-getBitsFrom structure width index = do
+-- | Get a given number of bits from a structure starting from a given symbolic index. Little end
+getBitsFromLE :: MonadZ3 z3
+              => AST -- ^ In this structure
+              -> Int -- ^ How large of a read
+              -> AST -- ^ Starting from this index [0..n]
+              -> z3 AST
+getBitsFromLE structure width index = do
   castIndex <- castToWidth index 64
   structureWidth <- getBVSortSize "getBitsFrom" structure
   -- Easier to think about slicing indeices [n..0] so convert the index
@@ -153,6 +153,22 @@ getBitsFrom structure width index = do
   finalIndex <- bvNum 64 1 >>= sub subIndex
   -- Shift structure so the start of the element is the high bit
   elemAtHigh <- sll structure finalIndex
+  -- Slice from the high bit to the width of the element
+  let elemStart = structureWidth - 1
+      elemEnd = structureWidth - width
+  slice elemAtHigh elemStart elemEnd
+
+-- | Get a given number of bits from a structure starting from a given symbolic index. Big endian
+getBitsFromBE :: MonadZ3 z3
+              => AST -- ^ In this structure
+              -> Int -- ^ How large of a read
+              -> AST -- ^ Starting from this index [n..0]
+              -> z3 AST
+getBitsFromBE structure width index = do
+  castIndex <- castToWidth index 64
+  structureWidth <- getBVSortSize "getBitsFrom" structure
+  -- Shift structure so the start of the element is the high bit
+  elemAtHigh <- sll structure castIndex
   -- Slice from the high bit to the width of the element
   let elemStart = structureWidth - 1
       elemEnd = structureWidth - width
