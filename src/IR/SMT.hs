@@ -41,8 +41,9 @@ module IR.SMT ( SMTNode
               , cppCond
               , cppCast
               ) where
-import           AST.Simple                 (Type (..), int16, int32, int64,
-                                             int8, isDouble, isSignedInt,
+import           AST.Simple                 (Type (..), arrayBaseType, int16,
+                                             int32, int64, int8, isArray,
+                                             isDouble, isSignedInt,
                                              isUnsignedInt, numBits,
                                              pointeeType)
 import           Control.Monad
@@ -197,6 +198,21 @@ smtImplies a b = do
 
 smtResult :: IR SMTResult
 smtResult = liftSMT SMT.runSolver
+
+-- Struct access
+
+getIdx :: SMTNode
+       -> SMTNode
+       -> IR SMTNode
+getIdx arr idx = do
+  let arrType = t arr
+      arrBaseType = arrayBaseType arrType
+  unless (isArray arrType) $ error "Cannot call getIdx on non-array"
+  let elemSize = numBits arrBaseType
+  idxBits <- SMT.bvNum (numBits $ t idx) (fromIntegral elemSize) >>= SMT.mul (n idx)
+  result <- SMT.getBitsFromBE (n arr) elemSize idxBits
+  undef <- SMT.or (u arr) (u idx)
+  return $ mkNode result arrBaseType undef
 
 -- Memory
 

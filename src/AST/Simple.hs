@@ -86,6 +86,14 @@ pointeeType (Ptr64 ty) = ty
 pointeeType (Ptr32 ty) = ty
 pointeeType _          = error "Can't get pointee type of non-pointer"
 
+arrayBaseType :: Type -> Type
+arrayBaseType (Array _ ty) = ty
+arrayBaseType _            = error "Cannot call arrayBaseType on non-array"
+
+structFieldTypes :: Type -> [Type]
+structFieldTypes (Struct tys) = tys
+structFieldTypes _ = error "Cannot call structFieldTypes on non-struct"
+
 ---
 --- Variables
 ---
@@ -146,6 +154,8 @@ data Expr = VarExpr { varExpr :: Var }
           | Cast Expr Type
           | Call FunctionName [Expr]
           | Load Expr
+          | Idx Expr Expr
+          | Access Expr Int
             deriving (Eq, Ord, Show)
 
 -- | An AST statement: link
