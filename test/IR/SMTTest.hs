@@ -15,6 +15,7 @@ irTests = benchTestGroup "IR tests" [ negTest
                                     , subTest
                                     , addTest
                                     , structTest
+                                    , arrayTest
                                     , memTest
                                     ]
 
@@ -202,7 +203,7 @@ structTest :: BenchTest
 structTest = benchTestCase "structs" $ do
 
   r <- evalIR Nothing $ do
-    let structTy = Struct [U8, U8]
+    let structTy = Struct [U8, S8]
     -- 00000011 | 00100100
     struct <- newIntStruct structTy [3, 36]
     newVar structTy "resultVar" >>= smtAssign struct
@@ -210,13 +211,33 @@ structTest = benchTestCase "structs" $ do
     elemOne <- getField struct 0
     elemTwo <- getField struct 1
     newVar U8 "elemOne" >>= smtAssign elemOne
-    newVar U8 "elemTwo" >>= smtAssign elemTwo
+    newVar S8 "elemTwo" >>= smtAssign elemTwo
 
     smtResult
 
   vtest r $ M.fromList [ ("resultVar", 804)
                        , ("elemOne", 3)
                        , ("elemTwo", 36)
+                       ]
+  satTest r
+
+arrayTest :: BenchTest
+arrayTest = benchTestCase "arrays" $ do
+
+  r <- evalIR Nothing $ do
+    -- let structTy = Struct [U8, S8]
+    -- -- 00000011 | 00100100
+    -- struct <- newIntStruct structTy [3, 36]
+    -- newVar structTy "resultVar" >>= smtAssign struct
+
+    -- elemOne <- getField struct 0
+    -- elemTwo <- getField struct 1
+    -- newVar U8 "elemOne" >>= smtAssign elemOne
+    -- newVar S8 "elemTwo" >>= smtAssign elemTwo
+
+    smtResult
+
+  vtest r $ M.fromList [
                        ]
   satTest r
 

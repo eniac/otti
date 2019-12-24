@@ -224,14 +224,19 @@ getField struct idx' = do
   let structType = t struct
       fieldTypes = structFieldTypes structType
       -- Reverse index not from [0..n] but from [n..0] to make SMT.slice happy
+      -- I guess its a little endian slice and we have big endian structs
+      -- because they're easier to think about
       idx = length fieldTypes - idx' - 1
   unless (idx' < length fieldTypes) $ error "Out of bounds index for getField"
   -- [ elems ] [ target elem] [ elems]
   --          ^ start        ^ end
   let startIdx = numBits $ Struct $ take idx fieldTypes
       endIdx = (numBits $ Struct $ take (idx + 1) fieldTypes) - 1
+  -- High index to low index to make SMT.slice happy
   result <- SMT.slice (n struct) endIdx startIdx
-  return $ mkNode result (fieldTypes !! idx) (u struct)
+  -- Confusingly, we use idx' here because we're back to our own representation
+  -- (don't have to care about slice, do have to care about ordering of field list)
+  return $ mkNode result (fieldTypes !! idx') (u struct)
 
 -- Memory
 
