@@ -22,21 +22,23 @@ data Type = U8 | S8
           | Double
           | Ptr64 Type
           | Ptr32 Type
+          | Struct [Type]
           deriving (Eq, Ord, Show)
 
 numBits :: Type -> Int
-numBits U8      = 8
-numBits S8      = 8
-numBits U16     = 16
-numBits S16     = 16
-numBits U32     = 32
-numBits S32     = 32
-numBits U64     = 64
-numBits S64     = 64
-numBits Bool    = 1
-numBits Double  = 64
-numBits Ptr64{} = 64
-numBits Ptr32{} = 32
+numBits U8           = 8
+numBits S8           = 8
+numBits U16          = 16
+numBits S16          = 16
+numBits U32          = 32
+numBits S32          = 32
+numBits U64          = 64
+numBits S64          = 64
+numBits Bool         = 1
+numBits Double       = 64
+numBits Ptr64{}      = 64
+numBits Ptr32{}      = 32
+numBits (Struct tys) = sum $ map numBits tys
 
 isSignedInt, isUnsignedInt, isDouble :: Type -> Bool
 isSignedInt S8  = True
@@ -68,6 +70,10 @@ int32 _   = False
 int64 S64 = True
 int64 U64 = True
 int64 _   = False
+
+isStruct :: Type -> Bool
+isStruct Struct{} = True
+isStruct _        = False
 
 ---
 --- Variables
@@ -154,6 +160,6 @@ data Function = Function { fName :: FunctionName
                          }
 
 -- | A program is function definitions and class definitions
-data Program = Program [Function]
+data Program = Program { functions :: [Function] }
 
 

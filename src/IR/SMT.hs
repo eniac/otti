@@ -95,6 +95,19 @@ newVar ty name = liftSMT $ do
   undefVar <- SMT.newVar (name ++ "_undef") undefSort
   return $ mkNode var ty undefVar
 
+newIntStruct :: Type
+          -> [Integer]
+          -> IR SMTNode
+newIntStruct ty vals = do
+  resultElems <- case ty of
+    Struct tys -> do
+      unless (length tys == length vals) $ error "Wrong number of element args to struct"
+      forM (zip tys vals) $ uncurry newInt
+    _ -> error "Wrong type to newIntStruct"
+  result <- SMT.concatMany $ map n resultElems
+  undef <- SMT.bvNum 1 0
+  return $ mkNode result ty undef
+
 newPtr :: Type
        -> Integer
        -> IR SMTNode
