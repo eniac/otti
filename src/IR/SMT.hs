@@ -17,6 +17,7 @@ module IR.SMT ( SMTNode
                 -- * Variables
               , newVar
               , newInt
+              , newIntStruct
               , newPtr
               , newDouble
                 -- * C++ IR
@@ -104,6 +105,19 @@ newIntStruct ty vals = do
       unless (length tys == length vals) $ error "Wrong number of element args to struct"
       forM (zip tys vals) $ uncurry newInt
     _ -> error "Wrong type to newIntStruct"
+  result <- SMT.concatMany $ map n resultElems
+  undef <- SMT.bvNum 1 0
+  return $ mkNode result ty undef
+
+newIntArray :: Type
+            -> [Integer]
+            -> IR SMTNode
+newIntArray ty vals = do
+  resultElems <- case ty of
+    Array num ty -> do
+      unless (length vals == num) $ error "Wrong number of element args to array"
+      forM vals $ \v -> newInt ty v
+    _ -> error "Wrong type to newIntArray"
   result <- SMT.concatMany $ map n resultElems
   undef <- SMT.bvNum 1 0
   return $ mkNode result ty undef
