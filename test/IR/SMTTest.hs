@@ -252,8 +252,20 @@ memTest = benchTestCase "memory" $ do
     result <- smtLoad addr
     newVar S32 "resultVar" >>= smtAssign result
 
+    let arrayTy = Array 5 U8
+    addr <- newPtr (Ptr32 arrayTy) 64
+    array <- newIntArray arrayTy [3, 4, 5, 6, 7]
+    smtStore addr array
+    arrayResult <- smtLoad addr
+    idx <- newInt U32 2
+    elemThree <- getIdx arrayResult idx
+    newVar U8 "elemThree" >>= smtAssign elemThree
+
+
     smtResult
 
-  vtest r $ M.fromList [ ("resultVar", 123) ]
+  vtest r $ M.fromList [ ("resultVar", 123)
+                       , ("elemThree", 5)
+                       ]
   satTest r
 
