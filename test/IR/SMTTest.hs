@@ -213,11 +213,19 @@ structTest = benchTestCase "structs" $ do
     newVar U8 "elemOne" >>= smtAssign elemOne
     newVar S8 "elemTwo" >>= smtAssign elemTwo
 
+    newOne <- newInt U8 8
+    newTwo <- newInt S8 40
+    structOne <- setField struct 0 newOne
+    structTwo <- setField structOne 1 newTwo
+    -- 00001000 | 00101000
+    newVar structTy "newStructVar" >>= smtAssign structTwo
+
     smtResult
 
   vtest r $ M.fromList [ ("resultVar", 804)
                        , ("elemOne", 3)
                        , ("elemTwo", 36)
+                       , ("newStructVar", 2088)
                        ]
   satTest r
 
@@ -234,10 +242,16 @@ arrayTest = benchTestCase "arrays" $ do
     elemThree <- getIdx array idx
     newVar U8 "elemThree" >>= smtAssign elemThree
 
+    newElemThree <- newInt U8 15
+    newArray <- setIdx array idx newElemThree
+    finalElemThree <- getIdx newArray idx
+    newVar U8 "finalElemThree" >>= smtAssign finalElemThree
+
     smtResult
 
   vtest r $ M.fromList [ ("resultVar", 50595078)
                        , ("elemThree", 5)
+                       , ("finalElemThree", 15)
                        ]
   satTest r
 

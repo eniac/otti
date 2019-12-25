@@ -23,7 +23,9 @@ module IR.SMT ( SMTNode
               , newDouble
                 -- * Struct
               , getIdx
+              , setIdx
               , getField
+              , setField
                 -- * C++ IR
               , cppNeg
               , cppBitwiseNeg
@@ -205,9 +207,9 @@ smtResult = liftSMT SMT.runSolver
 
 -- Struct and array access
 
-getIdx :: SMTNode
-       -> SMTNode
-       -> IR SMTNode
+getIdx :: SMTNode -- ^ Array
+       -> SMTNode -- ^ Index
+       -> IR SMTNode -- ^ Element
 getIdx arr idx = do
   let arrType = t arr
       arrBaseType = arrayBaseType arrType
@@ -218,9 +220,27 @@ getIdx arr idx = do
   undef <- SMT.or (u arr) (u idx)
   return $ mkNode result arrBaseType undef
 
-getField :: SMTNode
-         -> Int
-         -> IR SMTNode
+setIdx :: SMTNode -- ^ Array
+       -> SMTNode -- ^ Index
+       -> SMTNode -- ^ Element
+       -> IR SMTNode -- ^ Result array
+setIdx arr idx elem = do
+  let arrType = t arr
+      arrBaseType = arrayBaseType arrType
+      elemSize = numBits arrBaseType
+  unless (isArray arrType) $ error "Cannot call getIdx on non-array"
+  unless (t elem == arrBaseType) $ error "Wrong element type to setIdx"
+  idxBits <- SMT.bvNum (numBits $ t idx) (fromIntegral elemSize) >>= SMT.mul (n idx)
+  result <- liftSMT $ SMT.setBitsTo (n elem) (n arr) idxBits
+  undef <- SMT.or (u arr) (u idx) >>= SMT.or (u elem)
+  return $ mkNode result arrType undef
+
+-- | Get a field from a struct
+-- We don't use getBitsFrom because that allows symbolic indecies and is therefore
+-- likely slower than a simple array slice
+getField :: SMTNode -- ^ Struct
+         -> Int -- ^ Index
+         -> IR SMTNode -- ^ Element
 getField struct idx' = do
   let structType = t struct
       fieldTypes = structFieldTypes structType
@@ -239,7 +259,41 @@ getField struct idx' = do
   -- (don't have to care about slice, do have to care about ordering of field list)
   return $ mkNode result (fieldTypes !! idx') (u struct)
 
--- Memory
+-- | Set a field in a struct.
+-- This does not use setBits from SMT because it is likely slower than array slices
+setField :: SMTNode -- ^ Struct
+         -> Int -- ^ Index
+         -> SMTNode -- ^ Element
+         -> IR SMTNode -- ^ Result struct
+setField struct idx' elem = do
+  let structType = t struct
+      fieldTypes = structFieldTypes structType
+      -- Reverse index not from [0..n] but from [n..0] to make SMT.slice happy
+      -- I guess its a little endian slice and we have big endian structs
+      -- because they're easier to think about
+      idx = length fieldTypes - idx' - 1
+  unless (idx' < length fieldTypes) $ error "Out of bounds index for getField"
+  unless (fieldTypes !! idx' == t elem) $ error "Mismatch between element type and index"
+  -- [ elems1 ] [ target elem] [ elems2 ]
+  --          ^ start        ^ end
+  let startIdx = numBits $ Struct $ take idx fieldTypes
+      endIdx = (numBits $ Struct $ take (idx + 1) fieldTypes) - 1
+  error ""
+  -- case idx' of
+  --   _ | idx' == length fieldTypes - 1 -> error ""
+  --   _ | idx' == 0 -> error ""
+  -- liftIO $ print startIdx
+  -- liftIO $ print endIdx
+  -- -- slice out elems1
+  -- first <- SMT.slice (n struct) startIdx 0
+  -- -- slice out elems2
+  -- last <- SMT.slice (n struct) (numBits structType - 1) endIdx
+  -- -- Put everything together
+  -- result <- SMT.concatMany [first, n elem, last]
+  -- undef <- SMT.or (u struct) (u elem)
+  -- return $ mkNode result (t struct) undef
+
+-- memory
 
 smtLoad :: SMTNode
         -> IR SMTNode
