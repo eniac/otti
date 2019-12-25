@@ -265,33 +265,16 @@ setField :: SMTNode -- ^ Struct
          -> Int -- ^ Index
          -> SMTNode -- ^ Element
          -> IR SMTNode -- ^ Result struct
-setField struct idx' elem = do
+setField struct idx elem = do
   let structType = t struct
       fieldTypes = structFieldTypes structType
-      -- Reverse index not from [0..n] but from [n..0] to make SMT.slice happy
-      -- I guess its a little endian slice and we have big endian structs
-      -- because they're easier to think about
-      idx = length fieldTypes - idx' - 1
-  unless (idx' < length fieldTypes) $ error "Out of bounds index for getField"
-  unless (fieldTypes !! idx' == t elem) $ error "Mismatch between element type and index"
-  -- [ elems1 ] [ target elem] [ elems2 ]
-  --          ^ start        ^ end
-  let startIdx = numBits $ Struct $ take idx fieldTypes
-      endIdx = (numBits $ Struct $ take (idx + 1) fieldTypes) - 1
-  error ""
-  -- case idx' of
-  --   _ | idx' == length fieldTypes - 1 -> error ""
-  --   _ | idx' == 0 -> error ""
-  -- liftIO $ print startIdx
-  -- liftIO $ print endIdx
-  -- -- slice out elems1
-  -- first <- SMT.slice (n struct) startIdx 0
-  -- -- slice out elems2
-  -- last <- SMT.slice (n struct) (numBits structType - 1) endIdx
-  -- -- Put everything together
-  -- result <- SMT.concatMany [first, n elem, last]
-  -- undef <- SMT.or (u struct) (u elem)
-  -- return $ mkNode result (t struct) undef
+  unless (idx < length fieldTypes) $ error "Out of bounds index for getField"
+  unless (fieldTypes !! idx == t elem) $ error "Mismatch between element type and index"
+  -- Too much of a pain to do the slicing thing here
+  idxBits <- SMT.bvNum 64 (fromIntegral $ numBits $ Struct $ take idx fieldTypes)
+  result <- liftSMT $ SMT.setBitsTo (n elem) (n struct) idxBits
+  undef <- SMT.or (u struct) (u elem)
+  return $ mkNode result structType undef
 
 -- memory
 
