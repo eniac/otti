@@ -176,7 +176,7 @@ data Expr = VarExpr { varExpr :: Var }
 -- | An AST statement: link
 data Stmt = Decl Var
           | Assign Var Expr
-          | Store Expr Expr
+          | Store Var Expr
           | If Expr [Stmt] [Stmt]
           | While Expr [Stmt]
           | VoidCall FunctionName [Expr]

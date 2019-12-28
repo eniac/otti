@@ -8,6 +8,7 @@ import           Test.Tasty
 allTests :: [BenchTest]
 allTests = [ smtTests
            , irTests
+           , codegenTests
            ]
 
 main :: IO ()

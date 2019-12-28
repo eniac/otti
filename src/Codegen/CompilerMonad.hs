@@ -4,7 +4,7 @@ import           AST.Simple
 import           Control.Monad.Fail
 import           Control.Monad.Reader
 import           Control.Monad.State.Strict
-import           Data.List                  (isInfixOf)
+import           Data.List                  (intercalate, isInfixOf)
 import qualified Data.Map                   as M
 import           IR.SMT
 import qualified Z3.Monad                   as Z
@@ -100,8 +100,12 @@ codegenVar varName = do
   ver <- getVer varName
   return $ CodegenVar var ver
 
+-- | Human readable name.
+-- We probably want to replace this with something faster (eg hash) someday, but
+-- this is great for debugging
 codegenToName :: CodegenVar -> String
-codegenToName (CodegenVar (ASTVar varName allFuns) ver) = varName ++ show allFuns ++ show ver
+codegenToName (CodegenVar (ASTVar varName allFuns) ver) =
+  varName ++ "_" ++ (intercalate "_" allFuns) ++ "_" ++ show ver
 
 ---
 ---
