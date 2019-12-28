@@ -20,7 +20,26 @@ Codegen from AST to a circuit consists of the following challenges:
 -}
 
 genVarSMT :: Var -> Compiler SMTNode
-genVarSMT var = getNodeFor $ varName var
+genVarSMT var =
+  -- suboptimal
+  case var of
+    Var{} -> getNodeFor $ varName var
+    StructAccess var int -> do
+      varSMT <- genVarSMT var
+      liftIR $ getField varSMT int
+    StructPtrAccess var int -> do
+      varSMT <- genVarSMT var
+      loadedSMT <- liftIR $ smtLoad varSMT
+      liftIR $ getField loadedSMT int
+    ArrayAccess var expr -> do
+      varSMT <- genVarSMT var
+      exprSMT <- genExprSMT expr
+      liftIR $ getIdx varSMT exprSMT
+    ArrayPtrAccess var expr -> do
+      varSMT <- genVarSMT var
+      loadedSMT <- liftIR $ smtLoad varSMT
+      exprSMT <- genExprSMT expr
+      liftIR $ getIdx loadedSMT exprSMT
 
 genNumSMT :: Num -> Compiler SMTNode
 genNumSMT num = case num of
@@ -64,6 +83,13 @@ genExprSMT expr =
     Load e -> do
       addr <- genExprSMT e
       liftIR $ smtLoad addr
+    -- Idx arr' idx' -> do
+    --   arr <- genExprSMT arr'
+    --   idx <- genExprSMT idx'
+    --   liftIR $ getIdx arr idx
+    -- Access struct' idx -> do
+    --   struct <- genExprSMT struct'
+    --   liftIR $ getField struct idx
     _          -> error "Unsupported instruction"
 
 genBinOpSMT :: Expr
@@ -105,7 +131,7 @@ genStmtSMT stmt =
       rhsSmt <- genExprSMT rhs
       prevLhs <- genVarSMT lhs
       -- Bump the version number of the LHS to SSA the statement
-      nextVer (varName lhs)
+      nextVer (getVarName lhs)
       newLhs <- genVarSMT lhs
       -- Guard the assignment with the possible conditional context
       guard <- getCurrentGuardNode
@@ -132,3 +158,8 @@ genStmtSMT stmt =
       -- Only set the return value equal to e if the guard is true
       liftIR $ smtImplies guard returnOccurs
     VoidReturn         -> return ()
+
+
+
+
+

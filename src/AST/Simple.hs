@@ -106,7 +106,24 @@ type VarName = String
 data Var = Var { varTy   :: Type
                , varName :: VarName
                }
+         | StructAccess { baseVar :: Var
+                        , field   :: Int
+                        }
+         | StructPtrAccess { baseVar :: Var
+                           , field   :: Int
+                           }
+         | ArrayAccess { baseVar :: Var
+                       , index   :: Expr
+                       }
+         | ArrayPtrAccess { baseVar :: Var
+                          , index   :: Expr
+                          }
            deriving (Eq, Ord, Show)
+
+getVarName :: Var -> VarName
+getVarName var = case var of
+                   Var _ name -> name
+                   _          -> varName $ baseVar var
 
 ---
 --- Numbers
@@ -154,8 +171,6 @@ data Expr = VarExpr { varExpr :: Var }
           | Cast Expr Type
           | Call FunctionName [Expr]
           | Load Expr
-          | Idx Expr Expr
-          | Access Expr Int
             deriving (Eq, Ord, Show)
 
 -- | An AST statement: link
