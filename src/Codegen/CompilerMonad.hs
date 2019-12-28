@@ -203,6 +203,14 @@ getFunction funName = do
     Just function -> return function
     Nothing       -> error $ unwords $ ["Called undeclared function", funName]
 
+registerFunction :: Function
+                 -> Compiler ()
+registerFunction function = do
+  s0 <- get
+  let funName = fName function
+  case M.lookup funName $ funs s0 of
+    Nothing -> put $ s0 { funs = M.insert funName function $ funs s0 }
+    _       -> error $ unwords ["Already declared", fName function]
 
 ---
 --- If-statements
