@@ -41,6 +41,7 @@ data CompilerState = CompilerState { -- Mapping AST variables etc to information
                                    , callStack         :: [FunctionName]
                                    , conditionalGuards :: [SMTNode]
                                    , returnValues      :: [SMTNode]
+                                   , ctr               :: Int -- To disambiguate retVals
                                      -- SMT variables
                                    , vars              :: M.Map CodegenVar SMTNode
                                    }
@@ -60,7 +61,7 @@ instance MonadFail Compiler where
 ---
 
 emptyCompilerState :: CompilerState
-emptyCompilerState = CompilerState M.empty M.empty M.empty [] [] [] M.empty
+emptyCompilerState = CompilerState M.empty M.empty M.empty [] [] [] 1 M.empty
 
 liftIR :: IR a -> Compiler a
 liftIR = Compiler . lift
@@ -90,9 +91,7 @@ runSolverOnSMT = liftIR smtResult
 -- ASTVar---a variable that can be distinguished from other variables of the same
 -- name by its caller context.
 astVar :: VarName -> Compiler ASTVar
-astVar varName = do
-  stack <- callStack `liftM` get
-  return $ ASTVar varName stack
+astVar varName = return $ ASTVar varName []
 
 codegenVar :: VarName -> Compiler CodegenVar
 codegenVar varName = do
@@ -104,8 +103,7 @@ codegenVar varName = do
 -- We probably want to replace this with something faster (eg hash) someday, but
 -- this is great for debugging
 codegenToName :: CodegenVar -> String
-codegenToName (CodegenVar (ASTVar varName allFuns) ver) =
-  varName ++ "_" ++ intercalate "_" allFuns ++ "_" ++ show ver
+codegenToName (CodegenVar (ASTVar varName allFuns) ver) = varName ++ "_" ++ show ver
 
 ---
 ---
@@ -193,8 +191,10 @@ popFunction = do
 getReturnValName :: FunctionName
                  -> Compiler VarName
 getReturnValName funName = do
-  stack <- callStack `liftM` get
-  return $ funName ++ "_" ++ intercalate "_" stack ++ "_retVal"
+  s0 <- get
+  let num = ctr s0
+  put $ s0 { ctr = num + 1 }
+  return $ funName ++ "_retVal_" ++ show num
 
 getReturnVal :: Compiler SMTNode
 getReturnVal = do
@@ -212,6 +212,7 @@ getFunction funName = do
 registerFunction :: Function
                  -> Compiler ()
 registerFunction function = do
+  forM_ (fArgs function) $ uncurry $ declareVar
   s0 <- get
   let funName = fName function
   case M.lookup funName $ funs s0 of

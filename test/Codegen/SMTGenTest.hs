@@ -27,10 +27,10 @@ binOpTest = benchTestCase "bin op" $ do
     genFunctionSMT fun
     runSolverOnSMT
 
-  vtest r $ M.fromList [ ("result_fun_1", 4)
-                       , ("result_fun_1_undef", 0)
-                       , ("result_fun_2", 6)
-                       , ("result_fun_2_undef", 0)
+  vtest r $ M.fromList [ ("result_1", 4)
+                       , ("result_1_undef", 0)
+                       , ("result_2", 6)
+                       , ("result_2_undef", 0)
                        ]
 
 -- Disambiguate the return values
@@ -44,9 +44,13 @@ callTest = benchTestCase "call" $ do
         addOne = Function "addOne" U8 [("input", U8)] body
 
         two = NumExpr $ INum U8 2
+        three = NumExpr $ INum U8 3
         result = Var U8 "result"
+        distractor = Var U8 "distractor"
         body2 = [ Decl result
+                , Decl distractor
                 , Assign result $ Call "addOne" [two]
+                , Assign distractor $ Call "addOne" [three]
                 , Return $ VarExpr result
                 ]
         funThree = Function "three" U8 [] body2
@@ -54,9 +58,12 @@ callTest = benchTestCase "call" $ do
     genFunctionSMT funThree
     runSolverOnSMT
 
-  vtest r $ M.fromList [ ("result_three_1", 3)
-                       , ("input_addOne_three_0", 2)
-                       , ("addOne_three_retVal", 3)
+  vtest r $ M.fromList [ ("result_1", 3)
+                       , ("distractor_1", 4)
+                       , ("input_1", 2)
+                       , ("input_2", 3)
+                       , ("addOne_retVal_1", 3)
+                       , ("addOne_retVal_2", 4)
                        , ("three_retVal", 3)
                        ]
 

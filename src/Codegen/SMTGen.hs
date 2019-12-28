@@ -115,7 +115,7 @@ genCallSMT name args = do
   unless (length formalArgs == length args) $
     error $ unwords ["Wrong number of args to", name]
   smtFormalArgs <- forM formalArgs $ \(name, ty) -> do
-    declareVar name ty
+    nextVer name
     getNodeFor name
   forM_ (zip smtArgs smtFormalArgs) $ \(arg, farg) -> liftIR $ smtAssign arg farg
   -- Execute the function
