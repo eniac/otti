@@ -105,7 +105,7 @@ codegenVar varName = do
 -- this is great for debugging
 codegenToName :: CodegenVar -> String
 codegenToName (CodegenVar (ASTVar varName allFuns) ver) =
-  varName ++ "_" ++ (intercalate "_" allFuns) ++ "_" ++ show ver
+  varName ++ "_" ++ intercalate "_" allFuns ++ "_" ++ show ver
 
 ---
 ---
@@ -189,6 +189,12 @@ popFunction = do
   put $ s0 { callStack = tail $ callStack s0
            , returnValues = tail $ returnValues s0
            }
+
+getReturnValName :: FunctionName
+                 -> Compiler VarName
+getReturnValName funName = do
+  stack <- callStack `liftM` get
+  return $ funName ++ "_" ++ intercalate "_" stack ++ "_retVal"
 
 getReturnVal :: Compiler SMTNode
 getReturnVal = do

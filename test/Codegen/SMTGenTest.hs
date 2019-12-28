@@ -56,7 +56,7 @@ callTest = benchTestCase "call" $ do
 
   vtest r $ M.fromList [ ("result_three_1", 3)
                        , ("input_addOne_three_0", 2)
-                       , ("addOne_retVal", 3)
+                       , ("addOne_three_retVal", 3)
                        , ("three_retVal", 3)
                        ]
 
