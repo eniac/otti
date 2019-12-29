@@ -51,6 +51,7 @@ callTest = benchTestCase "call" $ do
                 , Decl distractor
                 , Assign result $ Call "addOne" [two]
                 , Assign distractor $ Call "addOne" [three]
+                , Assign distractor $ Call "addOne" [VarExpr distractor]
                 , Return $ VarExpr result
                 ]
         funThree = Function "three" U8 [] body2
@@ -60,6 +61,7 @@ callTest = benchTestCase "call" $ do
 
   vtest r $ M.fromList [ ("result_1", 3)
                        , ("distractor_1", 4)
+                       , ("distractor_2", 5)
                        , ("input_1", 2)
                        , ("input_2", 3)
                        , ("addOne_retVal_1", 3)
