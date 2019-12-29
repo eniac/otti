@@ -64,8 +64,8 @@ callTest = benchTestCase "call" $ do
                        , ("distractor_2", 5)
                        , ("input_1", 2)
                        , ("input_2", 3)
-                       , ("addOne_retVal_1", 3)
-                       , ("addOne_retVal_2", 4)
-                       , ("three_retVal", 3)
+                       , ("addOne_retVal_2", 3)
+                       , ("addOne_retVal_3", 4)
+                       , ("three_retVal_1", 3)
                        ]
 

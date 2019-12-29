@@ -169,7 +169,8 @@ genBodySMT = mapM_ genStmtSMT
 
 genFunctionSMT :: Function -> Compiler ()
 genFunctionSMT fun = do
-  returnVal <- liftIR $ newVar (fTy fun) (fName fun ++ "_retVal")
+  returnValName <- getReturnValName $ fName fun
+  returnVal <- liftIR $ newVar (fTy fun) returnValName
   pushFunction (fName fun) returnVal
   genBodySMT $ fBody fun
 

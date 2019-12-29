@@ -36,7 +36,7 @@ data CompilerState = CompilerState { -- Mapping AST variables etc to information
                                    , conditionalGuards :: [SMTNode]
                                    , returnValues      :: [SMTNode]
                                    , ctr               :: Int -- To disambiguate retVals
-                                     -- SMT variables
+                                     -- SMT variables: SSA'd versions of AST variables
                                    , vars              :: M.Map CodegenVar SMTNode
                                    }
 
@@ -224,11 +224,4 @@ getCurrentGuardNode = do
   liftIR $ if null guards
   then smtTrue
   else foldM cppAnd (head guards) (init guards)
-
----
---- Memory
----
-
-getMemory :: Compiler SMTNode
-getMemory = undefined
 
