@@ -22,20 +22,14 @@ such a thing.
 -}
 
 type Version = Int
--- | Variable name and de-ambiguating caller context information.
--- This way, you can have two variables name 'foo' in different functions
--- and everything will still work.
--- Right now, we do this via the entire callstack, but we should actually just hash it.
-data ASTVar = ASTVar VarName [FunctionName]
-            deriving (Eq, Ord, Show)
 
-data CodegenVar = CodegenVar ASTVar Version
+data CodegenVar = CodegenVar VarName Version
                 deriving (Eq, Ord, Show)
 
 -- | Internal state of the compiler for code generation
 data CompilerState = CompilerState { -- Mapping AST variables etc to information
-                                     vers              :: M.Map ASTVar Version
-                                   , tys               :: M.Map ASTVar Type
+                                     vers              :: M.Map VarName Version
+                                   , tys               :: M.Map VarName Type
                                    , funs              :: M.Map FunctionName Function
                                      -- Codegen context information
                                    , callStack         :: [FunctionName]
@@ -87,23 +81,16 @@ runSolverOnSMT = liftIR smtResult
 -- Turning VarNames (the AST's representation of a variable) into other representations
 -- of variables
 
--- | Take a VarName (the AST's representation of a variable) and turn it into an
--- ASTVar---a variable that can be distinguished from other variables of the same
--- name by its caller context.
-astVar :: VarName -> Compiler ASTVar
-astVar varName = return $ ASTVar varName []
-
 codegenVar :: VarName -> Compiler CodegenVar
-codegenVar varName = do
-  var <- astVar varName
-  ver <- getVer varName
+codegenVar var = do
+  ver <- getVer var
   return $ CodegenVar var ver
 
 -- | Human readable name.
 -- We probably want to replace this with something faster (eg hash) someday, but
 -- this is great for debugging
 codegenToName :: CodegenVar -> String
-codegenToName (CodegenVar (ASTVar varName allFuns) ver) = varName ++ "_" ++ show ver
+codegenToName (CodegenVar varName ver) = varName ++ "_" ++ show ver
 
 ---
 ---
@@ -113,8 +100,7 @@ codegenToName (CodegenVar (ASTVar varName allFuns) ver) = varName ++ "_" ++ show
 -- This adds the variable's version information (for SSA-ing) and type information
 -- to the compiler state.
 declareVar :: VarName -> Type -> Compiler ()
-declareVar varName ty = do
-  var <- astVar varName
+declareVar var ty = do
   s0 <- get
   let allVers = vers s0
       allTys  = tys s0
@@ -122,35 +108,32 @@ declareVar varName ty = do
     Nothing -> put $ s0 { vers = M.insert var 0 allVers
                         , tys = M.insert var ty allTys
                         }
-    _       -> error $ unwords ["Already declared", varName, "in current scope"]
+    _       -> error $ unwords ["Already declared", var, "in current scope"]
 
 -- | Bump the given variable up in version (for SSA)
 nextVer :: VarName -> Compiler ()
-nextVer varName = do
-  var <- astVar varName
+nextVer var = do
   s0 <- get
   let allVers = vers s0
   case M.lookup var allVers of
     Just ver -> put $ s0 { vers = M.insert var (ver + 1) allVers }
-    _ -> error $ unwords ["Cannot increment version of undeclared", varName]
+    _ -> error $ unwords ["Cannot increment version of undeclared", var]
 
 -- | Get the current version of the variable
 getVer :: VarName -> Compiler Version
-getVer varName = do
-  var <- astVar varName
+getVer var = do
   allVers <- vers `liftM` get
   case M.lookup var allVers of
     Just ver -> return ver
-    _        -> error $ unwords ["Cannot get version of undeclared", varName]
+    _        -> error $ unwords ["Cannot get version of undeclared", var]
 
 -- | Get the C++ type of the variable
 getType :: VarName -> Compiler Type
-getType varName = do
-  var <- astVar varName
+getType var = do
   allTys <- tys `liftM` get
   case M.lookup var allTys of
     Just ty -> return ty
-    _       -> error $ unwords ["Cannot get type of undeclared", varName]
+    _       -> error $ unwords ["Cannot get type of undeclared", var]
 
 -- | Get an SMT node representing the given var
 getNodeFor :: VarName -> Compiler SMTNode
