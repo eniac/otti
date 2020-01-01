@@ -120,6 +120,16 @@ data Var = Var { varTy   :: Type
                           }
            deriving (Eq, Ord, Show)
 
+-- | Does the variable contain a pointer access?
+hasPointerAccess :: Var -> Bool
+hasPointerAccess var =
+  case var of
+    Var{}               -> False
+    ArrayPtrAccess{}    -> True
+    StructPtrAccess{}   -> True
+    ArrayAccess base _  -> hasPointerAccess base
+    StructAccess base _ -> hasPointerAccess base
+
 getVarName :: Var -> VarName
 getVarName var = case var of
                    Var _ name -> name

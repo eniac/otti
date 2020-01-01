@@ -33,7 +33,6 @@ binOpTest = benchTestCase "bin op" $ do
                        , ("result_2_undef", 0)
                        ]
 
--- Disambiguate the return values
 callTest :: BenchTest
 callTest = benchTestCase "call" $ do
 

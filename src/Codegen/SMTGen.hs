@@ -7,7 +7,7 @@ module Codegen.SMTGen ( genVarSMT
                       ) where
 import           AST.Simple
 import           Codegen.CompilerMonad
-import           Control.Monad.State.Strict (forM, forM_, unless, void)
+import           Control.Monad.State.Strict (forM, forM_, unless, void, when)
 import           IR.SMT
 import           Prelude                    hiding (Num)
 
@@ -130,6 +130,7 @@ genStmtSMT stmt =
   case stmt of
     Decl var           -> declareVar (varName var) (varTy var)
     Assign lhs rhs     -> do
+      when (hasPointerAccess lhs) $ error "Assignment LHS cannot contain pointer access"
       rhsSmt <- genExprSMT rhs
       prevLhs <- genVarSMT lhs
       -- Bump the version number of the LHS to SSA the statement
@@ -163,6 +164,7 @@ genStmtSMT stmt =
     Store var expr -> genStoreSMT var expr
 
 genStoreSMT var expr = error ""
+
 
 genBodySMT :: [Stmt] -> Compiler ()
 genBodySMT = mapM_ genStmtSMT
