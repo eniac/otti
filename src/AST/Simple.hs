@@ -120,6 +120,22 @@ data Var = Var { varTy   :: Type
                           }
            deriving (Eq, Ord, Show)
 
+isStructAccess, isStructPtrAccess, isArrayAccess, isArrayPtrAccess, isPtrAccess, isNotPtrAccess, isVar :: Var -> Bool
+isStructAccess StructAccess{} = True
+isStructAccess _              = False
+isStructPtrAccess StructPtrAccess{} = True
+isStructPtrAccess _                 = False
+isArrayAccess ArrayAccess{} = True
+isArrayAccess _             = False
+isArrayPtrAccess ArrayPtrAccess{} = True
+isArrayPtrAccess _                = False
+isPtrAccess ArrayPtrAccess{}  = True
+isPtrAccess StructPtrAccess{} = True
+isPtrAccess _                 = False
+isNotPtrAccess = not . isPtrAccess
+isVar Var{} = True
+isVar _     = False
+
 -- | Does the variable contain a pointer access?
 hasPointerAccess :: Var -> Bool
 hasPointerAccess var =

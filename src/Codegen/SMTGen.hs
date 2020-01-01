@@ -84,13 +84,6 @@ genExprSMT expr =
     Load e -> do
       addr <- genExprSMT e
       liftIR $ smtLoad addr
-    -- Idx arr' idx' -> do
-    --   arr <- genExprSMT arr'
-    --   idx <- genExprSMT idx'
-    --   liftIR $ getIdx arr idx
-    -- Access struct' idx -> do
-    --   struct <- genExprSMT struct'
-    --   liftIR $ getField struct idx
     _          -> error "Unsupported instruction"
 
 genBinOpSMT :: Expr
@@ -161,10 +154,10 @@ genStmtSMT stmt =
       -- Only set the return value equal to e if the guard is true
       liftIR $ smtImplies guard returnOccurs
     VoidReturn         -> return ()
-    Store var expr -> genStoreSMT var expr
-
-genStoreSMT var expr = error ""
-
+    Store var expr -> do
+      varSMT <- genVarSMT var
+      exprSMT <- genExprSMT expr
+      liftIR $ smtStore varSMT exprSMT
 
 genBodySMT :: [Stmt] -> Compiler ()
 genBodySMT = mapM_ genStmtSMT
