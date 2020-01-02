@@ -54,26 +54,28 @@ genArraySMT array = do
 genExprSMT :: Expr -> Compiler SMTNode
 genExprSMT expr =
   case expr of
-    VarExpr v  -> genVarSMT v
-    NumExpr n  -> genNumSMT n
-    Neg n      -> genExprSMT n >>= liftIR . cppNeg
-    Not n      -> genExprSMT n >>= liftIR . cppBitwiseNeg
-    Eq a b     -> genBinOpSMT a b cppEq
-    NEq a b    -> genBinOpSMT a b cppEq >>= liftIR . cppBitwiseNeg
-    And a b    -> genBinOpSMT a b cppAnd
-    Add a b    -> genBinOpSMT a b cppAdd
-    Sub a b    -> genBinOpSMT a b cppSub
-    Mul a b    -> genBinOpSMT a b cppMul
-    Or a b     -> genBinOpSMT a b cppOr
-    XOr a b    -> genBinOpSMT a b cppXor
-    Min a b    -> genBinOpSMT a b cppMin
-    Max a b    -> genBinOpSMT a b cppMax
-    Gt a b     -> genBinOpSMT a b cppGt
-    Gte a b    -> genBinOpSMT a b cppGte
-    Lt a b     -> genBinOpSMT a b cppLt
-    Lte a b    -> genBinOpSMT a b cppLte
-    Shl a b    -> genBinOpSMT a b cppShiftLeft
-    Shr a b    -> genBinOpSMT a b cppShiftRight
+    VarExpr v    -> genVarSMT v
+    NumExpr n    -> genNumSMT n
+    StructExpr s -> genStructSMT s
+    ArrayExpr a  -> genArraySMT a
+    Neg n        -> genExprSMT n >>= liftIR . cppNeg
+    Not n        -> genExprSMT n >>= liftIR . cppBitwiseNeg
+    Eq a b       -> genBinOpSMT a b cppEq
+    NEq a b      -> genBinOpSMT a b cppEq >>= liftIR . cppBitwiseNeg
+    And a b      -> genBinOpSMT a b cppAnd
+    Add a b      -> genBinOpSMT a b cppAdd
+    Sub a b      -> genBinOpSMT a b cppSub
+    Mul a b      -> genBinOpSMT a b cppMul
+    Or a b       -> genBinOpSMT a b cppOr
+    XOr a b      -> genBinOpSMT a b cppXor
+    Min a b      -> genBinOpSMT a b cppMin
+    Max a b      -> genBinOpSMT a b cppMax
+    Gt a b       -> genBinOpSMT a b cppGt
+    Gte a b      -> genBinOpSMT a b cppGte
+    Lt a b       -> genBinOpSMT a b cppLt
+    Lte a b      -> genBinOpSMT a b cppLte
+    Shl a b      -> genBinOpSMT a b cppShiftLeft
+    Shr a b      -> genBinOpSMT a b cppShiftRight
     Tern c t f -> do
       c' <- genExprSMT c
       t' <- genExprSMT t
