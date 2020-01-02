@@ -79,11 +79,16 @@ aggrTest = benchTestCase "aggregates" $ do
         -- 00000010 | 00000011 | 00000010 aka 131842
         struct = StructExpr $ StructLit structType [two, three, two]
         structVar = Var structType "struct"
+        zeroVar = Var U8 "elemZero"
         body = [ Decl structVar
+               , Decl zeroVar
                , Assign structVar struct
+               , Assign zeroVar $ Access (VarExpr structVar) 0
                ]
 
     genBodySMT body
     runSolverOnSMT
 
-  vtest r $ M.fromList [ ("struct_1", 131842) ]
+  vtest r $ M.fromList [ ("struct_1", 131842)
+                       , ("elemZero_1", 2)
+                       ]
