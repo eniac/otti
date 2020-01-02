@@ -106,50 +106,7 @@ type VarName = String
 data Var = Var { varTy   :: Type
                , varName :: VarName
                }
-         | StructAccess { baseVar :: Var
-                        , field   :: Int
-                        }
-         | StructPtrAccess { baseVar :: Var
-                           , field   :: Int
-                           }
-         | ArrayAccess { baseVar :: Var
-                       , index   :: Expr
-                       }
-         | ArrayPtrAccess { baseVar :: Var
-                          , index   :: Expr
-                          }
            deriving (Eq, Ord, Show)
-
-isStructAccess, isStructPtrAccess, isArrayAccess, isArrayPtrAccess, isPtrAccess, isNotPtrAccess, isVar :: Var -> Bool
-isStructAccess StructAccess{} = True
-isStructAccess _              = False
-isStructPtrAccess StructPtrAccess{} = True
-isStructPtrAccess _                 = False
-isArrayAccess ArrayAccess{} = True
-isArrayAccess _             = False
-isArrayPtrAccess ArrayPtrAccess{} = True
-isArrayPtrAccess _                = False
-isPtrAccess ArrayPtrAccess{}  = True
-isPtrAccess StructPtrAccess{} = True
-isPtrAccess _                 = False
-isNotPtrAccess = not . isPtrAccess
-isVar Var{} = True
-isVar _     = False
-
--- | Does the variable contain a pointer access?
-hasPointerAccess :: Var -> Bool
-hasPointerAccess var =
-  case var of
-    Var{}               -> False
-    ArrayPtrAccess{}    -> True
-    StructPtrAccess{}   -> True
-    ArrayAccess base _  -> hasPointerAccess base
-    StructAccess base _ -> hasPointerAccess base
-
-getVarName :: Var -> VarName
-getVarName var = case var of
-                   Var _ name -> name
-                   _          -> varName $ baseVar var
 
 ---
 --- Numbers
@@ -168,12 +125,28 @@ data Num = INum { numTy  :: Type
          deriving (Eq, Ord, Show)
 
 ---
+--- Struct and array literals
+---
+
+data StructLit = StructLit { structTy    :: Type
+                           , structElems :: [Expr]
+                           }
+               deriving (Eq, Ord, Show)
+
+data ArrayLit = ArrayLit { arrayTy    :: Type
+                         , arrayElems :: [Expr]
+                         }
+              deriving (Eq, Ord, Show)
+
+---
 --- AST definition
 ---
 
 -- | An AST expression: link
 data Expr = VarExpr { varExpr :: Var }
           | NumExpr { numExpr :: Num }
+          | StructExpr { structExpr :: StructLit }
+          | ArrayExpr { arrayExpr :: ArrayLit }
           | Neg Expr
           | Not Expr
           | Abs Expr

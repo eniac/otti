@@ -9,6 +9,7 @@ import           Utils
 codegenTests :: BenchTest
 codegenTests = benchTestGroup "Codegen tests" [ binOpTest
                                               , callTest
+                                              , memTest
                                               ]
 
 -- Fix so that declared but not defined variables have undef bit set
@@ -68,3 +69,26 @@ callTest = benchTestCase "call" $ do
                        , ("three_retVal_1", 3)
                        ]
 
+memTest :: BenchTest
+memTest = benchTestCase "mem" $ do
+
+  r <- evalCodegen Nothing $ do
+    let structType = Struct [U8, U8, U8]
+        ptrType = Ptr64 structType
+        ptrVar = Var ptrType "ptr"
+        two = NumExpr $ INum U8 2
+        three = NumExpr $ INum U8 3
+        body = [ Decl ptrVar ]
+
+    genBodySMT body
+    runSolverOnSMT
+
+  vtest r $ M.fromList [ ("result_1", 3)
+                       , ("distractor_1", 4)
+                       , ("distractor_2", 5)
+                       , ("input_1", 2)
+                       , ("input_2", 3)
+                       , ("addOne_retVal_2", 3)
+                       , ("addOne_retVal_3", 4)
+                       , ("three_retVal_1", 3)
+                       ]

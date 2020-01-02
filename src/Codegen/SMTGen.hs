@@ -21,26 +21,7 @@ Codegen from AST to a circuit consists of the following challenges:
 -}
 
 genVarSMT :: Var -> Compiler SMTNode
-genVarSMT var =
-  -- suboptimal
-  case var of
-    Var{} -> getNodeFor $ varName var
-    StructAccess var int -> do
-      varSMT <- genVarSMT var
-      liftIR $ getField varSMT int
-    StructPtrAccess var int -> do
-      varSMT <- genVarSMT var
-      loadedSMT <- liftIR $ smtLoad varSMT
-      liftIR $ getField loadedSMT int
-    ArrayAccess var expr -> do
-      varSMT <- genVarSMT var
-      exprSMT <- genExprSMT expr
-      liftIR $ getIdx varSMT exprSMT
-    ArrayPtrAccess var expr -> do
-      varSMT <- genVarSMT var
-      loadedSMT <- liftIR $ smtLoad varSMT
-      exprSMT <- genExprSMT expr
-      liftIR $ getIdx loadedSMT exprSMT
+genVarSMT = getNodeFor . varName
 
 genNumSMT :: Num -> Compiler SMTNode
 genNumSMT num = case num of
@@ -123,11 +104,10 @@ genStmtSMT stmt =
   case stmt of
     Decl var           -> declareVar (varName var) (varTy var)
     Assign lhs rhs     -> do
-      when (hasPointerAccess lhs) $ error "Assignment LHS cannot contain pointer access"
       rhsSmt <- genExprSMT rhs
       prevLhs <- genVarSMT lhs
       -- Bump the version number of the LHS to SSA the statement
-      nextVer (getVarName lhs)
+      nextVer $ varName lhs
       newLhs <- genVarSMT lhs
       -- Guard the assignment with the possible conditional context
       guard <- getCurrentGuardNode
