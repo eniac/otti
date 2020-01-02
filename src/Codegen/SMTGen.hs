@@ -76,6 +76,22 @@ genExprSMT expr =
     Lte a b      -> genBinOpSMT a b cppLte
     Shl a b      -> genBinOpSMT a b cppShiftLeft
     Shr a b      -> genBinOpSMT a b cppShiftRight
+    Access s i -> do
+      s' <- genExprSMT s
+      liftIR $ getField s' i
+    PtrAccess ptr i -> do
+      ptr' <- genExprSMT ptr
+      struct <- liftIR $ smtLoad ptr'
+      liftIR $ getField struct i
+    Index a i -> do
+      a' <- genExprSMT a
+      i' <- genExprSMT i
+      liftIR $ getIdx a' i'
+    PtrIndex ptr offset -> do
+      ptr' <- genExprSMT ptr
+      offset' <- genExprSMT offset
+      toLoad <- liftIR $ cppAdd ptr' offset'
+      liftIR $ smtLoad toLoad
     Tern c t f -> do
       c' <- genExprSMT c
       t' <- genExprSMT t

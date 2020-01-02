@@ -170,6 +170,10 @@ data Expr = VarExpr { varExpr :: Var }
           | Lte Expr Expr
           | Shl Expr Expr
           | Shr Expr Expr
+          | Access Expr Int
+          | PtrAccess Expr Int
+          | Index Expr Expr
+          | PtrIndex Expr Expr
           | Tern Expr Expr Expr
           | Cast Expr Type
           | Call FunctionName [Expr]
