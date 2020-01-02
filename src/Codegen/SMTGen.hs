@@ -30,6 +30,27 @@ genNumSMT num = case num of
                   FNum ty _   | not $ isDouble ty -> error "Cannot make double with int val"
                   FNum ty val -> liftIR $ newDouble ty val
 
+genStructSMT :: StructLit -> Compiler SMTNode
+genStructSMT struct = do
+  let structType = structTy struct
+      structFields = structElems struct
+  unless (isStruct structType) $ error "Cannot make a non-struct-type struct"
+  let fieldTypes = structFieldTypes structType
+  unless (length fieldTypes == length structFields) $
+    error "Wrong number of elements to struct"
+  fieldSMT <- forM structFields genExprSMT
+  liftIR $ newStruct structType fieldSMT
+
+genArraySMT :: ArrayLit -> Compiler SMTNode
+genArraySMT array = do
+  let arrayType = arrayTy array
+      numElems = arrayNumElems arrayType
+      elems = arrayElems array
+  unless (isArray arrayType) $ error "Cannot make a non-array-type array"
+  unless (length elems == numElems) $ error "Wrong number of elements to array"
+  elemSMT <- forM elems genExprSMT
+  liftIR $ newArray arrayType elemSMT
+
 genExprSMT :: Expr -> Compiler SMTNode
 genExprSMT expr =
   case expr of

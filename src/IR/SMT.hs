@@ -18,7 +18,9 @@ module IR.SMT ( SMTNode
               , newVar
               , newInt
               , newIntStruct
+              , newStruct
               , newIntArray
+              , newArray
               , newPtr
               , newDouble
                 -- * Struct
@@ -47,9 +49,10 @@ module IR.SMT ( SMTNode
               , cppCond
               , cppCast
               ) where
-import           AST.Simple                 (Type (..), arrayBaseType, int16,
-                                             int32, int64, int8, isArray,
-                                             isDouble, isSignedInt,
+import           AST.Simple                 (Type (..), arrayBaseType,
+                                             arrayNumElems, int16, int32, int64,
+                                             int8, isArray, isDouble,
+                                             isSignedInt, isStruct,
                                              isUnsignedInt, numBits,
                                              pointeeType, structFieldTypes)
 import           Control.Monad
@@ -117,6 +120,17 @@ newIntStruct ty vals = do
   undef <- SMT.bvNum 1 0
   return $ mkNode result ty undef
 
+newStruct :: Type
+          -> [SMTNode]
+          -> IR SMTNode
+newStruct ty nodes = do
+  unless (isStruct ty) $ error "Must have struct type to make new struct"
+  unless (length nodes == length (structFieldTypes ty)) $
+    error "Wrong number of element args to struct"
+  result <- SMT.concatMany $ map n nodes
+  undef <- foldM SMT.or (u $ head nodes) (map u $ tail nodes)
+  return $ mkNode result ty undef
+
 newIntArray :: Type
             -> [Integer]
             -> IR SMTNode
@@ -128,6 +142,16 @@ newIntArray ty vals = do
     _ -> error "Wrong type to newIntArray"
   result <- SMT.concatMany $ map n resultElems
   undef <- SMT.bvNum 1 0
+  return $ mkNode result ty undef
+
+newArray :: Type
+         -> [SMTNode]
+         -> IR SMTNode
+newArray ty nodes = do
+  unless (isArray ty) $ error "Must have array type to make new struct"
+  unless (length nodes == arrayNumElems ty) $ error "Wrong number of element args to array"
+  result <- SMT.concatMany $ map n nodes
+  undef <- foldM SMT.or (u $ head nodes) (map u $ tail nodes)
   return $ mkNode result ty undef
 
 newPtr :: Type

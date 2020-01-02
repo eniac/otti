@@ -90,6 +90,10 @@ arrayBaseType :: Type -> Type
 arrayBaseType (Array _ ty) = ty
 arrayBaseType _            = error "Cannot call arrayBaseType on non-array"
 
+arrayNumElems :: Type -> Int
+arrayNumElems (Array n _) = n
+arrayNumElems _           = error "Cannot call array num elems on non-array type"
+
 structFieldTypes :: Type -> [Type]
 structFieldTypes (Struct tys) = tys
 structFieldTypes _ = error "Cannot call structFieldTypes on non-struct"
