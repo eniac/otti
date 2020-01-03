@@ -10,7 +10,7 @@ import           Utils
 codegenTests :: BenchTest
 codegenTests = benchTestGroup "Codegen tests" [ binOpTest
                                               , callTest
-                                              , aggrTest
+                                              , structTest
                                               ]
 
 -- Fix so that declared but not defined variables have undef bit set
@@ -70,8 +70,8 @@ callTest = benchTestCase "call" $ do
                        , ("three_retVal_1", 3)
                        ]
 
-aggrTest :: BenchTest
-aggrTest = benchTestCase "aggregates" $ do
+structTest :: BenchTest
+structTest = benchTestCase "structs" $ do
 
   r <- evalCodegen Nothing $ do
     let structType = Struct [U8, U8, U8]
@@ -94,6 +94,11 @@ aggrTest = benchTestCase "aggregates" $ do
         ptrVar = Var ptrTy "sptr"
         two32 = NumExpr $ INum U32 2
         threeVar = Var U8 "elemThree"
+        -- nested struct
+        nstructType = Struct [Struct [U8, U8]]
+        nstruct = StructExpr $ StructLit nstructType
+                  [StructExpr $ StructLit (Struct [U8, U8])[two, four]]
+        nvar = Var U8 "nvar"
         body = [ Decl structVar
                , Decl zeroVar
                , Assign structVar struct
@@ -109,6 +114,9 @@ aggrTest = benchTestCase "aggregates" $ do
                , Store ptrVar structP
                , Decl threeVar
                , Assign threeVar $ PtrAccess (PtrAccess (VarExpr ptrVar) 0) 2
+                 -- Nested structs
+               , Decl nvar
+               , Assign nvar $ Access (Access nstruct 0) 1
                ]
     liftIR initMem
     genBodySMT body
@@ -118,4 +126,5 @@ aggrTest = benchTestCase "aggregates" $ do
                        , ("elemZero_1", 2)
                        , ("elemOne_1", 3)
                        , ("elemThree_1", 4)
+                       , ("nvar_1", 4)
                        ]
