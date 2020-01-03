@@ -77,15 +77,23 @@ aggrTest = benchTestCase "aggregates" $ do
     let structType = Struct [U8, U8, U8]
         two = NumExpr $ INum U8 2
         three = NumExpr $ INum U8 3
+        four = NumExpr $ INum U8 4
         zero = NumExpr $ INum U32 0
-        -- 00000010 | 00000011 | 00000010 aka 131842
-        struct = StructExpr $ StructLit structType [two, three, two]
+        -- 00000010 | 00000011 | 00000100 aka 131842
+        struct = StructExpr $ StructLit structType [two, three, four]
         structVar = Var structType "struct"
         zeroVar = Var U8 "elemZero"
         oneVar = Var U8 "elemOne"
         -- pointer to struct
         pointerType = Ptr32 structType
         pointerVar = Var pointerType "pointer"
+        -- struct with a pointer in it
+        structPtrType = Struct [Ptr32 structType]
+        structP = StructExpr $ StructLit structPtrType [VarExpr pointerVar]
+        ptrTy = Ptr32 structPtrType
+        ptrVar = Var ptrTy "sptr"
+        two32 = NumExpr $ INum U32 2
+        threeVar = Var U8 "elemThree"
         body = [ Decl structVar
                , Decl zeroVar
                , Assign structVar struct
@@ -95,12 +103,19 @@ aggrTest = benchTestCase "aggregates" $ do
                , Store pointerVar (VarExpr structVar)
                , Decl oneVar
                , Assign oneVar $ PtrAccess (VarExpr pointerVar) 1
+                 -- Trying nested pointers
+               , Decl ptrVar
+               , Assign ptrVar two32
+               , Store ptrVar structP
+               , Decl threeVar
+               , Assign threeVar $ PtrAccess (PtrAccess (VarExpr ptrVar) 0) 2
                ]
     liftIR initMem
     genBodySMT body
     runSolverOnSMT
 
-  vtest r $ M.fromList [ ("struct_1", 131842)
+  vtest r $ M.fromList [ ("struct_1", 131844)
                        , ("elemZero_1", 2)
                        , ("elemOne_1", 3)
+                       , ("elemThree_1", 4)
                        ]
