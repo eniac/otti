@@ -4,6 +4,7 @@ import           BenchUtils
 import           Codegen.CompilerMonad
 import           Codegen.SMTGen
 import qualified Data.Map              as M
+import           IR.SMT                (initMem)
 import           Utils
 
 codegenTests :: BenchTest
@@ -76,19 +77,30 @@ aggrTest = benchTestCase "aggregates" $ do
     let structType = Struct [U8, U8, U8]
         two = NumExpr $ INum U8 2
         three = NumExpr $ INum U8 3
+        zero = NumExpr $ INum U32 0
         -- 00000010 | 00000011 | 00000010 aka 131842
         struct = StructExpr $ StructLit structType [two, three, two]
         structVar = Var structType "struct"
         zeroVar = Var U8 "elemZero"
+        oneVar = Var U8 "elemOne"
+        -- pointer to struct
+        pointerType = Ptr32 structType
+        pointerVar = Var pointerType "pointer"
         body = [ Decl structVar
                , Decl zeroVar
                , Assign structVar struct
                , Assign zeroVar $ Access (VarExpr structVar) 0
+               , Decl pointerVar
+               , Assign pointerVar zero
+               , Store pointerVar (VarExpr structVar)
+               , Decl oneVar
+               , Assign oneVar $ PtrAccess (VarExpr pointerVar) 1
                ]
-
+    liftIR initMem
     genBodySMT body
     runSolverOnSMT
 
   vtest r $ M.fromList [ ("struct_1", 131842)
                        , ("elemZero_1", 2)
+                       , ("elemOne_1", 3)
                        ]

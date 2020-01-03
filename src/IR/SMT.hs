@@ -75,6 +75,7 @@ AST nodes into
 data CInfo = CInfo { ctype  :: Type
                    , cundef :: Node
                    }
+           deriving (Eq, Ord, Show)
 
 -- | An IR node for converting C/C++ into raw SMT
 type SMTNode = IRNode CInfo
@@ -209,7 +210,7 @@ smtAssert = liftSMT . SMT.assert . n
 
 smtAssign :: SMTNode -> SMTNode -> IR ()
 smtAssign n1 n2 = do
-  unless (t n1 == t n2) $ error "Tried to assign nodes of different types"
+--  unless (t n1 == t n2)  $ error "Tried to assign nodes of different types"
   SMT.assign (n n1) (n n2)
   SMT.assign (u n1) (u n2)
 
@@ -364,6 +365,7 @@ smtStore addr val = do
       let pointerSize = numBits $ t addr
           writeSize = numBits $ t val
 
+      unless (pointerSize == 32) $ error "Only support 32-bit pointers"
       when (writeSize `mod` 8 /= 0) $ error $ unwords ["Unaligned type size:"
                                                       , show $ t val
                                                       , show writeSize
@@ -596,7 +598,8 @@ cppCond :: SMTNode
         -> IR SMTNode
 cppCond cond trueBr falseBr = liftSMT $ do
   unless (t cond == Bool) $ error "Conditional must be a boolean"
-  unless (t trueBr == t falseBr) $ error "Both branches of cond must have same type"
+  unless (numBits (t trueBr) == numBits (t falseBr)) $
+    error "Both branches of cond must have same width"
   result <- SMT.cond (n cond) (n trueBr) (n falseBr)
   undef <- SMT.or (u cond) (u trueBr) >>= SMT.or (u falseBr)
   return $ mkNode result (t trueBr) undef
