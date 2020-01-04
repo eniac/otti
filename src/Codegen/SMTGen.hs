@@ -178,6 +178,27 @@ genStmtSMT stmt =
       exprSMT <- genExprSMT expr
       liftIR $ smtStore varSMT exprSMT
 
+genStoreSMT addr maybeToStore =
+  case maybeToStore of
+    Nothing -> return Nothing
+    Just toStore -> case addr of
+      _ | isVar addr -> do
+        varSMT <- genExprSMT addr
+        liftIR $ smtStore varSMT toStore
+        return Nothing
+      _ | isAccess addr -> do
+        left <- genExprSMT $ struct addr
+        updated <- liftIR $ setField left (field addr) toStore
+        return $ Just updated
+      _ | isPtrAccess addr -> do
+        leftPtr <- genExprSMT $ struct addr
+        left <- liftIR $ smtLoad leftPtr
+        updated <- liftIR $ setField left (field addr) toStore
+        liftIR $ smtStore leftPtr updated
+        return Nothing
+      _ -> error ""
+
+
 genBodySMT :: [Stmt] -> Compiler ()
 genBodySMT = mapM_ genStmtSMT
 

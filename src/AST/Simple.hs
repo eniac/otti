@@ -170,8 +170,12 @@ data Expr = VarExpr { varExpr :: Var }
           | Lte Expr Expr
           | Shl Expr Expr
           | Shr Expr Expr
-          | Access Expr Int
-          | PtrAccess Expr Int
+          | Access { struct :: Expr
+                   , field  :: Int
+                   }
+          | PtrAccess { struct :: Expr
+                      , field  :: Int
+                      }
           | Index Expr Expr
           | PtrIndex Expr Expr
           | Tern Expr Expr Expr
@@ -179,6 +183,18 @@ data Expr = VarExpr { varExpr :: Var }
           | Call FunctionName [Expr]
           | Load Expr
             deriving (Eq, Ord, Show)
+
+isAccess :: Expr -> Bool
+isAccess Access{} = True
+isAccess _        = False
+
+isPtrAccess :: Expr -> Bool
+isPtrAccess PtrAccess{} = True
+isPtrAccess _           = False
+
+isVar :: Expr -> Bool
+isVar VarExpr{} = True
+isVar _         = False
 
 -- | An AST statement: link
 data Stmt = Decl Var

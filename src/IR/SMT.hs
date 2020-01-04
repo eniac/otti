@@ -51,7 +51,7 @@ module IR.SMT ( SMTNode
               ) where
 import           AST.Simple                 (Type (..), arrayBaseType,
                                              arrayNumElems, int16, int32, int64,
-                                             int8, isArray, isDouble,
+                                             int8, isArray, isDouble, isPointer,
                                              isSignedInt, isStruct,
                                              isUnsignedInt, numBits,
                                              pointeeType, structFieldTypes)
@@ -306,6 +306,7 @@ setField struct idx elem = do
 smtLoad :: SMTNode
         -> IR SMTNode
 smtLoad addr = do
+  (unless $ isPointer $ t addr) $ error "Must load from pointer"
   memStrat <- getMemoryStrategy
   case memStrat of
     Flat blockSize -> do
@@ -355,6 +356,7 @@ smtLoad addr = do
 
 smtStore :: SMTNode -> SMTNode -> IR ()
 smtStore addr val = do
+  (unless $ isPointer $ t addr) $ error "Must store to pointer"
   let addrSMT = n addr
       valSMT = n val
   memStrat <- getMemoryStrategy
