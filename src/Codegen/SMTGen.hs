@@ -8,6 +8,7 @@ module Codegen.SMTGen ( genVarSMT
 import           AST.Simple
 import           Codegen.CompilerMonad
 import           Control.Monad.State.Strict (forM, forM_, unless, void, when)
+import           Data.Maybe                 (isNothing)
 import           IR.SMT
 import           Prelude                    hiding (Num)
 
@@ -174,9 +175,11 @@ genStmtSMT stmt =
       liftIR $ smtImplies guard returnOccurs
     VoidReturn         -> return ()
     Store var expr -> do
-      varSMT <- genVarSMT var
       exprSMT <- genExprSMT expr
-      liftIR $ smtStore varSMT exprSMT
+      result <- genStoreSMT (VarExpr var) (Just exprSMT)
+      unless (isNothing result) $ error $ unwords [ "Nothing produced in supposed store to"
+                                                  , show var
+                                                  ]
 
 genStoreSMT addr maybeToStore =
   case maybeToStore of
@@ -197,7 +200,6 @@ genStoreSMT addr maybeToStore =
         liftIR $ smtStore leftPtr updated
         return Nothing
       _ -> error ""
-
 
 genBodySMT :: [Stmt] -> Compiler ()
 genBodySMT = mapM_ genStmtSMT
