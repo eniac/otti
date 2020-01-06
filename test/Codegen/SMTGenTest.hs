@@ -11,6 +11,7 @@ codegenTests :: BenchTest
 codegenTests = benchTestGroup "Codegen tests" [ binOpTest
                                               , callTest
                                               , structTest
+                                              , memTest
                                               ]
 
 -- Fix so that declared but not defined variables have undef bit set
@@ -105,13 +106,13 @@ structTest = benchTestCase "structs" $ do
                , Assign zeroVar $ Access (VarExpr structVar) 0
                , Decl pointerVar
                , Assign pointerVar zero
-               , Store pointerVar (VarExpr structVar)
+               , Store (VarExpr pointerVar) (VarExpr structVar)
                , Decl oneVar
                , Assign oneVar $ PtrAccess (VarExpr pointerVar) 1
                  -- Trying nested pointers
                , Decl ptrVar
                , Assign ptrVar two32
-               , Store ptrVar structP
+               , Store (VarExpr ptrVar) structP
                , Decl threeVar
                , Assign threeVar $ PtrAccess (PtrAccess (VarExpr ptrVar) 0) 2
                  -- Nested structs
@@ -127,4 +128,34 @@ structTest = benchTestCase "structs" $ do
                        , ("elemOne_1", 3)
                        , ("elemThree_1", 4)
                        , ("nvar_1", 4)
+                       ]
+
+memTest :: BenchTest
+memTest = benchTestCase "memory" $ do
+
+  r <- evalCodegen Nothing $ do
+    let structType = Struct [U8, U8, U8]
+        pointerType = Ptr32 structType
+        one = NumExpr $ INum U8 1
+        two = NumExpr $ INum U8 2
+        three = NumExpr $ INum U8 3
+        structLit = StructExpr $ StructLit structType [one, two, three]
+        pointerNum = NumExpr $ INum U32 0
+        pointerVar = Var pointerType "pointer"
+        resultVar = Var U8 "result"
+        body = [ Decl pointerVar
+               , Decl resultVar
+               , Assign pointerVar pointerNum
+               , Store (VarExpr pointerVar) structLit
+               , Assign resultVar $ PtrAccess (VarExpr pointerVar) 1
+               , Store (PtrAccess (VarExpr pointerVar) 1) three
+               , Assign resultVar $ PtrAccess (VarExpr pointerVar) 1
+               ]
+        fun = Function "fun" U8 [] body
+    liftIR $ initMem
+    genBodySMT body
+    runSolverOnSMT
+
+  vtest r $ M.fromList [ ("result_1", 2)
+                       , ("result_2", 3)
                        ]

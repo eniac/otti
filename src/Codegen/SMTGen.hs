@@ -176,7 +176,7 @@ genStmtSMT stmt =
     VoidReturn         -> return ()
     Store var expr -> do
       exprSMT <- genExprSMT expr
-      result <- genStoreSMT (VarExpr var) (Just exprSMT)
+      result <- genStoreSMT var (Just exprSMT)
       unless (isNothing result) $ error $ unwords [ "Nothing produced in supposed store to"
                                                   , show var
                                                   ]

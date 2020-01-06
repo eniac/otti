@@ -199,7 +199,7 @@ isVar _         = False
 -- | An AST statement: link
 data Stmt = Decl Var
           | Assign Var Expr
-          | Store Var Expr
+          | Store Expr Expr
           | If Expr [Stmt] [Stmt]
           | While Expr [Stmt]
           | VoidCall FunctionName [Expr]
