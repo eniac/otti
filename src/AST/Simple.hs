@@ -179,8 +179,12 @@ data Expr = VarExpr { varExpr :: Var }
           | PtrAccess { struct :: Expr
                       , field  :: Int
                       }
-          | Index Expr Expr
-          | PtrIndex Expr Expr
+          | Index { array :: Expr
+                  , index :: Expr
+                  }
+          | PtrIndex { array :: Expr
+                     , index :: Expr
+                     }
           | Tern Expr Expr Expr
           | Cast Expr Type
           | Call FunctionName [Expr]
@@ -191,9 +195,17 @@ isAccess :: Expr -> Bool
 isAccess Access{} = True
 isAccess _        = False
 
+isIndex :: Expr -> Bool
+isIndex Index{} = True
+isIndex _       = False
+
 isPtrAccess :: Expr -> Bool
 isPtrAccess PtrAccess{} = True
 isPtrAccess _           = False
+
+isPtrIndex :: Expr -> Bool
+isPtrIndex PtrIndex{} = True
+isPtrIndex _          = False
 
 isVar :: Expr -> Bool
 isVar VarExpr{} = True

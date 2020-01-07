@@ -176,30 +176,36 @@ genStmtSMT stmt =
     VoidReturn         -> return ()
     Store var expr -> do
       exprSMT <- genExprSMT expr
-      result <- genStoreSMT var (Just exprSMT)
-      unless (isNothing result) $ error $ unwords [ "Nothing produced in supposed store to"
-                                                  , show var
-                                                  ]
+      genStoreSMT var exprSMT
 
-genStoreSMT addr maybeToStore =
-  case maybeToStore of
-    Nothing -> return Nothing
-    Just toStore -> case addr of
-      _ | isVar addr -> do
-        varSMT <- genExprSMT addr
-        liftIR $ smtStore varSMT toStore
-        return Nothing
-      _ | isAccess addr -> do
-        left <- genExprSMT $ struct addr
-        updated <- liftIR $ setField left (field addr) toStore
-        genStoreSMT (struct addr) $ Just updated
-      _ | isPtrAccess addr -> do
-        leftPtr <- genExprSMT $ struct addr
-        left <- liftIR $ smtLoad leftPtr
-        updated <- liftIR $ setField left (field addr) toStore
-        liftIR $ smtStore leftPtr updated
-        return Nothing
-      _ -> error "Did not match"
+-- | Think harder, we may be able to beautify this...
+genStoreSMT addr toStore =
+  case addr of
+    _ | isVar addr -> do
+      varSMT <- genExprSMT addr
+      liftIR $ smtStore varSMT toStore
+    _ | isAccess addr -> do
+      left <- genExprSMT $ struct addr
+      updated <- liftIR $ setField left (field addr) toStore
+      -- Store the updated struct at the relevant nested pointer access
+      genStoreSMT (struct addr) updated
+    _ | isIndex addr -> do
+      left <- genExprSMT $ array addr
+      idx <- genExprSMT $ index addr
+      updated <- liftIR $ setIdx left idx toStore
+      genStoreSMT (array addr) updated
+    _ | isPtrAccess addr -> do
+      leftPtr <- genExprSMT $ struct addr
+      left <- liftIR $ smtLoad leftPtr
+      updated <- liftIR $ setField left (field addr) toStore
+      liftIR $ smtStore leftPtr updated
+    _ | isPtrIndex addr -> do
+      leftPtr <- genExprSMT $ array addr
+      left <- liftIR $ smtLoad leftPtr
+      idx <- genExprSMT $ index addr
+      updated <- liftIR $ setIdx left idx toStore
+      liftIR $ smtStore leftPtr updated
+    _ -> error "Did not match"
 
 genBodySMT :: [Stmt] -> Compiler ()
 genBodySMT = mapM_ genStmtSMT

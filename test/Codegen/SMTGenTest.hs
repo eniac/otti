@@ -165,7 +165,6 @@ memTest = benchTestCase "memory" $ do
                , Store (Access (PtrAccess (VarExpr pointer2Var) 1) 0) number
                , Assign result2Var $ Access (Access (Load $ VarExpr pointer2Var) 1) 0
                ]
-        fun = Function "fun" U8 [] body
     liftIR $ initMem
     genBodySMT body
     runSolverOnSMT
