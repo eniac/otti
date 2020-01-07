@@ -8,7 +8,8 @@ import           Utils
 {-| Unit tests for the SMT IR layer. There are also automatically-generated quickcheck tests -}
 
 irTests :: BenchTest
-irTests = benchTestGroup "IR tests" [ negTest
+irTests = benchTestGroup "IR tests" [ solverTest
+                                    , negTest
                                     , bitwiseNegTest
                                     , compareTest
                                     , bitwiseOpTest
@@ -18,6 +19,25 @@ irTests = benchTestGroup "IR tests" [ negTest
                                     , arrayTest
                                     , memTest
                                     ]
+
+solverTest :: BenchTest
+solverTest = benchTestCase "solver" $ do
+
+  (r1, r2) <- evalIR Nothing $ do
+
+    one <- newInt S32 1
+    result1 <- newVar S32 "result1"
+    smtAssign result1 one
+    r1 <- smtResult
+
+    two <- newInt S32 2
+    result2 <- newVar S32 "result2"
+    smtAssign result2 two
+    r2 <- smtResult
+    return (r1, r2)
+
+  vtest r1 $ M.fromList [ ("result1", 1) ]
+  vtest r2 $ M.fromList [ ("result2", 2) ]
 
 negTest :: BenchTest
 negTest = benchTestCase "neg" $ do
@@ -39,7 +59,6 @@ negTest = benchTestCase "neg" $ do
   vtest r $ M.fromList [ ("result", 4294967295)
                        , ("result_double", -1.2)
                        ]
-  satTest r
 
 bitwiseNegTest :: BenchTest
 bitwiseNegTest = benchTestCase "bitwise neg" $ do
@@ -65,7 +84,6 @@ bitwiseNegTest = benchTestCase "bitwise neg" $ do
                        , ("result1", 0)
                        , ("result2", 4294967295)
                        ]
-  satTest r
 
 compareTest :: BenchTest
 compareTest = benchTestCase "comparisons" $ do
@@ -114,7 +132,6 @@ compareTest = benchTestCase "comparisons" $ do
                        , ("result6", 1)
                        , ("result7", 0)
                        ]
-  satTest r
 
 bitwiseOpTest :: BenchTest
 bitwiseOpTest = benchTestCase "bitwise op" $ do
@@ -146,7 +163,6 @@ bitwiseOpTest = benchTestCase "bitwise op" $ do
                        , ("result2", 4294967295)
                        , ("result3", 4294967294)
                        ]
-  satTest r
 
 subTest :: BenchTest
 subTest = benchTestCase "sub" $ do
@@ -173,7 +189,6 @@ subTest = benchTestCase "sub" $ do
                        , ("result1", 4294967295)
                        , ("result1_undef", 0)
                        ]
-  satTest r
 
 addTest :: BenchTest
 addTest = benchTestCase "add" $ do
@@ -197,7 +212,6 @@ addTest = benchTestCase "add" $ do
                        , ("overflow", 0)
                        , ("overflow_undef", 1)
                        ]
-  satTest r
 
 structTest :: BenchTest
 structTest = benchTestCase "structs" $ do
@@ -227,7 +241,6 @@ structTest = benchTestCase "structs" $ do
                        , ("elemTwo", 36)
                        , ("newStructVar", 2088)
                        ]
-  satTest r
 
 arrayTest :: BenchTest
 arrayTest = benchTestCase "arrays" $ do
@@ -253,7 +266,6 @@ arrayTest = benchTestCase "arrays" $ do
                        , ("elemThree", 5)
                        , ("finalElemThree", 15)
                        ]
-  satTest r
 
 memTest :: BenchTest
 memTest = benchTestCase "memory" $ do
@@ -281,5 +293,4 @@ memTest = benchTestCase "memory" $ do
   vtest r $ M.fromList [ ("resultVar", 123)
                        , ("elemThree", 5)
                        ]
-  satTest r
 

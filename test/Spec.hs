@@ -7,7 +7,7 @@ import           Test.Tasty
 
 allTests :: [BenchTest]
 allTests = [ smtTests
-           -- , irTests
+           , irTests
             -- codegenTests
            ]
 
