@@ -34,6 +34,7 @@ data CompilerState = CompilerState { -- Mapping AST variables etc to information
                                      -- Codegen context information
                                    , callStack         :: [FunctionName]
                                    , conditionalGuards :: [SMTNode]
+                                   , returnValueGuards :: [SMTNode]
                                    , returnValues      :: [SMTNode]
                                    , ctr               :: Int -- To disambiguate retVals
                                      -- SMT variables: SSA'd versions of AST variables
@@ -55,7 +56,7 @@ instance MonadFail Compiler where
 ---
 
 emptyCompilerState :: CompilerState
-emptyCompilerState = CompilerState M.empty M.empty M.empty [] [] [] 1 M.empty
+emptyCompilerState = CompilerState M.empty M.empty M.empty [] [] [] [] 1 M.empty
 
 liftIR :: IR a -> Compiler a
 liftIR = Compiler . lift
@@ -224,4 +225,38 @@ getCurrentGuardNode = do
   liftIR $ if null guards
   then smtTrue
   else foldM cppAnd (head guards) (init guards)
+
+---
+--- Return values
+--- We need to keep track of which return values we've already guarded with in order to
+-- handle cases like this:
+-- if (x) {
+--   if (y) return 3;
+--   return 4;
+-- }
+-- return 5;
+--
+-- This should become:
+-- x && y => rv = 3
+-- x && !(x && y) => rv = 4
+-- !x && !(x && y) => rv = 5
+
+addReturnGuard :: SMTNode
+               -> Compiler ()
+addReturnGuard guardNode = do
+  s0 <- get
+  notGuard <- liftIR $ cppBitwiseNeg guardNode
+  put $ s0 { returnValueGuards = notGuard:returnValueGuards s0 }
+
+getOldReturnGuard :: Compiler SMTNode
+getOldReturnGuard = do
+  s0 <- get
+  let guards = returnValueGuards s0
+  if null guards
+  then do
+    true <- liftIR smtTrue
+    put $ s0 { returnValueGuards = [true] }
+    return true
+  else liftIR $ foldM cppAnd (head guards) (tail guards)
+
 

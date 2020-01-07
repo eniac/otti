@@ -14,6 +14,8 @@ module IR.SMT ( SMTNode
               , smtFalse
               , smtLoad
               , smtStore
+              , smtPush
+              , smtPop
                 -- * Variables
               , newVar
               , newInt
@@ -229,6 +231,12 @@ smtImplies a b = do
 
 smtResult :: IR SMTResult
 smtResult = liftSMT SMT.runSolver
+
+smtPush :: IR ()
+smtPush = liftSMT push
+
+smtPop :: IR ()
+smtPop = liftSMT $ pop 1
 
 -- Struct and array access
 

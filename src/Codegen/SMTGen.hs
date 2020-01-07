@@ -7,7 +7,8 @@ module Codegen.SMTGen ( genVarSMT
                       ) where
 import           AST.Simple
 import           Codegen.CompilerMonad
-import           Control.Monad.State.Strict (forM, forM_, unless, void, when)
+import           Control.Monad.State.Strict (forM, forM_, liftIO, unless, void,
+                                             when)
 import           Data.Maybe                 (isNothing)
 import           IR.SMT
 import           Prelude                    hiding (Num)
@@ -167,12 +168,17 @@ genStmtSMT stmt =
     While c body       -> error ""
     VoidCall name args -> void $ genCallSMT name args
     Return e           -> do
-      guard <- getCurrentGuardNode
       toReturn <- genExprSMT e
       retVal <- getReturnVal
+      -- Get guards for the yes-return case and the no-return case
+      trueGuard <- getCurrentGuardNode
+      notFalseGuard <- getOldReturnGuard
+      shouldOccur <- liftIR $ cppAnd trueGuard notFalseGuard
+      addReturnGuard trueGuard
+      -- This is the equality if the return occurs
       returnOccurs <- liftIR $ cppEq retVal toReturn
       -- Only set the return value equal to e if the guard is true
-      liftIR $ smtImplies guard returnOccurs
+      liftIR $ smtImplies shouldOccur returnOccurs
     VoidReturn         -> return ()
     Store var expr -> do
       exprSMT <- genExprSMT expr
@@ -214,6 +220,6 @@ genFunctionSMT fun = do
   returnVal <- liftIR $ newVar (fTy fun) returnValName
   pushFunction (fName fun) returnVal
   genBodySMT $ fBody fun
-
+  popFunction
 
 

@@ -4,15 +4,16 @@ import           BenchUtils
 import           Codegen.CompilerMonad
 import           Codegen.SMTGen
 import qualified Data.Map              as M
-import           IR.SMT                (initMem)
+import           IR.SMT                (initMem, smtPop, smtPush)
 import           Utils
 
 codegenTests :: BenchTest
-codegenTests = benchTestGroup "Codegen tests" [ binOpTest
-                                              , ifTest
-                                              , callTest
-                                              , structTest
-                                              , memTest
+codegenTests = benchTestGroup "Codegen tests" [ -- binOpTest
+                                              --, ifTest
+                                               returnTest
+                                              -- , callTest
+                                              -- , structTest
+                                              -- , memTest
                                               ]
 
 -- Fix so that declared but not defined variables have undef bit set
@@ -66,6 +67,29 @@ ifTest = benchTestCase "if" $ do
 --                       , ("undef_1_undef", 1)
                        ]
 
+
+returnTest :: BenchTest
+returnTest = benchTestCase "return" $ do
+  (r1, r2) <- evalCodegen Nothing $ do
+
+    let two = NumExpr $ INum U8 2
+        three = NumExpr $ INum U8 3
+        result = Var U8 "result"
+        body1 = [ If (Eq two three) [Return two] []
+                , Return three
+                ]
+        body2 = [ If (Eq two two) [If (Eq three three) [Return two] []] [Return three] ]
+        fun1 = Function "fun1" U8 [] body1
+        fun2 = Function "fun2" U8 [] body2
+
+    genFunctionSMT fun1
+    -- r1 <- runSolverOnSMT
+    genFunctionSMT fun2
+    r2 <- runSolverOnSMT
+    return (r2, r2)
+
+  -- vtest r1 $ M.fromList [ ("fun1_retVal_1", 3) ]
+  vtest r2 $ M.fromList [ ("fun2_retVal_1", 2) ]
 
 callTest :: BenchTest
 callTest = benchTestCase "call" $ do

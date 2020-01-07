@@ -5,9 +5,28 @@ import           Targets.SMT
 import           Utils
 
 smtTests :: BenchTest
-smtTests = benchTestGroup "SMT tests" [ getBitsTest
+smtTests = benchTestGroup "SMT tests" [ solverTest
+                                      , getBitsTest
                                       , setBitsTest
                                       ]
+
+solverTest :: BenchTest
+solverTest = benchTestCase "solver" $ do
+
+  (r1, r2) <- evalSMT Nothing $ do
+    bv8 <- bvSort 8
+    zero <- bvNum 8 0
+    result0 <- newVar "result0" bv8
+    assign result0 zero
+    r1 <- runSolver
+    one <- bvNum 8 1
+    result1 <- newVar "result1" bv8
+    assign result1 one
+    r2 <- runSolver
+    return (r1, r2)
+
+  vtest r1 $ M.fromList [ ("result0", 0) ]
+  vtest r2 $ M.fromList [ ("result1", 1) ]
 
 getBitsTest :: BenchTest
 getBitsTest = benchTestCase "getBitsFrom" $ do
