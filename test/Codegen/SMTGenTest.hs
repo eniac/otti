@@ -9,6 +9,7 @@ import           Utils
 
 codegenTests :: BenchTest
 codegenTests = benchTestGroup "Codegen tests" [ binOpTest
+                                              , ifTest
                                               , callTest
                                               , structTest
                                               , memTest
@@ -35,6 +36,36 @@ binOpTest = benchTestCase "bin op" $ do
                        , ("result_2", 6)
                        , ("result_2_undef", 0)
                        ]
+
+-- Undefined variables should have undef bit set to 1
+ifTest :: BenchTest
+ifTest = benchTestCase "if" $ do
+
+  r <- evalCodegen Nothing $ do
+    let result = Var U8 "result"
+        undefResult = Var U8 "undef"
+        one = NumExpr $ INum U8 1
+        three = NumExpr $ INum U8 3
+        body = [ Decl result
+               , If (Eq one three) [Assign result three] [Assign result one]
+               , If (Eq three three) [Assign result three] [Assign result one]
+               , Decl undefResult
+               -- undef should be undef
+               , If (Eq one three) [Assign undefResult three] []
+               -- undef should no longer be undef
+               , If (Eq one one) [If (Eq three three) [Assign undefResult three] [] ] []
+               ]
+    genBodySMT body
+    runSolverOnSMT
+
+  vtest r $ M.fromList [ ("result_2", 1)
+                       , ("result_3", 3)
+                       , ("result_4", 3)
+                       , ("undef_2", 3)
+                       , ("undef_2_undef", 0)
+--                       , ("undef_1_undef", 1)
+                       ]
+
 
 callTest :: BenchTest
 callTest = benchTestCase "call" $ do
