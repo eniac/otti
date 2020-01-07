@@ -88,15 +88,18 @@ pointeeType v          = error $ unwords $ ["Can't get pointee type of non-point
 
 arrayBaseType :: Type -> Type
 arrayBaseType (Array _ ty) = ty
-arrayBaseType _            = error "Cannot call arrayBaseType on non-array"
+arrayBaseType a            =
+  error $ unwords $ ["Cannot call arrayBaseType on non-array", show a]
 
 arrayNumElems :: Type -> Int
 arrayNumElems (Array n _) = n
-arrayNumElems _           = error "Cannot call array num elems on non-array type"
+arrayNumElems n           =
+  error $ unwords $ ["Cannot call array num elems on non-array type", show n]
 
 structFieldTypes :: Type -> [Type]
 structFieldTypes (Struct tys) = tys
-structFieldTypes _ = error "Cannot call structFieldTypes on non-struct"
+structFieldTypes s =
+  error $ unwords $ ["Cannot call structFieldTypes on non-struct", show s]
 
 ---
 --- Variables

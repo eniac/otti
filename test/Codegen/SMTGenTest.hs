@@ -143,6 +143,15 @@ memTest = benchTestCase "memory" $ do
         pointerNum = NumExpr $ INum U32 0
         pointerVar = Var pointerType "pointer"
         resultVar = Var U8 "result"
+        -- nested struct
+        struct2Type = Struct [U8, Struct [U8]]
+        pointer2Type = Ptr32 struct2Type
+        number = NumExpr $ INum U8 50
+        nestedLit = StructExpr $ StructLit (Struct [U8]) [number]
+        struct2Lit = StructExpr $ StructLit struct2Type [number, nestedLit]
+        pointer2Num = NumExpr $ INum U32 10
+        pointer2Var = Var pointer2Type "pointer2"
+        result2Var = Var U8 "result2"
         body = [ Decl pointerVar
                , Decl resultVar
                , Assign pointerVar pointerNum
@@ -150,6 +159,11 @@ memTest = benchTestCase "memory" $ do
                , Assign resultVar $ PtrAccess (VarExpr pointerVar) 1
                , Store (PtrAccess (VarExpr pointerVar) 1) three
                , Assign resultVar $ PtrAccess (VarExpr pointerVar) 1
+               , Decl pointer2Var
+               , Decl result2Var
+               , Assign pointer2Var pointer2Num
+               , Store (Access (PtrAccess (VarExpr pointer2Var) 1) 0) number
+               , Assign result2Var $ Access (Access (Load $ VarExpr pointer2Var) 1) 0
                ]
         fun = Function "fun" U8 [] body
     liftIR $ initMem
@@ -158,4 +172,5 @@ memTest = benchTestCase "memory" $ do
 
   vtest r $ M.fromList [ ("result_1", 2)
                        , ("result_2", 3)
+                       , ("result2_1", 50)
                        ]

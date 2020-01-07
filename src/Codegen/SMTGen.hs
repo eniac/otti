@@ -192,14 +192,14 @@ genStoreSMT addr maybeToStore =
       _ | isAccess addr -> do
         left <- genExprSMT $ struct addr
         updated <- liftIR $ setField left (field addr) toStore
-        return $ Just updated
+        genStoreSMT (struct addr) $ Just updated
       _ | isPtrAccess addr -> do
         leftPtr <- genExprSMT $ struct addr
         left <- liftIR $ smtLoad leftPtr
         updated <- liftIR $ setField left (field addr) toStore
         liftIR $ smtStore leftPtr updated
         return Nothing
-      _ -> error ""
+      _ -> error "Did not match"
 
 genBodySMT :: [Stmt] -> Compiler ()
 genBodySMT = mapM_ genStmtSMT
