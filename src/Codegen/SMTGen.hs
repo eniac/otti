@@ -178,34 +178,32 @@ genStmtSMT stmt =
       exprSMT <- genExprSMT expr
       genStoreSMT var exprSMT
 
--- | Think harder, we may be able to beautify this...
-genStoreSMT addr toStore =
-  case addr of
-    _ | isVar addr -> do
-      varSMT <- genExprSMT addr
-      liftIR $ smtStore varSMT toStore
-    _ | isAccess addr -> do
+genStoreSMT addr toStore
+  | isAccess addr = do
       left <- genExprSMT $ struct addr
       updated <- liftIR $ setField left (field addr) toStore
       -- Store the updated struct at the relevant nested pointer access
       genStoreSMT (struct addr) updated
-    _ | isIndex addr -> do
+  | isIndex addr = do
       left <- genExprSMT $ array addr
       idx <- genExprSMT $ index addr
       updated <- liftIR $ setIdx left idx toStore
+      -- Store the updated array at the relevant nested pointer access
       genStoreSMT (array addr) updated
-    _ | isPtrAccess addr -> do
+  | isPtrAccess addr = do
       leftPtr <- genExprSMT $ struct addr
       left <- liftIR $ smtLoad leftPtr
       updated <- liftIR $ setField left (field addr) toStore
       liftIR $ smtStore leftPtr updated
-    _ | isPtrIndex addr -> do
+  | isPtrIndex addr = do
       leftPtr <- genExprSMT $ array addr
       left <- liftIR $ smtLoad leftPtr
       idx <- genExprSMT $ index addr
       updated <- liftIR $ setIdx left idx toStore
       liftIR $ smtStore leftPtr updated
-    _ -> error "Did not match"
+  | otherwise =  do
+      addrSMT <- genExprSMT addr
+      liftIR $ smtStore addrSMT toStore
 
 genBodySMT :: [Stmt] -> Compiler ()
 genBodySMT = mapM_ genStmtSMT
