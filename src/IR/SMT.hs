@@ -16,6 +16,7 @@ module IR.SMT ( SMTNode
               , smtStore
               , smtPush
               , smtPop
+              , smtName
                 -- * Variables
               , newVar
               , newInt
@@ -237,6 +238,9 @@ smtPush = liftSMT push
 
 smtPop :: IR ()
 smtPop = liftSMT $ pop 1
+
+smtName :: IR String
+smtName = undefined
 
 -- Struct and array access
 

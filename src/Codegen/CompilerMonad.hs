@@ -51,6 +51,28 @@ instance Z.MonadZ3 Compiler where
 instance MonadFail Compiler where
     fail = error "FAILED"
 
+prettyState :: Compiler ()
+prettyState = do
+  s0 <- get
+  liftIO $ putStrLn $ unlines [ "----Versions----"
+                              , show $ vers s0
+                              , "----Types----"
+                              , show $ tys s0
+                              , "----Call stack---"
+                              , unlines $ map show $ callStack s0
+                              , "----Conditional guards----"
+                              , show $ length $ conditionalGuards s0
+                              , "----Return value guards----"
+                              , show $ length $ returnValueGuards s0
+                              , "----Return values----"
+                              , show $ length $ returnValues s0
+                              , show $ returnValues s0
+                              , "----Ctr----"
+                              , show $ ctr s0
+                              , "----Variables----"
+                              , show $ vars s0
+                              ]
+
 ---
 --- Setup, monad functions, etc
 ---
@@ -153,6 +175,15 @@ getNodeFor varName = do
 ---
 --- Functions
 ---
+
+clearBetweenAnalyzingFunctions :: Compiler ()
+clearBetweenAnalyzingFunctions = do
+  s0 <- get
+  put $ s0 { callStack = []
+           , conditionalGuards = []
+           , returnValueGuards = []
+           , returnValues = []
+           }
 
 pushFunction :: FunctionName
              -> SMTNode

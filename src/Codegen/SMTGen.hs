@@ -221,5 +221,6 @@ genFunctionSMT fun = do
   pushFunction (fName fun) returnVal
   genBodySMT $ fBody fun
   popFunction
+  clearBetweenAnalyzingFunctions
 
 

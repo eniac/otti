@@ -116,10 +116,12 @@ parseModel str = do
                                 result = (sig .&. 0xfffffffffffff) .|. ((exp .&. 0x7ff) `shiftL` 52) .|. ((sign .&. 0x1) `shiftL` 63)
                             in Just $ wordToDouble $ fromIntegral $ result
                           _                             -> Nothing
-              return $ case val of
+              case val of
                    -- gross for printing
-                   Just v  -> Just (init var, v)
-                   Nothing -> Nothing
+                   Just v  -> do
+                     return $ Just (init var, v)
+                   Nothing -> do
+                     return Nothing
             _ -> return Nothing
   return $ M.fromList $ catMaybes vs
   where

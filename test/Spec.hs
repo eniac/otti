@@ -6,9 +6,9 @@ import           Targets.SMTTest
 import           Test.Tasty
 
 allTests :: [BenchTest]
-allTests = [ smtTests
-           , irTests
-            -- codegenTests
+allTests = [ -- smtTests
+           -- , irTests
+            codegenTests
            ]
 
 main :: IO ()

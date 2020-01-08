@@ -8,13 +8,50 @@ import           IR.SMT                (initMem, smtPop, smtPush)
 import           Utils
 
 codegenTests :: BenchTest
-codegenTests = benchTestGroup "Codegen tests" [ -- binOpTest
-                                              --, ifTest
-                                               returnTest
-                                              -- , callTest
-                                              -- , structTest
-                                              -- , memTest
+codegenTests = benchTestGroup "Codegen tests" [ solverTest
+                                              , binOpTest
+                                              , ifTest
+                                              , returnTest
+                                              , callTest
+                                              , structTest
+                                              , memTest
                                               ]
+
+solverTest :: BenchTest
+solverTest = benchTestCase "solver" $ do
+
+  (r1, r2, r3, r4) <- evalCodegen Nothing $ do
+
+    let result1 = Var U8 "result1"
+        one = NumExpr $ INum U8 1
+    genStmtSMT $ Decl result1
+    genStmtSMT $ Assign result1 one
+    r1 <- runSolverOnSMT
+
+    let result2 = Var U8 "result2"
+        two = NumExpr $ INum U8 2
+        body = [ Decl result2
+               , Assign result2 two
+               ]
+    genBodySMT body
+    r2 <- runSolverOnSMT
+
+    let three = NumExpr $ INum U8 3
+        fun3 = Function "fun3" U8 [] [Return three]
+    genFunctionSMT fun3
+    r3 <- runSolverOnSMT
+
+    let four = NumExpr $ INum U8 4
+        fun4 = Function "fun4" U8 [] [Return four]
+    genFunctionSMT fun4
+    r4 <- runSolverOnSMT
+
+    return (r1, r2, r3, r4)
+
+  vtest r1 $ M.fromList [ ("result1_1", 1) ]
+  vtest r2 $ M.fromList [ ("result2_1", 2) ]
+  vtest r3 $ M.fromList [ ("fun3_retVal_1", 3) ]
+  vtest r4 $ M.fromList [ ("fun4_retVal_2", 4) ]
 
 -- Fix so that declared but not defined variables have undef bit set
 binOpTest :: BenchTest
@@ -67,7 +104,7 @@ ifTest = benchTestCase "if" $ do
 --                       , ("undef_1_undef", 1)
                        ]
 
-
+-- undefined return value bits not working
 returnTest :: BenchTest
 returnTest = benchTestCase "return" $ do
   (r1, r2) <- evalCodegen Nothing $ do
@@ -79,17 +116,20 @@ returnTest = benchTestCase "return" $ do
                 , Return three
                 ]
         body2 = [ If (Eq two two) [If (Eq three three) [Return two] []] [Return three] ]
+        -- This should end up with rv in the model but it doesnt
+        body3 = [ If (Eq two three) [Return two] [] ]
         fun1 = Function "fun1" U8 [] body1
         fun2 = Function "fun2" U8 [] body2
+        fun3 = Function "fun3" U8 [] body3
 
     genFunctionSMT fun1
-    -- r1 <- runSolverOnSMT
+    r1 <- runSolverOnSMT
     genFunctionSMT fun2
     r2 <- runSolverOnSMT
-    return (r2, r2)
+    return (r1, r2)
 
-  -- vtest r1 $ M.fromList [ ("fun1_retVal_1", 3) ]
-  vtest r2 $ M.fromList [ ("fun2_retVal_1", 2) ]
+  vtest r1 $ M.fromList [ ("fun1_retVal_1", 3) ]
+  vtest r2 $ M.fromList [ ("fun2_retVal_2", 2) ]
 
 callTest :: BenchTest
 callTest = benchTestCase "call" $ do
