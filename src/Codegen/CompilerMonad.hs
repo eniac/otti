@@ -34,7 +34,7 @@ data CompilerState = CompilerState { -- Mapping AST variables etc to information
                                      -- Codegen context information
                                    , callStack         :: [FunctionName]
                                    , conditionalGuards :: [SMTNode]
-                                   , returnValueGuards :: [SMTNode]
+                                   , returnValueGuards :: [[SMTNode]]
                                    , returnValues      :: [SMTNode]
                                    , ctr               :: Int -- To disambiguate retVals
                                      -- SMT variables: SSA'd versions of AST variables
@@ -78,7 +78,7 @@ prettyState = do
 ---
 
 emptyCompilerState :: CompilerState
-emptyCompilerState = CompilerState M.empty M.empty M.empty [] [] [] [] 1 M.empty
+emptyCompilerState = CompilerState M.empty M.empty M.empty [] [] [[]] [] 1 M.empty
 
 liftIR :: IR a -> Compiler a
 liftIR = Compiler . lift
@@ -192,6 +192,7 @@ pushFunction funName returnVal = do
   s0 <- get
   put $ s0 { callStack = funName:callStack s0
            , returnValues = returnVal:returnValues s0
+           , returnValueGuards = []:returnValueGuards s0
            }
 
 popFunction :: Compiler ()
@@ -201,6 +202,7 @@ popFunction = do
   when (null $ returnValues s0) $ error "Tried to pop return val off empty stack"
   put $ s0 { callStack = tail $ callStack s0
            , returnValues = tail $ returnValues s0
+           , returnValueGuards = tail $ returnValueGuards s0
            }
 
 getReturnValName :: FunctionName
@@ -277,17 +279,20 @@ addReturnGuard :: SMTNode
 addReturnGuard guardNode = do
   s0 <- get
   notGuard <- liftIR $ cppBitwiseNeg guardNode
-  put $ s0 { returnValueGuards = notGuard:returnValueGuards s0 }
+  let allGuards = returnValueGuards s0
+      updatedGuards = notGuard:head allGuards
+  put $ s0 { returnValueGuards = updatedGuards:tail allGuards }
 
 getOldReturnGuard :: Compiler SMTNode
 getOldReturnGuard = do
   s0 <- get
-  let guards = returnValueGuards s0
-  if null guards
+  let allGuards = returnValueGuards s0
+      currentGuards = head allGuards
+  if null currentGuards
   then do
     true <- liftIR smtTrue
-    put $ s0 { returnValueGuards = [true] }
+    put $ s0 { returnValueGuards = [true]:tail allGuards }
     return true
-  else liftIR $ foldM cppAnd (head guards) (tail guards)
+  else liftIR $ foldM cppAnd (head currentGuards) (tail currentGuards)
 
 
