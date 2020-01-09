@@ -234,108 +234,13 @@ setField struct idx elem = do
 smtLoad :: SMTNode
         -> IR SMTNode
 smtLoad addr = do
-  (unless $ isPointer $ t addr) $ error "Must load from pointer"
-  memStrat <- getMemoryStrategy
-  case memStrat of
-    Flat blockSize -> do
-      mem <- currentMem
-      -- Figure out how many blocks to read
-      -- The following comment explains the three different cases we may face.
-      -- We don't special case now on whether the addr is concrete or symbolic, but we could
-
-      -- Consider a load of 32 bits off 0 and blockSize of 32
-      -- In this case, the load size is 32
-      -- The underestimate of the blocks to read is 1, which in this case is correct
-      -- The overestimate of the blocks to read is 2, which is one more than necessary
-
-      -- Now consider a load of 32 bits starting from 16 with the same block size
-      -- The underestimate of the blocks to read is 1, but this is too few! The read spans 2
-      -- The overestimate of the blocks to read is 2, which captures the span
-
-      -- Finally, consider a load of 16 bits starting from 0 with 32 size blocks
-      -- The underestimate of the blocks to read is 16/32, which is zero!
-      -- The estimate of the block size is now one, which sounds right.
-      -- Finally, the overestimate is again 2
-
-      let pointeeTy = pointeeType $ t addr
-          readSize = numBits pointeeTy
-          underEstimateBlocks = readSize `div` blockSize
-          estimateBlocks = if underEstimateBlocks == 0 then 1 else underEstimateBlocks
-          overEstimateBlocks = estimateBlocks + 1 -- if > 8
-          blocksToRead = overEstimateBlocks
-
-      when (blocksToRead > 2000) $ error "Load is too large"
-
-      -- Read all the blocks and then smoosh them together into one bv
-      let pointerSize = numBits $ t addr
-      reads <- forM [0..blocksToRead - 1] $ \offset -> do
-        nextPointer <- SMT.bvNum pointerSize (fromIntegral offset) >>= SMT.add (n addr)
-        SMT.load mem nextPointer
-      wholeRead <- SMT.concatMany reads
-
-      -- Get the start location of the read in wholeRead
-      widthSMT <- SMT.bvNum pointerSize $ fromIntegral blockSize
-      readStart <- SMT.urem (n addr) widthSMT
-
-      -- Perform the read!
-      result <- SMT.getBitsFromBE wholeRead readSize readStart
-      let undef = u addr
-      return $ mkNode result pointeeTy undef
+  result <- irLoad addr
+  let pointeeTy = pointeeType $ t addr
+  return $ mkNode result pointeeTy (u addr)
 
 smtStore :: SMTNode -> SMTNode -> SMTNode -> IR ()
-smtStore addr val guard = do
-  (unless $ isPointer $ t addr) $ error "Must store to pointer"
-  let addrSMT = n addr
-      valSMT = n val
-  memStrat <- getMemoryStrategy
+smtStore addr val guard = irStore addr val $ Just guard
 
-  case memStrat of
-    Flat blockSize -> do
-      -- Figure out how many blocks we need
-      let pointerSize = numBits $ t addr
-          writeSize = numBits $ t val
-
-      unless (pointerSize == 32) $ error "Only support 32-bit pointers"
-      when (writeSize `mod` 8 /= 0) $ error $ unwords ["Unaligned type size:"
-                                                      , show $ t val
-                                                      , show writeSize
-                                                      ]
-
-      width <- SMT.bvNum pointerSize $ fromIntegral blockSize
-      addressSym <- SMT.udiv addrSMT width
-      -- We may be reading across block bounaries if the cell size is more than 8
-      -- See giant comment in smtLoad
-      let underEstimateBlocks = writeSize `div` blockSize
-          estimateBlocks = if underEstimateBlocks == 0 then 1 else underEstimateBlocks
-          blocksToWrite = estimateBlocks + 1
-
-      when (blocksToWrite > 2000) $ error "Write too large"
-
-      -- Read the contents of memory at all the blocks
-      oldMem <- currentMem
-      reads <- forM [0..blocksToWrite - 1] $ \offset -> do
-        nextPointer <- SMT.bvNum pointerSize (fromIntegral offset) >>= SMT.add addrSMT
-        SMT.load oldMem nextPointer
-      currentContents <- SMT.concatMany reads
-
-      -- Write the relevant bits in the read
-      writeStart <- SMT.urem addrSMT width
-      maybeWrite <- liftSMT $ SMT.setBitsTo valSMT currentContents writeStart
-      write <- SMT.cond (n guard) maybeWrite currentContents
-
-      -- Write the updated bits back to memory
-      -- Write from high bits to low bits as the pointer values increase:
-      -- ptr:   1        2        3      4
-      -- val: [high][high mid][low mid][last]
-
-      forM_ [0..blocksToWrite - 1] $ \offset -> do
-        nextPointer <- SMT.bvNum pointerSize (fromIntegral offset) >>= SMT.add addrSMT
-        let sliceStart = blocksToWrite * blockSize - (offset * blockSize) - 1
-            sliceEnd = sliceStart - blockSize + 1
-        writeSlice <- SMT.slice write sliceStart sliceEnd
-        oldMem <- currentMem
-        newMem <- nextMem
-        SMT.store oldMem nextPointer writeSlice >>= SMT.assign newMem
 
 -- Unary operations
 
