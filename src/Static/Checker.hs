@@ -1,10 +1,11 @@
-{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
 module Static.Checker where
 import           AST.Simple
 
-data Bug = Bug
 
-class Checker a where
-  checkStmt :: a -> Stmt -> a
+class Checker a b | a -> b where
   checkExpr :: a -> Expr -> a
-  getBugs :: a -> Bug
+  getBugs :: a -> b
+
+

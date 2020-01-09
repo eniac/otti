@@ -42,7 +42,7 @@ smtImplies a b = do
   SMT.or notA (n b) >>= SMT.assert
 
 --
---
+-- Making numbers
 --
 
 -- | Make a new SMT integer from the input type
@@ -76,6 +76,10 @@ irInt ty val = liftSMT $ do
     _ -> SMT.bvNum width val
 
 irFloat = undefined
+
+---
+--- Memory and structures
+---
 
 irGetIdx :: (IRNode a b)
          => a
