@@ -33,6 +33,7 @@ smtPop = liftSMT $ SMT.pop
 --
 --
 
+-- | Make a new SMT integer from the input type
 irInt :: (Typed a, Show a)
       => a -- ^ Type
       -> Integer -- ^ Value
@@ -65,5 +66,20 @@ irInt ty val = liftSMT $ do
 
 irFloat = undefined
 
+irGetIdx :: (Typed a)
+         => Node
+         -> a
+         -> Node
+         -> a
+         -> IR Node
+irGetIdx node nodeTy idx idxTy = do
+  unless (isArray nodeTy) $ error "Must call irGetIdx on array"
+  let baseType = arrayBaseType nodeTy
+      elemSize = numBits baseType
+      idxSize = numBits idxTy
+  idxBits <- SMT.bvNum idxSize (fromIntegral elemSize) >>= SMT.mul idx
+  SMT.getBitsFromBE node elemSize idxBits
+
+irSetIdx = undefined
 
 

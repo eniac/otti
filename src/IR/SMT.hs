@@ -216,14 +216,9 @@ getIdx :: SMTNode -- ^ Array
        -> SMTNode -- ^ Index
        -> IR SMTNode -- ^ Element
 getIdx arr idx = do
-  let arrType = t arr
-      arrBaseType = arrayBaseType arrType
-  unless (isArray arrType) $ error "Cannot call getIdx on non-array"
-  let elemSize = numBits arrBaseType
-  idxBits <- SMT.bvNum (numBits $ t idx) (fromIntegral elemSize) >>= SMT.mul (n idx)
-  result <- SMT.getBitsFromBE (n arr) elemSize idxBits
+  result <- irGetIdx (n arr) (t arr) (n idx) (t idx)
   undef <- SMT.or (u arr) (u idx)
-  return $ mkNode result arrBaseType undef
+  return $ mkNode result (arrayBaseType $ t arr) undef
 
 setIdx :: SMTNode -- ^ Array
        -> SMTNode -- ^ Index
