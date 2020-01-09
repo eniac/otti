@@ -1,6 +1,7 @@
 module AST.Cranelift where
 import           AST.Typed
 
+-- | https://cranelift.readthedocs.io/en/latest/ir.html#value-types
 data CraneliftTy = B1 | B8 | B16 | B32 | B64
                  | I8 | I16 | I32 | I64
                  | F32 | F64
@@ -34,7 +35,40 @@ instance Typed CraneliftTy where
   isPointer I64 = True
   isPointer _   = False
 
-  isStruct _ = False
-  isArray _ = False
+  -- Not relevant
+  pointeeType = error "Not usable"
+  isStruct = error "Not usable"
+  isArray = error "Not usable"
+  structFieldTypes = error "Not usable"
+  arrayBaseType _ = error "Not usable"
+  arrayNumElems _ = error "Not usable"
+  newStructType _ = error "Not usable"
+  newArrayType _ _ = error "Not usable"
 
+data Var = Var { varName :: String
+               , varTy   :: CraneliftTy
+               }
+         deriving (Eq, Ord, Show)
+
+data Const = IConst Int CraneliftTy
+           | FConst Double CraneliftTy
+           | BConst Bool CraneliftTy
+           deriving (Eq, Ord, Show)
+
+data Op = ConstOp Const | VarOp Var
+
+data CmpOp = Blah
+
+data Expr = Load CraneliftTy Op
+          | StackLoad CraneliftTy Op
+          | Icmp CmpOp Op Op
+          | Fadd Op Op
+
+data BB = BB String [Var]
+
+data Stmt = Assign Var Expr
+          | Store Op Var
+          | StackStore Op Var
+          | Jump BB
+          | EBB [(Var, CraneliftTy)]
 
