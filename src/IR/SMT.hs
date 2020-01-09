@@ -210,29 +210,13 @@ setIdx arr idx elem = do
   undef <- SMT.or (u arr) (u idx) >>= SMT.or (u elem)
   return $ mkNode result (t arr) undef
 
--- | Get a field from a struct
--- We don't use getBitsFrom because that allows symbolic indecies and is therefore
--- likely slower than a simple array slice
 getField :: SMTNode -- ^ Struct
          -> Int -- ^ Index
          -> IR SMTNode -- ^ Element
-getField struct idx' = do
-  let structType = t struct
-      fieldTypes = structFieldTypes structType
-      -- Reverse index not from [0..n] but from [n..0] to make SMT.slice happy
-      -- I guess its a little endian slice and we have big endian structs
-      -- because they're easier to think about
-      idx = length fieldTypes - idx' - 1
-  unless (idx' < length fieldTypes) $ error "Out of bounds index for getField"
-  -- [ elems ] [ target elem] [ elems]
-  --          ^ start        ^ end
-  let startIdx = numBits $ Struct $ take idx fieldTypes
-      endIdx = (numBits $ Struct $ take (idx + 1) fieldTypes) - 1
-  -- High index to low index to make SMT.slice happy
-  result <- SMT.slice (n struct) endIdx startIdx
-  -- Confusingly, we use idx' here because we're back to our own representation
-  -- (don't have to care about slice, do have to care about ordering of field list)
-  return $ mkNode result (fieldTypes !! idx') (u struct)
+getField struct idx = do
+  result <- irGetField struct idx
+  let fieldTypes = structFieldTypes $ t struct
+  return $ mkNode result (fieldTypes !! idx) (u struct)
 
 -- | Set a field in a struct.
 -- This does not use setBits from SMT because it is likely slower than array slices
@@ -241,15 +225,9 @@ setField :: SMTNode -- ^ Struct
          -> SMTNode -- ^ Element
          -> IR SMTNode -- ^ Result struct
 setField struct idx elem = do
-  let structType = t struct
-      fieldTypes = structFieldTypes structType
-  unless (idx < length fieldTypes) $ error "Out of bounds index for getField"
-  unless (fieldTypes !! idx == t elem) $ error "Mismatch between element type and index"
-  -- Too much of a pain to do the slicing thing here
-  idxBits <- SMT.bvNum 64 (fromIntegral $ numBits $ Struct $ take idx fieldTypes)
-  result <- liftSMT $ SMT.setBitsTo (n elem) (n struct) idxBits
+  result <- irSetField struct idx elem
   undef <- SMT.or (u struct) (u elem)
-  return $ mkNode result structType undef
+  return $ mkNode result (t struct) undef
 
 -- memory
 

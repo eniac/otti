@@ -7,7 +7,7 @@ import           IR.SMTIRMonad
 import           Targets.SMT   (Node, SMTResult)
 import qualified Targets.SMT   as SMT
 
-class IRNode a b | a -> b where
+class (Typed b, Eq b) => IRNode a b | a -> b where
   n :: a -> Node
   t :: a -> b
 
@@ -76,7 +76,7 @@ irInt ty val = liftSMT $ do
 
 irFloat = undefined
 
-irGetIdx :: (IRNode a b, Typed b)
+irGetIdx :: (IRNode a b)
          => a
          -> a
          -> IR Node
@@ -88,7 +88,7 @@ irGetIdx node idx = do
   idxBits <- SMT.bvNum idxSize (fromIntegral elemSize) >>= SMT.mul (n idx)
   SMT.getBitsFromBE (n node) elemSize idxBits
 
-irSetIdx :: (IRNode a b, Typed b, Eq b)
+irSetIdx :: (IRNode a b)
          => a
          -> a
          -> a
@@ -104,4 +104,40 @@ irSetIdx arr idx elem = do
   idxBits <- SMT.bvNum (numBits idxTy) (fromIntegral elemSize) >>= SMT.mul (n idx)
   liftSMT $ SMT.setBitsTo (n elem) (n arr) idxBits
 
+-- | Get a field from a struct
+-- We don't use getBitsFrom because that allows symbolic indecies and is therefore
+-- likely slower than a simple array slice
+irGetField :: (IRNode a b)
+         => a -- ^ Struct
+         -> Int -- ^ Index
+         -> IR Node -- ^ Element
+irGetField struct idx' = do
+  let structType = t struct
+      fieldTypes = structFieldTypes structType
+      -- Reverse index not from [0..n] but from [n..0] to make SMT.slice happy
+      -- I guess its a little endian slice and we have big endian structs
+      -- because they're easier to think about
+      idx = length fieldTypes - idx' - 1
+  unless (idx' < length fieldTypes) $ error "Out of bounds index for getField"
+  -- [ elems ] [ target elem] [ elems]
+  --          ^ start        ^ end
+  let startIdx = numBits $ newStructType $ take idx fieldTypes
+      endIdx = (numBits $ newStructType $ take (idx + 1) fieldTypes) - 1
+  -- High index to low index to make SMT.slice happy
+  SMT.slice (n struct) endIdx startIdx
 
+-- | Set a field in a struct.
+-- This does not use setBits from SMT because it is likely slower than array slices
+irSetField :: (IRNode a b)
+           => a -- ^ Struct
+           -> Int -- ^ Index
+           -> a -- ^ Element
+           -> IR Node -- ^ Result struct
+irSetField struct idx elem = do
+  let structType = t struct
+      fieldTypes = structFieldTypes structType
+  unless (idx < length fieldTypes) $ error "Out of bounds index for getField"
+  unless (fieldTypes !! idx == t elem) $ error "Mismatch between element type and index"
+  -- Too much of a pain to do the slicing thing here
+  idxBits <- SMT.bvNum 64 (fromIntegral $ numBits $ newStructType $ take idx fieldTypes)
+  liftSMT $ SMT.setBitsTo (n elem) (n struct) idxBits

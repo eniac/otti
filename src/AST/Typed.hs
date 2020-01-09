@@ -12,3 +12,5 @@ class Typed a where
   isArray :: a -> Bool
   arrayBaseType :: a -> a
   arrayNumElems :: a -> Int
+  newStructType :: [a] -> a
+  newArrayType :: Int -> a -> a

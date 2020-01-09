@@ -83,6 +83,9 @@ instance Typed Type where
   structFieldTypes s =
       error $ unwords $ ["Cannot call structFieldTypes on non-struct", show s]
 
+  newStructType = Struct
+  newArrayType = Array
+
 int8, int16, int32, int64 :: Type -> Bool
 int8 S8 = True
 int8 U8 = True
