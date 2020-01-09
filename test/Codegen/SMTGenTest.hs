@@ -228,7 +228,7 @@ structTest = benchTestCase "structs" $ do
 memTest :: BenchTest
 memTest = benchTestCase "memory" $ do
 
-  r <- evalCodegen Nothing $ do
+  (r1, r2) <- evalCodegen Nothing $ do
     let structType = Struct [U8, U8, U8]
         pointerType = Ptr32 structType
         one = NumExpr $ INum U8 1
@@ -262,9 +262,25 @@ memTest = benchTestCase "memory" $ do
                ]
     liftIR $ initMem
     genBodySMT body
-    runSolverOnSMT
+    r1 <- runSolverOnSMT
+    -- checking if-statement guards for memory
+    let pointerVar = Var (Ptr32 U8) "pointer3"
+        pointerNum = NumExpr $ INum U32 20
+        resultVar = Var U8 "resultv"
+        body = [ Decl pointerVar
+               , Assign pointerVar pointerNum
+               , If (Eq two two)
+                     [Store (VarExpr pointerVar) two]
+                     [Store (VarExpr pointerVar) three]
+               , Decl resultVar
+               , Assign resultVar (Load $ VarExpr pointerVar)
+               ]
+    genBodySMT body
+    r2 <- runSolverOnSMT
+    return (r1, r2)
 
-  vtest r $ M.fromList [ ("result_1", 2)
-                       , ("result_2", 3)
-                       , ("result2_1", 50)
-                       ]
+  vtest r1 $ M.fromList [ ("result_1", 2)
+                        , ("result_2", 3)
+                        , ("result2_1", 50)
+                        ]
+  vtest r2 $ M.fromList [ ("resultv_1", 2) ]
