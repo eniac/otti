@@ -1,5 +1,8 @@
-module AST.Simple where
-import           Prelude hiding (Num)
+module AST.Simple ( module AST.Simple
+                  , module AST.Types
+                  ) where
+import           AST.Types
+import           Prelude   hiding (Num)
 
 {-|
 
@@ -11,20 +14,6 @@ or just write it raw for testing
 ---
 --- Types
 ---
-
--- | A C type: a signed or unsigned integer of a certain width,
--- a boolean, or a double-precision floating point number
-data Type = U8 | S8
-          | U16 | S16
-          | U32 | S32
-          | U64 | S64
-          | Bool
-          | Double
-          | Ptr64 Type
-          | Ptr32 Type
-          | Struct [Type]
-          | Array Int Type
-          deriving (Eq, Ord, Show)
 
 numBits :: Type -> Int
 numBits U8             = 8

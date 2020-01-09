@@ -1,6 +1,6 @@
 module IR.IR where
 import           IR.SMTIRMonad
-import           Targets.SMT   (Node)
+import           Targets.SMT   (Node, SMTResult)
 import qualified Targets.SMT   as SMT
 
 -- | IR node.
@@ -13,6 +13,23 @@ type PlainNode = IRNode ()
 
 mkPlainNode :: Node -> PlainNode
 mkPlainNode n = IRNode n ()
+
+--
+-- SMT assertions and assignments
+--
+
+smtResult :: IR SMTResult
+smtResult = liftSMT SMT.runSolver
+
+smtPush :: IR ()
+smtPush = liftSMT SMT.push
+
+smtPop :: IR ()
+smtPop = liftSMT $ SMT.pop
+
+--
+--
+--
 
 irInt :: Int -- ^ Width
       -> Bool -- ^ Signedness
@@ -40,6 +57,8 @@ irInt width signed val = liftSMT $ do
            64 | signed -> error $ unwords $ [show val, "is past the range of a signed i64"]
            _ -> SMT.bvNum width val
   return $ mkPlainNode int
+
+irFloat = undefined
 
 
 

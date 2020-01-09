@@ -16,7 +16,6 @@ module IR.SMT ( SMTNode
               , smtStore
               , smtPush
               , smtPop
-              , smtName
                 -- * Variables
               , newVar
               , newInt
@@ -86,8 +85,8 @@ type SMTNode = IRNode CInfo
 mkNode :: Node -> Type -> Node -> SMTNode
 mkNode smtNode cty cundef = IRNode smtNode $ CInfo cty cundef
 
-mkNode' :: PlainNode -> Type -> Node -> SMTNode
-mkNode' n' t' u' = IRNode (smtNode n') $ CInfo t' u'
+fromPlainNode :: PlainNode -> Type -> Node -> SMTNode
+fromPlainNode n' t' u' = IRNode (smtNode n') $ CInfo t' u'
 
 t :: SMTNode -> Type
 t = ctype . extraState
@@ -178,7 +177,7 @@ newInt :: Type
 newInt ty val = do
   int <- irInt (numBits ty) (isSignedInt ty) val
   undef <- liftSMT $ SMT.bvNum 1 0
-  return $ mkNode' int ty undef
+  return $ fromPlainNode int ty undef
 
 newDouble :: Type -- ^ One day we will support different floating point type arguments
           -> Double
@@ -214,19 +213,9 @@ smtImplies a b = do
   notA <- cppBitwiseNeg a
   cppOr notA b >>= smtAssert
 
-smtResult :: IR SMTResult
-smtResult = liftSMT SMT.runSolver
-
-smtPush :: IR ()
-smtPush = liftSMT push
-
-smtPop :: IR ()
-smtPop = liftSMT $ pop 1
-
-smtName :: IR String
-smtName = undefined
-
+--
 -- Struct and array access
+--
 
 getIdx :: SMTNode -- ^ Array
        -> SMTNode -- ^ Index
