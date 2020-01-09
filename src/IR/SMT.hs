@@ -86,6 +86,9 @@ type SMTNode = IRNode CInfo
 mkNode :: Node -> Type -> Node -> SMTNode
 mkNode smtNode cty cundef = IRNode smtNode $ CInfo cty cundef
 
+mkNode' :: PlainNode -> Type -> Node -> SMTNode
+mkNode' n' t' u' = IRNode (smtNode n') $ CInfo t' u'
+
 t :: SMTNode -> Type
 t = ctype . extraState
 
@@ -172,29 +175,10 @@ newPtr ty val = liftSMT $ do
 newInt :: Type
        -> Integer
        -> IR SMTNode
-newInt ty val = liftSMT $ do
-  int <- case ty of
-           Bool | val <= 1 -> SMT.bvNum 1 val
-           Bool -> error $ unwords $ [show val, "is past the range of a boolean"]
-           U8 | val <= 255 -> SMT.bvNum 8 val
-           U8 -> error $ unwords $ [show val, "is past the range of an i8"]
-           S8 | val <= 127 -> SMT.bvNum 8 val
-           S8 -> error $ unwords $ [show val, "is past the range of a signed i8"]
-           U16 | val <= 65535 -> SMT.bvNum 16 val
-           U16 -> error $ unwords $ [show val, "is past the range of an i16"]
-           S16 | val <= 32767 -> SMT.bvNum 16 val
-           S16 -> error $ unwords $ [show val, "is past the range of a signed i16"]
-           U32 | val <= 4294967295 -> SMT.bvNum 32 val
-           U32 -> error $ unwords $ [show val, "is past the range of an i32"]
-           S32 | val <= 2147483647 -> SMT.bvNum 32 val
-           S32 -> error $ unwords $ [show val, "is past the range of a signed i32"]
-           U64 | val <= 18446744073709551615 -> SMT.bvNum 64 val
-           U64 -> error $ unwords $ [show val, "is past the range of an i64"]
-           S64 | val <= 9223372036854775807 -> SMT.bvNum 64 val
-           S64 -> error $ unwords $ [show val, "is past the range of a signed i64"]
-           _ -> error "Cannot make non-int types with newInt"
-  undef <- SMT.bvNum 1 0
-  return $ mkNode int ty undef
+newInt ty val = do
+  int <- irInt (numBits ty) (isSignedInt ty) val
+  undef <- liftSMT $ SMT.bvNum 1 0
+  return $ mkNode' int ty undef
 
 newDouble :: Type -- ^ One day we will support different floating point type arguments
           -> Double
