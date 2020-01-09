@@ -51,12 +51,7 @@ module IR.SMT ( SMTNode
               , cppCond
               , cppCast
               ) where
-import           AST.Simple                 (Type (..), arrayBaseType,
-                                             arrayNumElems, int16, int32, int64,
-                                             int8, isArray, isDouble, isPointer,
-                                             isSignedInt, isStruct,
-                                             isUnsignedInt, numBits,
-                                             pointeeType, structFieldTypes)
+import           AST.Simple
 import           Control.Monad
 import           Control.Monad.State.Strict
 import qualified Data.Map                   as M
@@ -175,7 +170,7 @@ newInt :: Type
        -> Integer
        -> IR SMTNode
 newInt ty val = do
-  int <- irInt (numBits ty) (isSignedInt ty) val
+  int <- irInt ty val
   undef <- liftSMT $ SMT.bvNum 1 0
   return $ fromPlainNode int ty undef
 

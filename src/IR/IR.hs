@@ -1,4 +1,6 @@
 module IR.IR where
+import           AST.Typed
+import           Control.Monad (unless)
 import           IR.SMTIRMonad
 import           Targets.SMT   (Node, SMTResult)
 import qualified Targets.SMT   as SMT
@@ -31,11 +33,14 @@ smtPop = liftSMT $ SMT.pop
 --
 --
 
-irInt :: Int -- ^ Width
-      -> Bool -- ^ Signedness
+irInt :: (Typed a, Show a)
+      => a -- ^ Type
       -> Integer -- ^ Value
       -> IR PlainNode -- ^ Resulting int node
-irInt width signed val = liftSMT $ do
+irInt ty val = liftSMT $ do
+  let width = numBits ty
+      signed = isSignedInt ty
+--  unless (isSignedInt ty || isUnsignedInt ty ) $ error $ show ty ADD BOOL
   int <- case width of
            1  | val <= 1 -> SMT.bvNum 1 val
            1  -> error $ unwords $ [show val, "is past the range of a boolean"]

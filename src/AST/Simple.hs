@@ -1,7 +1,7 @@
 module AST.Simple ( module AST.Simple
-                  , module AST.Types
+                  , module AST.Typed
                   ) where
-import           AST.Types
+import           AST.Typed
 import           Prelude   hiding (Num)
 
 {-|
@@ -15,38 +15,73 @@ or just write it raw for testing
 --- Types
 ---
 
-numBits :: Type -> Int
-numBits U8             = 8
-numBits S8             = 8
-numBits U16            = 16
-numBits S16            = 16
-numBits U32            = 32
-numBits S32            = 32
-numBits U64            = 64
-numBits S64            = 64
-numBits Bool           = 1
-numBits Double         = 64
-numBits Ptr64{}        = 64
-numBits Ptr32{}        = 32
-numBits (Struct tys)   = sum $ map numBits tys
-numBits (Array num ty) = num * numBits ty
+-- | General types: for now, signed or unsigned integers of
+-- a certain width, bools, or double-precision floats
+data Type = U8 | S8
+          | U16 | S16
+          | U32 | S32
+          | U64 | S64
+          | Bool
+          | Double
+          | Ptr64 Type
+          | Ptr32 Type
+          | Struct [Type]
+          | Array Int Type
+          deriving (Eq, Ord, Show)
 
-isSignedInt, isUnsignedInt, isDouble :: Type -> Bool
-isSignedInt S8  = True
-isSignedInt S16 = True
-isSignedInt S32 = True
-isSignedInt S64 = True
-isSignedInt _   = False
-isUnsignedInt U8  = True
-isUnsignedInt U16 = True
-isUnsignedInt U32 = True
-isUnsignedInt U64 = True
-isUnsignedInt _   = False
-isDouble Double = True
-isDouble _      = False
-isPointer Ptr64{} = True
-isPointer Ptr32{} = True
-isPointer _       = False
+instance Typed Type where
+  numBits U8             = 8
+  numBits S8             = 8
+  numBits U16            = 16
+  numBits S16            = 16
+  numBits U32            = 32
+  numBits S32            = 32
+  numBits U64            = 64
+  numBits S64            = 64
+  numBits Bool           = 1
+  numBits Double         = 64
+  numBits Ptr64{}        = 64
+  numBits Ptr32{}        = 32
+  numBits (Struct tys)   = sum $ map numBits tys
+  numBits (Array num ty) = num * numBits ty
+
+  isSignedInt S8  = True
+  isSignedInt S16 = True
+  isSignedInt S32 = True
+  isSignedInt S64 = True
+  isSignedInt _   = False
+  isUnsignedInt U8  = True
+  isUnsignedInt U16 = True
+  isUnsignedInt U32 = True
+  isUnsignedInt U64 = True
+  isUnsignedInt _   = False
+  isDouble Double = True
+  isDouble _      = False
+  isPointer Ptr64{} = True
+  isPointer Ptr32{} = True
+  isPointer _       = False
+
+  isStruct Struct{} = True
+  isStruct _        = False
+
+  isArray Array{} = True
+  isArray _       = False
+
+  pointeeType (Ptr64 ty) = ty
+  pointeeType (Ptr32 ty) = ty
+  pointeeType v          = error $ unwords $ ["Can't get pointee type of non-pointer", show v]
+
+  arrayBaseType (Array _ ty) = ty
+  arrayBaseType a            =
+      error $ unwords $ ["Cannot call arrayBaseType on non-array", show a]
+
+  arrayNumElems (Array n _) = n
+  arrayNumElems n           =
+      error $ unwords $ ["Cannot call array num elems on non-array type", show n]
+
+  structFieldTypes (Struct tys) = tys
+  structFieldTypes s =
+      error $ unwords $ ["Cannot call structFieldTypes on non-struct", show s]
 
 int8, int16, int32, int64 :: Type -> Bool
 int8 S8 = True
@@ -61,34 +96,6 @@ int32 _   = False
 int64 S64 = True
 int64 U64 = True
 int64 _   = False
-
-isStruct :: Type -> Bool
-isStruct Struct{} = True
-isStruct _        = False
-
-isArray :: Type -> Bool
-isArray Array{} = True
-isArray _       = False
-
-pointeeType :: Type -> Type
-pointeeType (Ptr64 ty) = ty
-pointeeType (Ptr32 ty) = ty
-pointeeType v          = error $ unwords $ ["Can't get pointee type of non-pointer", show v]
-
-arrayBaseType :: Type -> Type
-arrayBaseType (Array _ ty) = ty
-arrayBaseType a            =
-  error $ unwords $ ["Cannot call arrayBaseType on non-array", show a]
-
-arrayNumElems :: Type -> Int
-arrayNumElems (Array n _) = n
-arrayNumElems n           =
-  error $ unwords $ ["Cannot call array num elems on non-array type", show n]
-
-structFieldTypes :: Type -> [Type]
-structFieldTypes (Struct tys) = tys
-structFieldTypes s =
-  error $ unwords $ ["Cannot call structFieldTypes on non-struct", show s]
 
 ---
 --- Variables
