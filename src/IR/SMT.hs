@@ -56,7 +56,7 @@ import           AST.Simple
 import           Control.Monad
 import           Control.Monad.State.Strict
 import qualified Data.Map                   as M
-import           IR.IR
+import           IR.IR                      hiding (smtAssign)
 import           IR.SMTIRMonad
 import           Targets.SMT                (Node, SMT, SMTResult)
 import qualified Targets.SMT                as SMT
@@ -177,11 +177,6 @@ newDouble ty val = liftSMT $ do
   undef <- SMT.bvNum 1 0
   return $ mkNode double ty undef
 
--- Asserting and assigning
-
-smtAssert :: SMTNode -> IR ()
-smtAssert = liftSMT . SMT.assert . n
-
 smtAssign :: SMTNode -> SMTNode -> IR ()
 smtAssign n1 n2 = do
 --  unless (t n1 == t n2)  $ error "Tried to assign nodes of different types"
@@ -193,13 +188,6 @@ smtTrue = newInt Bool 1
 
 smtFalse :: IR SMTNode
 smtFalse = newInt Bool 0
-
-smtImplies :: SMTNode
-           -> SMTNode
-           -> IR ()
-smtImplies a b = do
-  notA <- cppBitwiseNeg a
-  cppOr notA b >>= smtAssert
 
 --
 -- Struct and array access

@@ -24,6 +24,22 @@ smtPush = liftSMT SMT.push
 smtPop :: IR ()
 smtPop = liftSMT $ SMT.pop
 
+smtAssert :: (IRNode a b) => a -> IR ()
+smtAssert = liftSMT . SMT.assert . n
+
+smtAssign :: (IRNode a b) => a -> a -> IR ()
+smtAssign n1 n2 = do
+--  unless (t n1 == t n2)  $ error "Tried to assign nodes of different types"
+  SMT.assign (n n1) (n n2)
+
+smtImplies :: (IRNode a b)
+           => a
+           -> a
+           -> IR ()
+smtImplies a b = do
+  notA <- SMT.not $ n a
+  SMT.or notA (n b) >>= SMT.assert
+
 --
 --
 --
