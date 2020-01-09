@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
 module IR.SMT ( SMTNode
               , SMTResult(..)
               , IR
@@ -68,29 +69,21 @@ AST nodes into
 
 -}
 
--- | IR information important for the C/C++ language
-data CInfo = CInfo { ctype  :: Type
-                   , cundef :: Node
-                   }
-           deriving (Eq, Ord, Show)
+data SMTNode = SMTNode { cNode  :: Node
+                       , cType  :: Type
+                       , cUndef :: Node
+                       }
+             deriving (Eq, Ord, Show)
 
--- | An IR node for converting C/C++ into raw SMT
-type SMTNode = IRNode CInfo
-
-mkNode :: Node -> Type -> Node -> SMTNode
-mkNode smtNode cty cundef = IRNode smtNode $ CInfo cty cundef
-
-fromPlainNode :: PlainNode -> Type -> Node -> SMTNode
-fromPlainNode n' t' u' = IRNode (smtNode n') $ CInfo t' u'
-
-t :: SMTNode -> Type
-t = ctype . extraState
+instance IRNode SMTNode Type where
+  n = cNode
+  t = cType
 
 u :: SMTNode -> Node
-u = cundef . extraState
+u = cUndef
 
-n :: SMTNode -> Node
-n = smtNode
+mkNode :: Node -> Type -> Node -> SMTNode
+mkNode = SMTNode
 
 ---
 --- Variables and numbers
@@ -172,7 +165,7 @@ newInt :: Type
 newInt ty val = do
   int <- irInt ty val
   undef <- liftSMT $ SMT.bvNum 1 0
-  return $ fromPlainNode int ty undef
+  return $ mkNode int ty undef
 
 newDouble :: Type -- ^ One day we will support different floating point type arguments
           -> Double
@@ -216,7 +209,7 @@ getIdx :: SMTNode -- ^ Array
        -> SMTNode -- ^ Index
        -> IR SMTNode -- ^ Element
 getIdx arr idx = do
-  result <- irGetIdx (n arr) (t arr) (n idx) (t idx)
+  result <- irGetIdx arr idx
   undef <- SMT.or (u arr) (u idx)
   return $ mkNode result (arrayBaseType $ t arr) undef
 
@@ -225,7 +218,7 @@ setIdx :: SMTNode -- ^ Array
        -> SMTNode -- ^ Element
        -> IR SMTNode -- ^ Result array
 setIdx arr idx elem = do
-  result <- irSetIdx (n arr) (t arr) (n idx) (t idx) (n elem) (t elem)
+  result <- irSetIdx arr idx elem
   undef <- SMT.or (u arr) (u idx) >>= SMT.or (u elem)
   return $ mkNode result (t arr) undef
 
