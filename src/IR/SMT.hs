@@ -225,15 +225,9 @@ setIdx :: SMTNode -- ^ Array
        -> SMTNode -- ^ Element
        -> IR SMTNode -- ^ Result array
 setIdx arr idx elem = do
-  let arrType = t arr
-      arrBaseType = arrayBaseType arrType
-      elemSize = numBits arrBaseType
-  unless (isArray arrType) $ error "Cannot call getIdx on non-array"
-  unless (t elem == arrBaseType) $ error "Wrong element type to setIdx"
-  idxBits <- SMT.bvNum (numBits $ t idx) (fromIntegral elemSize) >>= SMT.mul (n idx)
-  result <- liftSMT $ SMT.setBitsTo (n elem) (n arr) idxBits
+  result <- irSetIdx (n arr) (t arr) (n idx) (t idx) (n elem) (t elem)
   undef <- SMT.or (u arr) (u idx) >>= SMT.or (u elem)
-  return $ mkNode result arrType undef
+  return $ mkNode result (t arr) undef
 
 -- | Get a field from a struct
 -- We don't use getBitsFrom because that allows symbolic indecies and is therefore

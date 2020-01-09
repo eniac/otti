@@ -80,6 +80,20 @@ irGetIdx node nodeTy idx idxTy = do
   idxBits <- SMT.bvNum idxSize (fromIntegral elemSize) >>= SMT.mul idx
   SMT.getBitsFromBE node elemSize idxBits
 
-irSetIdx = undefined
+irSetIdx :: (Typed a, Eq a)
+         => Node
+         -> a
+         -> Node
+         -> a
+         -> Node
+         -> a
+         -> IR Node
+irSetIdx arr arrTy idx idxTy elem elemTy = do
+  unless (isArray arrTy) $ error "Cannot call getIdx on non-array"
+  let arrBaseType = arrayBaseType arrTy
+      elemSize = numBits arrBaseType
+  unless (elemTy == arrBaseType) $ error "Wrong element type to setIdx"
+  idxBits <- SMT.bvNum (numBits idxTy) (fromIntegral elemSize) >>= SMT.mul idx
+  liftSMT $ SMT.setBitsTo elem arr idxBits
 
 
