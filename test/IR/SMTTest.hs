@@ -272,16 +272,18 @@ memTest = benchTestCase "memory" $ do
 
   r <- evalIR Nothing $ do
     initMem
+    guard <- smtTrue
     addr <- newPtr (Ptr32 S32) 0
     val <- newInt S32 123
-    smtStore addr val
+    smtStore addr val guard
     result <- smtLoad addr
     newVar S32 "resultVar" >>= smtAssign result
 
     let arrayTy = Array 5 U8
+    guard <- smtTrue
     addr <- newPtr (Ptr32 arrayTy) 64
     array <- newIntArray arrayTy [3, 4, 5, 6, 7]
-    smtStore addr array
+    smtStore addr array guard
     arrayResult <- smtLoad addr
     idx <- newInt U32 2
     elemThree <- getIdx arrayResult idx

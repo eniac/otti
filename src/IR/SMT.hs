@@ -366,8 +366,8 @@ smtLoad addr = do
       let undef = u addr
       return $ mkNode result pointeeTy undef
 
-smtStore :: SMTNode -> SMTNode -> IR ()
-smtStore addr val = do
+smtStore :: SMTNode -> SMTNode -> SMTNode -> IR ()
+smtStore addr val guard = do
   (unless $ isPointer $ t addr) $ error "Must store to pointer"
   let addrSMT = n addr
       valSMT = n val
@@ -404,7 +404,8 @@ smtStore addr val = do
 
       -- Write the relevant bits in the read
       writeStart <- SMT.urem addrSMT width
-      write <- liftSMT $ SMT.setBitsTo valSMT currentContents writeStart
+      maybeWrite <- liftSMT $ SMT.setBitsTo valSMT currentContents writeStart
+      write <- SMT.cond (n guard) maybeWrite currentContents
 
       -- Write the updated bits back to memory
       -- Write from high bits to low bits as the pointer values increase:

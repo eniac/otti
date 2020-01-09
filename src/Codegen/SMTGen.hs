@@ -181,35 +181,36 @@ genStmtSMT stmt =
       liftIR $ smtImplies shouldOccur returnOccurs
     VoidReturn         -> return ()
     Store var expr -> do
+      guard <- getCurrentGuardNode
       exprSMT <- genExprSMT expr
-      genStoreSMT var exprSMT
+      genStoreSMT var exprSMT guard
 
-genStoreSMT addr toStore
+genStoreSMT addr toStore guard
   | isAccess addr = do
       left <- genExprSMT $ struct addr
       updated <- liftIR $ setField left (field addr) toStore
       -- Store the updated struct at the relevant nested pointer access
-      genStoreSMT (struct addr) updated
+      genStoreSMT (struct addr) updated guard
   | isIndex addr = do
       left <- genExprSMT $ array addr
       idx <- genExprSMT $ index addr
       updated <- liftIR $ setIdx left idx toStore
       -- Store the updated array at the relevant nested pointer access
-      genStoreSMT (array addr) updated
+      genStoreSMT (array addr) updated guard
   | isPtrAccess addr = do
       leftPtr <- genExprSMT $ struct addr
       left <- liftIR $ smtLoad leftPtr
       updated <- liftIR $ setField left (field addr) toStore
-      liftIR $ smtStore leftPtr updated
+      liftIR $ smtStore leftPtr updated guard
   | isPtrIndex addr = do
       leftPtr <- genExprSMT $ array addr
       left <- liftIR $ smtLoad leftPtr
       idx <- genExprSMT $ index addr
       updated <- liftIR $ setIdx left idx toStore
-      liftIR $ smtStore leftPtr updated
+      liftIR $ smtStore leftPtr updated guard
   | otherwise =  do
       addrSMT <- genExprSMT addr
-      liftIR $ smtStore addrSMT toStore
+      liftIR $ smtStore addrSMT toStore guard
 
 genBodySMT :: [Stmt] -> Compiler ()
 genBodySMT = mapM_ genStmtSMT
