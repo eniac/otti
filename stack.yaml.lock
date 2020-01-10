@@ -19,6 +19,20 @@ packages:
   original:
     url: https://github.com/PLSysSec/haskell-z3/archive/df55d066238c09720491409f93153687a42141f4.tar.gz
 - completed:
+    size: 25019
+    url: https://github.com/divipp/x86-64/archive/562ac666ac93e7822a64288a070bff45aefd606b.tar.gz
+    cabal-file:
+      size: 2203
+      sha256: c4293362e91bf3abbdfb835374c72d3b2cf2ea1a36fd3cb6ca9bcc86ba973be3
+    name: x86-64bit
+    version: 0.4.5
+    sha256: 1d492de58851daa91581aae8fe5297cca68815dd30b30f7d671b0c61781f359c
+    pantry-tree:
+      size: 1057
+      sha256: cd6e9b024cb2cd42e8b95c648b922b3fd3f432a51b971a34fa4809540d0d918a
+  original:
+    url: https://github.com/divipp/x86-64/archive/562ac666ac93e7822a64288a070bff45aefd606b.tar.gz
+- completed:
     hackage: wasm-1.0.0@sha256:95a5af2264da9996eb1756c09030e78f595aa2d5e62d0d671180a02d321f0d6c,2666
     pantry-tree:
       size: 1099
