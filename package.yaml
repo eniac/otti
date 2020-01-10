@@ -32,6 +32,7 @@ library:
   - split >= 0.2.3.3
   - wasm >= 1.0.0
   - bytestring >= 0.10.8.2
+  - language-c >= 0.8.3
 
 executables:
   compiler-exe:
