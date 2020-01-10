@@ -65,10 +65,16 @@ data Expr = Load CraneliftTy Op
           | Fadd Op Op
 
 data BB = BB String [Var]
+data JumpTable = JumpTable
 
 data Stmt = Assign Var Expr
           | Store Op Var
           | StackStore Op Var
+          | Return Op
           | Jump BB
-          | EBB [(Var, CraneliftTy)]
+          | Brz Op BB
+          | Brnz Op BB
+          | BrICmp Expr Op Op BB
+          | BrTable Op BB JumpTable
+          | EBB [(Var, CraneliftTy)] [Stmt]
 
