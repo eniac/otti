@@ -6,8 +6,9 @@ import           Prelude   hiding (Num)
 
 {-|
 
-This module presents a simple AST. You can parse it in using whatever parser you want,
-or just write it raw for testing
+This module presents a simple version of a C AST.
+You can parse it using your own parser, map to it from a different AST, or just
+write it raw for testing.
 
 -}
 
