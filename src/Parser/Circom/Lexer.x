@@ -42,7 +42,7 @@ tokens :-
   \)                                    { \p s -> EndParen p }
   \]                                    { \p s -> EndBracket p }
   \}                                    { \p s -> EndBrace p }
-  [\<\>\-\=\!\~\%\^\&\*\/\\\?\:\+]+     { \p s -> Symbols p s }
+  [\<\>\-\=\!\~\%\^\&\*\/\\\?\:\+\|]+   { \p s -> Symbols p s }
 
 {
 -- Each action has type :: String -> Token

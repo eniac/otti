@@ -1,4 +1,4 @@
-module AST.Circom (BinOp(..), Item(..), Statement(..), Expr(..), Location(..), Direction(..), UnOp(..)) where
+module AST.Circom (BinOp(..), Item(..), Statement(..), Expr(..), Location(..), SignalKind(..), UnOp(..)) where
 
 data BinOp = Add
            | Sub
@@ -35,7 +35,7 @@ data Statement = Assign Location Expr
                | AssignConstrain Location Expr
                | Constrain Expr Expr
                | VarDeclaration String [Expr] (Maybe Expr)
-               | SigDeclaration String Direction [Expr]
+               | SigDeclaration String SignalKind [Expr]
                | SubDeclaration String [Expr] (Maybe Expr)
                | If Expr Block (Maybe Block)
                | For Statement Expr Statement Block
@@ -45,8 +45,10 @@ data Statement = Assign Location Expr
                | Ignore Expr -- Expression statements
                deriving (Show,Eq)
 
-data Direction = In | Out
-               deriving (Show,Eq)
+data SignalKind = In
+                | Out
+                | Local
+                deriving (Show,Eq)
 
 data Location = Ident String
               | Pin Location String
@@ -65,6 +67,7 @@ data UnOp = PreInc
 
 data Expr = BinExpr BinOp Expr Expr
           | UnExpr UnOp Expr
+          | Ite Expr Expr Expr
           | LValue Location
           | Call String [Expr]
           | ArrayLit [Expr]

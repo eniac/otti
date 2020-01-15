@@ -75,6 +75,7 @@ import Parser.Circom.Lexer      as Lexer (Token(..),tokenize,AlexPosn(AlexPn),to
         '*'             { Lexer.Symbols _ "*"       }
         '/'             { Lexer.Symbols _ "/"       }
         '//'            { Lexer.Symbols _ "//"      }
+        rev_slash       { Lexer.Symbols _ "\\"      }
         '%'             { Lexer.Symbols _ "%"       }
         '^'             { Lexer.Symbols _ "^"       }
         '&'             { Lexer.Symbols _ "&"       }
@@ -85,6 +86,7 @@ import Parser.Circom.Lexer      as Lexer (Token(..),tokenize,AlexPosn(AlexPn),to
         '?'             { Lexer.Symbols _ "?"       }
         ':'             { Lexer.Symbols _ ":"       }
 
+%right '?' ':'
 %left '||'
 %left '&&'
 %left '|'
@@ -138,6 +140,7 @@ expr :: {Expr}
      | expr '*' expr                                { BinExpr Mul $1 $3 }
      | expr '/' expr                                { BinExpr Div $1 $3 }
      | expr '//' expr                               { BinExpr IntDiv $1 $3 }
+     | expr rev_slash expr                          { BinExpr IntDiv $1 $3 }
      | expr '%' expr                                { BinExpr Mod $1 $3 }
      | expr '<<' expr                               { BinExpr Shl $1 $3 }
      | expr '>>' expr                               { BinExpr Shr $1 $3 }
@@ -145,7 +148,7 @@ expr :: {Expr}
      | expr '>' expr                                { BinExpr Gt $1 $3 }
      | expr '<=' expr                               { BinExpr Le $1 $3 }
      | expr '>=' expr                               { BinExpr Ge $1 $3 }
-     | expr '=' expr                                { BinExpr Eq $1 $3 }
+     | expr '==' expr                               { BinExpr Eq $1 $3 }
      | expr '!' expr                                { BinExpr Ne $1 $3 }
      | expr '&&' expr                               { BinExpr And $1 $3 }
      | expr '||' expr                               { BinExpr Or $1 $3 }
@@ -165,6 +168,7 @@ expr :: {Expr}
      | '[' list0_sep(expr, ',') ']'        %prec PRE    { ArrayLit $2 }
      | '(' expr ')'         %prec PRE               { $2 }
      | numlit                                       { AST.NumLit $1 }
+     | expr '?' expr ':' expr                       { Ite $1 $3 $5 }
 
 assignment_op :: {BinOp}
               : '+='                            { Add }
@@ -177,22 +181,28 @@ assignment_op :: {BinOp}
               | '&='                            { BitAnd }
               | '^='                            { BitXor }
 
-direction :: {Direction}
+sig_kind :: {SignalKind}
           : input                               { In }
           | output                              { Out }
+          |                                     { Local }
 
 block :: {[Statement]}
       : '{' list0(statement) '}'                { $2 }
+
+-- an "abbreviatable" block
+ablock :: {[Statement]}
+       : block                            { $1 }
+       | statement                        { [ $1 ] }
 
 
 
 statement :: {Statement} 
           : line ';'                                    { $1 }
-          | if '(' expr ')' block                       { AST.If $3 $5 Nothing }
-          | if '(' expr ')' block else block            { AST.If $3 $5 (Just $7) }
-          | while '(' expr ')' block                    { AST.While $3 $5 }
-          | for '(' line ';' expr ';' line ')' block    { AST.For $3 $5 $7 $9 }
-          | compute block                               { AST.Compute $2 }
+          | if '(' expr ')' ablock                      { AST.If $3 $5 Nothing }
+          | if '(' expr ')' ablock else ablock          { AST.If $3 $5 (Just $7) }
+          | while '(' expr ')' ablock                   { AST.While $3 $5 }
+          | for '(' line ';' expr ';' line ')' ablock   { AST.For $3 $5 $7 $9 }
+          | compute ablock                              { AST.Compute $2 }
 
 line :: {Statement}
      : location '=' expr                                { Assign $1 $3 }
@@ -204,8 +214,8 @@ line :: {Statement}
      | expr '===' expr                                  { Constrain $1 $3 }
      | var ident decl_dimensions                        { VarDeclaration $2 $3 Nothing }
      | var ident decl_dimensions '=' expr               { VarDeclaration $2 $3 (Just $5) }
-     | signal private direction ident decl_dimensions   { SigDeclaration $4 $3 $5 }
-     | signal         direction ident decl_dimensions   { SigDeclaration $3 $2 $4 }
+     | signal private sig_kind ident decl_dimensions    { SigDeclaration $4 $3 $5 }
+     | signal         sig_kind ident decl_dimensions    { SigDeclaration $3 $2 $4 }
      | component ident decl_dimensions                  { SubDeclaration $2 $3 Nothing }
      | component ident decl_dimensions '=' expr         { SubDeclaration $2 $3 (Just $5) }
      | return expr                                      { AST.Return $2 }
@@ -216,7 +226,7 @@ ident_list : list0_sep(ident, ',')                      { $1 }
 item :: {Item}
      : function ident '(' ident_list ')' block          { AST.Function $2 $4 $6 }
      | template ident '(' ident_list ')' block          { AST.Template $2 $4 $6 }
-     | include strlit                                   { AST.Include $2 }
+     | include strlit ';'                               { AST.Include $2 }
      | component main '=' expr ';'                      { AST.Main $4 }
 
 items :: {[Item]} : list0(item)                         { $1}
@@ -225,7 +235,7 @@ items :: {[Item]} : list0(item)                         { $1}
 
 parseError :: [Token] -> a
 parseError []    = error "Parse error around EOF"
-parseError (t:_) = error $ "Parse error around line " ++ show l ++ ", column " ++ show c
+parseError (t:_) = error $ "Parse error around line " ++ show l ++ ", column " ++ show c ++ " at token `" ++ show t ++ "`"
     where (AlexPn _ l c) = tokenPosn t
 }
 

@@ -25,6 +25,11 @@ circomParserTests = benchTestGroup "Circom tests"
     , testStatementParse "for (var i = 0; i < n; i += 1) { j += i; }" Nothing
     , testStatementParse "for(k=0;k<n;k++){for(j=0;j<ops;j++){lin+=in[j][k]*2**k;}}" Nothing -- https://github.com/iden3/circomlib/blob/master/circuits/binsum.circom#L75
     , testParse "test/Code/Circom/binsum.circom"
+    , testParse "test/Code/Circom/eddsamimcsponge.circom"
+    , testParse "test/Code/Circom/poseidon.circom"
+    , testParse "test/Code/Circom/gates.circom"
+    , testParse "test/Code/Circom/mux4.circom"
+    , testParse "test/Code/Circom/pedersen.circom"
     ]
 
 testLex :: String -> BenchTest
@@ -59,4 +64,4 @@ testParse :: String -> BenchTest
 testParse path = benchTestCase ("parse " ++ path) $ do
   string <- readFile path
   let ast = parseCircomFile $ tokenize string
-  print ast
+  print $ "items in " ++ path ++ ": " ++ show (length ast)
