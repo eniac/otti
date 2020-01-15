@@ -31,13 +31,14 @@ data Item = Function String [String] Block
 type Block = [Statement]
 
 data Statement = Assign Location Expr
-               | OpAssign BinOp
+               | OpAssign BinOp Location Expr
                | AssignConstrain Location Expr
                | Constrain Expr Expr
                | VarDeclaration String [Expr] (Maybe Expr)
-               | SigDeclaration String Direction [Expr] (Maybe Expr)
+               | SigDeclaration String Direction [Expr]
                | SubDeclaration String [Expr] (Maybe Expr)
                | If Expr Block (Maybe Block)
+               | For Statement Expr Statement Block
                | While Expr Block
                | Compute Block
                | Return Expr

@@ -11,7 +11,9 @@ $alpha = [a-zA-Z]               -- alphabetic characters
 
 tokens :-
 
-  $white+                               ;
+  $white+                                           ;
+  \/\/[^\r\n]*                                      ;
+  \/\*([^\*]|[\r\n]|(\*+([^\*\/]|[\r\n])))*\*+\/    ;
   "var"                                 { \s -> Var }
   "signal"                              { \s -> Signal }
   "private"                             { \s -> Private }
@@ -20,15 +22,19 @@ tokens :-
   "component"                           { \s -> Component }
   "template"                            { \s -> Template }
   "function"                            { \s -> Function }
+  "include"                             { \s -> Include }
   "if"                                  { \s -> If }
   "else"                                { \s -> Else }
   "while"                               { \s -> While }
+  "for"                                 { \s -> For }
   "compute"                             { \s -> Compute }
+  "main"                                { \s -> Main }
   "do"                                  { \s -> Do }
   "return"                              { \s -> Return }
   "0x"$digit+                           { \s -> NumLit (read s) }
   $digit+                               { \s -> NumLit (read s) }
   $alpha [$alpha $digit \_ \']*         { \s -> Ident s }
+  \" ($printable # \")* \"              { \s -> StrLit $ take (length s - 2) $ drop 1 s }
   \;                                    { \s -> SemiColon }
   \,                                    { \s -> Comma }
   \.                                    { \s -> Dot }
@@ -55,13 +61,16 @@ data Token = Var
            | If
            | Else
            | While
+           | For
            | Compute
            | Do
            | Return
            | Include
+           | Main
            | NumLit Int
            | Ident String
            | Symbols String
+           | StrLit String
            | SemiColon
            | Comma
            | Dot
