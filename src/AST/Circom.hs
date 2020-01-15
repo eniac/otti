@@ -40,6 +40,7 @@ data Statement = Assign Location Expr
                | If Expr Block (Maybe Block)
                | For Statement Expr Statement Block
                | While Expr Block
+               | DoWhile Block Expr
                | Compute Block
                | Return Expr
                | Ignore Expr -- Expression statements

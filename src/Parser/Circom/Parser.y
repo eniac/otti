@@ -149,7 +149,7 @@ expr :: {Expr}
      | expr '<=' expr                               { BinExpr Le $1 $3 }
      | expr '>=' expr                               { BinExpr Ge $1 $3 }
      | expr '==' expr                               { BinExpr Eq $1 $3 }
-     | expr '!' expr                                { BinExpr Ne $1 $3 }
+     | expr '!=' expr                               { BinExpr Ne $1 $3 }
      | expr '&&' expr                               { BinExpr And $1 $3 }
      | expr '||' expr                               { BinExpr Or $1 $3 }
      | expr '&' expr                                { BinExpr BitAnd $1 $3 }
@@ -180,6 +180,8 @@ assignment_op :: {BinOp}
               | '|='                            { BitOr }
               | '&='                            { BitAnd }
               | '^='                            { BitXor }
+              | '<<='                           { Shl }
+              | '>>='                           { Shr }
 
 sig_kind :: {SignalKind}
           : input                               { In }
@@ -201,6 +203,7 @@ statement :: {Statement}
           | if '(' expr ')' ablock                      { AST.If $3 $5 Nothing }
           | if '(' expr ')' ablock else ablock          { AST.If $3 $5 (Just $7) }
           | while '(' expr ')' ablock                   { AST.While $3 $5 }
+          | do ablock while '(' expr ')'                { AST.DoWhile $2 $5 }
           | for '(' line ';' expr ';' line ')' ablock   { AST.For $3 $5 $7 $9 }
           | compute ablock                              { AST.Compute $2 }
 
