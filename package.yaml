@@ -36,6 +36,8 @@ library:
   - llvm-hs >= 9.0.1
   - llvm-hs-pure >= 9.0.0
   - array >= 0.5
+  - arithmoi >= 0.10
+  - filepath >= 1.4
   build-dependencies:
   - happy >= 1.19
   - alex >= 3.2

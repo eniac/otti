@@ -4,7 +4,8 @@ import           Control.Monad (unless)
 import           Data.Either   (fromLeft, isRight)
 import           AST.Circom
 import           Parser.Circom.Lexer (tokenize)
-import           Parser.Circom.Parser (parseCircomExpr, parseCircomStatement, parseCircomFile)
+import           Parser.Circom        (parseFile, loadFile)
+import           Parser.Circom.Parser (parseCircomExpr, parseCircomStatement)
 import           Utils
 
 circomParserTests :: BenchTest
@@ -32,6 +33,9 @@ circomParserTests = benchTestGroup "Circom tests"
     , testParse "test/Code/Circom/pedersen.circom"
     , testParse "test/Code/Circom/compconstant.circom"
     , testParse "test/Code/Circom/bitify.circom"
+    , testParse "test/Code/Circom/aliascheck.circom"
+    , testParse "test/Code/Circom/comparators.circom"
+    , testLoad "test/Code/Circom/bitify.circom"
     ]
 
 testLex :: String -> BenchTest
@@ -64,6 +68,10 @@ testStatementParse stat expected = benchTestCase ("parse statement `" ++ stat ++
 
 testParse :: String -> BenchTest
 testParse path = benchTestCase ("parse " ++ path) $ do
-  string <- readFile path
-  let ast = parseCircomFile $ tokenize string
+  ast <- parseFile path
   print $ "items in " ++ path ++ ": " ++ show (length ast)
+
+testLoad :: String -> BenchTest
+testLoad path = benchTestCase ("load " ++ path) $ do
+  pgm <- loadFile path
+  print $ "files from " ++ path ++ ": " ++ show (length pgm)

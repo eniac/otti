@@ -2,7 +2,7 @@
 module Parser.Circom.Parser where
 
 import AST.Circom               as AST
-import Parser.Circom.Lexer      as Lexer (Token(..),tokenize,AlexPosn(AlexPn),tokenPosn)
+import Parser.Circom.Lexer      as Lexer (Token(..),AlexPosn(AlexPn),tokenPosn)
 }
 
 %name parseCircomExpr expr
