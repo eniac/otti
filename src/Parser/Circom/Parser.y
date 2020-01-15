@@ -96,7 +96,7 @@ import Parser.Circom.Lexer      as Lexer (Token(..),tokenize,AlexPosn(AlexPn),to
 %nonassoc '<' '<=' '>' '>='
 %nonassoc '<<' '>>'
 %left '+' '-'
-%left '*' '%' '/' '//'
+%left '*' '%' '/' '//' rev_slash
 %right '**'
 %right PRE
 %left POST
@@ -162,6 +162,7 @@ expr :: {Expr}
      | '~' expr             %prec PRE               { UnExpr BitNot $2 }
      | '-' expr             %prec PRE               { UnExpr UnNeg $2 }
      | '+' expr             %prec PRE               { UnExpr UnPos $2 }
+     -- NB: There are shift/reduce conflicts here resolved in favor of the postfix ops
      | expr '++'            %prec POST              { UnExpr PostInc $1 }
      | expr '--'            %prec POST              { UnExpr PostDec $1 }
      | ident '(' list0_sep(expr, ',') ')'  %prec POST   { Call $1 $3 }
@@ -201,6 +202,7 @@ ablock :: {[Statement]}
 statement :: {Statement} 
           : line ';'                                    { $1 }
           | if '(' expr ')' ablock                      { AST.If $3 $5 Nothing }
+          -- NB: there is a shift-reduce conflict here that is resolved in favor of the else.
           | if '(' expr ')' ablock else ablock          { AST.If $3 $5 (Just $7) }
           | while '(' expr ')' ablock                   { AST.While $3 $5 }
           | do ablock while '(' expr ')'                { AST.DoWhile $2 $5 }
