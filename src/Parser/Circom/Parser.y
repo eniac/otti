@@ -2,7 +2,7 @@
 module Parser.Circom.Parser where
 
 import AST.Circom               as AST
-import Parser.Circom.Lexer      as Lexer (Token(..),tokenize)
+import Parser.Circom.Lexer      as Lexer (Token(..),tokenize,AlexPosn(AlexPn),tokenPosn)
 }
 
 %name parseCircomExpr expr
@@ -12,78 +12,78 @@ import Parser.Circom.Lexer      as Lexer (Token(..),tokenize)
 %error { parseError }
 
 %token
-        numlit          { Lexer.NumLit $$     }
-        ident           { Lexer.Ident $$      }
-        strlit          { Lexer.StrLit $$     }
-        var             { Lexer.Var           }
-        signal          { Lexer.Signal        }
-        private         { Lexer.Private       }
-        input           { Lexer.Input         }
-        output          { Lexer.Output        }
-        component       { Lexer.Component     }
-        template        { Lexer.Template      }
-        function        { Lexer.Function      }
-        include         { Lexer.Include       }
-        if              { Lexer.If            }
-        else            { Lexer.Else          }
-        while           { Lexer.While         }
-        for             { Lexer.For           }
-        compute         { Lexer.Compute       }
-        do              { Lexer.Do            }
-        return          { Lexer.Return        }
-        main            { Lexer.Main          }
-        ';'             { Lexer.SemiColon     }
-        ','             { Lexer.Comma         }
-        '.'             { Lexer.Dot           }
-        '('             { Lexer.BeginParen    }
-        '['             { Lexer.BeginBracket  }
-        '{'             { Lexer.BeginBrace    }
-        ')'             { Lexer.EndParen      }
-        ']'             { Lexer.EndBracket    }
-        '}'             { Lexer.EndBrace      }
-        '='             { Lexer.Symbols "="   }
-        '==>'           { Lexer.Symbols "==>" }
-        '<=='           { Lexer.Symbols "<==" }
-        '-->'           { Lexer.Symbols "-->" }
-        '<--'           { Lexer.Symbols "<--" }
-        '==='           { Lexer.Symbols "===" }
-        '>>='           { Lexer.Symbols ">>=" }
-        '<<='           { Lexer.Symbols "<<=" }
-        '&&'            { Lexer.Symbols "&&"  }
-        '||'            { Lexer.Symbols "||"  }
-        '=='            { Lexer.Symbols "=="  }
-        '<='            { Lexer.Symbols "<="  }
-        '>='            { Lexer.Symbols ">="  }
-        '!='            { Lexer.Symbols "!="  }
-        '>>'            { Lexer.Symbols ">>"  }
-        '<<'            { Lexer.Symbols "<<"  }
-        '**'            { Lexer.Symbols "**"  }
-        '++'            { Lexer.Symbols "++"  }
-        '--'            { Lexer.Symbols "--"  }
-        '+='            { Lexer.Symbols "+="  }
-        '-='            { Lexer.Symbols "-="  }
-        '*='            { Lexer.Symbols "*="  }
-        '/='            { Lexer.Symbols "/="  }
-        '//='           { Lexer.Symbols "//="  }
-        '%='            { Lexer.Symbols "%="  }
-        '|='            { Lexer.Symbols "|="  }
-        '&='            { Lexer.Symbols "&="  }
-        '^='            { Lexer.Symbols "^="  }
-        '+'             { Lexer.Symbols "+"   }
-        '-'             { Lexer.Symbols "-"   }
-        '~'             { Lexer.Symbols "~"   }
-        '*'             { Lexer.Symbols "*"   }
-        '/'             { Lexer.Symbols "/"   }
-        '//'            { Lexer.Symbols "//"  }
-        '%'             { Lexer.Symbols "%"   }
-        '^'             { Lexer.Symbols "^"   }
-        '&'             { Lexer.Symbols "&"   }
-        '|'             { Lexer.Symbols "|"   }
-        '<'             { Lexer.Symbols "<"   }
-        '>'             { Lexer.Symbols ">"   }
-        '!'             { Lexer.Symbols "!"   }
-        '?'             { Lexer.Symbols "?"   }
-        ':'             { Lexer.Symbols ":"   }
+        numlit          { Lexer.NumLit _ $$         }
+        ident           { Lexer.Ident _ $$          }
+        strlit          { Lexer.StrLit _ $$         }
+        var             { Lexer.Var _               }
+        signal          { Lexer.Signal _            }
+        private         { Lexer.Private _           }
+        input           { Lexer.Input _             }
+        output          { Lexer.Output _            }
+        component       { Lexer.Component _         }
+        template        { Lexer.Template _          }
+        function        { Lexer.Function _          }
+        include         { Lexer.Include _           }
+        if              { Lexer.If _                }
+        else            { Lexer.Else _              }
+        while           { Lexer.While _             }
+        for             { Lexer.For _               }
+        compute         { Lexer.Compute _           }
+        do              { Lexer.Do _                }
+        return          { Lexer.Return _            }
+        main            { Lexer.Main _              }
+        ';'             { Lexer.SemiColon _         }
+        ','             { Lexer.Comma _             }
+        '.'             { Lexer.Dot _               }
+        '('             { Lexer.BeginParen _        }
+        '['             { Lexer.BeginBracket _      }
+        '{'             { Lexer.BeginBrace _        }
+        ')'             { Lexer.EndParen _          }
+        ']'             { Lexer.EndBracket _        }
+        '}'             { Lexer.EndBrace _          }
+        '='             { Lexer.Symbols _ "="       }
+        '==>'           { Lexer.Symbols _ "==>"     }
+        '<=='           { Lexer.Symbols _ "<=="     }
+        '-->'           { Lexer.Symbols _ "-->"     }
+        '<--'           { Lexer.Symbols _ "<--"     }
+        '==='           { Lexer.Symbols _ "==="     }
+        '>>='           { Lexer.Symbols _ ">>="     }
+        '<<='           { Lexer.Symbols _ "<<="     }
+        '&&'            { Lexer.Symbols _ "&&"      }
+        '||'            { Lexer.Symbols _ "||"      }
+        '=='            { Lexer.Symbols _ "=="      }
+        '<='            { Lexer.Symbols _ "<="      }
+        '>='            { Lexer.Symbols _ ">="      }
+        '!='            { Lexer.Symbols _ "!="      }
+        '>>'            { Lexer.Symbols _ ">>"      }
+        '<<'            { Lexer.Symbols _ "<<"      }
+        '**'            { Lexer.Symbols _ "**"      }
+        '++'            { Lexer.Symbols _ "++"      }
+        '--'            { Lexer.Symbols _ "--"      }
+        '+='            { Lexer.Symbols _ "+="      }
+        '-='            { Lexer.Symbols _ "-="      }
+        '*='            { Lexer.Symbols _ "*="      }
+        '/='            { Lexer.Symbols _ "/="      }
+        '//='           { Lexer.Symbols _ "//="     }
+        '%='            { Lexer.Symbols _ "%="      }
+        '|='            { Lexer.Symbols _ "|="      }
+        '&='            { Lexer.Symbols _ "&="      }
+        '^='            { Lexer.Symbols _ "^="      }
+        '+'             { Lexer.Symbols _ "+"       }
+        '-'             { Lexer.Symbols _ "-"       }
+        '~'             { Lexer.Symbols _ "~"       }
+        '*'             { Lexer.Symbols _ "*"       }
+        '/'             { Lexer.Symbols _ "/"       }
+        '//'            { Lexer.Symbols _ "//"      }
+        '%'             { Lexer.Symbols _ "%"       }
+        '^'             { Lexer.Symbols _ "^"       }
+        '&'             { Lexer.Symbols _ "&"       }
+        '|'             { Lexer.Symbols _ "|"       }
+        '<'             { Lexer.Symbols _ "<"       }
+        '>'             { Lexer.Symbols _ ">"       }
+        '!'             { Lexer.Symbols _ "!"       }
+        '?'             { Lexer.Symbols _ "?"       }
+        ':'             { Lexer.Symbols _ ":"       }
 
 %left '||'
 %left '&&'
@@ -224,6 +224,8 @@ items :: {[Item]} : list0(item)                         { $1}
 {
 
 parseError :: [Token] -> a
-parseError _ = error "Parse error"
+parseError []    = error "Parse error around EOF"
+parseError (t:_) = error $ "Parse error around line " ++ show l ++ ", column " ++ show c
+    where (AlexPn _ l c) = tokenPosn t
 }
 
