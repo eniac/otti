@@ -11,6 +11,8 @@ import Parser.Circom.Lexer      as Lexer (Token(..),tokenize,AlexPosn(AlexPn),to
 %tokentype { Token }
 %error { parseError }
 
+%expect 57
+
 %token
         numlit          { Lexer.NumLit _ $$         }
         ident           { Lexer.Ident _ $$          }
