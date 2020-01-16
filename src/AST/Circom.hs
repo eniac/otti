@@ -1,5 +1,19 @@
-module AST.Circom (File,BinOp(..), Item(..), Statement(..), Expr(..), Location(..), SignalKind(..), UnOp(..)) where
+module AST.Circom ( File
+                  , BinOp(..)
+                  , Item(..)
+                  , Statement(..)
+                  , Expr(..)
+                  , Location(..)
+                  , SignalKind(..)
+                  , UnOp(..)
+                  , Block
+                  , collectIncludes
+                  , collectFunctions
+                  , collectTemplates
+                  , collectMains
+                  ) where
 
+import Data.Maybe       (mapMaybe)
 import AST.Typed        (Typed)
 import Math.NumberTheory.Primes.Testing (millerRabinV)
 
@@ -30,6 +44,28 @@ data Item = Function String [String] Block
           | Include String
           | Main Expr
           deriving (Show,Eq)
+
+itemAsFunction :: Item -> Maybe (String, [String], Block)
+itemAsFunction (Function a b c) = Just (a, b, c)
+itemAsFunction _ = Nothing
+itemAsTemplate :: Item -> Maybe (String, [String], Block)
+itemAsTemplate (Template a b c) = Just (a, b, c)
+itemAsTemplate _ = Nothing
+itemAsMain :: Item -> Maybe Expr
+itemAsMain (Main c) = Just c
+itemAsMain _ = Nothing
+itemAsInclude :: Item -> Maybe String
+itemAsInclude (Include c) = Just c
+itemAsInclude _ = Nothing
+
+collectFunctions :: File -> [(String, [String], Block)]
+collectFunctions = mapMaybe itemAsFunction
+collectTemplates :: File -> [(String, [String], Block)]
+collectTemplates = mapMaybe itemAsTemplate
+collectMains :: File -> [Expr]
+collectMains = mapMaybe itemAsMain
+collectIncludes :: File -> [String]
+collectIncludes = mapMaybe itemAsInclude
 
 type File = [Item]
 
@@ -85,7 +121,7 @@ data Expr = BinExpr BinOp Expr Expr
 newtype FieldOrder = FieldOrder [(Int, Int)]
 
 fieldSize :: FieldOrder -> Int
-fieldSize (FieldOrder fieldOrder) = foldl (\a p -> (fst p) ^ (snd p) * a) 1 fieldOrder
+fieldSize (FieldOrder fieldOrder) = foldl (\a p -> uncurry (^) p * a) 1 fieldOrder
 
 fieldBitCount :: FieldOrder -> Int
 fieldBitCount f = ceiling $ logBase 2 (fromIntegral (fieldSize f))
