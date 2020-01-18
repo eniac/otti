@@ -1,4 +1,4 @@
-module Parser.Circom(parseFile,loadFile,Program) where
+module Parser.Circom(parseFile,loadFilesRecursively,loadMain,MainCircuit(..),Files) where
 
 import System.FilePath
 import AST.Circom           (File, Item(..), Expr, Block, collectIncludes, collectFunctions, collectMains, collectTemplates)
@@ -13,10 +13,10 @@ parseFile p = do
     f <- readFile p
     return (parseCircomFile $ tokenize f)
 
-type Program = Map FilePath File
+type Files = Map FilePath File
 
 -- Implementation of DFS file loading
-extendInclude :: Program -> [FilePath] -> IO Program
+extendInclude :: Files -> [FilePath] -> IO Files
 extendInclude currentProgram [] = pure currentProgram
 extendInclude currentProgram (filePath:toInclude) =
     if member filePath currentProgram
@@ -45,22 +45,22 @@ getFirstMain file
         l = length mains
 
 -- Given a path, loads the file at this path, and all transitive inclusions
-loadFile :: FilePath -> IO Program
-loadFile path = extendInclude Map.empty [path]
+loadFilesRecursively :: FilePath -> IO Files
+loadFilesRecursively path = extendInclude Map.empty [path]
 
-data MainProgram = MainProgram { main :: Expr
+data MainCircuit = MainCircuit { main :: Expr
                                , functions :: Map String ([String], Block)
                                , templates :: Map String ([String], Block)
                                }
 
 
 loadMain path = do
-    loaded <- loadFile path
+    loaded <- loadFilesRecursively path
     let mainItems = findWithDefault (error $ "missing main file " ++ path) path loaded
     let allItems = concat (elems loaded)
     let functions = collectFunctions allItems
     let templates = collectTemplates allItems
-    return $ MainProgram
+    return $ MainCircuit
         (getFirstMain mainItems)
         (Map.fromList (Prelude.map (\t -> let (n, a, b) = t in (n, (a, b))) functions))
         (Map.fromList (Prelude.map (\t -> let (n, a, b) = t in (n, (a, b))) templates))

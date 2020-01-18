@@ -4,7 +4,7 @@ import           Control.Monad (unless)
 import           Data.Either   (fromLeft, isRight)
 import           AST.Circom
 import           Parser.Circom.Lexer (tokenize)
-import           Parser.Circom        (parseFile, loadFile)
+import           Parser.Circom        (parseFile, loadFilesRecursively, loadMain, MainCircuit(..))
 import           Parser.Circom.Parser (parseCircomExpr, parseCircomStatement)
 import           Utils
 
@@ -36,6 +36,7 @@ circomParserTests = benchTestGroup "Circom tests"
     , testParse "test/Code/Circom/aliascheck.circom"
     , testParse "test/Code/Circom/comparators.circom"
     , testLoad "test/Code/Circom/bitify.circom"
+    , testLoadMain "test/Code/Circom/bitify-main.circom"
     ]
 
 testLex :: String -> BenchTest
@@ -73,5 +74,10 @@ testParse path = benchTestCase ("parse " ++ path) $ do
 
 testLoad :: String -> BenchTest
 testLoad path = benchTestCase ("load " ++ path) $ do
-  pgm <- loadFile path
+  pgm <- loadFilesRecursively path
   print $ "files from " ++ path ++ ": " ++ show (length pgm)
+
+testLoadMain :: String -> BenchTest
+testLoadMain path = benchTestCase ("load " ++ path) $ do
+  pgm <- loadMain path
+  print $ "main expression in " ++ path ++ ": " ++ show (main pgm)
