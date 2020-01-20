@@ -35,6 +35,10 @@ circomGenTests = benchTestGroup "Circom generator tests"
     , cGenTest (Map.fromList [("in", signalTerm "in")])
                (BinExpr Mul (BinExpr Mul (LValue $ Ident "in") (LValue $ Ident "in")) (LValue $ Ident "in"))
                Other
+    , cGenTest Map.empty
+               (UnExpr UnPos (ArrayLit [NumLit 5, NumLit 6, NumLit 7]))
+               (Scalar 3)
+    , cGenTest Map.empty (UnExpr UnNeg (NumLit 5)) (Scalar (-5))
     ]
 
 cGenTest :: CGenCtx -> Expr -> Term -> BenchTest

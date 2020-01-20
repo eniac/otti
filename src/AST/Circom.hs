@@ -256,7 +256,20 @@ cGenExpr ctx expr = case expr of
         where
             (ctx', l') = cGenExpr ctx l
             (ctx'', r') = cGenExpr ctx' r
-    UnExpr op e -> error "NYI"
+    UnExpr op e ->
+        case op of
+            UnNeg -> (ctx', cGenNeg t)
+            Not -> (ctx', cGenConstantUnLift "!" (\c -> if c /= 0 then 0 else 1) t)
+            UnPos -> (ctx', case t of
+                Scalar c -> Scalar c
+                Array ts -> Scalar (length ts)
+                Other -> Other
+                Linear {} -> Other
+                Quadratic {} -> Other)
+            BitNot -> (ctx', cGenConstantUnLift "~" Bits.complement t)
+        where
+            (ctx', t) = cGenExpr ctx e
+    UnMutExpr op e -> error "NYI"
     Ite c l r ->
         case condT of
             Scalar 0 -> cGenExpr ctx' r
