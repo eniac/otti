@@ -1,3 +1,4 @@
+import           AST.CircomTest
 import           BenchUtils
 import           Codegen.SMTGenTest
 import           IR.SMTTest
@@ -14,11 +15,16 @@ parserTests = benchTestGroup "Parser tests" [ cParserTests
                                             , circomParserTests
                                             ]
 
+generatorTests :: BenchTest
+generatorTests = benchTestGroup "Generator tests" [ circomGenTests
+                                                  ]
+
 allTests :: [BenchTest]
 allTests = [ parserTests
            , smtTests
            , irTests
            , codegenTests
+           , generatorTests
            ]
 
 main :: IO ()
