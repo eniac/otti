@@ -11,7 +11,7 @@ import Parser.Circom.Lexer      as Lexer (Token(..),AlexPosn(AlexPn),tokenPosn)
 %tokentype { Token }
 %error { parseError }
 
-%expect 57
+%expect 1
 
 %token
         numlit          { Lexer.NumLit _ $$         }
@@ -158,15 +158,14 @@ expr :: {Expr}
      | expr '|' expr                                { BinExpr BitOr $1 $3 }
      | expr '^' expr                                { BinExpr BitXor $1 $3 }
      | expr '**' expr                               { BinExpr Pow $1 $3 }
-     | '++' expr            %prec PRE               { UnExpr PreInc $2 }
-     | '--' expr            %prec PRE               { UnExpr PreDec $2 }
+     | '++' location        %prec PRE               { UnMutExpr PreInc $2 }
+     | '--' location        %prec PRE               { UnMutExpr PreDec $2 }
      | '!' expr             %prec PRE               { UnExpr Not $2 }
      | '~' expr             %prec PRE               { UnExpr BitNot $2 }
      | '-' expr             %prec PRE               { UnExpr UnNeg $2 }
      | '+' expr             %prec PRE               { UnExpr UnPos $2 }
-     -- NB: There are shift/reduce conflicts here resolved in favor of the postfix ops
-     | expr '++'            %prec POST              { UnExpr PostInc $1 }
-     | expr '--'            %prec POST              { UnExpr PostDec $1 }
+     | location '++'        %prec POST              { UnMutExpr PostInc $1 }
+     | location '--'        %prec POST              { UnMutExpr PostDec $1 }
      | ident '(' list0_sep(expr, ',') ')'  %prec POST   { Call $1 $3 }
      | '[' list0_sep(expr, ',') ']'        %prec PRE    { ArrayLit $2 }
      | '(' expr ')'         %prec PRE               { $2 }

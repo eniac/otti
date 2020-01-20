@@ -7,6 +7,7 @@ module AST.Circom ( File
                   , Location(..)
                   , SignalKind(..)
                   , UnOp(..)
+                  , UnMutOp(..)
                   , Block
                   , collectIncludes
                   , collectFunctions
@@ -103,11 +104,13 @@ data Location = Ident String
               | Index Location Expr
               deriving (Show,Eq)
 
-data UnOp = PreInc
+data UnMutOp = PreInc
           | PostInc
           | PreDec
           | PostDec
-          | UnNeg
+          deriving (Show,Eq)
+
+data UnOp = UnNeg
           | BitNot
           | Not
           | UnPos
@@ -115,6 +118,7 @@ data UnOp = PreInc
 
 data Expr = BinExpr BinOp Expr Expr
           | UnExpr UnOp Expr
+          | UnMutExpr UnMutOp Location
           | Ite Expr Expr Expr
           | LValue Location
           | Call String [Expr]
