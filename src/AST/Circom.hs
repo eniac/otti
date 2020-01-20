@@ -190,8 +190,8 @@ cGenLocation ctx loc = case loc of
             (_, i) -> error $ "Non-scalar " ++ show i ++ " as index in " ++ show loc
         (_, l) -> error $ "Non-array " ++ show l ++ " as location in " ++ show loc
 
--- Lifts a fun: Int -> Int -> Int to that operates over integers to one that
--- operates over gen-time constant terms
+-- Lifts a fun: Int -> Int -> Int to one that operates over gen-time constant
+-- terms
 cGenConstantBinLift :: String -> (Int -> Int -> Int) -> Term -> Term -> Term
 cGenConstantBinLift name f s t = case (s, t) of
     (Scalar c1 , Scalar c2) -> Scalar $ f c1 c2
@@ -201,15 +201,24 @@ cGenConstantBinLift name f s t = case (s, t) of
     (Quadratic {}, _) -> Other
     (l, r) -> cGenConstantBinLift name f r l
 
--- Lifts a fun: Int -> Int -> Bool to that operates over integers to one that
--- operates over gen-time constant terms
+-- Lifts a fun: Int -> Int -> Bool to one that operates over gen-time constant
+-- terms
 cGenConstantCmpLift :: String -> (Int -> Int -> Bool) -> Term -> Term -> Term
 cGenConstantCmpLift name f = cGenConstantBinLift name (\a b -> if f a b then 1 else 0)
 
--- Lifts a fun: Bool -> Bool -> Bool to that operates over integers to one that
--- operates over gen-time constant terms
+-- Lifts a fun: Bool -> Bool -> Bool to one that operates over gen-time
+-- constant terms
 cGenConstantBoolBinLift :: String -> (Bool -> Bool -> Bool) -> Term -> Term -> Term
 cGenConstantBoolBinLift name f = cGenConstantBinLift name (\a b -> if f (a /= 0) (b /= 0) then 1 else 0)
+
+-- Lifts a fun: Int -> Int to one that operates over gen-time constant terms
+cGenConstantUnLift :: String -> (Int -> Int) -> Term -> Term
+cGenConstantUnLift name f t = case t of
+    Scalar c -> Scalar (f c)
+    a@Array {} -> error $ "Cannot perform operation \"" ++ name ++ "\" on array term " ++ show a
+    Other -> Other
+    Linear {} -> Other
+    Quadratic {} -> Other
 
 
 cGenExpr :: CGenCtx -> Expr -> (CGenCtx, Term)
@@ -243,8 +252,14 @@ cGenExpr ctx expr = case expr of
         where
             (ctx', l') = cGenExpr ctx l
             (ctx'', r') = cGenExpr ctx' r
-    UnExpr _ _ -> error "NYI"
-    Ite _ _ _ -> error "NYI"
+    UnExpr op e -> error "NYI"
+    Ite c l r ->
+        case condT of
+            Scalar 0 -> cGenExpr ctx' r
+            Scalar _ -> cGenExpr ctx' l
+            t -> error $ "Cannot condition on term " ++ show t
+        where
+            (ctx', condT) = cGenExpr ctx c
     LValue loc -> cGenLocation ctx loc
     Call _ _ -> error "NYI"
 
