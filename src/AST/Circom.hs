@@ -131,17 +131,26 @@ data Signal = SigLocal String [Int]
             | SigForeign String [Int] String [Int]
             deriving (Show,Ord,Eq)
 type LC = (Map.Map Signal Int, Int) -- A linear combination of signals and gen-time constants
-data Term = Linear LC               -- A linear combination
-          | Quadratic LC LC LC      -- A * B + C for LC's A, B, C
-          | Scalar Int              -- a gen-time constant
-          | Array [Term]            -- An array of terms
-          | Other                   -- A non-gen-time constant that is none of the above.
+
+data Term = Linear LC                   -- A linear combination
+          | Quadratic LC LC LC          -- A * B + C for LC's A, B, C
+          | Scalar Int                  -- a gen-time constant
+          | Array [Term]                -- An array of terms
+          | Struct (Map.Map String Term)-- A structure
+          | Other                       -- A non-gen-time constant that is none of the above.
           deriving (Show,Ord,Eq)
+
+-- An evaluated l-value
+data LTerm = LTermIdent String
+           | LTermPin LTerm String
+           | LTermIdx LTerm Int
+           deriving (Show,Ord,Eq)
 
 
 cGenAdd :: Term -> Term -> Term
 cGenAdd s t = case (s, t) of
     (a@Array {}, _) -> error $ "Cannot add array term " ++ show a ++ " to anything"
+    (a@Struct {}, _) -> error $ "Cannot add struct term " ++ show a ++ " to anything"
     (Other, _) -> Other
     (Linear (m1, c1), Linear (m2, c2)) -> Linear (Map.unionWith (+) m1 m2, c1 + c2)
     (Linear (m1, c1), Quadratic a b (m2, c2)) -> Quadratic a b (Map.unionWith (+) m1 m2, c1 + c2)
@@ -157,6 +166,7 @@ lcScale (m, c) a = (Map.map (*a) m, a * c)
 cGenMul :: Term -> Term -> Term
 cGenMul s t = case (s, t) of
     (a@Array {}, _) -> error $ "Cannot multiply array term " ++ show a ++ " with anything"
+    (a@Struct {}, _) -> error $ "Cannot multiply struct term " ++ show a ++ " with anything"
     (Other, _) -> Other
     (Linear l1, Linear l2) -> Quadratic l1 l2 (Map.empty, 0)
     (Linear _, Quadratic {}) -> Other
@@ -169,6 +179,7 @@ cGenMul s t = case (s, t) of
 cGenNeg :: Term -> Term
 cGenNeg t = case t of
     a@Array {} -> error $ "Cannot negate array term " ++ show a
+    a@Struct {} -> error $ "Cannot negate struct term " ++ show a
     Other -> Other
     Linear l1 -> Linear $ lcScale l1 (-1)
     Quadratic l1 l2 l3 -> Quadratic (lcScale l1 (-1)) (lcScale l2 (-1)) (lcScale l3 (-1))
@@ -177,6 +188,7 @@ cGenNeg t = case t of
 cGenRecip :: Term -> Term
 cGenRecip t = case t of
     a@Array {} -> error $ "Cannot invert array term " ++ show a
+    a@Struct {} -> error $ "Cannot invert struct term " ++ show a
     Scalar c1 -> error "NYI"
     Other -> Other
     Linear _ -> Other
@@ -184,15 +196,17 @@ cGenRecip t = case t of
 
 type CGenCtx = Map.Map String Term
 
-cGenLocation :: CGenCtx -> Location -> (CGenCtx, Term)
+cGenLocation :: CGenCtx -> Location -> (CGenCtx, LTerm)
 cGenLocation ctx loc = case loc of
-    Ident s -> (ctx, Map.findWithDefault (error $ "Unknown identifier `" ++ s ++ "`") s ctx)
-    Pin loc pin -> error "NYI"
-    Index loc' ie -> case cGenLocation ctx loc' of
-        (ctx', Array ts) -> case cGenExpr ctx' ie of
-            (ctx'', Scalar i) -> (ctx'', ts !! i)
-            (_, i) -> error $ "Non-scalar " ++ show i ++ " as index in " ++ show loc
-        (_, l) -> error $ "Non-array " ++ show l ++ " as location in " ++ show loc
+    Ident s -> (ctx, LTermIdent s)
+    Pin loc' pin -> (ctx', LTermPin lt pin)
+        where (ctx', lt) = cGenLocation ctx loc'
+    Index loc' ie -> case iterm of
+            Scalar i -> (ctx'', LTermIdx lt i)
+            i -> error $ "Non-scalar " ++ show i ++ " as index in " ++ show loc
+        where
+            (ctx', lt) = cGenLocation ctx loc'
+            (ctx'', iterm) = cGenExpr ctx' ie
 
 -- Lifts a fun: Int -> Int -> Int to one that operates over gen-time constant
 -- terms
@@ -200,6 +214,7 @@ cGenConstantBinLift :: String -> (Int -> Int -> Int) -> Term -> Term -> Term
 cGenConstantBinLift name f s t = case (s, t) of
     (Scalar c1 , Scalar c2) -> Scalar $ f c1 c2
     (a@Array {}, _) -> error $ "Cannot perform operation \"" ++ name ++ "\" on array term " ++ show a
+    (a@Struct {}, _) -> error $ "Cannot perform operation \"" ++ name ++ "\" on struct term " ++ show a
     (Other, _) -> Other
     (Linear {}, _) -> Other
     (Quadratic {}, _) -> Other
@@ -220,10 +235,25 @@ cGenConstantUnLift :: String -> (Int -> Int) -> Term -> Term
 cGenConstantUnLift name f t = case t of
     Scalar c -> Scalar (f c)
     a@Array {} -> error $ "Cannot perform operation \"" ++ name ++ "\" on array term " ++ show a
+    a@Struct {} -> error $ "Cannot perform operation \"" ++ name ++ "\" on struct term " ++ show a
     Other -> Other
     Linear {} -> Other
     Quadratic {} -> Other
 
+-- Modifies a context to store a value in a location
+ctxStore :: CGenCtx -> LTerm -> Term -> CGenCtx
+ctxStore ctx loc value = error "NYI"
+
+-- Modifies a context to store a value in a location
+ctxGet :: CGenCtx -> LTerm -> Term
+ctxGet ctx loc = case loc of
+    LTermIdent s -> Map.findWithDefault (error $ "Unknown identifier `" ++ s ++ "`") s ctx
+    LTermPin loc' pin -> case ctxGet ctx loc' of
+        Struct pins -> pins Map.! pin
+        l -> error $ "Non-struct " ++ show l ++ " as location in " ++ show loc
+    LTermIdx loc' i -> case ctxGet ctx loc' of
+        Array ts -> ts !! i
+        l -> error $ "Non-array " ++ show l ++ " as location in " ++ show loc
 
 cGenExpr :: CGenCtx -> Expr -> (CGenCtx, Term)
 cGenExpr ctx expr = case expr of
@@ -232,27 +262,27 @@ cGenExpr ctx expr = case expr of
         where
             (ctx', ts) = foldl (\(ctx, ts) e -> let (ctx', t) = cGenExpr ctx e in (ctx', t:ts)) (ctx, []) es
     BinExpr op l r ->
-        case op of
-            Add -> (ctx'', cGenAdd l' r')
-            Sub -> (ctx'', cGenAdd l' $ cGenNeg r')
-            Mul -> (ctx'', cGenMul l' r')
-            Div -> (ctx'', cGenMul l' $ cGenRecip r')
-            IntDiv -> (ctx'', cGenConstantBinLift "//" div l' r')
-            Mod -> (ctx'', cGenConstantBinLift "//" mod l' r')
-            Lt -> (ctx'', cGenConstantCmpLift "<" (<) l' r')
-            Gt -> (ctx'', cGenConstantCmpLift ">" (>) l' r')
-            Le -> (ctx'', cGenConstantCmpLift "<=" (<=) l' r')
-            Ge -> (ctx'', cGenConstantCmpLift "<=" (>=) l' r')
-            Eq -> (ctx'', cGenConstantCmpLift "==" (==) l' r')
-            Ne -> (ctx'', cGenConstantCmpLift "!=" (/=) l' r')
-            And -> (ctx'', cGenConstantBoolBinLift "&&" (&&) l' r')
-            Or -> (ctx'', cGenConstantBoolBinLift "||" (||) l' r')
-            Shl -> (ctx'', cGenConstantBinLift "<<" Bits.shiftL l' r')
-            Shr -> (ctx'', cGenConstantBinLift "<<" Bits.shiftR l' r')
-            BitAnd -> (ctx'', cGenConstantBinLift "&" (Bits..&.) l' r')
-            BitOr -> (ctx'', cGenConstantBinLift "&" (Bits..|.) l' r')
-            BitXor -> (ctx'', cGenConstantBinLift "&" Bits.xor l' r')
-            Pow -> (ctx'', cGenConstantBinLift "**" (^) l' r')
+        (ctx'', case op of
+            Add -> cGenAdd l' r'
+            Sub -> cGenAdd l' $ cGenNeg r'
+            Mul -> cGenMul l' r'
+            Div -> cGenMul l' $ cGenRecip r'
+            IntDiv -> cGenConstantBinLift "//" div l' r'
+            Mod -> cGenConstantBinLift "//" mod l' r'
+            Lt -> cGenConstantCmpLift "<" (<) l' r'
+            Gt -> cGenConstantCmpLift ">" (>) l' r'
+            Le -> cGenConstantCmpLift "<=" (<=) l' r'
+            Ge -> cGenConstantCmpLift "<=" (>=) l' r'
+            Eq -> cGenConstantCmpLift "==" (==) l' r'
+            Ne -> cGenConstantCmpLift "!=" (/=) l' r'
+            And -> cGenConstantBoolBinLift "&&" (&&) l' r'
+            Or -> cGenConstantBoolBinLift "||" (||) l' r'
+            Shl -> cGenConstantBinLift "<<" Bits.shiftL l' r'
+            Shr -> cGenConstantBinLift "<<" Bits.shiftR l' r'
+            BitAnd -> cGenConstantBinLift "&" (Bits..&.) l' r'
+            BitOr -> cGenConstantBinLift "&" (Bits..|.) l' r'
+            BitXor -> cGenConstantBinLift "&" Bits.xor l' r'
+            Pow -> cGenConstantBinLift "**" (^) l' r')
         where
             (ctx', l') = cGenExpr ctx l
             (ctx'', r') = cGenExpr ctx' r
@@ -263,6 +293,7 @@ cGenExpr ctx expr = case expr of
             UnPos -> (ctx', case t of
                 Scalar c -> Scalar c
                 Array ts -> Scalar (length ts)
+                Struct ts -> Scalar (Map.size ts)
                 Other -> Other
                 Linear {} -> Other
                 Quadratic {} -> Other)
@@ -277,7 +308,10 @@ cGenExpr ctx expr = case expr of
             t -> error $ "Cannot condition on term " ++ show t
         where
             (ctx', condT) = cGenExpr ctx c
-    LValue loc -> cGenLocation ctx loc
+    LValue loc ->
+            (ctx', ctxGet ctx' lt)
+            -- TODO(aozdemir): enforce ctx' == ctx for sanity?
+        where (ctx', lt) = cGenLocation ctx loc
     Call _ _ -> error "NYI"
 
 
