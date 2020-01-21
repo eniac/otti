@@ -189,6 +189,13 @@ cGenNeg t = case t of
     Quadratic l1 l2 l3 -> Quadratic (lcScale l1 (-1)) (lcScale l2 (-1)) (lcScale l3 (-1))
     Scalar c1 -> Scalar $ -c1
 
+cGenDoUnMutOp :: UnMutOp -> Term -> Term
+cGenDoUnMutOp op t = case op of
+    PreInc -> cGenAdd t (Scalar 1)
+    PostInc -> cGenAdd t (Scalar 1)
+    PreDec -> cGenAdd t (Scalar (-1))
+    PostDec -> cGenAdd t (Scalar (-1))
+
 cGenRecip :: Term -> Term
 cGenRecip t = case t of
     a@Array {} -> error $ "Cannot invert array term " ++ show a
@@ -326,7 +333,7 @@ cGenExpr ctx expr = case expr of
             BitNot -> (ctx', cGenConstantUnLift "~" Bits.complement t)
         where
             (ctx', t) = cGenExpr ctx e
-    UnMutExpr op e -> error "NYI"
+    UnMutExpr op loc -> cGenUnExpr ctx op loc
     Ite c l r ->
         case condT of
             Scalar 0 -> cGenExpr ctx' r
@@ -341,6 +348,17 @@ cGenExpr ctx expr = case expr of
     Call _ _ -> error "NYI"
 
 
-
+cGenUnExpr :: CGenCtx -> UnMutOp -> Location -> (CGenCtx, Term)
+cGenUnExpr ctx op loc = case op of
+    PostInc -> (ctx'', term)
+    PreInc -> (ctx'', term')
+    PostDec -> (ctx'', term)
+    PreDec -> (ctx'', term')
+    where
+        -- TODO(aozdemir): enforce ctx' == ctx for sanity?
+        (ctx', lval) = cGenLocation ctx loc
+        term = ctxGet ctx' lval
+        term' = cGenDoUnMutOp op term
+        ctx'' = ctxStore ctx' lval term'
 
 
