@@ -251,22 +251,24 @@ updateList f i l = case splitAt i l of
 
 -- Modifies a context to store a value in a location
 ctxStore :: CGenCtx -> LTerm -> Term -> CGenCtx
-ctxStore ctx loc value = Map.update (pure . (updateFn loc (const value))) (ident loc) ctx
+ctxStore ctx loc value = Map.update (pure . replacein ss value) ident ctx
     where
-        -- A function over terms which applies f at location l
-        --          l        f
-        updateFn :: LTerm -> (Term -> Term) -> Term -> Term
-        updateFn (LTermIdent s) f = f
-        updateFn (LTermPin lt' pin) f = updateFn lt' (\s -> case s of
-            Struct m -> Struct $ Map.update (pure . f) pin m
-            t ->  error $ "Cannot update pin `" ++ pin ++ "` of non-struct " ++ show t)
-        updateFn (LTermIdx lt' i) f = updateFn lt' (\s -> case s of
-            Array ts -> Array $ fromMaybe (error $ "The index " ++ show i ++ " is out of bound s for " ++ show ts)
-                (updateList f i ts)
-            t ->  error $ "Cannot update index `" ++ show i  ++ "` of non-array " ++ show t)
-        ident (LTermIdent s) = s
-        ident (LTermPin lt _) = ident lt
-        ident (LTermIdx lt _) = ident lt
+        (ident, ss) = steps loc
+
+        replacein :: [Either String Int] -> Term -> Term -> Term
+        replacein [] value _ = value
+        replacein (Left pin:t) value (Struct m) = Struct $ Map.update (pure . replacein t value) pin m
+        replacein (Left pin:_) _ t = error $ "Cannot update pin `" ++ pin ++ "` of non-struct " ++ show t
+        replacein (Right idx:t) value (Array m) = Array $ fromMaybe
+            (error $ "The index " ++ show idx ++ " is out of bounds for " ++ show m)
+            (updateList (replacein t value) idx m)
+        replacein (Right idx:_) _ t = error $ "Cannot update index `" ++ show idx ++ "` of non-array " ++ show t
+
+        rsteps (LTermIdent s) = (s, [])
+        rsteps (LTermPin lt pin) = let (s, ts) = rsteps lt in (s, Left pin:ts)
+        rsteps (LTermIdx lt idx) = let (s, ts) = rsteps lt in (s, Right idx:ts)
+
+        steps l = let (s, ts) = rsteps l in (s, reverse ts)
 
 -- Modifies a context to store a value in a location
 ctxGet :: CGenCtx -> LTerm -> Term
