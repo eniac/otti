@@ -39,11 +39,46 @@ circomGenTests = benchTestGroup "Circom generator tests"
                (UnExpr UnPos (ArrayLit [NumLit 5, NumLit 6, NumLit 7]))
                (Scalar 3)
     , cGenTest Map.empty (UnExpr UnNeg (NumLit 5)) (Scalar (-5))
+    , ctxStoreGetTest
+        "integer"
+        (Map.fromList [("in", Scalar 5)])
+        (LTermIdent "in")
+        (Scalar 6)
+        (LTermIdent "in")
+        (Scalar 6)
+    , ctxStoreGetTest
+        "array to integer"
+        (Map.fromList [("in", Array [Scalar 5])])
+        (LTermIdent "in")
+        (Scalar 6)
+        (LTermIdent "in")
+        (Scalar 6)
+    , ctxStoreGetTest
+        "array"
+        (Map.fromList [("in", Array [Scalar 5])])
+        (LTermIdx (LTermIdent "in") 0)
+        (Scalar 6)
+        (LTermIdent "in")
+        (Array [Scalar 6])
+    , ctxStoreGetTest
+        "struct in array"
+        (Map.fromList [("in", Array [Struct $ Map.fromList [("a", Scalar 5)]])])
+        (LTermPin (LTermIdx (LTermIdent "in") 0) "a")
+        (Scalar 6)
+        (LTermIdent "in")
+        (Array [Struct $ Map.fromList [("a", Scalar 6)]])
     ]
 
 cGenTest :: CGenCtx -> Expr -> Term -> BenchTest
 cGenTest ctx e t = benchTestCase ("eval " ++ show e) $ do
     let p = cGenExpr ctx e
     unless (snd p == t) $ error $ "Expected\n\t" ++ show e ++ "\nto evaluate to\n\t" ++ show t ++ "\nbut it evaluated to\n\t" ++ show (snd p) ++ "\n"
-    pure ()
+    return ()
+
+ctxStoreGetTest :: String -> CGenCtx -> LTerm -> Term -> LTerm -> Term -> BenchTest
+ctxStoreGetTest name ctx sLoc sVal gLoc gVal = benchTestCase ("store/get test: " ++ name) $ do
+    let ctx' = ctxStore ctx sLoc sVal
+    let gVal' = ctxGet ctx' gLoc
+    unless (gVal == gVal') $ error $ "After placing\n\t" ++ show sVal ++ "\nat\n\t" ++ show sLoc ++ "\nin\n\t" ++ show ctx ++"\n, expected\n\t" ++ show gVal ++ "\nat\n\t" ++ show gLoc ++ "\nbut found\n\t" ++ show gVal' ++ "\n"
+    return ()
 

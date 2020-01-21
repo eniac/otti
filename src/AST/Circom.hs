@@ -16,12 +16,16 @@ module AST.Circom ( File
                   , cGenExpr
                   , CGenCtx
                   , Term(..)
+                  , LTerm(..)
                   , Signal(..)
+                  , ctxStore
+                  , ctxGet
                   ) where
 
 
-import Data.Maybe       (mapMaybe)
+import Data.Maybe       (mapMaybe, fromMaybe)
 import qualified Data.Bits as Bits
+import qualified Data.Sequence as Sequence
 import qualified Data.Map.Strict as Map
 
 data BinOp = Add
@@ -240,9 +244,29 @@ cGenConstantUnLift name f t = case t of
     Linear {} -> Other
     Quadratic {} -> Other
 
+updateList :: (a -> a) -> Int -> [a] -> Maybe [a]
+updateList f i l = case splitAt i l of
+    (h, m:t) -> Just $ h ++ (f m : t)
+    _ -> Nothing
+
 -- Modifies a context to store a value in a location
 ctxStore :: CGenCtx -> LTerm -> Term -> CGenCtx
-ctxStore ctx loc value = error "NYI"
+ctxStore ctx loc value = Map.update (pure . (updateFn loc (const value))) (ident loc) ctx
+    where
+        -- A function over terms which applies f at location l
+        --          l        f
+        updateFn :: LTerm -> (Term -> Term) -> Term -> Term
+        updateFn (LTermIdent s) f = f
+        updateFn (LTermPin lt' pin) f = updateFn lt' (\s -> case s of
+            Struct m -> Struct $ Map.update (pure . f) pin m
+            t ->  error $ "Cannot update pin `" ++ pin ++ "` of non-struct " ++ show t)
+        updateFn (LTermIdx lt' i) f = updateFn lt' (\s -> case s of
+            Array ts -> Array $ fromMaybe (error $ "The index " ++ show i ++ " is out of bound s for " ++ show ts)
+                (updateList f i ts)
+            t ->  error $ "Cannot update index `" ++ show i  ++ "` of non-array " ++ show t)
+        ident (LTermIdent s) = s
+        ident (LTermPin lt _) = ident lt
+        ident (LTermIdx lt _) = ident lt
 
 -- Modifies a context to store a value in a location
 ctxGet :: CGenCtx -> LTerm -> Term
