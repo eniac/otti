@@ -14,7 +14,7 @@ module AST.Circom ( File
                   , collectTemplates
                   , collectMains
                   , cGenExpr
-                  , CGenCtx
+                  , CGenCtx(..)
                   , Term(..)
                   , LTerm(..)
                   , Signal(..)
@@ -150,6 +150,11 @@ data LTerm = LTermIdent String
            | LTermIdx LTerm Int
            deriving (Show,Ord,Eq)
 
+termZeroArray :: [Term] -> Term
+termZeroArray = foldr (\d acc -> case d of
+        Scalar n -> Array $ replicate 5 acc
+        _ -> error $ "Illegal dimension " ++ show d
+    ) (Scalar 0)
 
 cGenAdd :: Term -> Term -> Term
 cGenAdd s t = case (s, t) of
@@ -166,6 +171,9 @@ cGenAdd s t = case (s, t) of
 
 lcScale :: LC -> Int -> LC
 lcScale (m, c) a = (Map.map (*a) m, a * c)
+
+lcZero :: LC
+lcZero = (Map.empty, 0)
 
 cGenMul :: Term -> Term -> Term
 cGenMul s t = case (s, t) of
@@ -205,7 +213,10 @@ cGenRecip t = case t of
     Linear _ -> Other
     Quadratic {} -> Other
 
-type CGenCtx = Map.Map String Term
+data CGenCtx = CGenCtx { env :: Map.Map String Term
+                       , constraints :: [(LC, LC, LC)]
+                       }
+                       deriving (Show)
 
 cGenLocation :: CGenCtx -> Location -> (CGenCtx, LTerm)
 cGenLocation ctx loc = case loc of
@@ -258,10 +269,13 @@ updateList f i l = case splitAt i l of
 
 -- Modifies a context to store a value in a location
 ctxStore :: CGenCtx -> LTerm -> Term -> CGenCtx
-ctxStore ctx loc value = Map.update (pure . replacein ss value) ident ctx
+ctxStore ctx loc value = CGenCtx {
+    env = Map.update (pure . replacein ss value) ident (env ctx),
+    constraints = constraints ctx }
     where
         (ident, ss) = steps loc
 
+        -- TODO: nicer way to write this?
         replacein :: [Either String Int] -> Term -> Term -> Term
         replacein [] value _ = value
         replacein (Left pin:t) value (Struct m) = Struct $ Map.update (pure . replacein t value) pin m
@@ -277,16 +291,22 @@ ctxStore ctx loc value = Map.update (pure . replacein ss value) ident ctx
 
         steps l = let (s, ts) = rsteps l in (s, reverse ts)
 
--- Modifies a context to store a value in a location
+-- Gets a value from a location in a context
 ctxGet :: CGenCtx -> LTerm -> Term
 ctxGet ctx loc = case loc of
-    LTermIdent s -> Map.findWithDefault (error $ "Unknown identifier `" ++ s ++ "`") s ctx
+    LTermIdent s -> Map.findWithDefault (error $ "Unknown identifier `" ++ s ++ "`") s (env ctx)
     LTermPin loc' pin -> case ctxGet ctx loc' of
         Struct pins -> pins Map.! pin
         l -> error $ "Non-struct " ++ show l ++ " as location in " ++ show loc
     LTermIdx loc' i -> case ctxGet ctx loc' of
         Array ts -> ts !! i
         l -> error $ "Non-array " ++ show l ++ " as location in " ++ show loc
+
+ctxAddConstraint :: CGenCtx -> (LC, LC, LC) -> CGenCtx
+ctxAddConstraint ctx c = ctx { constraints = c : constraints ctx }
+
+ctxInitIdent :: CGenCtx -> String -> Term -> CGenCtx
+ctxInitIdent ctx name value = ctx { env = Map.insert name value (env ctx) }
 
 cGenExpr :: CGenCtx -> Expr -> (CGenCtx, Term)
 cGenExpr ctx expr = case expr of
@@ -361,4 +381,46 @@ cGenUnExpr ctx op loc = case op of
         term' = cGenDoUnMutOp op term
         ctx'' = ctxStore ctx' lval term'
 
+cGenExprs :: CGenCtx -> [Expr] -> (CGenCtx, [Term])
+cGenExprs c [] = (c, [])
+cGenExprs c (e:es) = (c'', t:ts)
+    where
+        (c', t) = cGenExpr c e
+        (c'', ts) = cGenExprs c' es
 
+cGenStatements :: CGenCtx -> [Statement] -> CGenCtx
+cGenStatements = foldl cGenStatement
+
+cGenStatement :: CGenCtx -> Statement -> CGenCtx
+cGenStatement ctx statement = case statement of
+    Assign loc expr ->
+            ctxStore ctx'' lval term
+        where
+            (ctx', lval) = cGenLocation ctx loc
+            (ctx'', term) = cGenExpr ctx' expr
+    -- Not quite right: evals twice
+    OpAssign op loc expr -> cGenStatement ctx $ Assign loc (BinExpr op (LValue loc) expr)
+    Constrain l r ->
+        case zeroTerm of
+            Scalar 0 -> ctx''
+            Linear lc -> ctxAddConstraint ctx'' (lcZero, lcZero, lc)
+            Quadratic a b c -> ctxAddConstraint ctx'' (a, b, c)
+            _ -> error $ "Cannot constain " ++ show zeroTerm ++ " to zero"
+        where
+            (ctx', lt) = cGenExpr ctx l
+            (ctx'', rt) = cGenExpr ctx' r
+            zeroTerm = cGenAdd lt (cGenNeg rt)
+    -- Not quite right: evals twice
+    AssignConstrain l e -> cGenStatements ctx [Assign l e, Constrain (LValue l) e]
+    VarDeclaration name dims init -> ctxInitIdent ctx' name (termZeroArray ts)
+        where
+            (ctx', ts) = cGenExprs ctx dims
+--  SigDeclaration String SignalKind [Expr]
+--  SubDeclaration String [Expr] (Maybe Expr)
+--  If Expr Block (Maybe Block)
+--  For Statement Expr Statement Block
+--  While Expr Block
+--  DoWhile Block Expr
+--  Compute Block
+--  Return Expr
+--  Ignore Expr -- Expression statements
