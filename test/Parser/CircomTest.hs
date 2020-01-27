@@ -4,7 +4,7 @@ import           Control.Monad (unless)
 import           Data.Either   (fromLeft, isRight)
 import           AST.Circom
 import           Parser.Circom.Lexer (tokenize)
-import           Parser.Circom        (parseFile, loadFilesRecursively, loadMain, MainCircuit(..))
+import           Parser.Circom        (parseFile, loadFilesRecursively, loadMain)
 import           Parser.Circom.Parser (parseCircomExpr, parseCircomStatement)
 import           Utils
 

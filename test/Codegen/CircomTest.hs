@@ -1,5 +1,6 @@
-module AST.CircomTest where
+module Codegen.CircomTest where
 import           AST.Circom
+import           Codegen.Circom
 import           BenchUtils
 import           Control.Monad   (unless)
 import           Data.Either     (fromLeft, isRight)
@@ -10,7 +11,7 @@ signalTerm :: String -> Term
 signalTerm s = Linear (Map.fromList [(SigLocal s [], 1)], 0)
 
 cGenCtxWithSignals :: [String] -> CGenCtx
-cGenCtxWithSignals sigNames = CGenCtx { env = Map.fromList (map (\s -> (s, signalTerm s)) sigNames), constraints = [] }
+cGenCtxWithSignals sigNames = ctxWithEnv $ Map.fromList (map (\s -> (s, signalTerm s)) sigNames)
 
 circomGenTests :: BenchTest
 circomGenTests = benchTestGroup "Circom generator tests"
@@ -44,32 +45,32 @@ circomGenTests = benchTestGroup "Circom generator tests"
     , cGenExprTest (cGenCtxWithSignals []) (UnExpr UnNeg (NumLit 5)) (Scalar (-5))
     , ctxStoreGetTest
         "integer"
-        (CGenCtx {env = Map.fromList [("in", Array [Scalar 5])], constraints = []})
+        (ctxWithEnv (Map.fromList [("in", Array [Scalar 5])]))
         (LTermIdent "in")
         (Scalar 6)
         (LTermIdent "in")
         (Scalar 6)
     , ctxStoreGetTest
         "array to integer"
-        (CGenCtx {env = Map.fromList [("in", Array [Scalar 5])], constraints = []})
+        (ctxWithEnv (Map.fromList [("in", Array [Scalar 5])]))
         (LTermIdent "in")
         (Scalar 6)
         (LTermIdent "in")
         (Scalar 6)
     , ctxStoreGetTest
         "array"
-        (CGenCtx {env = Map.fromList [("in", Array [Scalar 5])], constraints = []})
+        (ctxWithEnv (Map.fromList [("in", Array [Scalar 5])]))
         (LTermIdx (LTermIdent "in") 0)
         (Scalar 6)
         (LTermIdent "in")
         (Array [Scalar 6])
     , ctxStoreGetTest
         "struct in array"
-        (CGenCtx {env = Map.fromList [("in", Array [Struct $ Map.fromList [("a", Scalar 5)]])], constraints = []})
+        (ctxWithEnv (Map.fromList [("in", Array [Struct (Map.fromList [("a", Scalar 5)]) []])]))
         (LTermPin (LTermIdx (LTermIdent "in") 0) "a")
         (Scalar 6)
         (LTermIdent "in")
-        (Array [Struct $ Map.fromList [("a", Scalar 6)]])
+        (Array [Struct (Map.fromList [("a", Scalar 6)]) []])
     , cGenStatementTest
         "equal"
         (cGenCtxWithSignals ["a", "b"])

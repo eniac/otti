@@ -1,5 +1,5 @@
-import           AST.CircomTest
 import           BenchUtils
+import           Codegen.CircomTest
 import           Codegen.SMTGenTest
 import           IR.SMTTest
 import           Parser.CTest

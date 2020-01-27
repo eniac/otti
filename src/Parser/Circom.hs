@@ -1,7 +1,7 @@
-module Parser.Circom(parseFile,loadFilesRecursively,loadMain,MainCircuit(..),Files) where
+module Parser.Circom(parseFile,loadFilesRecursively,loadMain,Files) where
 
 import System.FilePath
-import AST.Circom           (File, Item(..), Expr, Block, collectIncludes, collectFunctions, collectMains, collectTemplates)
+import AST.Circom           (File, Item(..), Expr, Block, MainCircuit(..), collectIncludes, collectFunctions, collectMains, collectTemplates)
 import Parser.Circom.Parser (parseCircomFile)
 import Parser.Circom.Lexer  (tokenize)
 import Data.Map.Strict as Map
@@ -47,11 +47,6 @@ getFirstMain file
 -- Given a path, loads the file at this path, and all transitive inclusions
 loadFilesRecursively :: FilePath -> IO Files
 loadFilesRecursively path = extendInclude Map.empty [path]
-
-data MainCircuit = MainCircuit { main :: Expr
-                               , functions :: Map String ([String], Block)
-                               , templates :: Map String ([String], Block)
-                               }
 
 
 loadMain path = do
