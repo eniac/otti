@@ -224,10 +224,10 @@ instance Num Term where
   abs s = case s of
     Array a -> Scalar $ length a
     Struct s -> Scalar $ Map.size s
-    Other -> Scalar 1
-    Linear {} -> Scalar 1
-    Quadratic {} -> Scalar 1
-    Scalar n -> Scalar $ signum n
+    Other -> Other
+    l@Linear {} -> l
+    q@Quadratic {} -> q
+    Scalar n -> Scalar $ abs n
   negate s = fromInteger (-1) * s
 
 instance Fractional Term where
