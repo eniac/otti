@@ -190,8 +190,8 @@ termGenTimeConst t = case t of
     Struct map -> all termGenTimeConst $ Map.elems map
     Other -> False
 
-cGenAdd :: Term -> Term -> Term
-cGenAdd s t = case (s, t) of
+instance Num Term where
+  s + t = case (s, t) of
     (a@Array {}, _) -> error $ "Cannot add array term " ++ show a ++ " to anything"
     (a@Struct {}, _) -> error $ "Cannot add struct term " ++ show a ++ " to anything"
     (Other, _) -> Other
@@ -201,16 +201,8 @@ cGenAdd s t = case (s, t) of
     (Quadratic {}, Quadratic {}) -> Other
     (Quadratic a b (m, c1), Scalar c2) -> Quadratic a b (m, c1 + c2)
     (Scalar c1, Scalar c2) -> Scalar $ c1 + c2
-    (l, r) -> cGenAdd r l
-
-lcScale :: LC -> Int -> LC
-lcScale (m, c) a = (Map.map (*a) m, a * c)
-
-lcZero :: LC
-lcZero = (Map.empty, 0)
-
-cGenMul :: Term -> Term -> Term
-cGenMul s t = case (s, t) of
+    (l, r) -> r + l
+  s * t = case (s, t) of
     (a@Array {}, _) -> error $ "Cannot multiply array term " ++ show a ++ " with anything"
     (a@Struct {}, _) -> error $ "Cannot multiply struct term " ++ show a ++ " with anything"
     (Other, _) -> Other
@@ -220,32 +212,46 @@ cGenMul s t = case (s, t) of
     (Quadratic {}, Quadratic {}) -> Other
     (Quadratic l1 l2 l3, Scalar c) -> Quadratic (lcScale l1 c) (lcScale l2 c) (lcScale l3 c)
     (Scalar c1 , Scalar c2) -> Scalar $ c1 * c2
-    (l, r) -> cGenMul r l
+    (l, r) -> r * l
+  fromInteger n = Scalar $ fromInteger n
+  signum s = case s of
+    Array {} -> error $ "Cannot get sign of array term " ++ show s
+    Struct {} -> error $ "Cannot get sign of struct term " ++ show s
+    Other -> Scalar 1
+    Linear {} -> Scalar 1
+    Quadratic {} -> Scalar 1
+    Scalar n -> Scalar $ signum n
+  abs s = case s of
+    Array a -> Scalar $ length a
+    Struct s -> Scalar $ Map.size s
+    Other -> Scalar 1
+    Linear {} -> Scalar 1
+    Quadratic {} -> Scalar 1
+    Scalar n -> Scalar $ signum n
+  negate s = fromInteger (-1) * s
 
-cGenNeg :: Term -> Term
-cGenNeg t = case t of
-    a@Array {} -> error $ "Cannot negate array term " ++ show a
-    a@Struct {} -> error $ "Cannot negate struct term " ++ show a
-    Other -> Other
-    Linear l1 -> Linear $ lcScale l1 (-1)
-    Quadratic l1 l2 l3 -> Quadratic (lcScale l1 (-1)) (lcScale l2 (-1)) (lcScale l3 (-1))
-    Scalar c1 -> Scalar $ -c1
-
-cGenDoUnMutOp :: UnMutOp -> Term -> Term
-cGenDoUnMutOp op t = case op of
-    PreInc -> cGenAdd t (Scalar 1)
-    PostInc -> cGenAdd t (Scalar 1)
-    PreDec -> cGenAdd t (Scalar (-1))
-    PostDec -> cGenAdd t (Scalar (-1))
-
-cGenRecip :: Term -> Term
-cGenRecip t = case t of
+instance Fractional Term where
+  fromRational r = error "NYI"
+  recip t = case t of
     a@Array {} -> error $ "Cannot invert array term " ++ show a
     a@Struct {} -> error $ "Cannot invert struct term " ++ show a
     Scalar c1 -> error "NYI"
     Other -> Other
     Linear _ -> Other
     Quadratic {} -> Other
+
+lcScale :: LC -> Int -> LC
+lcScale (m, c) a = (Map.map (*a) m, a * c)
+
+lcZero :: LC
+lcZero = (Map.empty, 0)
+
+cGenGetUnMutOp :: UnMutOp -> Term -> Term
+cGenGetUnMutOp op = case op of
+    PreInc -> (+ Scalar 1)
+    PostInc -> (+ Scalar 1)
+    PreDec -> (+ Scalar (-1))
+    PostDec -> (+ Scalar (-1))
 
 data CGenCtx = CGenCtx { env :: Map.Map String Term
                        , constraints :: [(LC, LC, LC)]
@@ -350,10 +356,10 @@ cGenExpr ctx expr = case expr of
             (ctx', ts) = foldl (\(ctx, ts) e -> let (ctx', t) = cGenExpr ctx e in (ctx', t:ts)) (ctx, []) es
     BinExpr op l r ->
         (ctx'', case op of
-            Add -> cGenAdd l' r'
-            Sub -> cGenAdd l' $ cGenNeg r'
-            Mul -> cGenMul l' r'
-            Div -> cGenMul l' $ cGenRecip r'
+            Add -> l' + r'
+            Sub -> l' - r'
+            Mul -> l' * r'
+            Div -> l' / r'
             IntDiv -> cGenConstantBinLift "//" div l' r'
             Mod -> cGenConstantBinLift "//" mod l' r'
             Lt -> cGenConstantCmpLift "<" (<) l' r'
@@ -375,7 +381,7 @@ cGenExpr ctx expr = case expr of
             (ctx'', r') = cGenExpr ctx' r
     UnExpr op e ->
         case op of
-            UnNeg -> (ctx', cGenNeg t)
+            UnNeg -> (ctx', - t)
             Not -> (ctx', cGenConstantUnLift "!" (\c -> if c /= 0 then 0 else 1) t)
             UnPos -> (ctx', case t of
                 Scalar c -> Scalar c
@@ -412,7 +418,7 @@ cGenUnExpr ctx op loc = case op of
         -- TODO(aozdemir): enforce ctx' == ctx for sanity?
         (ctx', lval) = cGenLocation ctx loc
         term = ctxGet ctx' lval
-        term' = cGenDoUnMutOp op term
+        term' = cGenGetUnMutOp op term
         ctx'' = ctxStore ctx' lval term'
 
 cGenExprs :: CGenCtx -> [Expr] -> (CGenCtx, [Term])
@@ -442,7 +448,7 @@ cGenStatement ctx statement = case statement of
         where
             (ctx', lt) = cGenExpr ctx l
             (ctx'', rt) = cGenExpr ctx' r
-            zeroTerm = cGenAdd lt (cGenNeg rt)
+            zeroTerm = lt - rt
     -- TODO Not quite right: evals twice
     AssignConstrain l e -> cGenStatements ctx [Assign l e, Constrain (LValue l) e]
     VarDeclaration name dims init -> case init of
