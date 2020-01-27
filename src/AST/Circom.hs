@@ -23,7 +23,7 @@ module AST.Circom ( File
                   ) where
 
 
-import Data.Maybe       (mapMaybe, fromMaybe)
+import Data.Maybe       (mapMaybe, fromMaybe, maybeToList)
 import qualified Data.Bits as Bits
 import qualified Data.Sequence as Sequence
 import qualified Data.Map.Strict as Map
@@ -132,7 +132,7 @@ data Expr = BinExpr BinOp Expr Expr
 
 data Signal = SigLocal String [Int]
             -- Subcomponent name, subcomponent indices, signal name, signal indices
-            | SigForeign String [Int] String [Int]
+            | SigForeign String [Int] Signal
             deriving (Show,Ord,Eq)
 type LC = (Map.Map Signal Int, Int) -- A linear combination of signals and gen-time constants
 
@@ -152,9 +152,31 @@ data LTerm = LTermIdent String
 
 termZeroArray :: [Term] -> Term
 termZeroArray = foldr (\d acc -> case d of
-        Scalar n -> Array $ replicate 5 acc
+        Scalar n -> Array $ replicate n acc
         _ -> error $ "Illegal dimension " ++ show d
     ) (Scalar 0)
+
+data DimArray = DABase String [Int] | DARec [DimArray]
+
+termSignalArray :: String -> [Term] -> Term
+termSignalArray ident [] = Linear (Map.fromList [(SigLocal ident [], 1)], 0)
+termSignalArray ident ((Scalar n):ts) =
+        Array $ [ signalTranform (\t -> case t of
+            SigLocal ident idxs -> SigLocal ident idxs
+            SigForeign ident idxs s -> SigForeign ident idxs s
+        ) rec | i <- [0..(n-1)]]
+    where
+        rec = termSignalArray ident ts
+termSignalArray ident (t:ts) = error $ "Illegal dimension " ++ show t
+
+signalTranform :: (Signal -> Signal) -> Term -> Term
+signalTranform f t = case t of
+    Linear (m, c) -> Linear (Map.mapKeys f m, c)
+    Quadratic (m1, c1) (m2, c2) (m3, c3) -> Quadratic (Map.mapKeys f m1, c1) (Map.mapKeys f m2, c2) (Map.mapKeys f m3, c3)
+    Scalar c -> Scalar c
+    Array ts -> Array $ map (signalTranform f) ts
+    Struct tmap -> Struct $ Map.map (signalTranform f) tmap
+    Other -> Other
 
 cGenAdd :: Term -> Term -> Term
 cGenAdd s t = case (s, t) of
@@ -382,11 +404,7 @@ cGenUnExpr ctx op loc = case op of
         ctx'' = ctxStore ctx' lval term'
 
 cGenExprs :: CGenCtx -> [Expr] -> (CGenCtx, [Term])
-cGenExprs c [] = (c, [])
-cGenExprs c (e:es) = (c'', t:ts)
-    where
-        (c', t) = cGenExpr c e
-        (c'', ts) = cGenExprs c' es
+cGenExprs c = foldl (\(c, ts) e -> let (c', t) = cGenExpr c e in (c', t:ts)) (c, [])
 
 cGenStatements :: CGenCtx -> [Statement] -> CGenCtx
 cGenStatements = foldl cGenStatement
@@ -398,7 +416,7 @@ cGenStatement ctx statement = case statement of
         where
             (ctx', lval) = cGenLocation ctx loc
             (ctx'', term) = cGenExpr ctx' expr
-    -- Not quite right: evals twice
+    -- TODO Not quite right: evals twice
     OpAssign op loc expr -> cGenStatement ctx $ Assign loc (BinExpr op (LValue loc) expr)
     Constrain l r ->
         case zeroTerm of
@@ -410,17 +428,32 @@ cGenStatement ctx statement = case statement of
             (ctx', lt) = cGenExpr ctx l
             (ctx'', rt) = cGenExpr ctx' r
             zeroTerm = cGenAdd lt (cGenNeg rt)
-    -- Not quite right: evals twice
+    -- TODO Not quite right: evals twice
     AssignConstrain l e -> cGenStatements ctx [Assign l e, Constrain (LValue l) e]
-    VarDeclaration name dims init -> ctxInitIdent ctx' name (termZeroArray ts)
+    VarDeclaration name dims init -> case init of
+            Just e -> cGenStatement ctx'' $ Assign (Ident name) e
+            Nothing -> ctx''
         where
+            ctx'' = ctxInitIdent ctx' name (termZeroArray ts)
             (ctx', ts) = cGenExprs ctx dims
---  SigDeclaration String SignalKind [Expr]
---  SubDeclaration String [Expr] (Maybe Expr)
---  If Expr Block (Maybe Block)
---  For Statement Expr Statement Block
---  While Expr Block
---  DoWhile Block Expr
---  Compute Block
---  Return Expr
---  Ignore Expr -- Expression statements
+    SigDeclaration name kind dims -> ctxInitIdent ctx' name (termSignalArray name tdims)
+        where
+            (ctx', tdims) = cGenExprs ctx dims
+    If cond true false -> case tcond of
+            Scalar 0 -> cGenStatements ctx' (concat $ maybeToList false)
+            Scalar _ -> cGenStatements ctx' true
+            _ -> error $ "Invalid conditional term " ++ show tcond
+        where
+            (ctx', tcond) = cGenExpr ctx cond
+    While cond block -> case tcond of
+            Scalar 0 -> ctx'
+            Scalar _ -> cGenStatement ctx' $ While cond block
+            _ -> error $ "Invalid conditional term " ++ show tcond
+        where
+            (ctx', tcond) = cGenExpr ctx cond
+    For init cond step block -> cGenStatements ctx [init, While cond (block ++ [step])]
+    DoWhile block expr -> cGenStatements ctx (block ++ [While expr block])
+    Compute _ -> ctx
+    Ignore e -> fst $ cGenExpr ctx e
+    SubDeclaration ident dims init -> error "NYI"
+    Return {} -> error "NYI"
