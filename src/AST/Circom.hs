@@ -14,12 +14,15 @@ module AST.Circom ( File
                   , collectTemplates
                   , collectMains
                   , cGenExpr
+                  , cGenStatement
+                  , lcZero
                   , CGenCtx(..)
                   , Term(..)
                   , LTerm(..)
                   , Signal(..)
                   , ctxStore
                   , ctxGet
+                  , ctxAddConstraint
                   ) where
 
 
@@ -178,6 +181,15 @@ signalTranform f t = case t of
     Struct tmap -> Struct $ Map.map (signalTranform f) tmap
     Other -> Other
 
+termGenTimeConst :: Term -> Bool
+termGenTimeConst t = case t of
+    Scalar {} -> True
+    Linear {} -> False
+    Quadratic {} -> False
+    Array a -> all termGenTimeConst a
+    Struct map -> all termGenTimeConst $ Map.elems map
+    Other -> False
+
 cGenAdd :: Term -> Term -> Term
 cGenAdd s t = case (s, t) of
     (a@Array {}, _) -> error $ "Cannot add array term " ++ show a ++ " to anything"
@@ -238,7 +250,7 @@ cGenRecip t = case t of
 data CGenCtx = CGenCtx { env :: Map.Map String Term
                        , constraints :: [(LC, LC, LC)]
                        }
-                       deriving (Show)
+                       deriving (Show, Eq)
 
 cGenLocation :: CGenCtx -> Location -> (CGenCtx, LTerm)
 cGenLocation ctx loc = case loc of
@@ -411,8 +423,11 @@ cGenStatements = foldl cGenStatement
 
 cGenStatement :: CGenCtx -> Statement -> CGenCtx
 cGenStatement ctx statement = case statement of
-    Assign loc expr ->
-            ctxStore ctx'' lval term
+    -- TODO kind of weird -- we only do the assignment if its to a value that is constant at generation time (e.g. no signals!)
+    Assign loc expr -> if termGenTimeConst (ctxGet ctx'' lval) then
+                ctxStore ctx'' lval term
+            else
+                ctx''
         where
             (ctx', lval) = cGenLocation ctx loc
             (ctx'', term) = cGenExpr ctx' expr

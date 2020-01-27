@@ -14,34 +14,34 @@ cGenCtxWithSignals sigNames = CGenCtx { env = Map.fromList (map (\s -> (s, signa
 
 circomGenTests :: BenchTest
 circomGenTests = benchTestGroup "Circom generator tests"
-    [ cGenTest (cGenCtxWithSignals []) (NumLit 5) (Scalar 5)
-    , cGenTest (cGenCtxWithSignals []) (BinExpr Shl (NumLit 5) (NumLit 2)) (Scalar 20)
-    , cGenTest (cGenCtxWithSignals ["in"]) (LValue $ Ident "in") (signalTerm "in")
-    , cGenTest (cGenCtxWithSignals ["in"])
+    [ cGenExprTest (cGenCtxWithSignals []) (NumLit 5) (Scalar 5)
+    , cGenExprTest (cGenCtxWithSignals []) (BinExpr Shl (NumLit 5) (NumLit 2)) (Scalar 20)
+    , cGenExprTest (cGenCtxWithSignals ["in"]) (LValue $ Ident "in") (signalTerm "in")
+    , cGenExprTest (cGenCtxWithSignals ["in"])
                (BinExpr Add (LValue $ Ident "in") (LValue $ Ident "in"))
                (Linear (Map.fromList [(SigLocal "in" [], 2)], 0))
-    , cGenTest (cGenCtxWithSignals ["in"])
+    , cGenExprTest (cGenCtxWithSignals ["in"])
                (BinExpr Add (BinExpr Mul (LValue $ Ident "in") (NumLit 5)) (LValue $ Ident "in"))
                (Linear (Map.fromList [(SigLocal "in" [], 6)], 0))
-    , cGenTest (cGenCtxWithSignals ["in"])
+    , cGenExprTest (cGenCtxWithSignals ["in"])
                (BinExpr Add (BinExpr Mul (LValue $ Ident "in") (LValue $ Ident "in")) (LValue $ Ident "in"))
                (Quadratic (Map.fromList [(SigLocal "in" [], 1)], 0)
                           (Map.fromList [(SigLocal "in" [], 1)], 0)
                           (Map.fromList [(SigLocal "in" [], 1)], 0)
                           )
-    , cGenTest (cGenCtxWithSignals ["in"])
+    , cGenExprTest (cGenCtxWithSignals ["in"])
                (BinExpr Sub (BinExpr Mul (LValue $ Ident "in") (LValue $ Ident "in")) (LValue $ Ident "in"))
                (Quadratic (Map.fromList [(SigLocal "in" [], 1)], 0)
                           (Map.fromList [(SigLocal "in" [], 1)], 0)
                           (Map.fromList [(SigLocal "in" [], -1)], 0)
                           )
-    , cGenTest (cGenCtxWithSignals ["in"])
+    , cGenExprTest (cGenCtxWithSignals ["in"])
                (BinExpr Mul (BinExpr Mul (LValue $ Ident "in") (LValue $ Ident "in")) (LValue $ Ident "in"))
                Other
-    , cGenTest (cGenCtxWithSignals [])
+    , cGenExprTest (cGenCtxWithSignals [])
                (UnExpr UnPos (ArrayLit [NumLit 5, NumLit 6, NumLit 7]))
                (Scalar 3)
-    , cGenTest (cGenCtxWithSignals []) (UnExpr UnNeg (NumLit 5)) (Scalar (-5))
+    , cGenExprTest (cGenCtxWithSignals []) (UnExpr UnNeg (NumLit 5)) (Scalar (-5))
     , ctxStoreGetTest
         "integer"
         (CGenCtx {env = Map.fromList [("in", Array [Scalar 5])], constraints = []})
@@ -70,10 +70,20 @@ circomGenTests = benchTestGroup "Circom generator tests"
         (Scalar 6)
         (LTermIdent "in")
         (Array [Struct $ Map.fromList [("a", Scalar 6)]])
+    , cGenStatementTest
+        "equal"
+        (cGenCtxWithSignals ["a", "b"])
+        (Constrain (LValue (Ident "a")) (LValue (Ident "b")))
+        (ctxAddConstraint (cGenCtxWithSignals ["a", "b"]) (lcZero, lcZero, (Map.fromList [(SigLocal "a" [], 1), (SigLocal "b" [], -1)], 0)))
+    , cGenStatementTest
+        "twice (assign & constrain)"
+        (cGenCtxWithSignals ["a", "b"])
+        (AssignConstrain (Ident "a") (BinExpr Mul (NumLit 2) (LValue (Ident "b"))))
+        (ctxAddConstraint (cGenCtxWithSignals ["a", "b"]) (lcZero, lcZero, (Map.fromList [(SigLocal "a" [], 1), (SigLocal "b" [], -2)], 0)))
     ]
 
-cGenTest :: CGenCtx -> Expr -> Term -> BenchTest
-cGenTest ctx e t = benchTestCase ("eval " ++ show e) $ do
+cGenExprTest :: CGenCtx -> Expr -> Term -> BenchTest
+cGenExprTest ctx e t = benchTestCase ("eval " ++ show e) $ do
     let p = cGenExpr ctx e
     unless (snd p == t) $ error $ "Expected\n\t" ++ show e ++ "\nto evaluate to\n\t" ++ show t ++ "\nbut it evaluated to\n\t" ++ show (snd p) ++ "\n"
     return ()
@@ -84,3 +94,10 @@ ctxStoreGetTest name ctx sLoc sVal gLoc gVal = benchTestCase ("store/get test: "
     let gVal' = ctxGet ctx' gLoc
     unless (gVal == gVal') $ error $ "After placing\n\t" ++ show sVal ++ "\nat\n\t" ++ show sLoc ++ "\nin\n\t" ++ show ctx ++"\n, expected\n\t" ++ show gVal ++ "\nat\n\t" ++ show gLoc ++ "\nbut found\n\t" ++ show gVal' ++ "\n"
     return ()
+
+cGenStatementTest :: String -> CGenCtx -> Statement -> CGenCtx -> BenchTest
+cGenStatementTest name ctx s expectCtx' = benchTestCase ("exec " ++ name) $ do
+    let ctx' = cGenStatement ctx s
+    unless (ctx' == expectCtx') $ error $ "Expected\n\t" ++ show s ++ "\nto produce\n\t" ++ show expectCtx' ++ "\nbut it produced\n\t" ++ show ctx' ++ "\n"
+    return ()
+
