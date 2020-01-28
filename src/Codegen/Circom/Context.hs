@@ -9,18 +9,19 @@ module Codegen.Circom.Context ( Ctx(..)
                               , ctxGetTemplate
                               ) where
 
-import qualified Data.Maybe      as Maybe
-import qualified Data.Either     as Either
-import qualified Data.Map.Strict as Map
+import qualified AST.Circom          as AST
 import           Codegen.Circom.Term
-import qualified AST.Circom      as AST
+import qualified Data.Either         as Either
+import           Data.Field.Galois   (PrimeField)
+import qualified Data.Map.Strict     as Map
+import qualified Data.Maybe          as Maybe
 
-data Ctx = Ctx { env         :: Map.Map String Term
-                       , constraints :: [Constraint]
-                       , templates   :: Map.Map String ([String], AST.Block)
-                       , fieldOrder  :: Integer                                 -- Must be a prime
-                       }
-                       deriving (Show, Eq)
+data Ctx k = Ctx { env         :: Map.Map String (Term k)
+                 , constraints :: [Constraint k]
+                 , templates   :: Map.Map String ([String], AST.Block)
+                 , fieldOrder  :: Integer                                 -- Must be a prime
+                 }
+                 deriving (Show, Eq)
 
 updateList :: (a -> a) -> Int -> [a] -> Maybe [a]
 updateList f i l = case splitAt i l of
@@ -28,11 +29,11 @@ updateList f i l = case splitAt i l of
     _        -> Nothing
 
 
-ctxWithEnv :: Map.Map String Term -> Integer -> Ctx
+ctxWithEnv :: PrimeField k => Map.Map String (Term k) -> Integer -> Ctx k
 ctxWithEnv env order = Ctx { env = env, constraints = [], templates = Map.empty , fieldOrder = order}
 
 -- Modifies a context to store a value in a location
-ctxStore :: Ctx -> LTerm -> Term -> Ctx
+ctxStore :: PrimeField k => Ctx k -> LTerm -> Term k -> Ctx k
 ctxStore ctx loc value = case value of
         -- No storing structures to foreign locations!
         -- Really, we want something stricter than this
@@ -61,7 +62,7 @@ ctxStore ctx loc value = case value of
         --   * a term (Term)
         -- locates the sub-term of term at the location (first pin/idx applies
         -- to the top of the term) and replaces it with `value`.
-        replacein :: [Either String Int] -> Term -> Term -> Term
+        replacein :: PrimeField k => [Either String Int] -> Term k -> Term k -> Term k
         replacein location value term = case location of
             [] -> value
             Left pin:rest -> case term of
@@ -83,7 +84,7 @@ ctxStore ctx loc value = case value of
 
 
 -- Gets a value from a location in a context
-ctxGet :: Ctx -> LTerm -> Term
+ctxGet :: PrimeField k => Ctx k -> LTerm -> Term k
 ctxGet ctx loc = case loc of
     LTermIdent s -> Map.findWithDefault (error $ "Unknown identifier `" ++ s ++ "`") s (env ctx)
     LTermPin loc' pin -> case ctxGet ctx loc' of
@@ -93,13 +94,13 @@ ctxGet ctx loc = case loc of
         Array ts -> ts !! i
         l -> error $ "Non-array " ++ show l ++ " as location in " ++ show loc
 
-ctxInit :: Ctx -> String -> Term -> Ctx
+ctxInit :: PrimeField k => Ctx k -> String -> Term k -> Ctx k
 ctxInit ctx name value = ctx { env = Map.insert name value (env ctx) }
 
-ctxGetTemplate :: Ctx -> String -> ([String], AST.Block)
+ctxGetTemplate :: PrimeField k => Ctx k -> String -> ([String], AST.Block)
 ctxGetTemplate ctx name = Maybe.fromMaybe (error $ "No template named " ++ name ++ " found") $ Map.lookup name (templates ctx)
 
-ctxAddConstraint :: Ctx -> (LC, LC, LC) -> Ctx
+ctxAddConstraint :: PrimeField k => Ctx k -> Constraint k -> Ctx k
 ctxAddConstraint ctx c = ctx { constraints = c : constraints ctx }
 
 ctxToStruct ctx = Struct (env ctx) (constraints ctx)

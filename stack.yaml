@@ -49,7 +49,14 @@ extra-deps:
   - text-1.2.4.0@sha256:8c24450feb8e3bbb7ea3e17af24ef57e85db077c4bf53e5bcc345b283d1b1d5b,10081
   - llvm-hs-9.0.1@sha256:ee6ec2eb8cba4daf2a43586388a87dbfd6a2ec6d81d1f9965896ac187acad286,8700
   - llvm-hs-pure-9.0.0@sha256:134779f40086a366279f678e670b610d7a7618b28dd43f65894078fd20e04629,2945
-  
+    # This is madness. Please help.
+  - github: adjoint-io/galois-field
+    commit: 4453541044085295a21db004392efb4e1c45ff47
+  - github: chessai/semirings
+    commit: b4334fe06635f106b1f08bac127c1ae259cddae6
+  - github: Bodigrim/poly
+    commit: 3cc4f30bdba2fe488b72ec84a1effb66766de477
+    #- finite-field-0.9.0@sha256:b7c1cca33f3b1330247120aa54c802f4b9cbc35719148c7c3fac73c982ddf187,2125
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

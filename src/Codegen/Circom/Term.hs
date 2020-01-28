@@ -8,24 +8,25 @@ module Codegen.Circom.Term ( lcZero
                            , signalTranform
                            ) where
 
-import qualified Data.Map.Strict as Map
+import           Data.Field.Galois (PrimeField)
+import qualified Data.Map.Strict   as Map
 
 data Signal = SigLocal String [Int]
             -- Subcomponent name, subcomponent indices, signal name, signal indices
             | SigForeign String [Int] Signal
             deriving (Show,Ord,Eq)
-type LC = (Map.Map Signal Int, Int) -- A linear combination of signals and gen-time constants
+type LC k = (Map.Map Signal k, k) -- A linear combination of signals and gen-time constants
 
-data Term = Sig Signal
-          | Linear LC                   -- A linear combination
-          | Quadratic LC LC LC          -- A * B + C for LC's A, B, C
-          | Scalar Int                  -- a gen-time constant
-          | Array [Term]                -- An array of terms
-          | Struct (Map.Map String Term) [Constraint] -- A structure, environment and constraints
-          | Other                       -- A non-gen-time constant that is none of the above.
-          deriving (Show,Ord,Eq)
+data Term k = Sig Signal
+            | Linear (LC k)                                     -- A linear combination
+            | Quadratic (LC k) (LC k) (LC k)                    -- A * B + C for LC's A, B, C
+            | Scalar k                                          -- a gen-time constant
+            | Array [Term k]                                    -- An array of terms
+            | Struct (Map.Map String (Term k)) [Constraint k]   -- A structure, environment and constraints
+            | Other                                             -- A non-gen-time constant that is none of the above.
+            deriving (Show,Ord,Eq)
 
-type Constraint = (LC, LC, LC)
+type Constraint k = (LC k, LC k, LC k)
 
 -- An evaluated l-value
 data LTerm = LTermIdent String
@@ -33,7 +34,7 @@ data LTerm = LTermIdent String
            | LTermIdx LTerm Int
            deriving (Show,Ord,Eq)
 
-instance Num Term where
+instance PrimeField k => Num (Term k) where
   s + t = case (s, t) of
     (a@Array {}, _) -> error $ "Cannot add array term " ++ show a ++ " to anything"
     (a@Struct {}, _) -> error $ "Cannot add struct term " ++ show a ++ " to anything"
@@ -70,8 +71,8 @@ instance Num Term where
     Quadratic {} -> Scalar 1
     Scalar n     -> Scalar $ signum n
   abs s = case s of
-    Array a        -> Scalar $ length a
-    Struct s _     -> Scalar $ Map.size s
+    Array a        -> Scalar $ fromIntegral $ length a
+    Struct s _     -> Scalar $ fromIntegral $ Map.size s
     Other          -> Other
     s@Sig {}       -> s
     l@Linear {}    -> l
@@ -79,7 +80,7 @@ instance Num Term where
     Scalar n       -> Scalar $ abs n
   negate s = fromInteger (-1) * s
 
-instance Fractional Term where
+instance PrimeField k => Fractional (Term k) where
   fromRational r = error "NYI"
   recip t = case t of
     a@Array {}   -> error $ "Cannot invert array term " ++ show a
@@ -90,16 +91,16 @@ instance Fractional Term where
     Quadratic {} -> Other
     Sig _        -> Other
 
-lcScale :: LC -> Int -> LC
+lcScale :: PrimeField k => LC k -> k -> LC k
 lcScale (m, c) a = (Map.map (*a) m, a * c)
 
-lcZero :: LC
+lcZero :: PrimeField k => LC k
 lcZero = (Map.empty, 0)
 
-linearizeSig :: Signal -> Term
+linearizeSig :: PrimeField k => Signal -> Term k
 linearizeSig s = Linear (Map.fromList [(s, 1)], 0)
 
-signalTranform :: (Signal -> Signal) -> Term -> Term
+signalTranform :: (Signal -> Signal) -> Term k -> Term k
 signalTranform f t = case t of
     Sig s -> Sig $ f s
     Linear (m, c) -> Linear (Map.mapKeys f m, c)

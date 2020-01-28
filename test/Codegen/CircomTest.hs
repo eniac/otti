@@ -1,26 +1,29 @@
+{-# LANGUAGE DataKinds #-}
 module Codegen.CircomTest where
 import           AST.Circom
-import           Parser.Circom as Parser
-import           Codegen.Circom
 import           BenchUtils
-import           Control.Monad   (unless)
-import           Data.Either     (fromLeft, isRight)
-import qualified Data.Map.Strict as Map
+import           Codegen.Circom
+import           Control.Monad     (unless)
+import           Data.Either       (fromLeft, isRight)
+import           Data.Field.Galois (PrimeField, Prime, toP)
+import qualified Data.Map.Strict   as Map
+import           GHC.TypeLits      (KnownNat)
+import           Parser.Circom     as Parser
 import           Utils
 
-signalTerm :: String -> [Int] -> Term
+signalTerm :: KnownNat k => String -> [Int] -> Term (Prime k)
 signalTerm s l = Sig (SigLocal s l)
 
 prime :: Integer
 prime = read "113890009193798365449144652900867294558768981710660728242748762258461992583217"
 
-genCtxWithSignals :: [String] -> Ctx
+genCtxWithSignals :: KnownNat k => [String] -> Ctx (Prime k)
 genCtxWithSignals sigNames = ctxWithEnv (Map.fromList (map (\s -> (s, signalTerm s [])) sigNames)) prime
 
-genCtxWithScalars :: [(String, Int)] -> Ctx
-genCtxWithScalars pairs = ctxWithEnv (Map.fromList (map (\(s, i) -> (s, Scalar i)) pairs)) prime
+genCtxWithScalars :: KnownNat k => [(String, Int)] -> Ctx (Prime k)
+genCtxWithScalars pairs = ctxWithEnv (Map.fromList (map (\(s, i) -> (s, Scalar $ toP $ fromIntegral i)) pairs)) prime
 
-ctxFromList :: Map.Map String Term -> Ctx
+ctxFromList :: KnownNat k => Map.Map String (Term (Prime k))-> Ctx (Prime k)
 ctxFromList l =  ctxWithEnv l prime
 
 
@@ -308,7 +311,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
           , (Map.fromList [ (SigLocal "out" [0], 1), (SigLocal "out" [1], 2), (SigLocal "in" [], -1) ], 0)
           )
         )
-       , genMainTest "test/Code/Circom/bitify4.circom" 
+       , genMainTest "test/Code/Circom/bitify4.circom"
          (reverse [ ( (Map.fromList [ (SigForeign "main" [] (SigLocal "out" [0]), 1) ], 0)
            , (Map.fromList [ (SigForeign "main" [] (SigLocal "out" [0]), 1) ], -1)
            , (Map.fromList [], 0)
@@ -335,7 +338,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
                            ] , 0)
            )
          ])
-       , genMainTest "test/Code/Circom/bitify4-wrapper.circom" 
+       , genMainTest "test/Code/Circom/bitify4-wrapper.circom"
          (reverse [ ( (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [0])), 1) ], 0)
            , (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [0])), 1) ], -1)
            , (Map.fromList [], 0)
@@ -394,30 +397,29 @@ circomGenTests = benchTestGroup "Circom generator tests"
          ])
     ]
 
-genExprTest :: Ctx -> Expr -> Term -> BenchTest
+genExprTest :: Ctx (Prime 223) -> Expr -> Term (Prime 223) -> BenchTest
 genExprTest ctx e t = benchTestCase ("eval " ++ show e) $ do
     let p = genExpr ctx e
     unless (snd p == t) $ error $ "Expected\n\t" ++ show e ++ "\nto evaluate to\n\t" ++ show t ++ "\nbut it evaluated to\n\t" ++ show (snd p) ++ "\n"
     return ()
 
-ctxStoreGetTest :: String -> Ctx -> LTerm -> Term -> LTerm -> Term -> BenchTest
+ctxStoreGetTest :: String -> Ctx (Prime 223) -> LTerm -> Term (Prime 223) -> LTerm -> Term (Prime 223) -> BenchTest
 ctxStoreGetTest name ctx sLoc sVal gLoc gVal = benchTestCase ("store/get test: " ++ name) $ do
     let ctx' = ctxStore ctx sLoc sVal
     let gVal' = ctxGet ctx' gLoc
     unless (gVal == gVal') $ error $ "After placing\n\t" ++ show sVal ++ "\nat\n\t" ++ show sLoc ++ "\nin\n\t" ++ show ctx ++"\n, expected\n\t" ++ show gVal ++ "\nat\n\t" ++ show gLoc ++ "\nbut found\n\t" ++ show gVal' ++ "\n"
     return ()
 
-genStatementsTest :: String -> Ctx -> [Statement] -> Ctx -> BenchTest
+genStatementsTest :: String -> Ctx (Prime 223) -> [Statement] -> Ctx (Prime 223) -> BenchTest
 genStatementsTest name ctx s expectCtx' = benchTestCase ("exec " ++ name) $ do
     let ctx' = genStatements ctx s
     unless (ctx' == expectCtx') $ error $ "Expected\n\t" ++ show s ++ "\nto produce\n\t" ++ show expectCtx' ++ "\nbut it produced\n\t" ++ show ctx' ++ "\n"
     return ()
 
-genMainTest :: String -> [Constraint] -> BenchTest
+genMainTest :: String -> [Constraint (Prime 223)] -> BenchTest
 genMainTest path expectedConstraints = benchTestCase ("main gen: " ++ path) $ do
     m <- Parser.loadMain path
     let constraints = genMain m prime
     unless (constraints == expectedConstraints) $ error $ "Expected\n\t" ++ show expectedConstraints ++ "\nbut got\n\t" ++ show constraints ++ "\n"
     return ()
-
 
