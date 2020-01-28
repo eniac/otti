@@ -16,13 +16,13 @@ module Codegen.Circom ( cGenExpr
                       , ctxWithEnv
                       ) where
 
-import AST.Circom
-import Data.Maybe       (mapMaybe, fromMaybe, maybeToList)
-import qualified Data.Bits as Bits
-import qualified Data.Sequence as Sequence
+import           AST.Circom
+import qualified Data.Bits       as Bits
+import qualified Data.Either     as Either
 import qualified Data.Map.Strict as Map
-import qualified Data.Either as Either
-import Debug.Trace      (trace)
+import           Data.Maybe      (fromMaybe, mapMaybe, maybeToList)
+import qualified Data.Sequence   as Sequence
+import           Debug.Trace     (trace)
 
 data Signal = SigLocal String [Int]
             -- Subcomponent name, subcomponent indices, signal name, signal indices
@@ -50,7 +50,7 @@ data LTerm = LTermIdent String
 termZeroArray :: [Term] -> Term
 termZeroArray = foldr (\d acc -> case d of
         Scalar n -> Array $ replicate n acc
-        _ -> error $ "Illegal dimension " ++ show d
+        _        -> error $ "Illegal dimension " ++ show d
     ) (Scalar 0)
 
 data DimArray = DABase String [Int] | DARec [DimArray]
@@ -60,7 +60,7 @@ termSignalArray ident [] = Sig (SigLocal ident [])
 termSignalArray ident ((Scalar n):ts) =
         Array $ [ signalTranform (\t -> case t of
             SigLocal ident idxs -> SigLocal ident (i:idxs)
-            SigForeign {} -> error "should be unreachable"
+            SigForeign {}       -> error "should be unreachable"
         ) rec | i <- [0..(n-1)]]
     where
         rec = termSignalArray ident ts
@@ -81,17 +81,17 @@ signalTranform f t = case t of
 termIsSig :: Term -> Bool
 termIsSig t = case t of
     Sig {} -> True
-    _ -> False
+    _      -> False
 
 termGenTimeConst :: Term -> Bool
 termGenTimeConst t = case t of
-    Scalar {} -> True
-    Linear {} -> False
-    Sig {} -> False
+    Scalar {}    -> True
+    Linear {}    -> False
+    Sig {}       -> False
     Quadratic {} -> False
-    Array a -> all termGenTimeConst a
+    Array a      -> all termGenTimeConst a
     Struct map _ -> all termGenTimeConst $ Map.elems map
-    Other -> False
+    Other        -> False
 
 linearizeSig :: Signal -> Term
 linearizeSig s = Linear (Map.fromList [(s, 1)], 0)
@@ -125,33 +125,33 @@ instance Num Term where
     (l, r) -> r * l
   fromInteger n = Scalar $ fromInteger n
   signum s = case s of
-    Array {} -> error $ "Cannot get sign of array term " ++ show s
-    Struct {} -> error $ "Cannot get sign of struct term " ++ show s
-    Other -> Scalar 1
-    Sig {} -> Scalar 1
-    Linear {} -> Scalar 1
+    Array {}     -> error $ "Cannot get sign of array term " ++ show s
+    Struct {}    -> error $ "Cannot get sign of struct term " ++ show s
+    Other        -> Scalar 1
+    Sig {}       -> Scalar 1
+    Linear {}    -> Scalar 1
     Quadratic {} -> Scalar 1
-    Scalar n -> Scalar $ signum n
+    Scalar n     -> Scalar $ signum n
   abs s = case s of
-    Array a -> Scalar $ length a
-    Struct s _ -> Scalar $ Map.size s
-    Other -> Other
-    s@Sig {} -> s
-    l@Linear {} -> l
+    Array a        -> Scalar $ length a
+    Struct s _     -> Scalar $ Map.size s
+    Other          -> Other
+    s@Sig {}       -> s
+    l@Linear {}    -> l
     q@Quadratic {} -> q
-    Scalar n -> Scalar $ abs n
+    Scalar n       -> Scalar $ abs n
   negate s = fromInteger (-1) * s
 
 instance Fractional Term where
   fromRational r = error "NYI"
   recip t = case t of
-    a@Array {} -> error $ "Cannot invert array term " ++ show a
-    a@Struct {} -> error $ "Cannot invert struct term " ++ show a
-    Scalar c1 -> error "NYI"
-    Other -> Other
-    Linear _ -> Other
+    a@Array {}   -> error $ "Cannot invert array term " ++ show a
+    a@Struct {}  -> error $ "Cannot invert struct term " ++ show a
+    Scalar c1    -> error "NYI"
+    Other        -> Other
+    Linear _     -> Other
     Quadratic {} -> Other
-    Sig _ -> Other
+    Sig _        -> Other
 
 lcScale :: LC -> Int -> LC
 lcScale (m, c) a = (Map.map (*a) m, a * c)
@@ -161,14 +161,14 @@ lcZero = (Map.empty, 0)
 
 cGenGetUnMutOp :: UnMutOp -> Term -> Term
 cGenGetUnMutOp op = case op of
-    PreInc -> (+ Scalar 1)
+    PreInc  -> (+ Scalar 1)
     PostInc -> (+ Scalar 1)
-    PreDec -> (+ Scalar (-1))
+    PreDec  -> (+ Scalar (-1))
     PostDec -> (+ Scalar (-1))
 
-data CGenCtx = CGenCtx { env :: Map.Map String Term
+data CGenCtx = CGenCtx { env         :: Map.Map String Term
                        , constraints :: [Constraint]
-                       , templates :: Map.Map String ([String], Block)
+                       , templates   :: Map.Map String ([String], Block)
                        }
                        deriving (Show, Eq)
 
@@ -224,7 +224,7 @@ cGenConstantUnLift name f t = case t of
 updateList :: (a -> a) -> Int -> [a] -> Maybe [a]
 updateList f i l = case splitAt i l of
     (h, m:t) -> Just $ h ++ (f m : t)
-    _ -> Nothing
+    _        -> Nothing
 
 
 -- Modifies a context to store a value in a location
@@ -296,26 +296,26 @@ cGenExpr ctx expr = case expr of
             (ctx', ts) = cGenExprs ctx es
     BinExpr op l r ->
         (ctx'', case op of
-            Add -> l' + r'
-            Sub -> l' - r'
-            Mul -> l' * r'
-            Div -> l' / r'
+            Add    -> l' + r'
+            Sub    -> l' - r'
+            Mul    -> l' * r'
+            Div    -> l' / r'
             IntDiv -> cGenConstantBinLift "//" div l' r'
-            Mod -> cGenConstantBinLift "%" mod l' r'
-            Lt -> cGenConstantCmpLift "<" (<) l' r'
-            Gt -> cGenConstantCmpLift ">" (>) l' r'
-            Le -> cGenConstantCmpLift "<=" (<=) l' r'
-            Ge -> cGenConstantCmpLift "<=" (>=) l' r'
-            Eq -> cGenConstantCmpLift "==" (==) l' r'
-            Ne -> cGenConstantCmpLift "!=" (/=) l' r'
-            And -> cGenConstantBoolBinLift "&&" (&&) l' r'
-            Or -> cGenConstantBoolBinLift "||" (||) l' r'
-            Shl -> cGenConstantBinLift "<<" Bits.shiftL l' r'
-            Shr -> cGenConstantBinLift "<<" Bits.shiftR l' r'
+            Mod    -> cGenConstantBinLift "%" mod l' r'
+            Lt     -> cGenConstantCmpLift "<" (<) l' r'
+            Gt     -> cGenConstantCmpLift ">" (>) l' r'
+            Le     -> cGenConstantCmpLift "<=" (<=) l' r'
+            Ge     -> cGenConstantCmpLift "<=" (>=) l' r'
+            Eq     -> cGenConstantCmpLift "==" (==) l' r'
+            Ne     -> cGenConstantCmpLift "!=" (/=) l' r'
+            And    -> cGenConstantBoolBinLift "&&" (&&) l' r'
+            Or     -> cGenConstantBoolBinLift "||" (||) l' r'
+            Shl    -> cGenConstantBinLift "<<" Bits.shiftL l' r'
+            Shr    -> cGenConstantBinLift "<<" Bits.shiftR l' r'
             BitAnd -> cGenConstantBinLift "&" (Bits..&.) l' r'
-            BitOr -> cGenConstantBinLift "&" (Bits..|.) l' r'
+            BitOr  -> cGenConstantBinLift "&" (Bits..|.) l' r'
             BitXor -> cGenConstantBinLift "&" Bits.xor l' r'
-            Pow -> cGenConstantBinLift "**" (^) l' r')
+            Pow    -> cGenConstantBinLift "**" (^) l' r')
         where
             (ctx', l') = cGenExpr ctx l
             (ctx'', r') = cGenExpr ctx' r
@@ -324,12 +324,12 @@ cGenExpr ctx expr = case expr of
             UnNeg -> (ctx', - t)
             Not -> (ctx', cGenConstantUnLift "!" (\c -> if c /= 0 then 0 else 1) t)
             UnPos -> (ctx', case t of
-                Scalar c -> Scalar c
-                Array ts -> Scalar (length ts)
-                Struct ts _ -> Scalar (Map.size ts)
-                Other -> Other
-                Sig {} -> Other
-                Linear {} -> Other
+                Scalar c     -> Scalar c
+                Array ts     -> Scalar (length ts)
+                Struct ts _  -> Scalar (Map.size ts)
+                Other        -> Other
+                Sig {}       -> Other
+                Linear {}    -> Other
                 Quadratic {} -> Other)
             BitNot -> (ctx', cGenConstantUnLift "~" Bits.complement t)
         where
@@ -339,7 +339,7 @@ cGenExpr ctx expr = case expr of
         case condT of
             Scalar 0 -> cGenExpr ctx' r
             Scalar _ -> cGenExpr ctx' l
-            t -> error $ "Cannot condition on term " ++ show t
+            t        -> error $ "Cannot condition on term " ++ show t
         where
             (ctx', condT) = cGenExpr ctx c
     LValue loc ->
@@ -360,9 +360,9 @@ cGenExpr ctx expr = case expr of
 cGenUnExpr :: CGenCtx -> UnMutOp -> Location -> (CGenCtx, Term)
 cGenUnExpr ctx op loc = case op of
     PostInc -> (ctx'', term)
-    PreInc -> (ctx'', term')
+    PreInc  -> (ctx'', term')
     PostDec -> (ctx'', term)
-    PreDec -> (ctx'', term')
+    PreDec  -> (ctx'', term')
     where
         -- TODO(aozdemir): enforce ctx' == ctx for sanity?
         (ctx', lval) = cGenLocation ctx loc
@@ -401,7 +401,7 @@ cGenStatement ctx statement = case statement of
     -- TODO Not quite right: evals twice
     AssignConstrain l e -> cGenStatements ctx [Assign l e, Constrain (LValue l) e]
     VarDeclaration name dims init -> case init of
-            Just e -> cGenStatement ctx'' $ Assign (Ident name) e
+            Just e  -> cGenStatement ctx'' $ Assign (Ident name) e
             Nothing -> ctx''
         where
             ctx'' = ctxInitIdent ctx' name (termZeroArray ts)
@@ -410,7 +410,7 @@ cGenStatement ctx statement = case statement of
         where
             (ctx', tdims) = cGenExprs ctx dims
     SubDeclaration name dims init -> case init of
-            Just e -> cGenStatement ctx'' $ Assign (Ident name) e
+            Just e  -> cGenStatement ctx'' $ Assign (Ident name) e
             Nothing -> ctx''
         where
             ctx'' = ctxInitIdent ctx' name (termZeroArray ts)
@@ -418,7 +418,7 @@ cGenStatement ctx statement = case statement of
     If cond true false -> case tcond of
             Scalar 0 -> cGenStatements ctx' (concat $ maybeToList false)
             Scalar _ -> cGenStatements ctx' true
-            _ -> error $ "Invalid conditional term " ++ show tcond
+            _        -> error $ "Invalid conditional term " ++ show tcond
         where
             (ctx', tcond) = cGenExpr ctx cond
     While cond block -> case tcond of
