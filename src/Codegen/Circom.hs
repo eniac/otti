@@ -1,11 +1,15 @@
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 module Codegen.Circom ( cGenExpr
                       , cGenStatement
+                      , cGenStatements
+                      , cGenMain
                       , lcZero
                       , CGenCtx(..)
                       , Term(..)
                       , LTerm(..)
                       , Signal(..)
+                      , Constraint
+                      , LC
                       , ctxStore
                       , ctxGet
                       , ctxAddConstraint
@@ -25,7 +29,8 @@ data Signal = SigLocal String [Int]
             deriving (Show,Ord,Eq)
 type LC = (Map.Map Signal Int, Int) -- A linear combination of signals and gen-time constants
 
-data Term = Linear LC                   -- A linear combination
+data Term = Sig Signal
+          | Linear LC                   -- A linear combination
           | Quadratic LC LC LC          -- A * B + C for LC's A, B, C
           | Scalar Int                  -- a gen-time constant
           | Array [Term]                -- An array of terms
@@ -50,7 +55,7 @@ termZeroArray = foldr (\d acc -> case d of
 data DimArray = DABase String [Int] | DARec [DimArray]
 
 termSignalArray :: String -> [Term] -> Term
-termSignalArray ident [] = Linear (Map.fromList [(SigLocal ident [], 1)], 0)
+termSignalArray ident [] = Sig (SigLocal ident [])
 termSignalArray ident ((Scalar n):ts) =
         Array $ [ signalTranform (\t -> case t of
             SigLocal ident idxs -> SigLocal ident (i:idxs)
@@ -62,6 +67,7 @@ termSignalArray ident (t:ts) = error $ "Illegal dimension " ++ show t
 
 signalTranform :: (Signal -> Signal) -> Term -> Term
 signalTranform f t = case t of
+    Sig s -> Sig $ f s
     Linear (m, c) -> Linear (Map.mapKeys f m, c)
     Quadratic (m1, c1) (m2, c2) (m3, c3) -> Quadratic (Map.mapKeys f m1, c1) (Map.mapKeys f m2, c2) (Map.mapKeys f m3, c3)
     Scalar c -> Scalar c
@@ -71,20 +77,31 @@ signalTranform f t = case t of
             lcXfm (m, c) = (Map.mapKeys f m, c)
     Other -> Other
 
+termIsSig :: Term -> Bool
+termIsSig t = case t of
+    Sig {} -> True
+    _ -> False
+
 termGenTimeConst :: Term -> Bool
 termGenTimeConst t = case t of
     Scalar {} -> True
     Linear {} -> False
+    Sig {} -> False
     Quadratic {} -> False
     Array a -> all termGenTimeConst a
     Struct map _ -> all termGenTimeConst $ Map.elems map
     Other -> False
+
+linearizeSig :: Signal -> Term
+linearizeSig s = Linear (Map.fromList [(s, 1)], 0)
 
 instance Num Term where
   s + t = case (s, t) of
     (a@Array {}, _) -> error $ "Cannot add array term " ++ show a ++ " to anything"
     (a@Struct {}, _) -> error $ "Cannot add struct term " ++ show a ++ " to anything"
     (Other, _) -> Other
+    (Sig s, r) -> linearizeSig s + r
+    (s, Sig r) -> s + linearizeSig r
     (Linear (m1, c1), Linear (m2, c2)) -> Linear (Map.unionWith (+) m1 m2, c1 + c2)
     (Linear (m1, c1), Quadratic a b (m2, c2)) -> Quadratic a b (Map.unionWith (+) m1 m2, c1 + c2)
     (Linear (m1, c1), Scalar c) -> Linear (m1, c1 + c)
@@ -96,6 +113,8 @@ instance Num Term where
     (a@Array {}, _) -> error $ "Cannot multiply array term " ++ show a ++ " with anything"
     (a@Struct {}, _) -> error $ "Cannot multiply struct term " ++ show a ++ " with anything"
     (Other, _) -> Other
+    (Sig s, r) -> linearizeSig s * r
+    (s, Sig r) -> s * linearizeSig r
     (Linear l1, Linear l2) -> Quadratic l1 l2 (Map.empty, 0)
     (Linear _, Quadratic {}) -> Other
     (Linear l, Scalar c) -> Linear $ lcScale l c
@@ -108,6 +127,7 @@ instance Num Term where
     Array {} -> error $ "Cannot get sign of array term " ++ show s
     Struct {} -> error $ "Cannot get sign of struct term " ++ show s
     Other -> Scalar 1
+    Sig {} -> Scalar 1
     Linear {} -> Scalar 1
     Quadratic {} -> Scalar 1
     Scalar n -> Scalar $ signum n
@@ -115,6 +135,7 @@ instance Num Term where
     Array a -> Scalar $ length a
     Struct s _ -> Scalar $ Map.size s
     Other -> Other
+    s@Sig {} -> s
     l@Linear {} -> l
     q@Quadratic {} -> q
     Scalar n -> Scalar $ abs n
@@ -129,6 +150,7 @@ instance Fractional Term where
     Other -> Other
     Linear _ -> Other
     Quadratic {} -> Other
+    Sig _ -> Other
 
 lcScale :: LC -> Int -> LC
 lcScale (m, c) a = (Map.map (*a) m, a * c)
@@ -171,6 +193,7 @@ cGenConstantBinLift name f s t = case (s, t) of
     (Scalar c1 , Scalar c2) -> Scalar $ f c1 c2
     (a@Array {}, _) -> error $ "Cannot perform operation \"" ++ name ++ "\" on array term " ++ show a
     (a@Struct {}, _) -> error $ "Cannot perform operation \"" ++ name ++ "\" on struct term " ++ show a
+    (Sig _, _) -> Other
     (Other, _) -> Other
     (Linear {}, _) -> Other
     (Quadratic {}, _) -> Other
@@ -195,6 +218,7 @@ cGenConstantUnLift name f t = case t of
     Other -> Other
     Linear {} -> Other
     Quadratic {} -> Other
+    Sig {} -> Other
 
 updateList :: (a -> a) -> Int -> [a] -> Maybe [a]
 updateList f i l = case splitAt i l of
@@ -305,6 +329,7 @@ cGenExpr ctx expr = case expr of
                 Array ts -> Scalar (length ts)
                 Struct ts _ -> Scalar (Map.size ts)
                 Other -> Other
+                Sig {} -> Other
                 Linear {} -> Other
                 Quadratic {} -> Other)
             BitNot -> (ctx', cGenConstantUnLift "~" Bits.complement t)
@@ -354,11 +379,11 @@ cGenStatements = foldl cGenStatement
 
 cGenStatement :: CGenCtx -> Statement -> CGenCtx
 cGenStatement ctx statement = case statement of
-    -- TODO kind of weird -- we only do the assignment if its to a value that is constant at generation time (e.g. no signals!)
-    Assign loc expr -> if termGenTimeConst (ctxGet ctx'' lval) then
-                ctxStore ctx'' lval term
-            else
+    -- TODO kind of weird -- we do not assign to signals.
+    Assign loc expr -> if termIsSig (ctxGet ctx'' lval) then
                 ctx''
+            else
+                ctxStore ctx'' lval term
         where
             (ctx', lval) = cGenLocation ctx loc
             (ctx'', term) = cGenExpr ctx' expr
@@ -399,7 +424,7 @@ cGenStatement ctx statement = case statement of
             (ctx', tcond) = cGenExpr ctx cond
     While cond block -> case tcond of
             Scalar 0 -> ctx'
-            Scalar _ -> cGenStatement ctx' $ While cond block
+            Scalar _ -> cGenStatement (cGenStatements ctx block) (While cond block)
             _ -> error $ "Invalid conditional term " ++ show tcond
         where
             (ctx', tcond) = cGenExpr ctx cond
@@ -408,3 +433,10 @@ cGenStatement ctx statement = case statement of
     Compute _ -> ctx
     Ignore e -> fst $ cGenExpr ctx e
     Return {} -> error "NYI"
+
+cGenMain :: MainCircuit -> [Constraint]
+cGenMain m =
+        constraints ctx'
+    where
+        ctx' = cGenStatement ctxEmpty (SubDeclaration "main" [] (Just (main m)))
+        ctxEmpty = (ctxWithEnv Map.empty) { Codegen.Circom.templates = AST.Circom.templates m }

@@ -37,6 +37,7 @@ circomParserTests = benchTestGroup "Circom tests"
     , testParse "test/Code/Circom/comparators.circom"
     , testLoad "test/Code/Circom/bitify.circom"
     , testLoadMain "test/Code/Circom/bitify-main.circom"
+    , testLoadMain "test/Code/Circom/bitify4.circom"
     ]
 
 testLex :: String -> BenchTest
