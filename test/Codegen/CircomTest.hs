@@ -11,11 +11,17 @@ import           Utils
 signalTerm :: String -> [Int] -> Term
 signalTerm s l = Sig (SigLocal s l)
 
+prime :: Integer
+prime = read "113890009193798365449144652900867294558768981710660728242748762258461992583217"
+
 cGenCtxWithSignals :: [String] -> CGenCtx
-cGenCtxWithSignals sigNames = ctxWithEnv $ Map.fromList (map (\s -> (s, signalTerm s [])) sigNames)
+cGenCtxWithSignals sigNames = ctxWithEnv (Map.fromList (map (\s -> (s, signalTerm s [])) sigNames)) prime
 
 cGenCtxWithScalars :: [(String, Int)] -> CGenCtx
-cGenCtxWithScalars pairs = ctxWithEnv $ Map.fromList (map (\(s, i) -> (s, Scalar i)) pairs)
+cGenCtxWithScalars pairs = ctxWithEnv (Map.fromList (map (\(s, i) -> (s, Scalar i)) pairs)) prime
+
+ctxFromList :: Map.Map String Term -> CGenCtx
+ctxFromList l =  ctxWithEnv l prime
 
 
 circomGenTests :: BenchTest
@@ -50,28 +56,28 @@ circomGenTests = benchTestGroup "Circom generator tests"
     , cGenExprTest (cGenCtxWithSignals []) (UnExpr UnNeg (NumLit 5)) (Scalar (-5))
     , ctxStoreGetTest
         "integer"
-        (ctxWithEnv (Map.fromList [("in", Array [Scalar 5])]))
+        (ctxFromList (Map.fromList [("in", Array [Scalar 5])]))
         (LTermIdent "in")
         (Scalar 6)
         (LTermIdent "in")
         (Scalar 6)
     , ctxStoreGetTest
         "array to integer"
-        (ctxWithEnv (Map.fromList [("in", Array [Scalar 5])]))
+        (ctxFromList (Map.fromList [("in", Array [Scalar 5])]))
         (LTermIdent "in")
         (Scalar 6)
         (LTermIdent "in")
         (Scalar 6)
     , ctxStoreGetTest
         "array"
-        (ctxWithEnv (Map.fromList [("in", Array [Scalar 5])]))
+        (ctxFromList (Map.fromList [("in", Array [Scalar 5])]))
         (LTermIdx (LTermIdent "in") 0)
         (Scalar 6)
         (LTermIdent "in")
         (Array [Scalar 6])
     , ctxStoreGetTest
         "struct in array"
-        (ctxWithEnv (Map.fromList [("in", Array [Struct (Map.fromList [("a", Scalar 5)]) []])]))
+        (ctxFromList (Map.fromList [("in", Array [Struct (Map.fromList [("a", Scalar 5)]) []])]))
         (LTermPin (LTermIdx (LTermIdent "in") 0) "a")
         (Scalar 6)
         (LTermIdent "in")
@@ -90,7 +96,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
         "decls of Num2Bits"
         (cGenCtxWithScalars [("n", 2)])
         [SigDeclaration "in" In [], SigDeclaration "out" Out [LValue $ Ident "n"]]
-        (ctxWithEnv $ Map.fromList
+        (ctxFromList $ Map.fromList
             [ ("n", Scalar 2)
             , ("in", signalTerm "in" [])
             , ("out", Array [ signalTerm "out" [0]
@@ -106,7 +112,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
         , SigDeclaration "out" Out [LValue $ Ident "n"]
         , VarDeclaration "lc1" [] (Just (NumLit 0))
         ]
-        (ctxWithEnv $ Map.fromList
+        (ctxFromList $ Map.fromList
             [ ("n", Scalar 2)
             , ("in", signalTerm "in" [])
             , ("out", Array [ signalTerm "out" [0]
@@ -133,7 +139,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
             ]
             Nothing
         ]
-        (ctxAddConstraint (ctxWithEnv $ Map.fromList
+        (ctxAddConstraint (ctxFromList $ Map.fromList
             [ ("n", Scalar 2)
             , ("in", signalTerm "in" [])
             , ("out", Array [ signalTerm "out" [0]
@@ -167,7 +173,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
             ]
             Nothing
         ))
-        (ctxAddConstraint (ctxAddConstraint (ctxWithEnv $ Map.fromList
+        (ctxAddConstraint (ctxAddConstraint (ctxFromList $ Map.fromList
             [ ("n", Scalar 2)
             , ("in", signalTerm "in" [])
             , ("out", Array [ signalTerm "out" [0]
@@ -205,7 +211,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
             ]
             Nothing
         ))
-        (ctxAddConstraint (ctxAddConstraint (ctxWithEnv $ Map.fromList
+        (ctxAddConstraint (ctxAddConstraint (ctxFromList $ Map.fromList
             [ ("n", Scalar 2)
             , ("in", signalTerm "in" [])
             , ("out", Array [ signalTerm "out" [0]
@@ -241,7 +247,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
             ]
         , Constrain (LValue (Ident "lc1")) (LValue (Ident "in"))
         ]
-        (ctxAddConstraint (ctxAddConstraint (ctxAddConstraint (ctxWithEnv $ Map.fromList
+        (ctxAddConstraint (ctxAddConstraint (ctxAddConstraint (ctxFromList $ Map.fromList
             [ ("n", Scalar 2)
             , ("in", signalTerm "in" [])
             , ("out", Array [ signalTerm "out" [0]
@@ -279,7 +285,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
             ]
         , Constrain (LValue (Ident "lc1")) (LValue (Ident "in"))
         ]
-        (ctxAddConstraint (ctxAddConstraint (ctxAddConstraint (ctxWithEnv $ Map.fromList
+        (ctxAddConstraint (ctxAddConstraint (ctxAddConstraint (ctxFromList $ Map.fromList
             [ ("n", Scalar 2)
             , ("in", signalTerm "in" [])
             , ("out", Array [ signalTerm "out" [0]
@@ -410,7 +416,7 @@ cGenStatementsTest name ctx s expectCtx' = benchTestCase ("exec " ++ name) $ do
 genMainTest :: String -> [Constraint] -> BenchTest
 genMainTest path expectedConstraints = benchTestCase ("main gen: " ++ path) $ do
     m <- Parser.loadMain path
-    let constraints = cGenMain m
+    let constraints = cGenMain m prime
     unless (constraints == expectedConstraints) $ error $ "Expected\n\t" ++ show expectedConstraints ++ "\nbut got\n\t" ++ show constraints ++ "\n"
     return ()
 

@@ -169,11 +169,12 @@ cGenGetUnMutOp op = case op of
 data CGenCtx = CGenCtx { env         :: Map.Map String Term
                        , constraints :: [Constraint]
                        , templates   :: Map.Map String ([String], Block)
+                       , fieldOrder  :: Integer                                 -- Must be a prime
                        }
                        deriving (Show, Eq)
 
-ctxWithEnv :: Map.Map String Term -> CGenCtx
-ctxWithEnv env = CGenCtx { env = env, constraints = [], Codegen.Circom.templates = Map.empty }
+ctxWithEnv :: Map.Map String Term -> Integer -> CGenCtx
+ctxWithEnv env order = CGenCtx { env = env, constraints = [], Codegen.Circom.templates = Map.empty , fieldOrder = order}
 
 cGenLocation :: CGenCtx -> Location -> (CGenCtx, LTerm)
 cGenLocation ctx loc = case loc of
@@ -433,9 +434,9 @@ cGenStatement ctx statement = case statement of
     Ignore e -> fst $ cGenExpr ctx e
     Return {} -> error "NYI"
 
-cGenMain :: MainCircuit -> [Constraint]
-cGenMain m =
+cGenMain :: MainCircuit -> Integer -> [Constraint]
+cGenMain m order =
         constraints ctx'
     where
         ctx' = cGenStatement ctxEmpty (SubDeclaration "main" [] (Just (main m)))
-        ctxEmpty = (ctxWithEnv Map.empty) { Codegen.Circom.templates = AST.Circom.templates m }
+        ctxEmpty = (ctxWithEnv Map.empty order) { Codegen.Circom.templates = AST.Circom.templates m }
