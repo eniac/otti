@@ -22,6 +22,7 @@ import qualified Data.Bits as Bits
 import qualified Data.Sequence as Sequence
 import qualified Data.Map.Strict as Map
 import qualified Data.Either as Either
+import Debug.Trace      (trace)
 
 data Signal = SigLocal String [Int]
             -- Subcomponent name, subcomponent indices, signal name, signal indices
@@ -225,16 +226,27 @@ updateList f i l = case splitAt i l of
     (h, m:t) -> Just $ h ++ (f m : t)
     _ -> Nothing
 
+
 -- Modifies a context to store a value in a location
 ctxStore :: CGenCtx -> LTerm -> Term -> CGenCtx
-ctxStore ctx loc value = ctx { env = Map.update (pure . replacein ss value) ident (env ctx)
-    , constraints = case value of
-        Struct _ cs ->
-            emmigrateConstraints loc cs ++ constraints ctx
-        _ -> constraints ctx
-    }
+ctxStore ctx loc value = case value of
+        Struct m c -> if null (Either.lefts ss)
+            then
+                let
+                    m' = Map.map (signalTranform signalXfm) m
+                    c' = emmigrateConstraints c
+                in
+                    ctx { env = Map.update (pure . replacein ss (Struct m' c')) ident (env ctx)
+                        , constraints = c' ++ constraints ctx }
+            else
+                error $ "Cannot assign circuits to non-local location: " ++ show loc
+        _ -> ctx { env = Map.update (pure . replacein ss value) ident (env ctx) }
     where
         (ident, ss) = steps loc
+
+        emmigrateConstraints = map (\(a, b, c) -> (lcXfm a, lcXfm b, lcXfm c))
+        lcXfm (m, c) = (Map.mapKeys signalXfm m, c)
+        signalXfm = SigForeign ident (Either.rights ss)
 
         -- TODO: nicer way to write this?
         replacein :: [Either String Int] -> Term -> Term -> Term
@@ -251,6 +263,7 @@ ctxStore ctx loc value = ctx { env = Map.update (pure . replacein ss value) iden
         rsteps (LTermIdx lt idx) = let (s, ts) = rsteps lt in (s, Right idx:ts)
 
         steps l = let (s, ts) = rsteps l in (s, reverse ts)
+
 
 -- Gets a value from a location in a context
 ctxGet :: CGenCtx -> LTerm -> Term
@@ -273,20 +286,6 @@ ctxInitIdent :: CGenCtx -> String -> Term -> CGenCtx
 ctxInitIdent ctx name value = ctx { env = Map.insert name value (env ctx) }
 
 ctxToStruct ctx = Struct (env ctx) (constraints ctx)
-
--- Turns a context into a structure
-emmigrateConstraints :: LTerm -> [Constraint] -> [Constraint]
-emmigrateConstraints lval = if null (Either.lefts revSteps) then
-        map (\(a, b, c) -> (lcXfm a, lcXfm b, lcXfm c))
-    else
-        error $ "Cannot assign sub-circuit to non-local location " ++ show lval
-    where
-        lcXfm (m, c) = (Map.mapKeys signalXfm m, c)
-        signalXfm = SigForeign ident (reverse (Either.rights revSteps))
-        (ident, revSteps) = split lval
-        split (LTermIdent s) = (s, [])
-        split (LTermPin lt pin) = let (s, ts) = split lt in (s, Left pin:ts)
-        split (LTermIdx lt idx) = let (s, ts) = split lt in (s, Right idx:ts)
 
 
 cGenExpr :: CGenCtx -> Expr -> (CGenCtx, Term)
