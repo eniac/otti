@@ -81,11 +81,11 @@ instance PrimeField k => Num (Term k) where
   negate s = fromInteger (-1) * s
 
 instance PrimeField k => Fractional (Term k) where
-  fromRational r = error "NYI"
+  fromRational = Scalar . fromRational
   recip t = case t of
     a@Array {}   -> error $ "Cannot invert array term " ++ show a
     a@Struct {}  -> error $ "Cannot invert struct term " ++ show a
-    Scalar c1    -> error "NYI"
+    Scalar c1    -> Scalar (recip c1)
     Other        -> Other
     Linear _     -> Other
     Quadratic {} -> Other
