@@ -31,6 +31,9 @@ circomGenTests :: BenchTest
 circomGenTests = benchTestGroup "Circom generator tests"
     [ genExprTest (genCtxWithSignals []) (NumLit 5) (Scalar 5)
     , genExprTest (genCtxWithSignals []) (BinExpr Shl (NumLit 5) (NumLit 2)) (Scalar 20)
+    , genExprTest (genCtxWithSignals []) (BinExpr Div (NumLit 5) (NumLit 1)) (Scalar 5)
+    , genExprTest (genCtxWithSignals []) (BinExpr Div (NumLit 5) (NumLit 2)) (Scalar 114)
+    , genExprTest (genCtxWithSignals []) (BinExpr IntDiv (NumLit 5) (NumLit 2)) (Scalar 2)
     , genExprTest (genCtxWithSignals ["in"]) (LValue $ Ident "in") (signalTerm "in" [])
     , genExprTest (genCtxWithSignals ["in"])
                (BinExpr Add (LValue $ Ident "in") (LValue $ Ident "in"))
