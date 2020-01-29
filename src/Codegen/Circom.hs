@@ -184,7 +184,13 @@ genExpr ctx expr = case expr of
             -- TODO(aozdemir): enforce ctx' == ctx for sanity?
         where (ctx', lt) = genLocation ctx loc
     Call name args -> if all termGenTimeConst actualArgs then
-            (ctx', ctxToStruct postCtx)
+            if isFn then
+                (ctx', Maybe.fromMaybe
+                    (error $ "The function " ++ name ++ " did not return")
+                    (returning postCtx)
+                )
+            else
+                (ctx', ctxToStruct postCtx)
         else
             error $ "One of the arguments to " ++ name ++ " is not a generation-time constant!"
         where
