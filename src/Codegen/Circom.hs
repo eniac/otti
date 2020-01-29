@@ -275,4 +275,8 @@ genMain m order =
         constraints ctx'
     where
         ctx' = genStatement ctxEmpty (SubDeclaration "main" [] (Just (main m)))
-        ctxEmpty = (ctxWithEnv Map.empty order) { callables = Map.map (\(p, b) -> (True, p, b)) (templates m) }
+        ctxEmpty = (ctxWithEnv Map.empty order) {
+            callables = Map.union
+                (Map.map (\(p, b) -> (False, p, b)) (templates m))
+                (Map.map (\(p, b) -> (True , p, b)) (functions m))
+        }
