@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Codegen.CircomTest where
 import           AST.Circom
 import           BenchUtils
@@ -398,6 +399,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
                            ] , 0)
            )
          ])
+       , genMainTestCountOnly "test/Code/Circom/fn.circom" 6
     ]
 
 genExprTest :: Ctx (Prime 223) -> Expr -> Term (Prime 223) -> BenchTest
@@ -424,5 +426,12 @@ genMainTest path expectedConstraints = benchTestCase ("main gen: " ++ path) $ do
     m <- Parser.loadMain path
     let constraints = genMain m prime
     unless (constraints == expectedConstraints) $ error $ "Expected\n\t" ++ show expectedConstraints ++ "\nbut got\n\t" ++ show constraints ++ "\n"
+    return ()
+
+genMainTestCountOnly :: String -> Int -> BenchTest
+genMainTestCountOnly path expectedConstraintCount = benchTestCase ("circuit at " ++ path ++ " has " ++ show expectedConstraintCount ++ " constraints") $ do
+    m <- Parser.loadMain path
+    let constraints :: [Constraint (Prime 223)] = genMain m prime
+    unless (length constraints == expectedConstraintCount) $ error $ "Expected " ++ show expectedConstraintCount ++ " constraints, but got\n\t" ++ show constraints ++ "\n"
     return ()
 
