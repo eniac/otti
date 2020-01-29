@@ -211,7 +211,7 @@ genExprs :: KnownNat k => Ctx (Prime k) -> [Expr] -> (Ctx (Prime k), [Term (Prim
 genExprs c = foldl (\(c, ts) e -> let (c', t) = genExpr c e in (c', t:ts)) (c, [])
 
 genStatements :: KnownNat k => Ctx (Prime k) -> [Statement] -> Ctx (Prime k)
-genStatements = foldl genStatement
+genStatements = foldl (\c s -> if isJust (returning c) then c else genStatement c s)
 
 genStatement :: KnownNat k => Ctx (Prime k) -> Statement -> Ctx (Prime k)
 genStatement ctx statement = case statement of
@@ -268,7 +268,9 @@ genStatement ctx statement = case statement of
     DoWhile block expr -> genStatements ctx (block ++ [While expr block])
     Compute _ -> ctx
     Ignore e -> fst $ genExpr ctx e
-    Return {} -> error "NYI"
+    Return e -> ctx' { returning = Just t }
+        where
+            (ctx', t) = genExpr ctx e
 
 genMain :: KnownNat k => MainCircuit -> Integer -> [Constraint (Prime k)]
 genMain m order =

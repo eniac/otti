@@ -24,6 +24,7 @@ data Ctx k = Ctx { env         :: Map.Map String (Term k)
                  , callables   :: Map.Map String (Bool, [String], AST.Block)
                  -- Must be prime.
                  , fieldOrder  :: Integer
+                 , returning   :: Maybe (Term k)
                  }
                  deriving (Show, Eq)
 
@@ -34,7 +35,7 @@ updateList f i l = case splitAt i l of
 
 
 ctxWithEnv :: PrimeField k => Map.Map String (Term k) -> Integer -> Ctx k
-ctxWithEnv env order = Ctx { env = env, constraints = [], callables = Map.empty , fieldOrder = order}
+ctxWithEnv env order = Ctx { env = env, constraints = [], callables = Map.empty , fieldOrder = order, returning = Nothing }
 
 -- Modifies a context to store a value in a location
 ctxStore :: PrimeField k => Ctx k -> LTerm -> Term k -> Ctx k
