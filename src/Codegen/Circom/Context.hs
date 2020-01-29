@@ -6,7 +6,7 @@ module Codegen.Circom.Context ( Ctx(..)
                               , ctxWithEnv
                               , ctxInit
                               , ctxToStruct
-                              , ctxGetTemplate
+                              , ctxGetCallable
                               ) where
 
 import qualified AST.Circom          as AST
@@ -18,8 +18,12 @@ import qualified Data.Maybe          as Maybe
 
 data Ctx k = Ctx { env         :: Map.Map String (Term k)
                  , constraints :: [Constraint k]
-                 , templates   :: Map.Map String ([String], AST.Block)
-                 , fieldOrder  :: Integer                                 -- Must be a prime
+                 --                              (fn? , params  , body     )
+                 -- NB: templates are not fn's.
+                 --     functions are
+                 , callables   :: Map.Map String (Bool, [String], AST.Block)
+                 -- Must be prime.
+                 , fieldOrder  :: Integer
                  }
                  deriving (Show, Eq)
 
@@ -30,7 +34,7 @@ updateList f i l = case splitAt i l of
 
 
 ctxWithEnv :: PrimeField k => Map.Map String (Term k) -> Integer -> Ctx k
-ctxWithEnv env order = Ctx { env = env, constraints = [], templates = Map.empty , fieldOrder = order}
+ctxWithEnv env order = Ctx { env = env, constraints = [], callables = Map.empty , fieldOrder = order}
 
 -- Modifies a context to store a value in a location
 ctxStore :: PrimeField k => Ctx k -> LTerm -> Term k -> Ctx k
@@ -97,8 +101,10 @@ ctxGet ctx loc = case loc of
 ctxInit :: PrimeField k => Ctx k -> String -> Term k -> Ctx k
 ctxInit ctx name value = ctx { env = Map.insert name value (env ctx) }
 
-ctxGetTemplate :: PrimeField k => Ctx k -> String -> ([String], AST.Block)
-ctxGetTemplate ctx name = Maybe.fromMaybe (error $ "No template named " ++ name ++ " found") $ Map.lookup name (templates ctx)
+-- Given a context and an identifier too find, looks up the callable (function or template) of that name.
+-- Returns the (whether it is a function, the formal parameters, the body)
+ctxGetCallable :: PrimeField k => Ctx k -> String -> (Bool, [String], AST.Block)
+ctxGetCallable ctx name = Maybe.fromMaybe (error $ "No template named " ++ name ++ " found") $ Map.lookup name (callables ctx)
 
 ctxAddConstraint :: PrimeField k => Ctx k -> Constraint k -> Ctx k
 ctxAddConstraint ctx c = ctx { constraints = c : constraints ctx }

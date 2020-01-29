@@ -190,7 +190,7 @@ genExpr ctx expr = case expr of
         where
             postCtx = genStatements newCtx block
             newCtx = ctx' { env = Map.fromList (zip formalArgs actualArgs) , constraints = []}
-            (formalArgs, block) = ctxGetTemplate ctx name
+            (isFn, formalArgs, block) = ctxGetCallable ctx name
             (ctx', actualArgs) = genExprs ctx args
 
 
@@ -275,4 +275,4 @@ genMain m order =
         constraints ctx'
     where
         ctx' = genStatement ctxEmpty (SubDeclaration "main" [] (Just (main m)))
-        ctxEmpty = (ctxWithEnv Map.empty order) { Context.templates = AST.templates m }
+        ctxEmpty = (ctxWithEnv Map.empty order) { callables = Map.map (\(p, b) -> (True, p, b)) (templates m) }
