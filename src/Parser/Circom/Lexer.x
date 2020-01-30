@@ -28,8 +28,9 @@ tokens :-
   "compute"                             { \p s -> Compute p }
   "main"                                { \p s -> Main p }
   "do"                                  { \p s -> Do p }
+  "log"                                 { \p s -> Log p }
   "return"                              { \p s -> Return p }
-  "0x"$digit+                           { \p s -> NumLit p (read s) }
+  "0x"[0-9 a-f A-F]+                    { \p s -> NumLit p (read s) }
   $digit+                               { \p s -> NumLit p (read s) }
   $alpha [$alpha $digit \_ \']*         { \p s -> Ident p s }
   \" ($printable # \")* \"              { \p s -> StrLit p $ take (length s - 2) $ drop 1 s }
@@ -62,6 +63,7 @@ data Token = Var AlexPosn
            | For AlexPosn
            | Compute AlexPosn
            | Do AlexPosn
+           | Log AlexPosn
            | Return AlexPosn
            | Include AlexPosn
            | Main AlexPosn

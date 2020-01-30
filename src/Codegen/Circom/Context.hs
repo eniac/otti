@@ -15,6 +15,7 @@ import qualified Data.Either         as Either
 import           Data.Field.Galois   (PrimeField)
 import qualified Data.Map.Strict     as Map
 import qualified Data.Maybe          as Maybe
+import           Debug.Trace         (trace)
 
 data Ctx k = Ctx { env         :: Map.Map String (Term k)
                  , constraints :: [Constraint k]
@@ -91,12 +92,13 @@ ctxStore ctx loc value = case value of
 -- Gets a value from a location in a context
 ctxGet :: PrimeField k => Ctx k -> LTerm -> Term k
 ctxGet ctx loc = case loc of
-    LTermIdent s -> Map.findWithDefault (error $ "Unknown identifier `" ++ s ++ "`") s (env ctx)
+    LTermIdent s -> r
+        where r = Map.findWithDefault (error $ "Unknown identifier `" ++ s ++ "`") s (env ctx)
     LTermPin loc' pin -> case ctxGet ctx loc' of
         Struct pins _ -> pins Map.! pin
         l -> error $ "Non-struct " ++ show l ++ " as location in " ++ show loc
     LTermIdx loc' i -> case ctxGet ctx loc' of
-        Array ts -> ts !! i
+        Array ts -> if i < length ts then ts !! i else error $ "Idx " ++ show i ++ " too big for " ++ show ts
         l -> error $ "Non-array " ++ show l ++ " as location in " ++ show loc
 
 ctxInit :: PrimeField k => Ctx k -> String -> Term k -> Ctx k

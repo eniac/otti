@@ -400,6 +400,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
            )
          ])
        , genMainTestCountOnly "test/Code/Circom/fn.circom" 6
+       , genMainTestCountOnly "test/Code/Circom/multidim.circom" 6
     ]
 
 genExprTest :: Ctx (Prime 223) -> Expr -> Term (Prime 223) -> BenchTest
@@ -431,7 +432,7 @@ genMainTest path expectedConstraints = benchTestCase ("main gen: " ++ path) $ do
 genMainTestCountOnly :: String -> Int -> BenchTest
 genMainTestCountOnly path expectedConstraintCount = benchTestCase ("circuit at " ++ path ++ " has " ++ show expectedConstraintCount ++ " constraints") $ do
     m <- Parser.loadMain path
-    let constraints :: [Constraint (Prime 223)] = genMain m prime
-    unless (length constraints == expectedConstraintCount) $ error $ "Expected " ++ show expectedConstraintCount ++ " constraints, but got\n\t" ++ show constraints ++ "\n"
+    let constraints :: [Constraint (Prime 21888242871839275222246405745257275088548364400416034343698204186575808495617)] = genMain m prime
+    unless (length constraints == expectedConstraintCount) $ error $ "Expected " ++ show expectedConstraintCount ++ " constraints, but got " ++ show (length constraints)
     return ()
 

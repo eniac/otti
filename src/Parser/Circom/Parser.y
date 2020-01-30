@@ -32,6 +32,7 @@ import Parser.Circom.Lexer      as Lexer (Token(..),AlexPosn(AlexPn),tokenPosn)
         for             { Lexer.For _               }
         compute         { Lexer.Compute _           }
         do              { Lexer.Do _                }
+        log             { Lexer.Log _               }
         return          { Lexer.Return _            }
         main            { Lexer.Main _              }
         ';'             { Lexer.SemiColon _         }
@@ -225,6 +226,7 @@ line :: {Statement}
      | component ident decl_dimensions                  { SubDeclaration $2 $3 Nothing }
      | component ident decl_dimensions '=' expr         { SubDeclaration $2 $3 (Just $5) }
      | return expr                                      { AST.Return $2 }
+     | log '(' expr ')'                                 { AST.Log $3 }
      | expr                                             { AST.Ignore $1 }
 
 ident_list : list0_sep(ident, ',')                      { $1 }
@@ -233,7 +235,9 @@ item :: {Item}
      : function ident '(' ident_list ')' block          { AST.Function $2 $4 $6 }
      | template ident '(' ident_list ')' block          { AST.Template $2 $4 $6 }
      | include strlit ';'                               { AST.Include $2 }
+     | include strlit                                   { AST.Include $2 }
      | component main '=' expr ';'                      { AST.Main $4 }
+     | component main '=' expr                          { AST.Main $4 }
 
 items :: {[Item]} : list0(item)                         { $1}
 

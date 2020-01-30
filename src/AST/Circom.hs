@@ -96,6 +96,7 @@ data Statement = Assign Location Expr
                | DoWhile Block Expr
                | Compute Block
                | Return Expr
+               | Log Expr
                | Ignore Expr -- Expression statements
                deriving (Show,Eq)
 

@@ -20,11 +20,12 @@ import           AST.Circom             as AST
 import           Codegen.Circom.Context as Context
 import           Codegen.Circom.Term    as Term
 import qualified Data.Bits              as Bits
+import           Data.Field.Galois      (Prime, PrimeField, fromP, toP)
+import           Data.List              as List
 import qualified Data.Map.Strict        as Map
 import           Data.Maybe             as Maybe
 import qualified Data.Sequence          as Sequence
 import           Debug.Trace            (trace)
-import           Data.Field.Galois      (PrimeField, fromP, toP, Prime)
 import           GHC.TypeLits           (KnownNat)
 
 
@@ -174,9 +175,12 @@ genExpr ctx expr = case expr of
     UnMutExpr op loc -> genUnExpr ctx op loc
     Ite c l r ->
         case condT of
-            Scalar 0 -> genExpr ctx' r
-            Scalar _ -> genExpr ctx' l
-            t        -> error $ "Cannot condition on term " ++ show t
+            Scalar 0     -> genExpr ctx' r
+            Scalar _     -> genExpr ctx' l
+            Other        -> (ctx', Other)
+            Linear {}    -> (ctx', Other)
+            Quadratic {} -> (ctx', Other)
+            t            -> error $ "Cannot condition on term " ++ show t
         where
             (ctx', condT) = genExpr ctx c
     LValue loc ->
@@ -192,7 +196,7 @@ genExpr ctx expr = case expr of
             else
                 (ctx', ctxToStruct postCtx)
         else
-            error $ "One of the arguments to " ++ name ++ " is not a generation-time constant!"
+            (ctx', Other)
         where
             postCtx = genStatements newCtx block
             newCtx = ctx' { env = Map.fromList (zip formalArgs actualArgs) , constraints = []}
@@ -214,7 +218,7 @@ genUnExpr ctx op loc = case op of
         ctx'' = ctxStore ctx' lval term'
 
 genExprs :: KnownNat k => Ctx (Prime k) -> [Expr] -> (Ctx (Prime k), [Term (Prime k)])
-genExprs c = foldl (\(c, ts) e -> let (c', t) = genExpr c e in (c', t:ts)) (c, [])
+genExprs c = foldl (\(c, ts) e -> let (c', t) = genExpr c e in (c', ts ++ [t])) (c, [])
 
 genStatements :: KnownNat k => Ctx (Prime k) -> [Statement] -> Ctx (Prime k)
 genStatements = foldl (\c s -> if isJust (returning c) then c else genStatement c s)
@@ -261,19 +265,21 @@ genStatement ctx statement = case statement of
     If cond true false -> case tcond of
             Scalar 0 -> genStatements ctx' (concat $ Maybe.maybeToList false)
             Scalar _ -> genStatements ctx' true
-            _        -> error $ "Invalid conditional term " ++ show tcond
+            _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
         where
             (ctx', tcond) = genExpr ctx cond
     While cond block -> case tcond of
             Scalar 0 -> ctx'
             Scalar _ -> genStatement (genStatements ctx block) (While cond block)
-            _ -> error $ "Invalid conditional term " ++ show tcond
+            _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
         where
             (ctx', tcond) = genExpr ctx cond
     For init cond step block -> genStatements ctx [init, While cond (block ++ [step])]
     DoWhile block expr -> genStatements ctx (block ++ [While expr block])
     Compute _ -> ctx
     Ignore e -> fst $ genExpr ctx e
+    Log e -> trace (show e ++ ": " ++ show t) ctx'
+        where (ctx', t) = genExpr ctx e
     Return e -> ctx' { returning = Just t }
         where
             (ctx', t) = genExpr ctx e
