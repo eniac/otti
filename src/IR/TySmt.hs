@@ -1,5 +1,9 @@
 module IR.TySmt where
 
+import           Z3.Monad                   (MonadZ3)
+import qualified Z3.Monad                   as Z
+import           Control.Monad.State.Strict (foldM, liftIO, unless)
+
 data Sort = BV Int
           | FF Integer
           | B
@@ -11,6 +15,7 @@ data BoolTerm = BoolLit Bool
               | BoolNeg BoolTerm
               | IntPred IntBinPred IntTerm IntTerm
               | PfPred PfBinPred PfTerm PfTerm
+              | BoolVar String
 
 data BoolBinOp = BoolAnd | BoolOr | BoolXor | BoolImplies
 
@@ -20,6 +25,7 @@ data IntTerm = IntLit Integer
              | IntUnExpr IntUnOp IntTerm
              | PfToNat PfTerm
              | BvToNat BvTerm
+             | IntVar String
 
 data IntBinOp = IntAdd | IntSub | IntMul | IntDiv | IntMod
 data IntUnOp = IntNeg | IntAbs
@@ -42,6 +48,7 @@ data BvTerm = BvLit Int Integer
             | BvBinPred BvBinOp BvTerm BvTerm
             | BvExtract Int Int BvTerm
             | IntToBv Int IntTerm
+            | BvVar String
 
 data BvBinOp = BvShl
              | BvLshr
