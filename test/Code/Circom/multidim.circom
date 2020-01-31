@@ -1,5 +1,5 @@
 template fork(n, m) {
-    signal input in;
+    signal private input in;
     signal output out[n][m];
 
     for (var i = 0; i < n; ++i) {

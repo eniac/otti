@@ -4,7 +4,9 @@ module Codegen.CircomTest where
 import           AST.Circom
 import           BenchUtils
 import           Codegen.Circom
-import           Codegen.Circom.Constraints (equalities, empty)
+import           Codegen.Circom.Context
+import           Codegen.Circom.Constraints (empty)
+import           Codegen.Circom.Constraints as Constraints
 import           Control.Monad              (unless)
 import           Data.Either                (fromLeft, isRight)
 import           Data.Field.Galois          (Prime, PrimeField, toP)
@@ -103,7 +105,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
     , genStatementsTest
         "decls of Num2Bits"
         (genCtxWithScalars [("n", 2)])
-        [SigDeclaration "in" In [], SigDeclaration "out" Out [LValue $ Ident "n"]]
+        [SigDeclaration "in" PublicIn [], SigDeclaration "out" Out [LValue $ Ident "n"]]
         (ctxFromList $ Map.fromList
             [ ("n", Scalar 2)
             , ("in", signalTerm "in" [])
@@ -116,7 +118,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
     , genStatementsTest
         "decls of Num2Bits II"
         (genCtxWithScalars [("n", 2)])
-        [ SigDeclaration "in" In []
+        [ SigDeclaration "in" PublicIn []
         , SigDeclaration "out" Out [LValue $ Ident "n"]
         , VarDeclaration "lc1" [] (Just (NumLit 0))
         ]
@@ -133,7 +135,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
     , genStatementsTest
         "first loop step of Num2Bits"
         (genCtxWithScalars [("n", 2)])
-        [ SigDeclaration "in" In []
+        [ SigDeclaration "in" PublicIn []
         , SigDeclaration "out" Out [LValue $ Ident "n"]
         , VarDeclaration "lc1" [] (Just (NumLit 0))
         , VarDeclaration "i" [] (Just (NumLit 0))
@@ -165,7 +167,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
     , genStatementsTest
         "two loop steps of Num2Bits"
         (genCtxWithScalars [("n", 2)])
-        ([ SigDeclaration "in" In []
+        ([ SigDeclaration "in" PublicIn []
         , SigDeclaration "out" Out [LValue $ Ident "n"]
         , VarDeclaration "lc1" [] (Just (NumLit 0))
         , VarDeclaration "i" [] (Just (NumLit 0))
@@ -203,7 +205,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
     , genStatementsTest
         "three loop steps of Num2Bits"
         (genCtxWithScalars [("n", 2)])
-        ([ SigDeclaration "in" In []
+        ([ SigDeclaration "in" PublicIn []
         , SigDeclaration "out" Out [LValue $ Ident "n"]
         , VarDeclaration "lc1" [] (Just (NumLit 0))
         , VarDeclaration "i" [] (Just (NumLit 0))
@@ -241,7 +243,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
     , genStatementsTest
         "Num2Bits as while"
         (genCtxWithScalars [("n", 2)])
-        [ SigDeclaration "in" In []
+        [ SigDeclaration "in" PublicIn []
         , SigDeclaration "out" Out [LValue $ Ident "n"]
         , VarDeclaration "lc1" [] (Just (NumLit 0))
         , VarDeclaration "i" [] (Just (NumLit 0))
@@ -281,7 +283,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
     , genStatementsTest
         "Num2Bits as for"
         (genCtxWithScalars [("n", 2)])
-        [ SigDeclaration "in" In []
+        [ SigDeclaration "in" PublicIn []
         , SigDeclaration "out" Out [LValue $ Ident "n"]
         , VarDeclaration "lc1" [] (Just (NumLit 0))
         , For (VarDeclaration "i" [] (Just (NumLit 0))) (BinExpr Lt (LValue (Ident "i")) (LValue (Ident "n"))) (Ignore (UnMutExpr PostInc (Ident "i")))
@@ -400,8 +402,8 @@ circomGenTests = benchTestGroup "Circom generator tests"
                            ] , 0)
            )
          ])
-       , genMainTestCountOnly "test/Code/Circom/fn.circom" 6
-       , genMainTestCountOnly "test/Code/Circom/multidim.circom" 6
+       , genMainTestCountOnly "test/Code/Circom/fn.circom" 6 3 6
+       , genMainTestCountOnly "test/Code/Circom/multidim.circom" 6 0 7
     ]
 
 genExprTest :: Ctx (Prime 223) -> Expr -> Term (Prime 223) -> BenchTest
@@ -418,9 +420,10 @@ ctxStoreGetTest name ctx sLoc sVal gLoc gVal = benchTestCase ("store/get test: "
     return ()
 
 genStatementsTest :: String -> Ctx (Prime 223) -> [Statement] -> Ctx (Prime 223) -> BenchTest
-genStatementsTest name ctx s expectCtx' = benchTestCase ("exec " ++ name) $ do
+genStatementsTest name ctx s expectCtx' = benchTestCase ("statements: " ++ name) $ do
     let ctx' = genStatements ctx s
-    unless (ctx' == expectCtx') $ error $ "Expected\n\t" ++ show s ++ "\nto produce\n\t" ++ show expectCtx' ++ "\nbut it produced\n\t" ++ show ctx' ++ "\n"
+    unless (env ctx' == env expectCtx') $
+        error $ "Expected\n\t" ++ show s ++ "\nto produce\n\t" ++ show (env expectCtx') ++ "\nbut it produced\n\t" ++ show (env ctx') ++ "\n"
     return ()
 
 genMainTest :: String -> [Constraint (Prime 223)] -> BenchTest
@@ -430,9 +433,16 @@ genMainTest path expectedConstraints = benchTestCase ("main gen: " ++ path) $ do
     unless (constraints == expectedConstraints) $ error $ "Expected\n\t" ++ show expectedConstraints ++ "\nbut got\n\t" ++ show constraints ++ "\n"
     return ()
 
-genMainTestCountOnly :: String -> Int -> BenchTest
-genMainTestCountOnly path expectedConstraintCount = benchTestCase ("circuit at " ++ path ++ " has " ++ show expectedConstraintCount ++ " constraints") $ do
+genMainTestCountOnly :: String -> Int -> Int -> Int -> BenchTest
+genMainTestCountOnly path exCs exPubSigs exPrivSigs = benchTestCase ("signal & constraint counts for circuit at " ++ path) $ do
     m <- Parser.loadMain path
-    let constraints :: [Constraint (Prime 21888242871839275222246405745257275088548364400416034343698204186575808495617)] = equalities (genMain m prime)
-    unless (length constraints == expectedConstraintCount) $ error $ "Expected " ++ show expectedConstraintCount ++ " constraints, but got " ++ show (length constraints)
+    let constraints = genMain m prime
+    let eqs :: [Constraint (Prime 21888242871839275222246405745257275088548364400416034343698204186575808495617)] = Constraints.equalities constraints
+    unless (length eqs == exCs) $ error $ "Expected " ++ show exCs ++ " constraints, but got " ++ show (length eqs)
+    let pubSigs = length (Constraints.public constraints)
+    unless (pubSigs == exPubSigs) $
+        error $ "Expected " ++ show exPubSigs ++ " public signals, but got " ++ show pubSigs
+    let privSigs = length (Constraints.private constraints)
+    unless (privSigs == exPrivSigs) $
+        error $ "Expected " ++ show exPrivSigs ++ " private signals, but got " ++ show privSigs
     return ()

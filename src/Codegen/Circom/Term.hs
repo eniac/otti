@@ -6,12 +6,15 @@ module Codegen.Circom.Term ( lcZero
                            , Constraint
                            , LC
                            , mapSignalsInTerm
+                           , termSignals
                            ) where
 
 import qualified Codegen.Circom.Constraints as CS
 import           Codegen.Circom.Constraints (Constraints, Constraint, LC, Signal)
 import           Data.Field.Galois          (PrimeField)
 import qualified Data.Map.Strict            as Map
+import qualified Data.Set                   as Set
+import           Data.Set                   (Set)
 
 data Term k = Sig Signal
             | Linear (LC k)                                     -- A linear combination
@@ -103,3 +106,14 @@ mapSignalsInTerm f t = case t of
     Array ts -> Array $ map (mapSignalsInTerm f) ts
     Struct ts cs -> Struct (Map.map (mapSignalsInTerm f) ts) (CS.mapSignals f cs)
     Other -> Other
+
+termSignals :: Term k -> Set Signal
+termSignals t = case t of
+    Sig s -> Set.insert s Set.empty
+    Linear (m, _) -> Set.fromList (Map.keys m)
+    Quadratic (a, _) (b, _) (c, _) -> foldr Set.union Set.empty (map (Set.fromList . Map.keys) [a, b, c])
+    Scalar s -> Set.empty
+    Array ts -> foldr Set.union Set.empty $ map termSignals ts
+    Struct m cs -> foldr Set.union Set.empty $ map termSignals $ Map.elems m
+    Other -> Set.empty
+

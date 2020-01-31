@@ -25,6 +25,7 @@ import qualified Data.Bits                  as Bits
 import           Data.Field.Galois          (Prime, PrimeField, fromP, toP)
 import           Data.List                  as List
 import qualified Data.Map.Strict            as Map
+import qualified Data.Set                   as Set
 import           Data.Maybe                 as Maybe
 import qualified Data.Sequence              as Sequence
 import           Debug.Trace                (trace)
@@ -257,8 +258,11 @@ genStatement ctx statement = case statement of
         where
             ctx'' = ctxInit ctx' name (termMultiDimArray (Scalar 0) ts)
             (ctx', ts) = genExprs ctx dims
-    SigDeclaration name kind dims -> ctxInit ctx' name (termSignalArray name tdims)
+    SigDeclaration name kind dims -> ctxInit ctx'' name t
         where
+            ctx'' = Set.fold sigAdder ctx' (termSignals t)
+            sigAdder = if AST.isPublic kind then Context.ctxAddPublicSig else Context.ctxAddPrivateSig
+            t = termSignalArray name tdims
             (ctx', tdims) = genExprs ctx dims
     SubDeclaration name dims init -> case init of
             Just e  -> genStatement ctx'' $ Assign (Ident name) e

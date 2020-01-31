@@ -15,6 +15,7 @@ tokens :-
   "var"                                 { \p s -> Var p }
   "signal"                              { \p s -> Signal p }
   "private"                             { \p s -> Private p }
+  "public"                              { \p s -> Public p }
   "input"                               { \p s -> Input p }
   "output"                              { \p s -> Output p }
   "component"                           { \p s -> Component p }
@@ -52,6 +53,7 @@ tokens :-
 data Token = Var AlexPosn
            | Signal AlexPosn
            | Private AlexPosn
+           | Public AlexPosn
            | Input AlexPosn
            | Output AlexPosn
            | Component AlexPosn

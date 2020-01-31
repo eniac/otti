@@ -7,6 +7,8 @@ module Codegen.Circom.Context ( Ctx(..)
                               , ctxInit
                               , ctxToStruct
                               , ctxGetCallable
+                              , ctxAddPublicSig
+                              , ctxAddPrivateSig
                               ) where
 
 import qualified AST.Circom                 as AST
@@ -53,7 +55,7 @@ ctxStore ctx loc value = case value of
                     c' = CS.mapSignals emmigrateSignal c
                 in
                     ctx { env = Map.update (pure . replacein ss (Struct m' c')) ident (env ctx)
-                        , constraints = CS.union c' (constraints ctx) }
+                        , constraints = CS.union (trace (show c') c') (constraints ctx) }
             else
                 error $ "Cannot assign circuits to non-local location: " ++ show loc
         _ -> ctx { env = Map.update (pure . replacein ss value) ident (env ctx) }
@@ -110,5 +112,11 @@ ctxGetCallable ctx name = Maybe.fromMaybe (error $ "No template named " ++ name 
 
 ctxAddConstraint :: PrimeField k => Ctx k -> Constraint k -> Ctx k
 ctxAddConstraint ctx c = ctx { constraints = CS.addEquality c $ constraints ctx }
+
+ctxAddPublicSig :: Signal -> Ctx k -> Ctx k
+ctxAddPublicSig s c = c { constraints = CS.addPublic s $ constraints c }
+
+ctxAddPrivateSig :: Signal -> Ctx k -> Ctx k
+ctxAddPrivateSig s c = c { constraints = CS.addPrivate s $ constraints c }
 
 ctxToStruct ctx = Struct (env ctx) (constraints ctx)

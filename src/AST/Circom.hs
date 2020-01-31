@@ -14,6 +14,7 @@ module AST.Circom ( File
                   , collectFunctions
                   , collectTemplates
                   , collectMains
+                  , isPublic
                   ) where
 
 
@@ -100,10 +101,18 @@ data Statement = Assign Location Expr
                | Ignore Expr -- Expression statements
                deriving (Show,Eq)
 
-data SignalKind = In
+data SignalKind = PublicIn
+                | PrivateIn
                 | Out
                 | Local
                 deriving (Show,Eq)
+
+isPublic :: SignalKind -> Bool
+isPublic s = case s of
+    PublicIn -> True
+    PrivateIn -> False
+    Out -> False
+    Local -> False
 
 data Location = Ident String
               | Pin Location String

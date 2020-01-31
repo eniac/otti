@@ -20,6 +20,7 @@ import Parser.Circom.Lexer      as Lexer (Token(..),AlexPosn(AlexPn),tokenPosn)
         var             { Lexer.Var _               }
         signal          { Lexer.Signal _            }
         private         { Lexer.Private _           }
+        public          { Lexer.Public _            }
         input           { Lexer.Input _             }
         output          { Lexer.Output _            }
         component       { Lexer.Component _         }
@@ -187,7 +188,9 @@ assignment_op :: {BinOp}
               | '>>='                           { Shr }
 
 sig_kind :: {SignalKind}
-          : input                               { In }
+          : public input                        { PublicIn }
+          | private input                       { PrivateIn }
+          | input                               { PublicIn }
           | output                              { Out }
           |                                     { Local }
 
@@ -221,8 +224,7 @@ line :: {Statement}
      | expr '===' expr                                  { Constrain $1 $3 }
      | var ident decl_dimensions                        { VarDeclaration $2 $3 Nothing }
      | var ident decl_dimensions '=' expr               { VarDeclaration $2 $3 (Just $5) }
-     | signal private sig_kind ident decl_dimensions    { SigDeclaration $4 $3 $5 }
-     | signal         sig_kind ident decl_dimensions    { SigDeclaration $3 $2 $4 }
+     | signal sig_kind ident decl_dimensions            { SigDeclaration $3 $2 $4 }
      | component ident decl_dimensions                  { SubDeclaration $2 $3 Nothing }
      | component ident decl_dimensions '=' expr         { SubDeclaration $2 $3 (Just $5) }
      | return expr                                      { AST.Return $2 }
