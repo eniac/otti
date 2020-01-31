@@ -16,17 +16,19 @@ module Codegen.Circom ( genExpr
                       , ctxWithEnv
                       ) where
 
-import           AST.Circom             as AST
-import           Codegen.Circom.Context as Context
-import           Codegen.Circom.Term    as Term
-import qualified Data.Bits              as Bits
-import           Data.Field.Galois      (Prime, PrimeField, fromP, toP)
-import           Data.List              as List
-import qualified Data.Map.Strict        as Map
-import           Data.Maybe             as Maybe
-import qualified Data.Sequence          as Sequence
-import           Debug.Trace            (trace)
-import           GHC.TypeLits           (KnownNat)
+import           AST.Circom                 as AST
+import qualified Codegen.Circom.Constraints as CS
+import           Codegen.Circom.Constraints (Constraints)
+import           Codegen.Circom.Context     as Context
+import           Codegen.Circom.Term        as Term
+import qualified Data.Bits                  as Bits
+import           Data.Field.Galois          (Prime, PrimeField, fromP, toP)
+import           Data.List                  as List
+import qualified Data.Map.Strict            as Map
+import           Data.Maybe                 as Maybe
+import qualified Data.Sequence              as Sequence
+import           Debug.Trace                (trace)
+import           GHC.TypeLits               (KnownNat)
 
 
 
@@ -48,7 +50,7 @@ termSignalArray :: PrimeField k => String -> [Term k] -> Term k
 termSignalArray name dim = case dim of
     [] -> Sig (SigLocal name [])
     (Scalar n):rest ->
-        Array $ [ signalTranform (subscriptSignal (i - 1)) rec | i <- [1..(fromP n)] ]
+        Array $ [ mapSignalsInTerm (subscriptSignal (i - 1)) rec | i <- [1..(fromP n)] ]
         where
             subscriptSignal idx (SigLocal name idxs) = SigLocal name ((fromIntegral idx):idxs)
             subscriptSignal idx  SigForeign {}       = error "Unreachable"
@@ -199,7 +201,9 @@ genExpr ctx expr = case expr of
             (ctx', Other)
         where
             postCtx = genStatements newCtx block
-            newCtx = ctx' { env = Map.fromList (zip formalArgs actualArgs) , constraints = []}
+            newCtx = ctx' { env = Map.fromList (zip formalArgs actualArgs)
+                          , constraints = CS.empty
+                          }
             (isFn, formalArgs, block) = ctxGetCallable ctx name
             (ctx', actualArgs) = genExprs ctx args
 
@@ -284,7 +288,7 @@ genStatement ctx statement = case statement of
         where
             (ctx', t) = genExpr ctx e
 
-genMain :: KnownNat k => MainCircuit -> Integer -> [Constraint (Prime k)]
+genMain :: KnownNat k => MainCircuit -> Integer -> Constraints (Prime k)
 genMain m order =
         constraints ctx'
     where

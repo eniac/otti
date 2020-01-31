@@ -9,16 +9,18 @@ module Codegen.Circom.Context ( Ctx(..)
                               , ctxGetCallable
                               ) where
 
-import qualified AST.Circom          as AST
+import qualified AST.Circom                 as AST
+import           Codegen.Circom.Constraints (Constraint, LC, Signal)
+import qualified Codegen.Circom.Constraints as CS
 import           Codegen.Circom.Term
-import qualified Data.Either         as Either
-import           Data.Field.Galois   (PrimeField)
-import qualified Data.Map.Strict     as Map
-import qualified Data.Maybe          as Maybe
-import           Debug.Trace         (trace)
+import qualified Data.Either                as Either
+import           Data.Field.Galois          (PrimeField)
+import qualified Data.Map.Strict            as Map
+import qualified Data.Maybe                 as Maybe
+import           Debug.Trace                (trace)
 
 data Ctx k = Ctx { env         :: Map.Map String (Term k)
-                 , constraints :: [Constraint k]
+                 , constraints :: CS.Constraints k
                  --                              (fn? , params  , body     )
                  -- NB: templates are not fn's.
                  --     functions are
@@ -36,7 +38,8 @@ updateList f i l = case splitAt i l of
 
 
 ctxWithEnv :: PrimeField k => Map.Map String (Term k) -> Integer -> Ctx k
-ctxWithEnv env order = Ctx { env = env, constraints = [], callables = Map.empty , fieldOrder = order, returning = Nothing }
+ctxWithEnv env order = Ctx { env = env, constraints = CS.empty, callables = Map.empty , fieldOrder = order, returning = Nothing }
+
 
 -- Modifies a context to store a value in a location
 ctxStore :: PrimeField k => Ctx k -> LTerm -> Term k -> Ctx k
@@ -46,20 +49,16 @@ ctxStore ctx loc value = case value of
         Struct m c -> if null (Either.lefts ss)
             then
                 let
-                    m' = emmigrateMap m
-                    c' = emmigrateConstraints c
+                    m' = Map.map (mapSignalsInTerm emmigrateSignal) m
+                    c' = CS.mapSignals emmigrateSignal c
                 in
                     ctx { env = Map.update (pure . replacein ss (Struct m' c')) ident (env ctx)
-                        , constraints = c' ++ constraints ctx }
+                        , constraints = CS.union c' (constraints ctx) }
             else
                 error $ "Cannot assign circuits to non-local location: " ++ show loc
         _ -> ctx { env = Map.update (pure . replacein ss value) ident (env ctx) }
     where
         (ident, ss) = steps loc
-
-        emmigrateMap = Map.map (signalTranform emmigrateSignal)
-        emmigrateConstraints = map (\(a, b, c) -> (emmigrateLC a, emmigrateLC b, emmigrateLC c))
-        emmigrateLC (m, c) = (Map.mapKeys emmigrateSignal m, c)
         emmigrateSignal = SigForeign ident (Either.rights ss)
 
         -- Given
@@ -110,6 +109,6 @@ ctxGetCallable :: PrimeField k => Ctx k -> String -> (Bool, [String], AST.Block)
 ctxGetCallable ctx name = Maybe.fromMaybe (error $ "No template named " ++ name ++ " found") $ Map.lookup name (callables ctx)
 
 ctxAddConstraint :: PrimeField k => Ctx k -> Constraint k -> Ctx k
-ctxAddConstraint ctx c = ctx { constraints = c : constraints ctx }
+ctxAddConstraint ctx c = ctx { constraints = CS.addEquality c $ constraints ctx }
 
 ctxToStruct ctx = Struct (env ctx) (constraints ctx)

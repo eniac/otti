@@ -5,28 +5,22 @@ module Codegen.Circom.Term ( lcZero
                            , Signal(..)
                            , Constraint
                            , LC
-                           , signalTranform
+                           , mapSignalsInTerm
                            ) where
 
-import           Data.Field.Galois (PrimeField)
-import qualified Data.Map.Strict   as Map
-
-data Signal = SigLocal String [Int]
-            -- Subcomponent name, subcomponent indices, signal name, signal indices
-            | SigForeign String [Int] Signal
-            deriving (Show,Ord,Eq)
-type LC k = (Map.Map Signal k, k) -- A linear combination of signals and gen-time constants
+import qualified Codegen.Circom.Constraints as CS
+import           Codegen.Circom.Constraints (Constraints, Constraint, LC, Signal)
+import           Data.Field.Galois          (PrimeField)
+import qualified Data.Map.Strict            as Map
 
 data Term k = Sig Signal
             | Linear (LC k)                                     -- A linear combination
             | Quadratic (LC k) (LC k) (LC k)                    -- A * B + C for LC's A, B, C
             | Scalar k                                          -- a gen-time constant
             | Array [Term k]                                    -- An array of terms
-            | Struct (Map.Map String (Term k)) [Constraint k]   -- A structure, environment and constraints
+            | Struct (Map.Map String (Term k)) (Constraints k)  -- A structure, environment and constraints
             | Other                                             -- A non-gen-time constant that is none of the above.
             deriving (Show,Ord,Eq)
-
-type Constraint k = (LC k, LC k, LC k)
 
 -- An evaluated l-value
 data LTerm = LTermIdent String
@@ -100,14 +94,12 @@ lcZero = (Map.empty, 0)
 linearizeSig :: PrimeField k => Signal -> Term k
 linearizeSig s = Linear (Map.fromList [(s, 1)], 0)
 
-signalTranform :: (Signal -> Signal) -> Term k -> Term k
-signalTranform f t = case t of
+mapSignalsInTerm :: (Signal -> Signal) -> Term k -> Term k
+mapSignalsInTerm f t = case t of
     Sig s -> Sig $ f s
     Linear (m, c) -> Linear (Map.mapKeys f m, c)
     Quadratic (m1, c1) (m2, c2) (m3, c3) -> Quadratic (Map.mapKeys f m1, c1) (Map.mapKeys f m2, c2) (Map.mapKeys f m3, c3)
     Scalar c -> Scalar c
-    Array ts -> Array $ map (signalTranform f) ts
-    Struct tmap cs -> Struct (Map.map (signalTranform f) tmap) (map (\(a, b, c) -> (lcXfm a, lcXfm b, lcXfm c)) cs)
-        where
-            lcXfm (m, c) = (Map.mapKeys f m, c)
+    Array ts -> Array $ map (mapSignalsInTerm f) ts
+    Struct ts cs -> Struct (Map.map (mapSignalsInTerm f) ts) (CS.mapSignals f cs)
     Other -> Other

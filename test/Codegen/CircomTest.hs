@@ -1,15 +1,16 @@
-{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Codegen.CircomTest where
 import           AST.Circom
 import           BenchUtils
 import           Codegen.Circom
-import           Control.Monad     (unless)
-import           Data.Either       (fromLeft, isRight)
-import           Data.Field.Galois (PrimeField, Prime, toP)
-import qualified Data.Map.Strict   as Map
-import           GHC.TypeLits      (KnownNat)
-import           Parser.Circom     as Parser
+import           Codegen.Circom.Constraints (equalities, empty)
+import           Control.Monad              (unless)
+import           Data.Either                (fromLeft, isRight)
+import           Data.Field.Galois          (Prime, PrimeField, toP)
+import qualified Data.Map.Strict            as Map
+import           GHC.TypeLits               (KnownNat)
+import           Parser.Circom              as Parser
 import           Utils
 
 signalTerm :: KnownNat k => String -> [Int] -> Term (Prime k)
@@ -84,11 +85,11 @@ circomGenTests = benchTestGroup "Circom generator tests"
         (Array [Scalar 6])
     , ctxStoreGetTest
         "struct in array"
-        (ctxFromList (Map.fromList [("in", Array [Struct (Map.fromList [("a", Scalar 5)]) []])]))
+        (ctxFromList (Map.fromList [("in", Array [Struct (Map.fromList [("a", Scalar 5)]) empty])]))
         (LTermPin (LTermIdx (LTermIdent "in") 0) "a")
         (Scalar 6)
         (LTermIdent "in")
-        (Array [Struct (Map.fromList [("a", Scalar 6)]) []])
+        (Array [Struct (Map.fromList [("a", Scalar 6)]) empty])
     , genStatementsTest
         "equal"
         (genCtxWithSignals ["a", "b"])
@@ -425,14 +426,13 @@ genStatementsTest name ctx s expectCtx' = benchTestCase ("exec " ++ name) $ do
 genMainTest :: String -> [Constraint (Prime 223)] -> BenchTest
 genMainTest path expectedConstraints = benchTestCase ("main gen: " ++ path) $ do
     m <- Parser.loadMain path
-    let constraints = genMain m prime
+    let constraints = equalities (genMain m prime)
     unless (constraints == expectedConstraints) $ error $ "Expected\n\t" ++ show expectedConstraints ++ "\nbut got\n\t" ++ show constraints ++ "\n"
     return ()
 
 genMainTestCountOnly :: String -> Int -> BenchTest
 genMainTestCountOnly path expectedConstraintCount = benchTestCase ("circuit at " ++ path ++ " has " ++ show expectedConstraintCount ++ " constraints") $ do
     m <- Parser.loadMain path
-    let constraints :: [Constraint (Prime 21888242871839275222246405745257275088548364400416034343698204186575808495617)] = genMain m prime
+    let constraints :: [Constraint (Prime 21888242871839275222246405745257275088548364400416034343698204186575808495617)] = equalities (genMain m prime)
     unless (length constraints == expectedConstraintCount) $ error $ "Expected " ++ show expectedConstraintCount ++ " constraints, but got " ++ show (length constraints)
     return ()
-
