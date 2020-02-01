@@ -4,14 +4,16 @@ module Codegen.CircomTest where
 import           AST.Circom
 import           BenchUtils
 import           Codegen.Circom
-import           Codegen.Circom.Context
 import           Codegen.Circom.Constraints (empty)
 import           Codegen.Circom.Constraints as Constraints
+import           Codegen.Circom.Context
+import           Codegen.Circom.ToSmt       (constraintsToSmt)
 import           Control.Monad              (unless)
 import           Data.Either                (fromLeft, isRight)
 import           Data.Field.Galois          (Prime, PrimeField, toP)
 import qualified Data.Map.Strict            as Map
 import           GHC.TypeLits               (KnownNat)
+import           IR.TySmt                   (depth)
 import           Parser.Circom              as Parser
 import           Utils
 
@@ -404,6 +406,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
          ])
        , genMainTestCountOnly "test/Code/Circom/fn.circom" 6 3 6
        , genMainTestCountOnly "test/Code/Circom/multidim.circom" 6 0 7
+       , genMainAndConvert "test/Code/Circom/multidim.circom" 7
     ]
 
 genExprTest :: Ctx (Prime 223) -> Expr -> Term (Prime 223) -> BenchTest
@@ -445,4 +448,12 @@ genMainTestCountOnly path exCs exPubSigs exPrivSigs = benchTestCase ("signal & c
     let privSigs = length (Constraints.private constraints)
     unless (privSigs == exPrivSigs) $
         error $ "Expected " ++ show exPrivSigs ++ " private signals, but got " ++ show privSigs
+    return ()
+
+genMainAndConvert :: String -> Int -> BenchTest
+genMainAndConvert path exSignals = benchTestCase ("conversion to Smt for " ++ path) $ do
+    m <- Parser.loadMain path
+    let constraints :: Constraints (Prime 21888242871839275222246405745257275088548364400416034343698204186575808495617) = genMain m prime
+    let predicate = constraintsToSmt constraints
+    unless (depth predicate == exSignals + 5) $ error $ unwords ["Expected", show exSignals, "signals, got", show (depth predicate - 5)]
     return ()

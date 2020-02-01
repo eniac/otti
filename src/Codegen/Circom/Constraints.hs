@@ -1,4 +1,17 @@
-module Codegen.Circom.Constraints where
+module Codegen.Circom.Constraints ( Signal(..)
+                                  , LC
+                                  , Constraints(..)
+                                  , Constraint
+                                  , addPublic
+                                  , addPrivate
+                                  , addEquality
+                                  , union
+                                  , mapSignals
+                                  , mapSignalsInLc
+                                  , mapSignalsInConstraint
+                                  , empty
+                                  , signalAccesses
+                                  ) where
 
 import qualified Data.Set            as Set
 import qualified Data.Map.Strict    as Map
@@ -47,3 +60,8 @@ mapSignalsInLc f (m, c) = (Map.mapKeys f m, c)
 
 empty :: Constraints k
 empty = Constraints { equalities = [], public = Set.empty, private = Set.empty }
+
+signalAccesses :: Signal -> [Either String Int]
+signalAccesses s = case s of
+    SigLocal n is -> Left n : map Right is
+    SigForeign n is rest -> (Left n : map Right is) ++ signalAccesses rest
