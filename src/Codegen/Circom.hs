@@ -37,7 +37,7 @@ import           GHC.TypeLits               (KnownNat)
 -- dimensions, containing copies of the value.
 termMultiDimArray :: KnownNat k => Term (Prime k) -> [Term (Prime k)] -> Term (Prime k)
 termMultiDimArray = foldr (\d acc -> case d of
-        Scalar n -> Array $ replicate (fromIntegral $ fromP n) acc
+        Base (Scalar n) -> Array $ replicate (fromIntegral $ fromP n) acc
         _        -> error $ "Illegal dimension " ++ show d
     )
 
@@ -50,7 +50,7 @@ data DimArray = DABase String [Int] | DARec [DimArray]
 termSignalArray :: PrimeField k => String -> [Term k] -> Term k
 termSignalArray name dim = case dim of
     [] -> Sig (SigLocal name [])
-    (Scalar n):rest ->
+    (Base (Scalar n)):rest ->
         Array $ [ mapSignalsInTerm (subscriptSignal (i - 1)) rec | i <- [1..(fromP n)] ]
         where
             subscriptSignal idx (SigLocal name idxs) = SigLocal name ((fromIntegral idx):idxs)
@@ -63,22 +63,26 @@ termIsSig t = case t of
     Sig {} -> True
     _      -> False
 
-termGenTimeConst :: Term k -> Bool
-termGenTimeConst t = case t of
+wireGenTimeConst :: WireBundle k -> Bool
+wireGenTimeConst t = case t of
+    Quadratic {} -> False
     Scalar {}    -> True
     Linear {}    -> False
-    Sig {}       -> False
-    Quadratic {} -> False
     Other        -> False
+
+termGenTimeConst :: Term k -> Bool
+termGenTimeConst t = case t of
+    Base b       -> wireGenTimeConst b
+    Sig {}       -> False
     Array a      -> all termGenTimeConst a
     Struct map _ -> all termGenTimeConst map
 
 genGetUnMutOp :: PrimeField k => UnMutOp -> Term k -> Term k
 genGetUnMutOp op = case op of
-    PreInc  -> (+ Scalar 1)
-    PostInc -> (+ Scalar 1)
-    PreDec  -> (+ Scalar (-1))
-    PostDec -> (+ Scalar (-1))
+    PreInc  -> (+ Base (Scalar 1))
+    PostInc -> (+ Base (Scalar 1))
+    PreDec  -> (+ Base (Scalar (-1)))
+    PostDec -> (+ Base (Scalar (-1)))
 
 genLocation :: KnownNat k => Ctx (Prime k) -> Location -> (Ctx (Prime k), LTerm)
 genLocation ctx loc = case loc of
@@ -86,7 +90,7 @@ genLocation ctx loc = case loc of
     Pin loc' pin -> (ctx', LTermPin lt pin)
         where (ctx', lt) = genLocation ctx loc'
     Index loc' ie -> case iterm of
-            Scalar i -> (ctx'', LTermIdx lt (fromIntegral $ fromP i))
+            Base (Scalar i) -> (ctx'', LTermIdx lt (fromIntegral $ fromP i))
             i -> error $ "Non-scalar " ++ show i ++ " as index in " ++ show loc
         where
             (ctx', lt) = genLocation ctx loc'
@@ -94,15 +98,17 @@ genLocation ctx loc = case loc of
 
 -- Lifts a fun: Integer -> Integer -> Integer to one that operates over gen-time constant
 -- terms
+wireGenConstantBinLift :: KnownNat k => (Integer -> Integer -> Integer) -> WireBundle (Prime k) -> WireBundle (Prime k) -> WireBundle (Prime k)
+wireGenConstantBinLift f s t = case (s, t) of
+    (Scalar c1 , Scalar c2) -> Scalar $ toP $ f (fromP c1) (fromP c2)
+    _ -> Other
+
 genConstantBinLift :: KnownNat k => String -> (Integer -> Integer -> Integer) -> Term (Prime k) -> Term (Prime k) -> Term (Prime k)
 genConstantBinLift name f s t = case (s, t) of
-    (Scalar c1 , Scalar c2) -> Scalar $ toP $ f (fromP c1) (fromP c2)
     (a@Array {}, _) -> error $ "Cannot perform operation \"" ++ name ++ "\" on array term " ++ show a
     (a@Struct {}, _) -> error $ "Cannot perform operation \"" ++ name ++ "\" on struct term " ++ show a
-    (Sig _, _) -> Other
-    (Other, _) -> Other
-    (Linear {}, _) -> Other
-    (Quadratic {}, _) -> Other
+    (Sig _, _) -> Base Other
+    (Base a, Base b) -> Base $ wireGenConstantBinLift f a b
     (l, r) -> genConstantBinLift name f r l
 
 -- Lifts a fun: Integer -> Integer -> Bool to one that operates over gen-time constant
@@ -116,20 +122,23 @@ genConstantBoolBinLift :: KnownNat k => String -> (Bool -> Bool -> Bool) -> Term
 genConstantBoolBinLift name f = genConstantBinLift name (\a b -> if f (a /= 0) (b /= 0) then 1 else 0)
 
 -- Lifts a fun: Integer -> Integer to one that operates over gen-time constant terms
+wireGenConstantUnLift :: KnownNat k => (Integer -> Integer) -> WireBundle (Prime k) -> WireBundle (Prime k)
+wireGenConstantUnLift f s = case s of
+    Scalar c1 -> (Scalar . toP . f . fromP) c1
+    _ -> Other
+
+
 genConstantUnLift :: KnownNat k => String -> (Integer -> Integer) -> Term (Prime k) -> Term (Prime k)
 genConstantUnLift name f t = case t of
-    Scalar c -> Scalar $ toP $ f $ fromP c
     a@Array {} -> error $ "Cannot perform operation \"" ++ name ++ "\" on array term " ++ show a
     a@Struct {} -> error $ "Cannot perform operation \"" ++ name ++ "\" on struct term " ++ show a
-    Other -> Other
-    Linear {} -> Other
-    Quadratic {} -> Other
-    Sig {} -> Other
+    Base a -> Base $ wireGenConstantUnLift f a
+    Sig {} -> Base Other
 
 
 genExpr :: KnownNat k => Ctx (Prime k) -> Expr -> (Ctx (Prime k), Term (Prime k))
 genExpr ctx expr = case expr of
-    NumLit i -> (ctx, Scalar $ toP $ fromIntegral i)
+    NumLit i -> (ctx, Base $ Scalar $ toP $ fromIntegral i)
     ArrayLit es -> (ctx', Array ts)
         where
             (ctx', ts) = genExprs ctx es
@@ -164,25 +173,25 @@ genExpr ctx expr = case expr of
         case op of
             UnNeg -> (ctx', - t)
             Not -> (ctx', genConstantUnLift "!" (\c -> if c /= 0 then 0 else 1) t)
-            UnPos -> (ctx', case t of
-                Scalar c     -> Scalar c
+            UnPos -> (ctx', Base (case t of
                 Array ts     -> Scalar $ toP $ fromIntegral $ length ts
                 Struct ts _  -> Scalar $ toP $ fromIntegral $ Map.size ts
-                Other        -> Other
                 Sig {}       -> Other
-                Linear {}    -> Other
-                Quadratic {} -> Other)
+                Base (Scalar c)     -> Scalar c
+                Base (Other)        -> Other
+                Base (Linear {})    -> Other
+                Base (Quadratic {}) -> Other))
             BitNot -> (ctx', genConstantUnLift "~" Bits.complement t)
         where
             (ctx', t) = genExpr ctx e
     UnMutExpr op loc -> genUnExpr ctx op loc
     Ite c l r ->
         case condT of
-            Scalar 0     -> genExpr ctx' r
-            Scalar _     -> genExpr ctx' l
-            Other        -> (ctx', Other)
-            Linear {}    -> (ctx', Other)
-            Quadratic {} -> (ctx', Other)
+            Base (Scalar 0)     -> genExpr ctx' r
+            Base (Scalar _)     -> genExpr ctx' l
+            Base (Other)        -> (ctx', Base Other)
+            Base (Linear {})    -> (ctx', Base Other)
+            Base (Quadratic {}) -> (ctx', Base Other)
             t            -> error $ "Cannot condition on term " ++ show t
         where
             (ctx', condT) = genExpr ctx c
@@ -199,7 +208,7 @@ genExpr ctx expr = case expr of
             else
                 (ctx', ctxToStruct postCtx)
         else
-            (ctx', Other)
+            (ctx', Base Other)
         where
             postCtx = genStatements newCtx block
             newCtx = ctx' { env = Map.fromList (zip formalArgs actualArgs)
@@ -242,9 +251,10 @@ genStatement ctx statement = case statement of
     OpAssign op loc expr -> genStatement ctx $ Assign loc (BinExpr op (LValue loc) expr)
     Constrain l r ->
         case zeroTerm of
-            Scalar 0 -> ctx''
-            Linear lc -> ctxAddConstraint ctx'' (lcZero, lcZero, lc)
-            Quadratic a b c -> ctxAddConstraint ctx'' (a, b, c)
+            Base (Scalar 0) -> ctx''
+            Base (Linear lc) -> ctxAddConstraint ctx'' (lcZero, lcZero, lc)
+            Base (Quadratic a b c) -> ctxAddConstraint ctx'' (a, b, c)
+            Sig s -> ctxAddConstraint ctx'' (lcZero, lcZero, (Map.fromList [(s, 1)], 0))
             _ -> error $ "Cannot constain " ++ show zeroTerm ++ " to zero"
         where
             (ctx', lt) = genExpr ctx l
@@ -256,7 +266,7 @@ genStatement ctx statement = case statement of
             Just e  -> genStatement ctx'' $ Assign (Ident name) e
             Nothing -> ctx''
         where
-            ctx'' = ctxInit ctx' name (termMultiDimArray (Scalar 0) ts)
+            ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0)) ts)
             (ctx', ts) = genExprs ctx dims
     SigDeclaration name kind dims -> ctxInit ctx'' name t
         where
@@ -268,17 +278,17 @@ genStatement ctx statement = case statement of
             Just e  -> genStatement ctx'' $ Assign (Ident name) e
             Nothing -> ctx''
         where
-            ctx'' = ctxInit ctx' name (termMultiDimArray (Scalar 0) ts)
+            ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0)) ts)
             (ctx', ts) = genExprs ctx dims
     If cond true false -> case tcond of
-            Scalar 0 -> genStatements ctx' (concat $ Maybe.maybeToList false)
-            Scalar _ -> genStatements ctx' true
+            Base (Scalar 0) -> genStatements ctx' (concat $ Maybe.maybeToList false)
+            Base (Scalar _) -> genStatements ctx' true
             _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
         where
             (ctx', tcond) = genExpr ctx cond
     While cond block -> case tcond of
-            Scalar 0 -> ctx'
-            Scalar _ -> genStatement (genStatements ctx block) (While cond block)
+            Base (Scalar 0) -> ctx'
+            Base (Scalar _) -> genStatement (genStatements ctx block) (While cond block)
             _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
         where
             (ctx', tcond) = genExpr ctx cond

@@ -11,6 +11,7 @@ module Codegen.Circom.Context ( Ctx(..)
                               , ctxAddPrivateSig
                               ) where
 
+import qualified IR.TySmt                   as Smt
 import qualified AST.Circom                 as AST
 import           Codegen.Circom.Constraints (Constraint, LC, Signal)
 import qualified Codegen.Circom.Constraints as CS
@@ -22,6 +23,7 @@ import qualified Data.Maybe                 as Maybe
 import           Debug.Trace                (trace)
 
 data Ctx k = Ctx { env         :: Map.Map String (Term k)
+                 , valueEnv    :: Map.Map String Smt.PfTerm
                  , constraints :: CS.Constraints k
                  --                              (fn? , params  , body     )
                  -- NB: templates are not fn's.
