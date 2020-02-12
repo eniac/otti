@@ -45,7 +45,7 @@ testLex :: String -> BenchTest
 testLex path = benchTestCase ("lex " ++ path) $ do
   string <- readFile path
   let tokens = tokenize string
-  print tokens
+  print $ length tokens
 
 testExprParse :: String -> Maybe Expr -> BenchTest
 testExprParse expr expected = benchTestCase ("parse expr `" ++ expr ++ "`") $ do
@@ -56,7 +56,7 @@ testExprParse expr expected = benchTestCase ("parse expr `" ++ expr ++ "`") $ do
     Just r -> if r == parsed
         then pure ()
         else error $ "Error: expected " ++ show r ++ " but got " ++ show parsed
-  print parsed
+  print $ length $ show parsed
 
 testStatementParse :: String -> Maybe Statement -> BenchTest
 testStatementParse stat expected = benchTestCase ("parse statement `" ++ stat ++ "`") $ do
@@ -67,19 +67,19 @@ testStatementParse stat expected = benchTestCase ("parse statement `" ++ stat ++
     Just r -> if r == parsed
         then pure ()
         else error $ "Error: expected " ++ show r ++ " but got " ++ show parsed
-  print parsed
+  print $ length $ show parsed
 
 testParse :: String -> BenchTest
 testParse path = benchTestCase ("parse " ++ path) $ do
   ast <- parseFile path
-  print $ "items in " ++ path ++ ": " ++ show (length ast)
+  print $ length $ "items in " ++ path ++ ": " ++ show (length ast)
 
 testLoad :: String -> BenchTest
 testLoad path = benchTestCase ("load " ++ path) $ do
   pgm <- loadFilesRecursively path
-  print $ "files from " ++ path ++ ": " ++ show (length pgm)
+  print $ length $ "files from " ++ path ++ ": " ++ show (length pgm)
 
 testLoadMain :: String -> BenchTest
 testLoadMain path = benchTestCase ("load " ++ path) $ do
   pgm <- loadMain path
-  print $ "main expression in " ++ path ++ ": " ++ show (main pgm)
+  print $ length $ "main expression in " ++ path ++ ": " ++ show (main pgm)

@@ -55,7 +55,7 @@ ctxStore ctx loc value = case value of
                     c' = CS.mapSignals emmigrateSignal c
                 in
                     ctx { env = Map.update (pure . replacein ss (Struct m' c')) ident (env ctx)
-                        , constraints = CS.union (trace (show c') c') (constraints ctx) }
+                        , constraints = CS.union c' (constraints ctx) }
             else
                 error $ "Cannot assign circuits to non-local location: " ++ show loc
         _ -> ctx { env = Map.update (pure . replacein ss value) ident (env ctx) }
