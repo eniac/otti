@@ -53,6 +53,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - compiler
+    - docopt >= 0.7
 
 tests:
   compiler-test:
