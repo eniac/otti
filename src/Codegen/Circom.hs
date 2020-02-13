@@ -5,6 +5,7 @@ module Codegen.Circom ( genExpr
                       , genStatement
                       , genStatements
                       , genMain
+                      , genMainCtx
                       , lcZero
                       , Ctx(..)
                       , Term(..)
@@ -406,8 +407,11 @@ genStatement ctx statement = case statement of
             (ctx', t) = genExpr ctx e
 
 genMain :: KnownNat k => MainCircuit -> Integer -> Constraints (Prime k)
-genMain m order =
-        constraints ctx'
+genMain m order = constraints $ genMainCtx m order
+
+genMainCtx :: KnownNat k => MainCircuit -> Integer -> Ctx (Prime k)
+genMainCtx m order =
+        ctx'
     where
         ctx' = genStatement ctxEmpty (SubDeclaration "main" [] (Just (main m)))
         ctxEmpty = (ctxWithEnv Map.empty order) {
