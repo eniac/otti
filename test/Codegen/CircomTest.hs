@@ -4,6 +4,7 @@ module Codegen.CircomTest where
 import           AST.Circom
 import           BenchUtils
 import           Codegen.Circom
+import           Codegen.Circom.Term
 import           Codegen.Circom.Constraints (empty)
 import           Codegen.Circom.Constraints as Constraints
 import           Codegen.Circom.Context
@@ -12,8 +13,10 @@ import           Control.Monad              (unless)
 import           Data.Either                (fromLeft, isRight)
 import           Data.Field.Galois          (Prime, PrimeField, toP)
 import qualified Data.Map.Strict            as Map
-import           GHC.TypeLits               (KnownNat)
+import           GHC.TypeLits               (KnownNat, natVal)
+import           Data.Proxy                 (Proxy(..))
 import           IR.TySmt                   (depth)
+import qualified IR.TySmt                   as Smt
 import           Parser.Circom              as Parser
 import           Utils
 
@@ -23,11 +26,19 @@ signalTerm s l = Sig (SigLocal s l)
 prime :: Integer
 prime = read "113890009193798365449144652900867294558768981710660728242748762258461992583217"
 
+constTerm :: forall k. KnownNat k => Integer -> Term (Prime k)
+constTerm n = Base (constBundle n, Smt.PfLit n o)
+    where o = natVal (Proxy :: Proxy k)
+
+constBundle :: forall k. KnownNat k => Integer -> WireBundle (Prime k)
+constBundle = Scalar . toP
+
 genCtxWithSignals :: KnownNat k => [String] -> Ctx (Prime k)
 genCtxWithSignals sigNames = ctxWithEnv (Map.fromList (map (\s -> (s, signalTerm s [])) sigNames)) prime
 
 genCtxWithScalars :: KnownNat k => [(String, Int)] -> Ctx (Prime k)
-genCtxWithScalars pairs = ctxWithEnv (Map.fromList (map (\(s, i) -> (s, Scalar $ toP $ fromIntegral i)) pairs)) prime
+genCtxWithScalars pairs = ctxWithEnv (Map.fromList
+    (map (\(s, i) -> (s, constTerm $ fromIntegral i)) pairs)) prime
 
 ctxFromList :: KnownNat k => Map.Map String (Term (Prime k))-> Ctx (Prime k)
 ctxFromList l =  ctxWithEnv l prime
@@ -35,12 +46,11 @@ ctxFromList l =  ctxWithEnv l prime
 
 circomGenTests :: BenchTest
 circomGenTests = benchTestGroup "Circom generator tests"
-    [ genExprTest (genCtxWithSignals []) (NumLit 5) (Scalar 5)
-    , genExprTest (genCtxWithSignals []) (BinExpr Shl (NumLit 5) (NumLit 2)) (Scalar 20)
-    , genExprTest (genCtxWithSignals []) (BinExpr Div (NumLit 5) (NumLit 1)) (Scalar 5)
-    , genExprTest (genCtxWithSignals []) (BinExpr Div (NumLit 5) (NumLit 2)) (Scalar 114)
-    , genExprTest (genCtxWithSignals []) (BinExpr IntDiv (NumLit 5) (NumLit 2)) (Scalar 2)
-    , genExprTest (genCtxWithSignals ["in"]) (LValue $ Ident "in") (signalTerm "in" [])
+    [ genExprTest (genCtxWithSignals []) (NumLit 5) (constBundle 5)
+    , genExprTest (genCtxWithSignals []) (BinExpr Shl (NumLit 5) (NumLit 2)) (constBundle 20)
+    , genExprTest (genCtxWithSignals []) (BinExpr Div (NumLit 5) (NumLit 1)) (constBundle 5)
+    , genExprTest (genCtxWithSignals []) (BinExpr Div (NumLit 5) (NumLit 2)) (constBundle 114)
+    , genExprTest (genCtxWithSignals []) (BinExpr IntDiv (NumLit 5) (NumLit 2)) (constBundle 2)
     , genExprTest (genCtxWithSignals ["in"])
                (BinExpr Add (LValue $ Ident "in") (LValue $ Ident "in"))
                (Linear (Map.fromList [(SigLocal "in" [], 2)], 0))
@@ -64,36 +74,36 @@ circomGenTests = benchTestGroup "Circom generator tests"
                Other
     , genExprTest (genCtxWithSignals [])
                (UnExpr UnPos (ArrayLit [NumLit 5, NumLit 6, NumLit 7]))
-               (Scalar 3)
-    , genExprTest (genCtxWithSignals []) (UnExpr UnNeg (NumLit 5)) (Scalar (-5))
+               (constBundle 3)
+    , genExprTest (genCtxWithSignals []) (UnExpr UnNeg (NumLit 5)) (constBundle (-5))
     , ctxStoreGetTest
         "integer"
-        (ctxFromList (Map.fromList [("in", Array [Scalar 5])]))
+        (ctxFromList (Map.fromList [("in", Array [constTerm 5])]))
         (LTermIdent "in")
-        (Scalar 6)
+        (constTerm 6)
         (LTermIdent "in")
-        (Scalar 6)
+        (constTerm 6)
     , ctxStoreGetTest
         "array to integer"
-        (ctxFromList (Map.fromList [("in", Array [Scalar 5])]))
+        (ctxFromList (Map.fromList [("in", Array [constTerm 5])]))
         (LTermIdent "in")
-        (Scalar 6)
+        (constTerm 6)
         (LTermIdent "in")
-        (Scalar 6)
+        (constTerm 6)
     , ctxStoreGetTest
         "array"
-        (ctxFromList (Map.fromList [("in", Array [Scalar 5])]))
+        (ctxFromList (Map.fromList [("in", Array [constTerm 5])]))
         (LTermIdx (LTermIdent "in") 0)
-        (Scalar 6)
+        (constTerm 6)
         (LTermIdent "in")
-        (Array [Scalar 6])
+        (Array [constTerm 6])
     , ctxStoreGetTest
         "struct in array"
-        (ctxFromList (Map.fromList [("in", Array [Struct (Map.fromList [("a", Scalar 5)]) empty])]))
+        (ctxFromList (Map.fromList [("in", Array [Struct (Map.fromList [("a", constTerm 5)]) empty])]))
         (LTermPin (LTermIdx (LTermIdent "in") 0) "a")
-        (Scalar 6)
+        (constTerm 6)
         (LTermIdent "in")
-        (Array [Struct (Map.fromList [("a", Scalar 6)]) empty])
+        (Array [Struct (Map.fromList [("a", constTerm 6)]) empty])
     , genStatementsTest
         "equal"
         (genCtxWithSignals ["a", "b"])
@@ -109,7 +119,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
         (genCtxWithScalars [("n", 2)])
         [SigDeclaration "in" PublicIn [], SigDeclaration "out" Out [LValue $ Ident "n"]]
         (ctxFromList $ Map.fromList
-            [ ("n", Scalar 2)
+            [ ("n", constTerm 2)
             , ("in", signalTerm "in" [])
             , ("out", Array [ signalTerm "out" [0]
                             , signalTerm "out" [1]
@@ -125,294 +135,27 @@ circomGenTests = benchTestGroup "Circom generator tests"
         , VarDeclaration "lc1" [] (Just (NumLit 0))
         ]
         (ctxFromList $ Map.fromList
-            [ ("n", Scalar 2)
+            [ ("n", constTerm 2)
             , ("in", signalTerm "in" [])
             , ("out", Array [ signalTerm "out" [0]
                             , signalTerm "out" [1]
                             ]
               )
-            , ("lc1", Scalar 0)
+            , ("lc1", constTerm 0)
             ]
         )
-    , genStatementsTest
-        "first loop step of Num2Bits"
-        (genCtxWithScalars [("n", 2)])
-        [ SigDeclaration "in" PublicIn []
-        , SigDeclaration "out" Out [LValue $ Ident "n"]
-        , VarDeclaration "lc1" [] (Just (NumLit 0))
-        , VarDeclaration "i" [] (Just (NumLit 0))
-        , If (BinExpr Lt (LValue (Ident "i")) (LValue (Ident "n")))
-            [ Assign (Index (Ident "out") (LValue (Ident "i"))) (BinExpr BitAnd (BinExpr Shr (LValue (Ident "in")) (LValue (Ident "i"))) (NumLit 1))
-            , Constrain (BinExpr Mul (LValue (Index (Ident "out") (LValue (Ident "i"))))
-                                     (BinExpr Sub (LValue (Index (Ident "out") (LValue (Ident "i")))) (NumLit 1)))
-                        (NumLit 0)
-            , OpAssign Add (Ident "lc1") (BinExpr Mul (LValue (Index (Ident "out") (LValue (Ident "i")))) (BinExpr Pow (NumLit 2) (LValue (Ident "i"))))
-            , Ignore (UnMutExpr PostInc (Ident "i"))
-            ]
-            Nothing
-        ]
-        (ctxAddConstraint (ctxFromList $ Map.fromList
-            [ ("n", Scalar 2)
-            , ("in", signalTerm "in" [])
-            , ("out", Array [ signalTerm "out" [0]
-                            , signalTerm "out" [1]
-                            ]
-              )
-            , ("lc1", Linear (Map.fromList [ (SigLocal "out" [0], 1) ], 0))
-            , ("i", Scalar 1)
-            ]
-        ) ( (Map.fromList [ (SigLocal "out" [0], 1) ], 0)
-          , (Map.fromList [ (SigLocal "out" [0], 1) ], -1)
-          , (Map.fromList [], 0)
-          )
-        )
-    , genStatementsTest
-        "two loop steps of Num2Bits"
-        (genCtxWithScalars [("n", 2)])
-        ([ SigDeclaration "in" PublicIn []
-        , SigDeclaration "out" Out [LValue $ Ident "n"]
-        , VarDeclaration "lc1" [] (Just (NumLit 0))
-        , VarDeclaration "i" [] (Just (NumLit 0))
-        ]
-        ++ replicate 2
-        ( If (BinExpr Lt (LValue (Ident "i")) (LValue (Ident "n")))
-            [ Assign (Index (Ident "out") (LValue (Ident "i"))) (BinExpr BitAnd (BinExpr Shr (LValue (Ident "in")) (LValue (Ident "i"))) (NumLit 1))
-            , Constrain (BinExpr Mul (LValue (Index (Ident "out") (LValue (Ident "i"))))
-                                     (BinExpr Sub (LValue (Index (Ident "out") (LValue (Ident "i")))) (NumLit 1)))
-                        (NumLit 0)
-            , OpAssign Add (Ident "lc1") (BinExpr Mul (LValue (Index (Ident "out") (LValue (Ident "i")))) (BinExpr Pow (NumLit 2) (LValue (Ident "i"))))
-            , Ignore (UnMutExpr PostInc (Ident "i"))
-            ]
-            Nothing
-        ))
-        (ctxAddConstraint (ctxAddConstraint (ctxFromList $ Map.fromList
-            [ ("n", Scalar 2)
-            , ("in", signalTerm "in" [])
-            , ("out", Array [ signalTerm "out" [0]
-                            , signalTerm "out" [1]
-                            ]
-              )
-            , ("lc1", Linear (Map.fromList [ (SigLocal "out" [0], 1), (SigLocal "out" [1], 2) ], 0))
-            , ("i", Scalar 2)
-            ]
-        ) ( (Map.fromList [ (SigLocal "out" [0], 1) ], 0)
-          , (Map.fromList [ (SigLocal "out" [0], 1) ], -1)
-          , (Map.fromList [], 0)
-          )
-        ) ( (Map.fromList [ (SigLocal "out" [1], 1) ], 0)
-          , (Map.fromList [ (SigLocal "out" [1], 1) ], -1)
-          , (Map.fromList [], 0)
-          )
-        )
-    , genStatementsTest
-        "three loop steps of Num2Bits"
-        (genCtxWithScalars [("n", 2)])
-        ([ SigDeclaration "in" PublicIn []
-        , SigDeclaration "out" Out [LValue $ Ident "n"]
-        , VarDeclaration "lc1" [] (Just (NumLit 0))
-        , VarDeclaration "i" [] (Just (NumLit 0))
-        ]
-        ++ replicate 3
-        ( If (BinExpr Lt (LValue (Ident "i")) (LValue (Ident "n")))
-            [ Assign (Index (Ident "out") (LValue (Ident "i"))) (BinExpr BitAnd (BinExpr Shr (LValue (Ident "in")) (LValue (Ident "i"))) (NumLit 1))
-            , Constrain (BinExpr Mul (LValue (Index (Ident "out") (LValue (Ident "i"))))
-                                     (BinExpr Sub (LValue (Index (Ident "out") (LValue (Ident "i")))) (NumLit 1)))
-                        (NumLit 0)
-            , OpAssign Add (Ident "lc1") (BinExpr Mul (LValue (Index (Ident "out") (LValue (Ident "i")))) (BinExpr Pow (NumLit 2) (LValue (Ident "i"))))
-            , Ignore (UnMutExpr PostInc (Ident "i"))
-            ]
-            Nothing
-        ))
-        (ctxAddConstraint (ctxAddConstraint (ctxFromList $ Map.fromList
-            [ ("n", Scalar 2)
-            , ("in", signalTerm "in" [])
-            , ("out", Array [ signalTerm "out" [0]
-                            , signalTerm "out" [1]
-                            ]
-              )
-            , ("lc1", Linear (Map.fromList [ (SigLocal "out" [0], 1), (SigLocal "out" [1], 2) ], 0))
-            , ("i", Scalar 2)
-            ]
-        ) ( (Map.fromList [ (SigLocal "out" [0], 1) ], 0)
-          , (Map.fromList [ (SigLocal "out" [0], 1) ], -1)
-          , (Map.fromList [], 0)
-          )
-        ) ( (Map.fromList [ (SigLocal "out" [1], 1) ], 0)
-          , (Map.fromList [ (SigLocal "out" [1], 1) ], -1)
-          , (Map.fromList [], 0)
-          )
-        )
-    , genStatementsTest
-        "Num2Bits as while"
-        (genCtxWithScalars [("n", 2)])
-        [ SigDeclaration "in" PublicIn []
-        , SigDeclaration "out" Out [LValue $ Ident "n"]
-        , VarDeclaration "lc1" [] (Just (NumLit 0))
-        , VarDeclaration "i" [] (Just (NumLit 0))
-        , While (BinExpr Lt (LValue (Ident "i")) (LValue (Ident "n")))
-            [ Assign (Index (Ident "out") (LValue (Ident "i"))) (BinExpr BitAnd (BinExpr Shr (LValue (Ident "in")) (LValue (Ident "i"))) (NumLit 1))
-            , Constrain (BinExpr Mul (LValue (Index (Ident "out") (LValue (Ident "i"))))
-                                     (BinExpr Sub (LValue (Index (Ident "out") (LValue (Ident "i")))) (NumLit 1)))
-                        (NumLit 0)
-            , OpAssign Add (Ident "lc1") (BinExpr Mul (LValue (Index (Ident "out") (LValue (Ident "i")))) (BinExpr Pow (NumLit 2) (LValue (Ident "i"))))
-            , Ignore (UnMutExpr PostInc (Ident "i"))
-            ]
-        , Constrain (LValue (Ident "lc1")) (LValue (Ident "in"))
-        ]
-        (ctxAddConstraint (ctxAddConstraint (ctxAddConstraint (ctxFromList $ Map.fromList
-            [ ("n", Scalar 2)
-            , ("in", signalTerm "in" [])
-            , ("out", Array [ signalTerm "out" [0]
-                            , signalTerm "out" [1]
-                            ]
-              )
-            , ("lc1", Linear (Map.fromList [ (SigLocal "out" [0], 1), (SigLocal "out" [1], 2) ], 0))
-            , ("i", Scalar 2)
-            ]
-        ) ( (Map.fromList [ (SigLocal "out" [0], 1) ], 0)
-          , (Map.fromList [ (SigLocal "out" [0], 1) ], -1)
-          , (Map.fromList [], 0)
-          )
-        ) ( (Map.fromList [ (SigLocal "out" [1], 1) ], 0)
-          , (Map.fromList [ (SigLocal "out" [1], 1) ], -1)
-          , (Map.fromList [], 0)
-          )
-        ) ( (Map.fromList [], 0)
-          , (Map.fromList [], 0)
-          , (Map.fromList [ (SigLocal "out" [0], 1), (SigLocal "out" [1], 2), (SigLocal "in" [], -1) ], 0)
-          )
-        )
-    , genStatementsTest
-        "Num2Bits as for"
-        (genCtxWithScalars [("n", 2)])
-        [ SigDeclaration "in" PublicIn []
-        , SigDeclaration "out" Out [LValue $ Ident "n"]
-        , VarDeclaration "lc1" [] (Just (NumLit 0))
-        , For (VarDeclaration "i" [] (Just (NumLit 0))) (BinExpr Lt (LValue (Ident "i")) (LValue (Ident "n"))) (Ignore (UnMutExpr PostInc (Ident "i")))
-            [ Assign (Index (Ident "out") (LValue (Ident "i"))) (BinExpr BitAnd (BinExpr Shr (LValue (Ident "in")) (LValue (Ident "i"))) (NumLit 1))
-            , Constrain (BinExpr Mul (LValue (Index (Ident "out") (LValue (Ident "i"))))
-                                     (BinExpr Sub (LValue (Index (Ident "out") (LValue (Ident "i")))) (NumLit 1)))
-                        (NumLit 0)
-            , OpAssign Add (Ident "lc1") (BinExpr Mul (LValue (Index (Ident "out") (LValue (Ident "i")))) (BinExpr Pow (NumLit 2) (LValue (Ident "i"))))
-            ]
-        , Constrain (LValue (Ident "lc1")) (LValue (Ident "in"))
-        ]
-        (ctxAddConstraint (ctxAddConstraint (ctxAddConstraint (ctxFromList $ Map.fromList
-            [ ("n", Scalar 2)
-            , ("in", signalTerm "in" [])
-            , ("out", Array [ signalTerm "out" [0]
-                            , signalTerm "out" [1]
-                            ]
-              )
-            , ("lc1", Linear (Map.fromList [ (SigLocal "out" [0], 1), (SigLocal "out" [1], 2) ], 0))
-            , ("i", Scalar 2)
-            ]
-        ) ( (Map.fromList [ (SigLocal "out" [0], 1) ], 0)
-          , (Map.fromList [ (SigLocal "out" [0], 1) ], -1)
-          , (Map.fromList [], 0)
-          )
-        ) ( (Map.fromList [ (SigLocal "out" [1], 1) ], 0)
-          , (Map.fromList [ (SigLocal "out" [1], 1) ], -1)
-          , (Map.fromList [], 0)
-          )
-        ) ( (Map.fromList [], 0)
-          , (Map.fromList [], 0)
-          , (Map.fromList [ (SigLocal "out" [0], 1), (SigLocal "out" [1], 2), (SigLocal "in" [], -1) ], 0)
-          )
-        )
-       , genMainTest "test/Code/Circom/bitify4.circom"
-         (reverse [ ( (Map.fromList [ (SigForeign "main" [] (SigLocal "out" [0]), 1) ], 0)
-           , (Map.fromList [ (SigForeign "main" [] (SigLocal "out" [0]), 1) ], -1)
-           , (Map.fromList [], 0)
-           )
-         , ( (Map.fromList [ (SigForeign "main" [] (SigLocal "out" [1]), 1) ], 0)
-           , (Map.fromList [ (SigForeign "main" [] (SigLocal "out" [1]), 1) ], -1)
-           , (Map.fromList [], 0)
-           )
-         , ( (Map.fromList [ (SigForeign "main" [] (SigLocal "out" [2]), 1) ], 0)
-           , (Map.fromList [ (SigForeign "main" [] (SigLocal "out" [2]), 1) ], -1)
-           , (Map.fromList [], 0)
-           )
-         , ( (Map.fromList [ (SigForeign "main" [] (SigLocal "out" [3]), 1) ], 0)
-           , (Map.fromList [ (SigForeign "main" [] (SigLocal "out" [3]), 1) ], -1)
-           , (Map.fromList [], 0)
-           )
-         , ( (Map.fromList [], 0)
-           , (Map.fromList [], 0)
-           , (Map.fromList [ (SigForeign "main" [] (SigLocal "out" [0]), 1)
-                           , (SigForeign "main" [] (SigLocal "out" [1]), 2)
-                           , (SigForeign "main" [] (SigLocal "out" [2]), 4)
-                           , (SigForeign "main" [] (SigLocal "out" [3]), 8)
-                           , (SigForeign "main" [] (SigLocal "in" []), -1)
-                           ] , 0)
-           )
-         ])
-       , genMainTest "test/Code/Circom/bitify4-wrapper.circom"
-         (reverse [ ( (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [0])), 1) ], 0)
-           , (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [0])), 1) ], -1)
-           , (Map.fromList [], 0)
-           )
-         , ( (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [1])), 1) ], 0)
-           , (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [1])), 1) ], -1)
-           , (Map.fromList [], 0)
-           )
-         , ( (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [2])), 1) ], 0)
-           , (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [2])), 1) ], -1)
-           , (Map.fromList [], 0)
-           )
-         , ( (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [3])), 1) ], 0)
-           , (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [3])), 1) ], -1)
-           , (Map.fromList [], 0)
-           )
-         , ( (Map.fromList [], 0)
-           , (Map.fromList [], 0)
-           , (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [0])), 1)
-                           , (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [1])), 2)
-                           , (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [2])), 4)
-                           , (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [3])), 8)
-                           , (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "in" [])), -1)
-                           ] , 0)
-           )
-         , ( (Map.fromList [], 0)
-           , (Map.fromList [], 0)
-           , (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "in" [])), 1)
-                           , (SigForeign "main" [] (SigLocal "in" []), -1)
-                           ] , 0)
-           )
-         , ( (Map.fromList [], 0)
-           , (Map.fromList [], 0)
-           , (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [0])), -1)
-                           , (SigForeign "main" [] (SigLocal "out" [0]), 1)
-                           ] , 0)
-           )
-         , ( (Map.fromList [], 0)
-           , (Map.fromList [], 0)
-           , (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [1])), -1)
-                           , (SigForeign "main" [] (SigLocal "out" [1]), 1)
-                           ] , 0)
-           )
-         , ( (Map.fromList [], 0)
-           , (Map.fromList [], 0)
-           , (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [2])), -1)
-                           , (SigForeign "main" [] (SigLocal "out" [2]), 1)
-                           ] , 0)
-           )
-         , ( (Map.fromList [], 0)
-           , (Map.fromList [], 0)
-           , (Map.fromList [ (SigForeign "main" [] (SigForeign "inner" [] (SigLocal "out" [3])), -1)
-                           , (SigForeign "main" [] (SigLocal "out" [3]), 1)
-                           ] , 0)
-           )
-         ])
        , genMainTestCountOnly "test/Code/Circom/fn.circom" 6 3 6
        , genMainTestCountOnly "test/Code/Circom/multidim.circom" 6 0 7
        , genMainAndConvert "test/Code/Circom/multidim.circom" 7
     ]
 
-genExprTest :: Ctx (Prime 223) -> Expr -> Term (Prime 223) -> BenchTest
+genExprTest :: Ctx (Prime 223) -> Expr -> WireBundle (Prime 223) -> BenchTest
 genExprTest ctx e t = benchTestCase ("eval " ++ show e) $ do
     let p = genExpr ctx e
-    unless (snd p == t) $ error $ "Expected\n\t" ++ show e ++ "\nto evaluate to\n\t" ++ show t ++ "\nbut it evaluated to\n\t" ++ show (snd p) ++ "\n"
+    unless (case p of
+        (_, Base (w, _)) -> w == t
+        _ -> False) $
+        error $ "Expected\n\t" ++ show e ++ "\nto evaluate to\n\t" ++ show t ++ "\nbut it evaluated to\n\t" ++ show (snd p) ++ "\n"
     return ()
 
 ctxStoreGetTest :: String -> Ctx (Prime 223) -> LTerm -> Term (Prime 223) -> LTerm -> Term (Prime 223) -> BenchTest
