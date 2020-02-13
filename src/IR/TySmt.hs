@@ -13,6 +13,9 @@ module IR.TySmt ( Sort(..)
                 , PfNaryOp(..)
                 , PfUnOp(..)
                 , PfBinPred(..)
+                , BvTerm(..)
+                , BvBinOp(..)
+                , BvBinPred(..)
                 , Term(..)
                 ) where
 
@@ -41,6 +44,7 @@ data BoolTerm = BoolLit Bool
               | BoolVar String
               | BoolExists String Sort BoolTerm
               | BoolLet String AnyTerm BoolTerm
+              | BoolIte BoolTerm BoolTerm BoolTerm
               deriving (Show, Ord, Eq)
 
 data BoolNaryOp = BoolAnd | BoolOr | BoolXor deriving (Show, Ord, Eq)
@@ -53,14 +57,16 @@ data IntTerm = IntLit Integer
              | IntUnExpr IntUnOp IntTerm
              | PfToNat PfTerm
              | BvToNat BvTerm
+             | BoolToInt BoolTerm
              | IntVar String
              | IntExists String Sort IntTerm
              | IntLet String AnyTerm IntTerm
+             | IntIte BoolTerm IntTerm IntTerm
              deriving (Show, Ord, Eq)
 
 data IntNaryOp = IntAdd | IntMul
                deriving (Show, Ord, Eq)
-data IntBinOp = IntSub | IntDiv | IntMod | IntShl | IntShr
+data IntBinOp = IntSub | IntDiv | IntMod | IntShl | IntShr | IntPow
               deriving (Show, Ord, Eq)
 data IntUnOp = IntNeg | IntAbs
              deriving (Show, Ord, Eq)
@@ -76,6 +82,7 @@ data PfTerm = PfLit Integer Integer -- order value
             | PfVar String
             | PfExists String Sort PfTerm
             | PfLet String AnyTerm PfTerm
+            | PfIte BoolTerm PfTerm PfTerm
             deriving (Show, Ord, Eq)
 
 data PfNaryOp = PfAdd | PfMul deriving (Show, Ord, Eq)
@@ -90,6 +97,7 @@ data BvTerm = BvLit Int Integer
             | BvVar String
             | BvExists String Sort BvTerm
             | BvLet String AnyTerm BvTerm
+            | BvIte BoolTerm BvTerm BvTerm
             deriving (Show, Ord, Eq)
 
 data BvBinOp = BvShl
@@ -124,6 +132,7 @@ class Sorted a where
 class Term a where
     asAnyTerm :: a -> AnyTerm
     children :: a -> [AnyTerm]
+    mapVar :: (String -> String) -> a -> a
 
     depth :: a -> Int
     depth t = 1 + foldr max 0 (map depth $ children t)
@@ -135,6 +144,11 @@ instance Term AnyTerm where
         TermPf t   -> children t
         TermBool t -> children t
         TermInt t  -> children t
+    mapVar f t = case t of
+        TermBv t   -> TermBv   $ mapVar f t
+        TermPf t   -> TermPf   $ mapVar f t
+        TermBool t -> TermBool $ mapVar f t
+        TermInt t  -> TermInt  $ mapVar f t
 
 instance Term BvTerm where
     asAnyTerm = TermBv
@@ -146,6 +160,16 @@ instance Term BvTerm where
         BvVar {}        -> []
         BvExists _ _ a  -> [asAnyTerm a]
         BvLet _ a b     -> [a, asAnyTerm b]
+        BvIte c t f     -> [asAnyTerm c, asAnyTerm t, asAnyTerm f]
+    mapVar f t = case t of
+        l@BvLit {}      -> l
+        BvBinExpr o a b -> BvBinExpr o (mapVar f a) (mapVar f b)
+        BvExtract i j a -> BvExtract i j (mapVar f a)
+        IntToBv i a     -> IntToBv i (mapVar f a)
+        BvVar s         -> BvVar (f s)
+        BvExists s l a  -> BvExists (f s) l (mapVar f a)
+        BvLet s a b     -> BvLet (f s) (mapVar f a) (mapVar f b)
+        BvIte c t ff    -> BvIte (mapVar f c) (mapVar f t) (mapVar f ff)
 
 instance Term IntTerm where
     asAnyTerm = TermInt
@@ -159,6 +183,20 @@ instance Term IntTerm where
         IntVar {}        -> []
         IntExists _ _ a  -> [asAnyTerm a]
         IntLet _ a b     -> [a, asAnyTerm b]
+        BoolToInt a      -> [asAnyTerm a]
+        IntIte c t f     -> [asAnyTerm c, asAnyTerm t, asAnyTerm f]
+    mapVar f t = case t of
+        l@IntLit {}      -> l
+        IntNaryExpr o as -> IntNaryExpr o (map (mapVar f) as)
+        IntBinExpr o a b -> IntBinExpr o (mapVar f a) (mapVar f b)
+        IntUnExpr o a    -> IntUnExpr o (mapVar f a)
+        BvToNat a        -> BvToNat (mapVar f a)
+        PfToNat a        -> PfToNat (mapVar f a)
+        IntVar s         -> IntVar (f s)
+        IntExists s l a  -> IntExists (f s) l (mapVar f a)
+        IntLet s a b     -> IntLet (f s) (mapVar f a) (mapVar f b)
+        BoolToInt a      -> BoolToInt (mapVar f a)
+        IntIte c t ff    -> IntIte (mapVar f c) (mapVar f t) (mapVar f ff)
 
 instance Term PfTerm where
     asAnyTerm = TermPf
@@ -170,6 +208,16 @@ instance Term PfTerm where
         PfVar {}        -> []
         PfExists _ _ a  -> [asAnyTerm a]
         PfLet _ a b     -> [a, asAnyTerm b]
+        PfIte c t f     -> [asAnyTerm c, asAnyTerm t, asAnyTerm f]
+    mapVar f t = case t of
+        l@PfLit {}      -> l
+        PfNaryExpr o as -> PfNaryExpr o (map (mapVar f) as)
+        PfUnExpr o a    -> PfUnExpr o (mapVar f a)
+        IntToPf i a     -> IntToPf i (mapVar f a)
+        PfVar s         -> PfVar (f s)
+        PfExists s l a  -> PfExists (f s) l (mapVar f a)
+        PfLet s a b     -> PfLet (f s) (mapVar f a) (mapVar f b)
+        PfIte c t ff    -> PfIte (mapVar f c) (mapVar f t) (mapVar f ff)
 
 
 instance Term BoolTerm where
@@ -185,3 +233,16 @@ instance Term BoolTerm where
         IntPred _ a b     -> [asAnyTerm a, asAnyTerm b]
         PfPred _ a b      -> [asAnyTerm a, asAnyTerm b]
         BvBinPred _ a b   -> [asAnyTerm a, asAnyTerm b]
+        BoolIte c t f     -> [asAnyTerm c, asAnyTerm t, asAnyTerm f]
+    mapVar f t = case t of
+        l@BoolLit {}      -> l
+        BoolNaryExpr o as -> BoolNaryExpr o (map (mapVar f) as)
+        BoolBinExpr o a b -> BoolBinExpr o (mapVar f a) (mapVar f b)
+        BoolNeg a         -> BoolNeg (mapVar f a)
+        BoolVar s         -> BoolVar (f s)
+        BoolExists s l a  -> BoolExists (f s) l (mapVar f a)
+        BoolLet s a b     -> BoolLet (f s) (mapVar f a) (mapVar f b)
+        IntPred p a b     -> IntPred p (mapVar f a) (mapVar f b)
+        PfPred p a b      -> PfPred p (mapVar f a) (mapVar f b)
+        BvBinPred p a b   -> BvBinPred p (mapVar f a) (mapVar f b)
+        BoolIte c t ff    -> BoolIte (mapVar f c) (mapVar f t) (mapVar f ff)

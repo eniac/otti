@@ -15,11 +15,17 @@ module Codegen.Circom.Constraints ( Signal(..)
 
 import qualified Data.Set            as Set
 import qualified Data.Map.Strict    as Map
+import Data.List (intercalate)
+import Data.Either (either)
 
 data Signal = SigLocal String [Int]
             -- Subcomponent name, subcomponent indices, signal name, signal indices
             | SigForeign String [Int] Signal
-            deriving (Show,Ord,Eq)
+            deriving (Ord,Eq)
+
+instance Show Signal where
+    show = intercalate "." . map (either id (\i -> "[" ++ show i ++ "]")) . signalAccesses
+
 type LC k = (Map.Map Signal k, k) -- A linear combination of signals and gen-time constants
 
 type Constraint k = (LC k, LC k, LC k)

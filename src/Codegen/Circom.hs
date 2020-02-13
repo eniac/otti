@@ -1,4 +1,6 @@
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Codegen.Circom ( genExpr
                       , genStatement
                       , genStatements
@@ -16,6 +18,7 @@ module Codegen.Circom ( genExpr
                       , ctxWithEnv
                       ) where
 
+import qualified IR.TySmt                   as Smt
 import           AST.Circom                 as AST
 import qualified Codegen.Circom.Constraints as CS
 import           Codegen.Circom.Constraints (Constraints)
@@ -29,7 +32,8 @@ import qualified Data.Set                   as Set
 import           Data.Maybe                 as Maybe
 import qualified Data.Sequence              as Sequence
 import           Debug.Trace                (trace)
-import           GHC.TypeLits               (KnownNat)
+import           Data.Proxy                 (Proxy (Proxy))
+import           GHC.TypeLits               (KnownNat, natVal)
 
 
 
@@ -37,7 +41,7 @@ import           GHC.TypeLits               (KnownNat)
 -- dimensions, containing copies of the value.
 termMultiDimArray :: KnownNat k => Term (Prime k) -> [Term (Prime k)] -> Term (Prime k)
 termMultiDimArray = foldr (\d acc -> case d of
-        Base (Scalar n) -> Array $ replicate (fromIntegral $ fromP n) acc
+        Base (Scalar n, _) -> Array $ replicate (fromIntegral $ fromP n) acc
         _        -> error $ "Illegal dimension " ++ show d
     )
 
@@ -50,11 +54,17 @@ data DimArray = DABase String [Int] | DARec [DimArray]
 termSignalArray :: PrimeField k => String -> [Term k] -> Term k
 termSignalArray name dim = case dim of
     [] -> Sig (SigLocal name [])
-    (Base (Scalar n)):rest ->
-        Array $ [ mapSignalsInTerm (subscriptSignal (i - 1)) rec | i <- [1..(fromP n)] ]
+    (Base (Scalar n, _)):rest ->
+        Array $ [ mapSignalsInTerm (subscriptSignal (i - 1)) (sSigString (i - 1)) rec | i <- [1..(fromP n)] ]
         where
-            subscriptSignal idx (SigLocal name idxs) = SigLocal name ((fromIntegral idx):idxs)
+            subscriptSignal idx (SigLocal name idxs) = SigLocal name (fromIntegral idx:idxs)
             subscriptSignal idx  SigForeign {}       = error "Unreachable"
+            sSigString idx s = intercalate "." (t: ("[" ++ show idx ++ "]") : ts)
+                where
+                  t:ts = split '.' s
+            split :: Eq a => a -> [a] -> [[a]]
+            split d [] = []
+            split d s = x : split d (drop 1 y) where (x,y) = span (/= d) s
             rec = termSignalArray name rest
     (t:ts) -> error $ "Illegal dimension " ++ show t
 
@@ -72,17 +82,18 @@ wireGenTimeConst t = case t of
 
 termGenTimeConst :: Term k -> Bool
 termGenTimeConst t = case t of
-    Base b       -> wireGenTimeConst b
+    Base (b, _)  -> wireGenTimeConst b
     Sig {}       -> False
     Array a      -> all termGenTimeConst a
     Struct map _ -> all termGenTimeConst map
 
-genGetUnMutOp :: PrimeField k => UnMutOp -> Term k -> Term k
+genGetUnMutOp :: KnownNat k => UnMutOp -> Term (Prime k) -> Term (Prime k)
 genGetUnMutOp op = case op of
-    PreInc  -> (+ Base (Scalar 1))
-    PostInc -> (+ Base (Scalar 1))
-    PreDec  -> (+ Base (Scalar (-1)))
-    PostDec -> (+ Base (Scalar (-1)))
+    PreInc  -> (+ Base (fromInteger 1))
+    PostInc -> (+ Base (fromInteger 1))
+    PreDec  -> (+ Base (fromInteger (-1)))
+    PostDec -> (+ Base (fromInteger (-1)))
+  where
 
 genLocation :: KnownNat k => Ctx (Prime k) -> Location -> (Ctx (Prime k), LTerm)
 genLocation ctx loc = case loc of
@@ -90,7 +101,7 @@ genLocation ctx loc = case loc of
     Pin loc' pin -> (ctx', LTermPin lt pin)
         where (ctx', lt) = genLocation ctx loc'
     Index loc' ie -> case iterm of
-            Base (Scalar i) -> (ctx'', LTermIdx lt (fromIntegral $ fromP i))
+            Base (Scalar i, _) -> (ctx'', LTermIdx lt (fromIntegral $ fromP i))
             i -> error $ "Non-scalar " ++ show i ++ " as index in " ++ show loc
         where
             (ctx', lt) = genLocation ctx loc'
@@ -98,103 +109,191 @@ genLocation ctx loc = case loc of
 
 -- Lifts a fun: Integer -> Integer -> Integer to one that operates over gen-time constant
 -- terms
-wireGenConstantBinLift :: KnownNat k => (Integer -> Integer -> Integer) -> WireBundle (Prime k) -> WireBundle (Prime k) -> WireBundle (Prime k)
-wireGenConstantBinLift f s t = case (s, t) of
-    (Scalar c1 , Scalar c2) -> Scalar $ toP $ f (fromP c1) (fromP c2)
-    _ -> Other
+liftToBaseTerm :: KnownNat k =>
+    (Integer -> Integer -> Integer) ->
+    (Smt.PfTerm -> Smt.PfTerm -> Smt.PfTerm) ->
+    BaseTerm (Prime k) ->
+    BaseTerm (Prime k) ->
+    BaseTerm (Prime k)
+liftToBaseTerm ft fsmt (sa, sb) (ta, tb) =
+    ( case (sa, ta) of
+        (Scalar c1 , Scalar c2) -> Scalar $ toP $ ft (fromP c1) (fromP c2)
+        _ -> Other
+    , fsmt sb tb
+    )
 
-genConstantBinLift :: KnownNat k => String -> (Integer -> Integer -> Integer) -> Term (Prime k) -> Term (Prime k) -> Term (Prime k)
-genConstantBinLift name f s t = case (s, t) of
+liftToTerm :: KnownNat k =>
+    String ->
+    (Integer -> Integer -> Integer) ->
+    (Smt.PfTerm -> Smt.PfTerm -> Smt.PfTerm) ->
+    Term (Prime k) ->
+    Term (Prime k) ->
+    Term (Prime k)
+liftToTerm name f fsmt s t = case (s, t) of
     (a@Array {}, _) -> error $ "Cannot perform operation \"" ++ name ++ "\" on array term " ++ show a
     (a@Struct {}, _) -> error $ "Cannot perform operation \"" ++ name ++ "\" on struct term " ++ show a
-    (Sig _, _) -> Base Other
-    (Base a, Base b) -> Base $ wireGenConstantBinLift f a b
-    (l, r) -> genConstantBinLift name f r l
+    (Sig s, r) -> liftToTerm name f fsmt (sigAsTerm s) r
+    (Base a, Base b) -> Base $ liftToBaseTerm f fsmt a b
+    (l, r) -> liftToTerm name f fsmt r l
+
+liftBvToTerm :: forall k. KnownNat k =>
+    String ->
+    (Integer -> Integer -> Integer) ->
+    Smt.BvBinOp ->
+    Term (Prime k) ->
+    Term (Prime k) ->
+    Term (Prime k)
+liftBvToTerm name f op =
+    liftToTerm name
+               f
+               (\a b -> Smt.IntToPf o $ Smt.BvToNat $
+                        Smt.BvBinExpr op (Smt.IntToBv bits $ Smt.PfToNat a)
+                                         (Smt.IntToBv bits $ Smt.PfToNat b))
+    where
+        o = natVal (Proxy :: Proxy k)
+        bits = (floor . logBase 2 . fromIntegral) o + 1
+
+liftIntFnToTerm :: forall k. KnownNat k =>
+    String ->
+    (Integer -> Integer -> Integer) ->
+    (Smt.IntTerm -> Smt.IntTerm -> Smt.IntTerm) ->
+    Term (Prime k) ->
+    Term (Prime k) ->
+    Term (Prime k)
+liftIntFnToTerm name f g =
+    liftToTerm name
+               f
+               (\a b -> Smt.IntToPf o $
+                        g (Smt.PfToNat a)
+                          (Smt.PfToNat b))
+    where
+        o = natVal (Proxy :: Proxy k)
+
+liftIntOpToTerm name f op = liftIntFnToTerm name f (Smt.IntBinExpr op)
 
 -- Lifts a fun: Integer -> Integer -> Bool to one that operates over gen-time constant
 -- terms
-genConstantCmpLift :: KnownNat k => String -> (Integer -> Integer -> Bool) -> Term (Prime k) -> Term (Prime k) -> Term (Prime k)
-genConstantCmpLift name f = genConstantBinLift name (\a b -> if f a b then 1 else 0)
+liftCmpToTerm :: forall k. KnownNat k =>
+    String ->
+    (Integer -> Integer -> Bool) ->
+    Smt.IntBinPred ->
+    Term (Prime k) ->
+    Term (Prime k) ->
+    Term (Prime k)
+liftCmpToTerm name f g =
+    liftIntFnToTerm name (\a b -> if f a b then 1 else 0)
+                         (\a b -> Smt.BoolToInt $ Smt.IntPred g a b)
 
 -- Lifts a fun: Bool -> Bool -> Bool to one that operates over gen-time
 -- constant terms
-genConstantBoolBinLift :: KnownNat k => String -> (Bool -> Bool -> Bool) -> Term (Prime k) -> Term (Prime k) -> Term (Prime k)
-genConstantBoolBinLift name f = genConstantBinLift name (\a b -> if f (a /= 0) (b /= 0) then 1 else 0)
+liftBoolFnToTerm :: forall k. KnownNat k =>
+    String ->
+    (Bool -> Bool -> Bool) ->
+    (Smt.BoolTerm -> Smt.BoolTerm -> Smt.BoolTerm) ->
+    Term (Prime k) ->
+    Term (Prime k) ->
+    Term (Prime k)
+liftBoolFnToTerm name f g =
+    liftToTerm name (\a b -> if f (a /= 0) (b /= 0) then 1 else 0)
+                    (\a b -> Smt.IntToPf o $ Smt.BoolToInt $ g
+                        (Smt.PfPred Smt.PfNe z a)
+                        (Smt.PfPred Smt.PfNe z b))
+    where
+        o = natVal (Proxy :: Proxy k)
+        z = Smt.PfLit 0 o
 
 -- Lifts a fun: Integer -> Integer to one that operates over gen-time constant terms
-wireGenConstantUnLift :: KnownNat k => (Integer -> Integer) -> WireBundle (Prime k) -> WireBundle (Prime k)
-wireGenConstantUnLift f s = case s of
-    Scalar c1 -> (Scalar . toP . f . fromP) c1
-    _ -> Other
+liftUnToBaseTerm :: KnownNat k =>
+    (Integer -> Integer) ->
+    (Smt.PfTerm -> Smt.PfTerm) ->
+    BaseTerm (Prime k) ->
+    BaseTerm (Prime k)
+liftUnToBaseTerm f fsmt (sa, sb) =
+    ( case sa of
+        Scalar c1 -> (Scalar . toP . f . fromP) c1
+        _ -> Other
+    , fsmt sb
+    )
 
 
-genConstantUnLift :: KnownNat k => String -> (Integer -> Integer) -> Term (Prime k) -> Term (Prime k)
-genConstantUnLift name f t = case t of
+liftUnToTerm :: KnownNat k =>
+    String ->
+    (Integer -> Integer) ->
+    (Smt.PfTerm -> Smt.PfTerm) ->
+    Term (Prime k) ->
+    Term (Prime k)
+liftUnToTerm name f fsmt t = case t of
     a@Array {} -> error $ "Cannot perform operation \"" ++ name ++ "\" on array term " ++ show a
     a@Struct {} -> error $ "Cannot perform operation \"" ++ name ++ "\" on struct term " ++ show a
-    Base a -> Base $ wireGenConstantUnLift f a
-    Sig {} -> Base Other
+    Base a -> Base $ liftUnToBaseTerm f fsmt a
+    Sig s -> liftUnToTerm name f fsmt (sigAsTerm s)
 
-
-genExpr :: KnownNat k => Ctx (Prime k) -> Expr -> (Ctx (Prime k), Term (Prime k))
+genExpr :: forall k. KnownNat k => Ctx (Prime k) -> Expr -> (Ctx (Prime k), Term (Prime k))
 genExpr ctx expr = case expr of
-    NumLit i -> (ctx, Base $ Scalar $ toP $ fromIntegral i)
+    NumLit i -> (ctx, Base $ fromInteger $ fromIntegral i)
     ArrayLit es -> (ctx', Array ts)
-        where
-            (ctx', ts) = genExprs ctx es
+      where
+        (ctx', ts) = genExprs ctx es
     BinExpr op l r ->
-        (ctx'', case op of
-            Add    -> l' + r'
-            Sub    -> l' - r'
-            Mul    -> l' * r'
-            Div    -> l' / r'
-            IntDiv -> genConstantBinLift "//" div l' r'
-            Mod    -> genConstantBinLift "%" mod l' r'
-            Lt     -> genConstantCmpLift "<" (<) l' r'
-            Gt     -> genConstantCmpLift ">" (>) l' r'
-            Le     -> genConstantCmpLift "<=" (<=) l' r'
-            Ge     -> genConstantCmpLift "<=" (>=) l' r'
-            Eq     -> genConstantCmpLift "==" (==) l' r'
-            Ne     -> genConstantCmpLift "!=" (/=) l' r'
-            And    -> genConstantBoolBinLift "&&" (&&) l' r'
-            Or     -> genConstantBoolBinLift "||" (||) l' r'
-            Shl    -> genConstantBinLift "<<" (liftShiftToInt Bits.shiftL) l' r'
-            Shr    -> genConstantBinLift "<<" (liftShiftToInt Bits.shiftR) l' r'
-            BitAnd -> genConstantBinLift "&" (Bits..&.) l' r'
-            BitOr  -> genConstantBinLift "&" (Bits..|.) l' r'
-            BitXor -> genConstantBinLift "&" Bits.xor l' r'
-            Pow    -> genConstantBinLift "**" (^) l' r')
-        where
-            (ctx', l') = genExpr ctx l
-            (ctx'', r') = genExpr ctx' r
-            liftShiftToInt :: (Integer -> Int -> Integer) -> Integer -> Integer -> Integer
-            liftShiftToInt s l r = s l (fromIntegral r)
+      (ctx'', case op of
+        Add    -> l' + r'
+        Sub    -> l' - r'
+        Mul    -> l' * r'
+        Div    -> l' / r'
+        IntDiv -> liftIntOpToTerm "//" div Smt.IntDiv l' r'
+        Mod    -> liftIntOpToTerm "%" mod Smt.IntMod l' r'
+        Lt     -> liftCmpToTerm "<"  (<)  Smt.IntLt l' r'
+        Gt     -> liftCmpToTerm ">"  (>)  Smt.IntGt l' r'
+        Le     -> liftCmpToTerm "<=" (<=) Smt.IntLe l' r'
+        Ge     -> liftCmpToTerm "<=" (>=) Smt.IntGe l' r'
+        Eq     -> liftCmpToTerm "==" (==) Smt.IntEq l' r'
+        Ne     -> liftCmpToTerm "!=" (/=) Smt.IntNe l' r'
+        And    -> liftBoolFnToTerm "&&" (&&)
+            (\a b -> Smt.BoolNaryExpr Smt.BoolAnd [a, b]) l' r'
+        Or     -> liftBoolFnToTerm "||" (||)
+            (\a b -> Smt.BoolNaryExpr Smt.BoolOr [a, b]) l' r'
+        Shl    -> liftIntOpToTerm "<<" (liftShiftToInt Bits.shiftL) Smt.IntShl l' r'
+        Shr    -> liftIntOpToTerm "<<" (liftShiftToInt Bits.shiftR) Smt.IntShr l' r'
+        BitAnd -> liftBvToTerm "&" (Bits..&.) Smt.BvAnd l' r'
+        BitOr  -> liftBvToTerm "|" (Bits..|.) Smt.BvOr  l' r'
+        BitXor -> liftBvToTerm "^" Bits.xor   Smt.BvXor l' r'
+        Pow    -> liftIntOpToTerm "**" (^) Smt.IntPow l' r')
+      where
+        (ctx', l') = genExpr ctx l
+        (ctx'', r') = genExpr ctx' r
+        liftShiftToInt :: (Integer -> Int -> Integer) -> Integer -> Integer -> Integer
+        liftShiftToInt s l r = s l (fromIntegral r)
     UnExpr op e ->
         case op of
             UnNeg -> (ctx', - t)
-            Not -> (ctx', genConstantUnLift "!" (\c -> if c /= 0 then 0 else 1) t)
-            UnPos -> (ctx', Base (case t of
-                Array ts     -> Scalar $ toP $ fromIntegral $ length ts
-                Struct ts _  -> Scalar $ toP $ fromIntegral $ Map.size ts
-                Sig {}       -> Other
-                Base (Scalar c)     -> Scalar c
-                Base (Other)        -> Other
-                Base (Linear {})    -> Other
-                Base (Quadratic {}) -> Other))
-            BitNot -> (ctx', genConstantUnLift "~" Bits.complement t)
+            Not -> (ctx', liftUnToTerm "!" (\c -> if c /= 0 then 0 else 1)
+                (Smt.IntToPf o . Smt.BoolToInt . Smt.BoolNeg . Smt.PfPred Smt.PfNe z) t)
+              where
+                o = natVal (Proxy :: Proxy k)
+                z = Smt.PfLit 0 o
+            UnPos -> (ctx', (case t of
+                Array ts     -> Base $ fromInteger $ fromIntegral $ length ts
+                Struct ts _  -> Base $ fromInteger $ fromIntegral $ Map.size ts
+                t -> t))
+            BitNot -> error "NYI" -- The sematics of this are unclear.
         where
             (ctx', t) = genExpr ctx e
     UnMutExpr op loc -> genUnExpr ctx op loc
     Ite c l r ->
         case condT of
-            Base (Scalar 0)     -> genExpr ctx' r
-            Base (Scalar _)     -> genExpr ctx' l
-            Base (Other)        -> (ctx', Base Other)
-            Base (Linear {})    -> (ctx', Base Other)
-            Base (Quadratic {}) -> (ctx', Base Other)
-            t            -> error $ "Cannot condition on term " ++ show t
+            Base (Scalar 0, _)     -> (ctx''', caseF)
+            Base (Scalar _, _)     -> (ctx''', caseT)
+            Base (s, v)            ->
+                case (caseT, caseF) of
+                    (Base t, Base f) -> (ctx''', Base (Other, Smt.PfIte (Smt.PfPred Smt.PfNe z v) (snd t) (snd f)))
+                    (t, f) -> error $ "Cannot evalate a ternary as " ++ show t ++ " or " ++ show f
+            t -> error $ "Cannot condition on term " ++ show t
         where
             (ctx', condT) = genExpr ctx c
+            (ctx'', caseT) = genExpr ctx' l
+            (ctx''', caseF) = genExpr ctx'' r
+            o = natVal (Proxy :: Proxy k)
+            z = Smt.PfLit 0 o
     LValue loc ->
             (ctx', ctxGet ctx' lt)
             -- TODO(aozdemir): enforce ctx' == ctx for sanity?
@@ -208,7 +307,7 @@ genExpr ctx expr = case expr of
             else
                 (ctx', ctxToStruct postCtx)
         else
-            (ctx', Base Other)
+            (ctx', error "NYI")
         where
             postCtx = genStatements newCtx block
             newCtx = ctx' { env = Map.fromList (zip formalArgs actualArgs)
@@ -237,7 +336,7 @@ genExprs c = foldl (\(c, ts) e -> let (c', t) = genExpr c e in (c', ts ++ [t])) 
 genStatements :: KnownNat k => Ctx (Prime k) -> [Statement] -> Ctx (Prime k)
 genStatements = foldl (\c s -> if isJust (returning c) then c else genStatement c s)
 
-genStatement :: KnownNat k => Ctx (Prime k) -> Statement -> Ctx (Prime k)
+genStatement :: forall k. KnownNat k => Ctx (Prime k) -> Statement -> Ctx (Prime k)
 genStatement ctx statement = case statement of
     -- Note, signals are immutable.
     Assign loc expr -> if termIsSig (ctxGet ctx'' lval) then
@@ -251,9 +350,9 @@ genStatement ctx statement = case statement of
     OpAssign op loc expr -> genStatement ctx $ Assign loc (BinExpr op (LValue loc) expr)
     Constrain l r ->
         case zeroTerm of
-            Base (Scalar 0) -> ctx''
-            Base (Linear lc) -> ctxAddConstraint ctx'' (lcZero, lcZero, lc)
-            Base (Quadratic a b c) -> ctxAddConstraint ctx'' (a, b, c)
+            Base (Scalar 0, _) -> ctx''
+            Base (Linear lc, _) -> ctxAddConstraint ctx'' (lcZero, lcZero, lc)
+            Base (Quadratic a b c, _) -> ctxAddConstraint ctx'' (a, b, c)
             Sig s -> ctxAddConstraint ctx'' (lcZero, lcZero, (Map.fromList [(s, 1)], 0))
             _ -> error $ "Cannot constain " ++ show zeroTerm ++ " to zero"
         where
@@ -266,8 +365,10 @@ genStatement ctx statement = case statement of
             Just e  -> genStatement ctx'' $ Assign (Ident name) e
             Nothing -> ctx''
         where
-            ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0)) ts)
+            ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0, z)) ts)
             (ctx', ts) = genExprs ctx dims
+            o = natVal (Proxy :: Proxy k)
+            z = Smt.PfLit 0 o
     SigDeclaration name kind dims -> ctxInit ctx'' name t
         where
             ctx'' = Set.fold sigAdder ctx' (termSignals t)
@@ -278,17 +379,19 @@ genStatement ctx statement = case statement of
             Just e  -> genStatement ctx'' $ Assign (Ident name) e
             Nothing -> ctx''
         where
-            ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0)) ts)
+            ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0, z)) ts)
             (ctx', ts) = genExprs ctx dims
+            o = natVal (Proxy :: Proxy k)
+            z = Smt.PfLit 0 o
     If cond true false -> case tcond of
-            Base (Scalar 0) -> genStatements ctx' (concat $ Maybe.maybeToList false)
-            Base (Scalar _) -> genStatements ctx' true
+            Base (Scalar 0, _) -> genStatements ctx' (concat $ Maybe.maybeToList false)
+            Base (Scalar _, _) -> genStatements ctx' true
             _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
         where
             (ctx', tcond) = genExpr ctx cond
     While cond block -> case tcond of
-            Base (Scalar 0) -> ctx'
-            Base (Scalar _) -> genStatement (genStatements ctx block) (While cond block)
+            Base (Scalar 0, _) -> ctx'
+            Base (Scalar _, _) -> genStatement (genStatements ctx block) (While cond block)
             _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
         where
             (ctx', tcond) = genExpr ctx cond

@@ -18,6 +18,7 @@ import qualified Codegen.Circom.Constraints as CS
 import           Codegen.Circom.Term
 import qualified Data.Either                as Either
 import           Data.Field.Galois          (PrimeField)
+import           Data.List                  (intercalate)
 import qualified Data.Map.Strict            as Map
 import qualified Data.Maybe                 as Maybe
 import           Debug.Trace                (trace)
@@ -53,7 +54,7 @@ ctxStore ctx loc value = case value of
         Struct m c -> if null (Either.lefts ss)
             then
                 let
-                    m' = Map.map (mapSignalsInTerm emmigrateSignal) m
+                    m' = Map.map (mapSignalsInTerm emmigrateSignal emmigrateSignalString) m
                     c' = CS.mapSignals emmigrateSignal c
                 in
                     ctx { env = Map.update (pure . replacein ss (Struct m' c')) ident (env ctx)
@@ -64,6 +65,7 @@ ctxStore ctx loc value = case value of
     where
         (ident, ss) = steps loc
         emmigrateSignal = SigForeign ident (Either.rights ss)
+        emmigrateSignalString s = intercalate "." (ident:map (\i -> "[" ++ show i ++ "]") (Either.rights ss)) ++ "."
 
         -- Given
         --   * a location as a list of pins/indices, ([Either String Int])

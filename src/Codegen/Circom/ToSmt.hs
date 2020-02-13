@@ -15,8 +15,6 @@ import qualified Data.Set                   as Set
 import           GHC.TypeLits               (KnownNat, natVal)
 import qualified IR.TySmt                   as S
 
-signalToString :: CS.Signal -> String
-signalToString = intercalate "." . map (either id (\idx -> "[" ++ show idx ++ "]")) . CS.signalAccesses
 
 constraintsToSmt :: forall k. KnownNat k =>  CS.Constraints (Prime k) -> S.BoolTerm
 constraintsToSmt c = quantified
@@ -24,7 +22,7 @@ constraintsToSmt c = quantified
         conj = S.BoolNaryExpr S.BoolAnd $ map constraintToSmt (CS.equalities c)
         sigs = Set.union (CS.private c) (CS.public c)
         sigSort = S.Pf $ natVal (Proxy :: Proxy k)
-        quantified = Set.fold (\s f -> S.BoolExists (signalToString s) sigSort f) conj sigs
+        quantified = Set.fold (\s f -> S.BoolExists (show s) sigSort f) conj sigs
 
 constraintToSmt :: KnownNat k => CS.Constraint (Prime k) -> S.BoolTerm
 constraintToSmt (a, b, c) =
@@ -35,5 +33,5 @@ lcToSmt (m, c) = S.PfNaryExpr S.PfAdd (cTerm : mTerms)
     where
         constToTerm = S.PfLit (natVal (Proxy :: Proxy k)) . fromP
         cTerm = constToTerm c
-        mTerms = map (uncurry (\s c -> S.PfNaryExpr S.PfMul [S.PfVar (signalToString s), constToTerm c]))
+        mTerms = map (uncurry (\s c -> S.PfNaryExpr S.PfMul [S.PfVar (show s), constToTerm c]))
             $ Map.toList m
