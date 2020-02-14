@@ -21,7 +21,7 @@ import           Parser.Circom              as Parser
 import           Utils
 
 signalTerm :: KnownNat k => String -> [Int] -> Term (Prime k)
-signalTerm s l = Sig (SigLocal s l)
+signalTerm s l = sigAsSigTerm (SigLocal s l)
 
 prime :: Integer
 prime = read "113890009193798365449144652900867294558768981710660728242748762258461992583217"
@@ -113,7 +113,14 @@ circomGenTests = benchTestGroup "Circom generator tests"
         "twice (assign & constrain)"
         (genCtxWithSignals ["a", "b"])
         [AssignConstrain (Ident "a") (BinExpr Mul (NumLit 2) (LValue (Ident "b")))]
-        (ctxAddConstraint (genCtxWithSignals ["a", "b"]) (lcZero, lcZero, (Map.fromList [(SigLocal "a" [], 1), (SigLocal "b" [], -2)], 0)))
+        (ctxAddConstraint
+            (ctxStore (genCtxWithSignals ["a", "b"])
+                      (LTermIdent "a")
+                      (Base ( Sig (SigLocal "a" [])
+                            , Smt.PfNaryExpr Smt.PfMul [Smt.PfLit 2 223, Smt.PfVar "b"])))
+            ( lcZero
+            , lcZero
+            , (Map.fromList [(SigLocal "a" [], 1), (SigLocal "b" [], -2)], 0)))
     , genStatementsTest
         "decls of Num2Bits"
         (genCtxWithScalars [("n", 2)])

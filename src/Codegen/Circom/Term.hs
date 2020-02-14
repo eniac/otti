@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
 module Codegen.Circom.Term ( lcZero
@@ -13,21 +13,26 @@ module Codegen.Circom.Term ( lcZero
                            , LC
                            , mapSignalsInTerm
                            , termSignals
-                           , sigAsTerm
+                           , sigAsLinearTerm
+                           , sigAsSigTerm
+                           , sigAsWire
+                           , sigAsLC
                            , sigLocation
                            ) where
 
-import qualified IR.TySmt                   as Smt
+import           Codegen.Circom.Constraints (Constraint, Constraints, LC,
+                                             Signal)
 import qualified Codegen.Circom.Constraints as CS
-import           Codegen.Circom.Constraints (Constraints, Constraint, LC, Signal)
 import           Data.Field.Galois          (Prime, PrimeField)
 import qualified Data.Map.Strict            as Map
-import qualified Data.Set                   as Set
-import           Data.Set                   (Set)
 import           Data.Proxy                 (Proxy (Proxy))
+import           Data.Set                   (Set)
+import qualified Data.Set                   as Set
 import           GHC.TypeLits               (KnownNat, natVal)
+import qualified IR.TySmt                   as Smt
 
-data WireBundle k = Scalar k
+data WireBundle k = Sig Signal
+                  | Scalar k
                   | Linear (LC k)
                   | Quadratic (LC k) (LC k) (LC k)
                   | Other
@@ -35,8 +40,7 @@ data WireBundle k = Scalar k
 
 type BaseTerm k = (WireBundle k, Smt.PfTerm)
 
-data Term k = Sig Signal
-            | Base (BaseTerm k)
+data Term k = Base (BaseTerm k)
             | Array [Term k]                                    -- An array of terms
             | Struct (Map.Map String (Term k)) (Constraints k)  -- A structure, environment and constraints
             deriving (Show,Ord,Eq)
@@ -62,6 +66,7 @@ instance Fractional Smt.PfTerm where
 instance PrimeField k => Num (WireBundle k) where
   s + t = case (s, t) of
     (Other, _) -> Other
+    (Sig s, r) -> sigAsWire s + r
     (Linear (m1, c1), Linear (m2, c2)) -> Linear (Map.unionWith (+) m1 m2, c1 + c2)
     (Linear (m1, c1), Quadratic a b (m2, c2)) -> Quadratic a b (Map.unionWith (+) m1 m2, c1 + c2)
     (Linear (m1, c1), Scalar c) -> Linear (m1, c1 + c)
@@ -71,6 +76,7 @@ instance PrimeField k => Num (WireBundle k) where
     (l, r) -> r + l
   s * t = case (s, t) of
     (Other, _) -> Other
+    (Sig s, r) -> sigAsWire s * r
     (Linear l1, Linear l2) -> Quadratic l1 l2 (Map.empty, 0)
     (Linear _, Quadratic {}) -> Other
     (Linear l, Scalar c) -> Linear $ lcScale l c
@@ -80,15 +86,15 @@ instance PrimeField k => Num (WireBundle k) where
     (l, r) -> r * l
   fromInteger n = Scalar $ fromInteger n
   signum s = case s of
+    Sig {}       -> Scalar 1
     Other        -> Scalar 1
     Linear {}    -> Scalar 1
     Quadratic {} -> Scalar 1
     Scalar n     -> Scalar $ signum n
   abs s = case s of
-    Other          -> Other
-    l@Linear {}    -> l
-    q@Quadratic {} -> q
-    Scalar n       -> Scalar $ abs n
+    Other    -> Other
+    Scalar n -> Scalar $ abs n
+    _        -> s
   negate s = fromInteger (-1) * s
 
 instance PrimeField k => Fractional (WireBundle k) where
@@ -96,6 +102,7 @@ instance PrimeField k => Fractional (WireBundle k) where
   recip t = case t of
     Scalar c1    -> Scalar (recip c1)
     Other        -> Other
+    Sig {}       -> Other
     Linear _     -> Other
     Quadratic {} -> Other
 
@@ -115,35 +122,30 @@ instance KnownNat k => Num (Term (Prime k)) where
   s + t = case (s, t) of
     (a@Array {}, _) -> error $ "Cannot add array term " ++ show a ++ " to anything"
     (a@Struct {}, _) -> error $ "Cannot add struct term " ++ show a ++ " to anything"
-    (Sig s, r) -> sigAsTerm s + r
     (Base a, Base b) -> Base $ a + b
     (l, r) -> r + l
   s * t = case (s, t) of
     (a@Array {}, _) -> error $ "Cannot multiply array term " ++ show a ++ " with anything"
     (a@Struct {}, _) -> error $ "Cannot multiply struct term " ++ show a ++ " with anything"
-    (Sig s, r) -> sigAsTerm s * r
     (Base a, Base b) -> Base $ a * b
     (l, r) -> r * l
   fromInteger n = Base $ fromInteger n
   signum s = case s of
-    Array {}     -> error $ "Cannot get sign of array term " ++ show s
-    Struct {}    -> error $ "Cannot get sign of struct term " ++ show s
-    Base a       -> Base $ signum a
-    Sig {}       -> Base $ fromInteger 1
+    Array {}  -> error $ "Cannot get sign of array term " ++ show s
+    Struct {} -> error $ "Cannot get sign of struct term " ++ show s
+    Base a    -> Base $ signum a
   abs s = case s of
-    Array a        -> Base $ fromIntegral $ length a
-    Struct s _     -> Base $ fromIntegral $ Map.size s
-    Base a         -> Base $ abs a
-    s@Sig {}       -> s
+    Array a    -> Base $ fromIntegral $ length a
+    Struct s _ -> Base $ fromIntegral $ Map.size s
+    Base a     -> Base $ abs a
   negate s = fromInteger (-1) * s
 
 instance KnownNat k => Fractional (Term (Prime k)) where
   fromRational = Base . fromRational
   recip t = case t of
-    a@Array {}   -> error $ "Cannot invert array term " ++ show a
-    a@Struct {}  -> error $ "Cannot invert struct term " ++ show a
-    Base a       -> Base $ recip a
-    Sig s        -> Base (Other, Smt.PfUnExpr Smt.PfRecip (sigAsSmt s))
+    a@Array {}  -> error $ "Cannot invert array term " ++ show a
+    a@Struct {} -> error $ "Cannot invert struct term " ++ show a
+    Base a      -> Base $ recip a
 
 lcScale :: PrimeField k => LC k -> k -> LC k
 lcScale (m, c) a = (Map.map (*a) m, a * c)
@@ -151,14 +153,24 @@ lcScale (m, c) a = (Map.map (*a) m, a * c)
 lcZero :: PrimeField k => LC k
 lcZero = (Map.empty, 0)
 
-sigAsTerm :: PrimeField k => Signal -> Term k
-sigAsTerm s = Base (Linear (Map.fromList [(s, 1)], 0), sigAsSmt s)
+sigAsLC :: PrimeField k => Signal -> LC k
+sigAsLC s = (Map.fromList [(s, 1)], 0)
+
+sigAsWire :: PrimeField k => Signal -> WireBundle k
+sigAsWire = Linear . sigAsLC
+
+sigAsSigTerm :: PrimeField k => Signal -> Term k
+sigAsSigTerm s = Base (Sig s, sigAsSmt s)
+
+sigAsLinearTerm :: PrimeField k => Signal -> Term k
+sigAsLinearTerm s = Base (Linear (Map.fromList [(s, 1)], 0), sigAsSmt s)
 
 sigAsSmt :: Signal -> Smt.PfTerm
 sigAsSmt = Smt.PfVar . show
 
 mapSignalsInWires :: (Signal -> Signal) -> WireBundle k -> WireBundle k
 mapSignalsInWires f t = case t of
+    Sig s -> Sig $ f s
     Linear (m, c) -> Linear (Map.mapKeys f m, c)
     Quadratic (m1, c1) (m2, c2) (m3, c3) -> Quadratic (Map.mapKeys f m1, c1) (Map.mapKeys f m2, c2) (Map.mapKeys f m3, c3)
     Scalar c -> Scalar c
@@ -166,7 +178,6 @@ mapSignalsInWires f t = case t of
 
 mapSignalsInTerm :: (Signal -> Signal) -> (String -> String) -> Term k -> Term k
 mapSignalsInTerm f fs t = case t of
-    Sig s -> Sig $ f s
     Array ts -> Array $ map (mapSignalsInTerm f fs) ts
     Struct ts cs -> Struct (Map.map (mapSignalsInTerm f fs) ts) (CS.mapSignals f cs)
     Base (a, b) -> Base (mapSignalsInWires f a, Smt.mapVar fs b)
@@ -174,14 +185,14 @@ mapSignalsInTerm f fs t = case t of
 wireSignals :: WireBundle k -> Set Signal
 wireSignals t = case t of
     Other -> Set.empty
+    Sig s       -> Set.insert s Set.empty
     Linear (m, _) -> Set.fromList (Map.keys m)
     Quadratic (a, _) (b, _) (c, _) -> foldr Set.union Set.empty (map (Set.fromList . Map.keys) [a, b, c])
     Scalar s -> Set.empty
 
 termSignals :: Term k -> Set Signal
 termSignals t = case t of
-    Sig s -> Set.insert s Set.empty
-    Array ts -> foldr Set.union Set.empty $ map termSignals ts
+    Array ts    -> foldr Set.union Set.empty $ map termSignals ts
     Struct m cs -> foldr Set.union Set.empty $ map termSignals $ Map.elems m
     Base (a, _) -> wireSignals a
 
@@ -190,5 +201,3 @@ sigLocation s =
     foldl (flip $ either (flip LTermPin) (flip LTermIdx))
           (LTermIdent (CS.signalLeadingName s))
           (drop 1 $ CS.signalAccesses s)
-
-

@@ -54,7 +54,7 @@ data DimArray = DABase String [Int] | DARec [DimArray]
 -- Kind of like "a" [2, 1] to [["a.0.0"], ["a.1.0"]]
 termSignalArray :: PrimeField k => String -> [Term k] -> Term k
 termSignalArray name dim = case dim of
-    [] -> Sig (SigLocal name [])
+    [] -> sigAsSigTerm (SigLocal name [])
     (Base (Scalar n, _)):rest ->
         Array $ [ mapSignalsInTerm (subscriptSignal (i - 1)) (sSigString (i - 1)) rec | i <- [1..(fromP n)] ]
         where
@@ -69,13 +69,9 @@ termSignalArray name dim = case dim of
             rec = termSignalArray name rest
     (t:ts) -> error $ "Illegal dimension " ++ show t
 
-termIsSig :: Term k -> Bool
-termIsSig t = case t of
-    Sig {} -> True
-    _      -> False
-
 wireGenTimeConst :: WireBundle k -> Bool
 wireGenTimeConst t = case t of
+    Sig {}       -> False
     Quadratic {} -> False
     Scalar {}    -> True
     Linear {}    -> False
@@ -84,7 +80,6 @@ wireGenTimeConst t = case t of
 termGenTimeConst :: Term k -> Bool
 termGenTimeConst t = case t of
     Base (b, _)  -> wireGenTimeConst b
-    Sig {}       -> False
     Array a      -> all termGenTimeConst a
     Struct map _ -> all termGenTimeConst map
 
@@ -133,7 +128,6 @@ liftToTerm :: KnownNat k =>
 liftToTerm name f fsmt s t = case (s, t) of
     (a@Array {}, _) -> error $ "Cannot perform operation \"" ++ name ++ "\" on array term " ++ show a
     (a@Struct {}, _) -> error $ "Cannot perform operation \"" ++ name ++ "\" on struct term " ++ show a
-    (Sig s, r) -> liftToTerm name f fsmt (sigAsTerm s) r
     (Base a, Base b) -> Base $ liftToBaseTerm f fsmt a b
     (l, r) -> liftToTerm name f fsmt r l
 
@@ -227,7 +221,6 @@ liftUnToTerm name f fsmt t = case t of
     a@Array {} -> error $ "Cannot perform operation \"" ++ name ++ "\" on array term " ++ show a
     a@Struct {} -> error $ "Cannot perform operation \"" ++ name ++ "\" on struct term " ++ show a
     Base a -> Base $ liftUnToBaseTerm f fsmt a
-    Sig s -> liftUnToTerm name f fsmt (sigAsTerm s)
 
 genExpr :: forall k. KnownNat k => Ctx (Prime k) -> Expr -> (Ctx (Prime k), Term (Prime k))
 genExpr ctx expr = case expr of
@@ -340,10 +333,7 @@ genStatements = foldl (\c s -> if isJust (returning c) then c else genStatement 
 genStatement :: forall k. KnownNat k => Ctx (Prime k) -> Statement -> Ctx (Prime k)
 genStatement ctx statement = case statement of
     -- Note, signals are immutable.
-    Assign loc expr -> if termIsSig (ctxGet ctx'' lval) then
-                ctx''
-            else
-                ctxStore ctx'' lval term
+    Assign loc expr -> ctxStore ctx'' lval term
         where
             (ctx', lval) = genLocation ctx loc
             (ctx'', term) = genExpr ctx' expr
@@ -352,9 +342,9 @@ genStatement ctx statement = case statement of
     Constrain l r ->
         case zeroTerm of
             Base (Scalar 0, _) -> ctx''
+            Base (Sig s, _) -> ctxAddConstraint ctx'' (lcZero, lcZero, sigAsLC s)
             Base (Linear lc, _) -> ctxAddConstraint ctx'' (lcZero, lcZero, lc)
             Base (Quadratic a b c, _) -> ctxAddConstraint ctx'' (a, b, c)
-            Sig s -> ctxAddConstraint ctx'' (lcZero, lcZero, (Map.fromList [(s, 1)], 0))
             _ -> error $ "Cannot constain " ++ show zeroTerm ++ " to zero"
         where
             (ctx', lt) = genExpr ctx l

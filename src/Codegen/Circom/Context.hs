@@ -44,6 +44,11 @@ updateList f i l = case splitAt i l of
 ctxWithEnv :: PrimeField k => Map.Map String (Term k) -> Integer -> Ctx k
 ctxWithEnv env order = Ctx { env = env, constraints = CS.empty, callables = Map.empty , fieldOrder = order, returning = Nothing }
 
+assignTerm :: PrimeField k => Term k -> Term k -> Term k
+assignTerm src dst = case (src, dst) of
+    (Base (Sig s, _), Base (_, v)) -> Base (Sig s, v)
+    (_, r)                         -> r
+
 
 -- Modifies a context to store a value in a location
 ctxStore :: PrimeField k => Ctx k -> LTerm -> Term k -> Ctx k
@@ -74,7 +79,7 @@ ctxStore ctx loc value = case value of
         -- to the top of the term) and replaces it with `value`.
         replacein :: PrimeField k => [Either String Int] -> Term k -> Term k -> Term k
         replacein location value term = case location of
-            [] -> value
+            [] -> assignTerm term value
             Left pin:rest -> case term of
                 Struct m c -> Struct (Map.update (pure . replacein rest value) pin m) c
                 _ -> error $ "Cannot update pin `" ++ pin ++ "` of non-struct " ++ show term
