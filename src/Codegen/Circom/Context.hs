@@ -24,7 +24,6 @@ import qualified Data.Maybe                 as Maybe
 import           Debug.Trace                (trace)
 
 data Ctx k = Ctx { env         :: Map.Map String (Term k)
-                 , valueEnv    :: Map.Map String Smt.PfTerm
                  , constraints :: CS.Constraints k
                  --                              (fn? , params  , body     )
                  -- NB: templates are not fn's.

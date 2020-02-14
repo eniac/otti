@@ -14,6 +14,7 @@ module Codegen.Circom.Term ( lcZero
                            , mapSignalsInTerm
                            , termSignals
                            , sigAsTerm
+                           , sigLocation
                            ) where
 
 import qualified IR.TySmt                   as Smt
@@ -183,4 +184,11 @@ termSignals t = case t of
     Array ts -> foldr Set.union Set.empty $ map termSignals ts
     Struct m cs -> foldr Set.union Set.empty $ map termSignals $ Map.elems m
     Base (a, _) -> wireSignals a
+
+sigLocation :: Signal -> LTerm
+sigLocation s =
+    foldl (flip $ either (flip LTermPin) (flip LTermIdx))
+          (LTermIdent (CS.signalLeadingName s))
+          (drop 1 $ CS.signalAccesses s)
+
 

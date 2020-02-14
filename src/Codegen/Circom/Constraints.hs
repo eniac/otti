@@ -11,6 +11,7 @@ module Codegen.Circom.Constraints ( Signal(..)
                                   , mapSignalsInConstraint
                                   , empty
                                   , signalAccesses
+                                  , signalLeadingName
                                   ) where
 
 import qualified Data.Set            as Set
@@ -71,3 +72,8 @@ signalAccesses :: Signal -> [Either String Int]
 signalAccesses s = case s of
     SigLocal n is -> Left n : map Right is
     SigForeign n is rest -> (Left n : map Right is) ++ signalAccesses rest
+
+signalLeadingName :: Signal -> String
+signalLeadingName s = case s of
+    SigLocal n _ -> n
+    SigForeign n _ _ -> n

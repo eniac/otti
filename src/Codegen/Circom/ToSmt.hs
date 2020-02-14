@@ -3,17 +3,49 @@
 
 
 module Codegen.Circom.ToSmt ( constraintsToSmt
+                            , ctxToSmt
                             ) where
 
+import qualified Codegen.Circom.Term        as Term
+import qualified Codegen.Circom.Context     as C
 import qualified Codegen.Circom.Constraints as CS
-import           Data.Either                (either)
 import           Data.Field.Galois          (Prime, fromP, toP)
 import           Data.List                  (intercalate)
 import qualified Data.Map.Strict            as Map
+import qualified Data.Maybe                 as Maybe
 import           Data.Proxy                 (Proxy (Proxy))
 import qualified Data.Set                   as Set
 import           GHC.TypeLits               (KnownNat, natVal)
 import qualified IR.TySmt                   as S
+import qualified Digraph
+
+
+variableDependencies :: S.PfTerm -> [String]
+variableDependencies t = concatMap (Maybe.maybeToList . S.asVariable) (S.allDescendants t)
+
+
+ctxToSmt :: forall k. KnownNat k => C.Ctx (Prime k) -> S.BoolTerm
+ctxToSmt c = quantified
+    where
+        sigSort = S.Pf $ natVal (Proxy :: Proxy k)
+        cs = C.constraints c
+
+        -- Conjoin the constraints
+        conj = S.BoolNaryExpr S.BoolAnd $ map constraintToSmt (CS.equalities cs)
+
+        -- Build a graph of variable dependencies
+        graph = Digraph.graphFromEdgedVerticesOrd $ map (\s -> case (C.ctxGet c (Term.sigLocation s)) of
+            Term.Base (_, smt) -> Digraph.DigraphNode smt (show s) (variableDependencies smt)
+            other -> error $ "Cannot have signal like " ++ show other ++ " because that is not a field element"
+          ) $ Set.toList (CS.private cs)
+
+        -- Let bind all private variables
+        letted = foldr (\n f -> case n of
+            Digraph.DigraphNode value name _ -> S.BoolLet name (S.TermPf value) f
+          ) conj (Digraph.topologicalSortG graph)
+
+        -- existentially quantify all public variables
+        quantified = Set.fold (\s f -> S.BoolExists (show s) sigSort f) letted (CS.public cs)
 
 
 constraintsToSmt :: forall k. KnownNat k =>  CS.Constraints (Prime k) -> S.BoolTerm

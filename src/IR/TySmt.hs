@@ -137,6 +137,11 @@ class Term a where
     depth :: a -> Int
     depth t = 1 + foldr max 0 (map depth $ children t)
 
+    allDescendants :: a -> [AnyTerm]
+    allDescendants t = asAnyTerm t : concatMap allDescendants (children t)
+
+    asVariable :: a -> Maybe String
+
 instance Term AnyTerm where
     asAnyTerm = id
     children t = case t of
@@ -149,6 +154,11 @@ instance Term AnyTerm where
         TermPf t   -> TermPf   $ mapVar f t
         TermBool t -> TermBool $ mapVar f t
         TermInt t  -> TermInt  $ mapVar f t
+    asVariable t = case t of
+        TermBv t   -> asVariable t
+        TermPf t   -> asVariable t
+        TermBool t -> asVariable t
+        TermInt t  -> asVariable t
 
 instance Term BvTerm where
     asAnyTerm = TermBv
@@ -170,6 +180,9 @@ instance Term BvTerm where
         BvExists s l a  -> BvExists (f s) l (mapVar f a)
         BvLet s a b     -> BvLet (f s) (mapVar f a) (mapVar f b)
         BvIte c t ff    -> BvIte (mapVar f c) (mapVar f t) (mapVar f ff)
+    asVariable t = case t of
+        BvVar s -> Just s
+        _       -> Nothing
 
 instance Term IntTerm where
     asAnyTerm = TermInt
@@ -197,6 +210,9 @@ instance Term IntTerm where
         IntLet s a b     -> IntLet (f s) (mapVar f a) (mapVar f b)
         BoolToInt a      -> BoolToInt (mapVar f a)
         IntIte c t ff    -> IntIte (mapVar f c) (mapVar f t) (mapVar f ff)
+    asVariable t = case t of
+        IntVar s -> Just s
+        _        -> Nothing
 
 instance Term PfTerm where
     asAnyTerm = TermPf
@@ -218,6 +234,9 @@ instance Term PfTerm where
         PfExists s l a  -> PfExists (f s) l (mapVar f a)
         PfLet s a b     -> PfLet (f s) (mapVar f a) (mapVar f b)
         PfIte c t ff    -> PfIte (mapVar f c) (mapVar f t) (mapVar f ff)
+    asVariable t = case t of
+        PfVar s -> Just s
+        _       -> Nothing
 
 
 instance Term BoolTerm where
@@ -246,3 +265,6 @@ instance Term BoolTerm where
         PfPred p a b      -> PfPred p (mapVar f a) (mapVar f b)
         BvBinPred p a b   -> BvBinPred p (mapVar f a) (mapVar f b)
         BoolIte c t ff    -> BoolIte (mapVar f c) (mapVar f t) (mapVar f ff)
+    asVariable t = case t of
+        BoolVar s -> Just s
+        _         -> Nothing
