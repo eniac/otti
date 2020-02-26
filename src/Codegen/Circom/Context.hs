@@ -17,14 +17,15 @@ import           Codegen.Circom.Constraints (Constraint, LC, Signal)
 import qualified Codegen.Circom.Constraints as CS
 import           Codegen.Circom.Term
 import qualified Data.Either                as Either
-import           Data.Field.Galois          (PrimeField)
+import           Data.Field.Galois          (Prime)
 import           Data.List                  (intercalate)
 import qualified Data.Map.Strict            as Map
 import qualified Data.Maybe                 as Maybe
 import           Debug.Trace                (trace)
+import           GHC.TypeLits               (KnownNat, natVal)
 
 data Ctx k = Ctx { env         :: Map.Map String (Term k)
-                 , constraints :: CS.Constraints k
+                 , constraints :: CS.Constraints (Prime k)
                  --                              (fn? , params  , body     )
                  -- NB: templates are not fn's.
                  --     functions are
@@ -33,7 +34,7 @@ data Ctx k = Ctx { env         :: Map.Map String (Term k)
                  , fieldOrder  :: Integer
                  , returning   :: Maybe (Term k)
                  }
-                 deriving (Show, Eq)
+                 deriving (Show)
 
 updateList :: (a -> a) -> Int -> [a] -> Maybe [a]
 updateList f i l = case splitAt i l of
@@ -41,17 +42,17 @@ updateList f i l = case splitAt i l of
     _        -> Nothing
 
 
-ctxWithEnv :: PrimeField k => Map.Map String (Term k) -> Integer -> Ctx k
+ctxWithEnv :: KnownNat k => Map.Map String (Term k) -> Integer -> Ctx k
 ctxWithEnv env order = Ctx { env = env, constraints = CS.empty, callables = Map.empty , fieldOrder = order, returning = Nothing }
 
-assignTerm :: PrimeField k => Term k -> Term k -> Term k
+assignTerm :: KnownNat k => Term k -> Term k -> Term k
 assignTerm src dst = case (src, dst) of
     (Base (Sig s, _), Base (_, v)) -> Base (Sig s, v)
     (_, r)                         -> r
 
 
 -- Modifies a context to store a value in a location
-ctxStore :: PrimeField k => Ctx k -> LTerm -> Term k -> Ctx k
+ctxStore :: KnownNat k => Ctx k -> LTerm -> Term k -> Ctx k
 ctxStore ctx loc value = case value of
         -- No storing structures to foreign locations!
         -- Really, we want something stricter than this
@@ -77,7 +78,7 @@ ctxStore ctx loc value = case value of
         --   * a term (Term)
         -- locates the sub-term of term at the location (first pin/idx applies
         -- to the top of the term) and replaces it with `value`.
-        replacein :: PrimeField k => [Either String Int] -> Term k -> Term k -> Term k
+        replacein :: KnownNat k => [Either String Int] -> Term k -> Term k -> Term k
         replacein location value term = case location of
             [] -> assignTerm term value
             Left pin:rest -> case term of
@@ -99,7 +100,7 @@ ctxStore ctx loc value = case value of
 
 
 -- Gets a value from a location in a context
-ctxGet :: PrimeField k => Ctx k -> LTerm -> Term k
+ctxGet :: KnownNat k => Ctx k -> LTerm -> Term k
 ctxGet ctx loc = case loc of
     LTermIdent s -> r
         where r = Map.findWithDefault (error $ "Unknown identifier `" ++ s ++ "`") s (env ctx)
@@ -110,15 +111,14 @@ ctxGet ctx loc = case loc of
         Array ts -> if i < length ts then ts !! i else error $ "Idx " ++ show i ++ " too big for " ++ show ts
         l -> error $ "Non-array " ++ show l ++ " as location in " ++ show loc
 
-ctxInit :: PrimeField k => Ctx k -> String -> Term k -> Ctx k
+ctxInit :: KnownNat k => Ctx k -> String -> Term k -> Ctx k
 ctxInit ctx name value = ctx { env = Map.insert name value (env ctx) }
 
 -- Given a context and an identifier too find, looks up the callable (function or template) of that name.
 -- Returns the (whether it is a function, the formal parameters, the body)
-ctxGetCallable :: PrimeField k => Ctx k -> String -> (Bool, [String], AST.Block)
+ctxGetCallable :: KnownNat k => Ctx k -> String -> (Bool, [String], AST.Block)
 ctxGetCallable ctx name = Maybe.fromMaybe (error $ "No template named " ++ name ++ " found") $ Map.lookup name (callables ctx)
 
-ctxAddConstraint :: PrimeField k => Ctx k -> Constraint k -> Ctx k
 ctxAddConstraint ctx c = ctx { constraints = CS.addEquality c $ constraints ctx }
 
 ctxAddPublicSig :: Signal -> Ctx k -> Ctx k

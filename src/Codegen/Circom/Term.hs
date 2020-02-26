@@ -38,12 +38,12 @@ data WireBundle k = Sig Signal
                   | Other
                   deriving (Show, Ord, Eq)
 
-type BaseTerm k = (WireBundle k, Smt.PfTerm)
+type BaseTerm k = (WireBundle (Prime k), (Smt.Term (Smt.PfSort k)))
 
 data Term k = Base (BaseTerm k)
             | Array [Term k]                                    -- An array of terms
-            | Struct (Map.Map String (Term k)) (Constraints k)  -- A structure, environment and constraints
-            deriving (Show,Ord,Eq)
+            | Struct (Map.Map String (Term k)) (Constraints (Prime k))  -- A structure, environment and constraints
+            deriving (Show)
 
 -- An evaluated l-value
 data LTerm = LTermIdent String
@@ -51,7 +51,7 @@ data LTerm = LTermIdent String
            | LTermIdx LTerm Int
            deriving (Show,Ord,Eq)
 
-instance Num Smt.PfTerm where
+instance KnownNat n => Num (Smt.Term (Smt.PfSort n)) where
   a + b = Smt.PfNaryExpr Smt.PfAdd [a, b]
   a * b = Smt.PfNaryExpr Smt.PfMul [a, b]
   fromInteger n = error "NYI: Need modulus"
@@ -59,7 +59,7 @@ instance Num Smt.PfTerm where
   abs s = s
   negate = Smt.PfUnExpr Smt.PfNeg
 
-instance Fractional Smt.PfTerm where
+instance KnownNat n => Fractional (Smt.Term (Smt.PfSort n)) where
   fromRational n = error "NYI: Need modulus"
   recip = Smt.PfUnExpr Smt.PfRecip
 
@@ -106,19 +106,19 @@ instance PrimeField k => Fractional (WireBundle k) where
     Linear _     -> Other
     Quadratic {} -> Other
 
-instance forall k. KnownNat k => Num (BaseTerm (Prime k)) where
+instance forall k. KnownNat k => Num (BaseTerm k) where
     (a, b) + (c, d) = (a + c, b + d)
     (a, b) * (c, d) = (a * c, b * d)
-    fromInteger n = (fromInteger n, Smt.PfLit n $ natVal (Proxy :: Proxy k))
+    fromInteger n = (fromInteger n, Smt.IntToPf $ Smt.IntLit n)
     signum (a, b) = (signum a, signum b)
     abs (a, b) = (abs a, abs b)
     negate (a, b) = (negate a, negate b)
 
-instance KnownNat k => Fractional (BaseTerm (Prime k)) where
+instance KnownNat k => Fractional (BaseTerm k) where
     fromRational n = (fromRational n, fromRational n)
     recip (a, b) = (recip a, recip b)
 
-instance KnownNat k => Num (Term (Prime k)) where
+instance KnownNat k => Num (Term k) where
   s + t = case (s, t) of
     (a@Array {}, _) -> error $ "Cannot add array term " ++ show a ++ " to anything"
     (a@Struct {}, _) -> error $ "Cannot add struct term " ++ show a ++ " to anything"
@@ -140,7 +140,7 @@ instance KnownNat k => Num (Term (Prime k)) where
     Base a     -> Base $ abs a
   negate s = fromInteger (-1) * s
 
-instance KnownNat k => Fractional (Term (Prime k)) where
+instance KnownNat k => Fractional (Term k) where
   fromRational = Base . fromRational
   recip t = case t of
     a@Array {}  -> error $ "Cannot invert array term " ++ show a
@@ -159,14 +159,14 @@ sigAsLC s = (Map.fromList [(s, 1)], 0)
 sigAsWire :: PrimeField k => Signal -> WireBundle k
 sigAsWire = Linear . sigAsLC
 
-sigAsSigTerm :: PrimeField k => Signal -> Term k
+sigAsSigTerm :: KnownNat k => Signal -> Term k
 sigAsSigTerm s = Base (Sig s, sigAsSmt s)
 
-sigAsLinearTerm :: PrimeField k => Signal -> Term k
+sigAsLinearTerm :: KnownNat k => Signal -> Term k
 sigAsLinearTerm s = Base (Linear (Map.fromList [(s, 1)], 0), sigAsSmt s)
 
-sigAsSmt :: Signal -> Smt.PfTerm
-sigAsSmt = Smt.PfVar . show
+sigAsSmt :: KnownNat n => Signal -> (Smt.Term (Smt.PfSort n))
+sigAsSmt = Smt.Var . show
 
 mapSignalsInWires :: (Signal -> Signal) -> WireBundle k -> WireBundle k
 mapSignalsInWires f t = case t of
