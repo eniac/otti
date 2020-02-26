@@ -87,3 +87,22 @@ include_directories(.)
 
 add_subdirectory(depends)
 add_subdirectory(src)
+
+enable_testing()
+add_test(
+    NAME end_to_end_3fac
+    COMMAND ./src/test/run_test.zsh ./build/src/main 3fac
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+)
+
+add_test(
+    NAME end_to_end_bit
+    COMMAND ./src/test/run_test.zsh ./build/src/main bit
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+)
+
+add_test(
+    NAME end_to_end_4bits
+    COMMAND ./src/test/run_test.zsh ./build/src/main 4bits
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+)
