@@ -176,11 +176,25 @@ mapSignalsInWires f t = case t of
     Scalar c -> Scalar c
     Other -> Other
 
+mapVarsInSmtTerms :: (String -> String) -> Smt.Term s -> Smt.Term s
+mapVarsInSmtTerms f = Smt.mapTerm visit
+  where
+    visit :: Smt.Term t -> Maybe (Smt.Term t)
+    visit t = case t of
+      Smt.Var v ->
+        Just $ Smt.Var (f v)
+      Smt.Exists v s tt ->
+        Just $ Smt.Exists (f v) s (Smt.mapTerm visit tt)
+      Smt.Let v s tt ->
+        Just $ Smt.Let (f v) (Smt.mapTerm visit s) (Smt.mapTerm visit tt)
+      _ -> Nothing
+
+
 mapSignalsInTerm :: (Signal -> Signal) -> (String -> String) -> Term k -> Term k
 mapSignalsInTerm f fs t = case t of
     Array ts -> Array $ map (mapSignalsInTerm f fs) ts
     Struct ts cs -> Struct (Map.map (mapSignalsInTerm f fs) ts) (CS.mapSignals f cs)
-    Base (a, b) -> Base (mapSignalsInWires f a, Smt.mapVar fs b)
+    Base (a, b) -> Base (mapSignalsInWires f a, mapVarsInSmtTerms fs b)
 
 wireSignals :: WireBundle k -> Set Signal
 wireSignals t = case t of
