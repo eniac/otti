@@ -149,6 +149,9 @@ liftBvToTerm name f op =
     liftToTerm name
                f
                (\a b -> Smt.IntToPf @k $ Smt.BvToInt $
+                        -- Note that `k` is really too big, but it would take
+                        -- moew work to convince GHC that Log2 k + 1 is a
+                        -- KnownNat.
                         Smt.BvBinExpr op (Smt.IntToBv @k $ Smt.PfToInt a)
                                          (Smt.IntToBv @k $ Smt.PfToInt b))
     where
