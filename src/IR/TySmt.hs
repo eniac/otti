@@ -33,6 +33,7 @@ module IR.TySmt ( IntSort(..)
                 , Term(..)
                 , mapTerm
                 , reduceTerm
+                , depth
                 ) where
 
 import           GHC.TypeNats
@@ -300,4 +301,16 @@ reduceTerm mapF i foldF t = case mapF t of
     NewArray -> i
   Just s -> s
 
+depth :: Term s -> Int
+depth = reduceTerm visit 0 (\a b -> 1 + max a b)
+    where
+        visit :: Term s -> Maybe Int
+        visit t = case t of
+            NewArray -> Just 0
+            Fp64Lit _ -> Just 0
+            Fp32Lit _ -> Just 0
+            IntLit _ -> Just 0
+            BoolLit _ -> Just 0
+            Var _ -> Just 0
+            _ -> Nothing
 
