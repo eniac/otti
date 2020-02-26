@@ -26,6 +26,8 @@ Options:
   -h, --help     Display this message
   --smt          Print the smt
   --r1cs <path>  Write the R1CS to this path
+  --vk <path>    Write the verifier key to this path [default: vk]
+  --pk <path>    Write the prover key to this path [default: pk]
 |]
 
 getArgOrExit = getArgOrExitWith patterns
@@ -43,5 +45,5 @@ main = do
     let smt = ctxToSmt r
     when (args `isPresent` longOption "smt") $ print smt
     case args `getArg` longOption "r1cs" of
-        Just r1cs -> writeToR1csFile order smt r1cs
+        Just r1cs -> writeToR1csFile smt r1cs
         Nothing -> pure ()

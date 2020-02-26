@@ -37,13 +37,14 @@ module IR.TySmt ( IntSort(..)
                 ) where
 
 import           GHC.TypeNats
+import           Data.Dynamic (Typeable)
 
-data IntSort = IntSort deriving (Show,Ord,Eq)
-data BoolSort = BoolSort deriving (Show,Ord,Eq)
-data BvSort n = BvSort Int deriving (Show,Ord,Eq)
-data PfSort n = PfSort Integer deriving (Show,Ord,Eq)
-data FpSort n m = FpSort Int Int deriving (Show,Ord,Eq)
-data ArraySort k v = ArraySort deriving (Show,Ord,Eq)
+data IntSort = IntSort deriving (Show,Ord,Eq,Typeable)
+data BoolSort = BoolSort deriving (Show,Ord,Eq,Typeable)
+data BvSort n = BvSort Int deriving (Show,Ord,Eq,Typeable)
+data PfSort n = PfSort Integer deriving (Show,Ord,Eq,Typeable)
+data FpSort n m = FpSort Int Int deriving (Show,Ord,Eq,Typeable)
+data ArraySort k v = ArraySort deriving (Show,Ord,Eq,Typeable)
 
 type F32 = FpSort 8 24
 type F64 = FpSort 11 53
@@ -54,18 +55,18 @@ data Sort = SortInt
           | SortPf Integer
           | SortFp Int Int
           | SortArray Sort Sort
-          deriving (Show,Ord,Eq)
+          deriving (Show,Ord,Eq,Typeable,Typeable)
 
-data BoolNaryOp = And | Or | Xor deriving (Show,Ord,Eq)
+data BoolNaryOp = And | Or | Xor deriving (Show,Ord,Eq,Typeable)
 
-data BoolBinOp = Implies deriving (Show,Ord,Eq)
+data BoolBinOp = Implies deriving (Show,Ord,Eq,Typeable)
 
 data IntBinOp = IntSub | IntDiv | IntMod | IntShl | IntShr | IntPow | IntAdd | IntMul
-              deriving (Show, Ord, Eq)
+              deriving (Show, Ord, Eq, Typeable)
 data IntUnOp = IntNeg | IntAbs
-             deriving (Show, Ord, Eq)
+             deriving (Show, Ord, Eq, Typeable)
 data IntBinPred = IntLt | IntLe | IntGt | IntGe | IntEq | IntNe
-                deriving (Show, Ord, Eq)
+                deriving (Show, Ord, Eq, Typeable)
 
 data BvBinOp = BvShl
              | BvLshr
@@ -78,7 +79,7 @@ data BvBinOp = BvShl
              | BvOr
              | BvAnd
              | BvXor
-             deriving (Show, Ord, Eq)
+             deriving (Show, Ord, Eq, Typeable)
 
 data BvBinPred = BvEq
                | BvNe
@@ -90,11 +91,11 @@ data BvBinPred = BvEq
                | BvSlt
                | BvSge
                | BvSle
-               deriving (Show, Ord, Eq)
+               deriving (Show, Ord, Eq, Typeable)
 
-data PfNaryOp = PfAdd | PfMul deriving (Show, Ord, Eq)
-data PfUnOp = PfNeg | PfRecip deriving (Show, Ord, Eq)
-data PfBinPred = PfEq | PfNe deriving (Show, Ord, Eq)
+data PfNaryOp = PfAdd | PfMul deriving (Show, Ord, Eq, Typeable)
+data PfUnOp = PfNeg | PfRecip deriving (Show, Ord, Eq, Typeable)
+data PfBinPred = PfEq | PfNe deriving (Show, Ord, Eq, Typeable)
 
 data FpBinOp = FpAdd
              | FpSub
@@ -103,20 +104,20 @@ data FpBinOp = FpAdd
              | FpRem
              | FpMax
              | FpMin
-             deriving (Show, Ord, Eq)
+             deriving (Show, Ord, Eq, Typeable)
 
 data FpUnOp = FpNeg
             | FpAbs
             | FpSqrt
             | FpRound
-            deriving (Show, Ord, Eq)
+            deriving (Show, Ord, Eq, Typeable)
 
 data FpBinPred = FpLe
                | FpLt
                | FpGe
                | FpGt
                | FpEq
-               deriving (Show, Ord, Eq)
+               deriving (Show, Ord, Eq, Typeable)
 
 data FpUnPred = FpIsNormal
               | FpIsSubnormal
@@ -125,7 +126,7 @@ data FpUnPred = FpIsNormal
               | FpIsNaN
               | FpIsNegative
               | FpIsPositive
-              deriving (Show, Ord, Eq)
+              deriving (Show, Ord, Eq, Typeable)
 
 
 data Term s where
@@ -184,6 +185,7 @@ data Term s where
 
 
 deriving instance Show (Term s)
+deriving instance Typeable (Term s)
 
 
 -- Given a function that optionally transforms a term, traverses the term

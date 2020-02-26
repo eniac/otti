@@ -70,38 +70,39 @@ countLets = S.reduceTerm visit 0 (+)
 
 type VarIndices = Map.Map String Integer
 
-smtLcTermToR1csPair :: VarIndices -> Integer -> S.Term (S.PfSort k) -> (Integer, Integer)
-smtLcTermToR1csPair varIndices order term = case term of
+smtLcTermToR1csPair :: forall k. KnownNat k => VarIndices -> S.Term (S.PfSort k) -> (Integer, Integer)
+smtLcTermToR1csPair varIndices term = case term of
     S.IntToPf (S.IntLit i) -> (i, 1)
     S.PfNaryExpr S.PfMul [S.IntToPf (S.IntLit i), S.Var n] -> (i `rem` order, varIndices Map.! n)
     S.PfNaryExpr S.PfMul [S.Var n, S.IntToPf (S.IntLit i)] -> (i `rem` order, varIndices Map.! n)
     S.PfNaryExpr S.PfMul [S.Var n] -> (1, varIndices Map.! n)
+  where order = natVal (Proxy :: Proxy k)
 
-smtLcToR1csLine :: VarIndices -> Integer -> S.Term (S.PfSort k) -> [Integer]
-smtLcToR1csLine varIndices order term = case term of
+smtLcToR1csLine :: VarIndices -> S.Term (S.PfSort k) -> [Integer]
+smtLcToR1csLine varIndices term = case term of
     S.PfNaryExpr S.PfAdd list -> n : ls
         where
             pairs :: [(Integer, Integer)]
-            pairs = map (smtLcTermToR1csPair varIndices order) list
+            pairs = map (smtLcTermToR1csPair varIndices) list
             ls = foldr (\(a, b) l -> if a == 0 then l else a : b : l) [] pairs
             n = fromIntegral (length ls) `div` 2
 
 
-pfPredToR1csLines :: VarIndices -> Integer -> S.Term S.BoolSort -> [[Integer]]
-pfPredToR1csLines varIndices order term = case term of
+pfPredToR1csLines :: VarIndices -> S.Term S.BoolSort -> [[Integer]]
+pfPredToR1csLines varIndices term = case term of
     S.PfBinPred S.PfEq (S.PfNaryExpr S.PfMul [a, b]) c -> [[], f a, f b, f c]
         where
-            f = smtLcToR1csLine varIndices order
+            f = smtLcToR1csLine varIndices
 
 
-constraintsToR1csLines :: VarIndices -> Integer -> S.Term S.BoolSort -> [[Integer]]
-constraintsToR1csLines varIndices order term = case term of
-    S.BoolNaryExpr S.And l -> concatMap (pfPredToR1csLines varIndices order) l
+constraintsToR1csLines :: VarIndices -> S.Term S.BoolSort -> [[Integer]]
+constraintsToR1csLines varIndices term = case term of
+    S.BoolNaryExpr S.And l -> concatMap (pfPredToR1csLines varIndices) l
 
 
 
-smtToR1csLines :: Integer -> S.Term S.BoolSort -> [[Integer]]
-smtToR1csLines order term =
+smtToR1csLines :: S.Term S.BoolSort -> [[Integer]]
+smtToR1csLines term =
     [nExistentials, nLets, nConstraints] : bodyLines
   where
     vars = Set.toList $ collectVars term
@@ -111,11 +112,15 @@ smtToR1csLines order term =
     constraints = if length allConstraints == 1 then head allConstraints else error $ "Should be a single constraint set" ++ show allConstraints
     nExistentials = countExistentials term
     nLets = countLets term
-    bodyLines = constraintsToR1csLines varIndices order constraints
+    bodyLines = constraintsToR1csLines varIndices constraints
     nConstraints = fromIntegral (length bodyLines `div` 4)
 
-writeToR1csFile :: Integer -> S.Term S.BoolSort -> String -> IO ()
-writeToR1csFile order term path = do
-    let lines = smtToR1csLines order term
+writeToR1csFile :: S.Term S.BoolSort -> String -> IO ()
+writeToR1csFile term path = do
+    let lines = smtToR1csLines term
     let string = intercalate "\n" $ map (unwords . map show) lines
     writeFile path string
+
+type PartialAssignment = Map.Map String Integer
+
+extendAssignment = error "NYI"

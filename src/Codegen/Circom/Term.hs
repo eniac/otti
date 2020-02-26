@@ -38,7 +38,7 @@ data WireBundle k = Sig Signal
                   | Other
                   deriving (Show, Ord, Eq)
 
-type BaseTerm k = (WireBundle (Prime k), (Smt.Term (Smt.PfSort k)))
+type BaseTerm k = (WireBundle (Prime k), Smt.Term (Smt.PfSort k))
 
 data Term k = Base (BaseTerm k)
             | Array [Term k]                                    -- An array of terms
@@ -51,16 +51,16 @@ data LTerm = LTermIdent String
            | LTermIdx LTerm Int
            deriving (Show,Ord,Eq)
 
-instance KnownNat n => Num (Smt.Term (Smt.PfSort n)) where
+instance forall n. KnownNat n => Num (Smt.Term (Smt.PfSort n)) where
   a + b = Smt.PfNaryExpr Smt.PfAdd [a, b]
   a * b = Smt.PfNaryExpr Smt.PfMul [a, b]
-  fromInteger n = error "NYI: Need modulus"
-  signum s = error "NYI: Need modulus"
+  fromInteger i = Smt.IntToPf $ Smt.IntLit $ i `rem` natVal (Proxy :: Proxy n)
+  signum s = Smt.IntToPf $ Smt.IntLit 1
   abs s = s
   negate = Smt.PfUnExpr Smt.PfNeg
 
 instance KnownNat n => Fractional (Smt.Term (Smt.PfSort n)) where
-  fromRational n = error "NYI: Need modulus"
+  fromRational n = error "NYI"
   recip = Smt.PfUnExpr Smt.PfRecip
 
 instance PrimeField k => Num (WireBundle k) where
