@@ -108,9 +108,11 @@ protoboard<FieldT> read_protoboard(ifstream& in)
     linear_combination<FieldT> a = read_combination(in, variables);
     linear_combination<FieldT> b = read_combination(in, variables);
     linear_combination<FieldT> c = read_combination(in, variables);
-    cerr << "C: " << a << " " << b << " " << c << endl;
     pb.add_r1cs_constraint(r1cs_constraint<FieldT>(a, b, c));
   }
+  uint64_t test;
+  in >> test;
+  my_assert("Input remains after protoboard", in.eof());
   return pb;
 }
 
@@ -124,6 +126,9 @@ vector<FieldT> read_inputs(ifstream& in)
     xs.push_back(0);
     in >> xs.back();
   }
+  uint64_t test;
+  in >> test;
+  my_assert("Input remains after inputs: ", in.eof());
   return xs;
 }
 
@@ -221,12 +226,11 @@ int main(int argc, char * argv[])
     r1cs_ppzksnark_verification_key<default_r1cs_ppzksnark_pp> vk;
     f_verifier_parameters >> vk;
     vector<FieldT> x = read_inputs(f_public_inputs);
-    cout << x.size() << endl;
     r1cs_ppzksnark_proof<default_r1cs_ppzksnark_pp> pf;
     f_proof >> pf;
 
     bool verified = r1cs_ppzksnark_verifier_strong_IC<default_r1cs_ppzksnark_pp>(vk, x, pf);
-    cout << "Verification status: " << verified << endl;
+    my_assert("Verification failed", verified);
   } else if (command == "prove") {
     usage_assert(argv[0], not p_prover_parameters.empty());
     usage_assert(argv[0], not p_public_inputs.empty());

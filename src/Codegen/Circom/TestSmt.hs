@@ -107,7 +107,7 @@ smtToR1csLines term =
   where
     vars = Set.toList $ collectVars term
     varIndices :: VarIndices
-    varIndices = Map.fromList $ zip vars [0,1..]
+    varIndices = Map.fromList $ zip vars [1,2..]
     allConstraints = extractConstraints term
     constraints = if length allConstraints == 1 then head allConstraints else error $ "Should be a single constraint set" ++ show allConstraints
     nExistentials = countExistentials term
