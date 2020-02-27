@@ -1,4 +1,3 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE PolyKinds           #-}
@@ -144,7 +143,7 @@ data Term s where
 
     -- Bit-vector terms
     BvConcat  :: (KnownNat n, KnownNat m) => Term (BvSort n) -> Term (BvSort m) -> Term (BvSort (n + m))
-    BvExtract :: (KnownNat n, KnownNat i, KnownNat j) => Term (BvSort n) -> Term (BvSort (j - i))
+    BvExtract :: (KnownNat n, KnownNat i, i <= n) => Int -> Term (BvSort n) -> Term (BvSort i)
     BvBinExpr :: KnownNat n => BvBinOp -> Term (BvSort n) -> Term (BvSort n) -> Term (BvSort n)
     BvBinPred :: KnownNat n => BvBinPred -> Term (BvSort n) -> Term (BvSort n) -> Term BoolSort
     IntToBv   :: KnownNat n => Term IntSort -> Term (BvSort n)
@@ -206,8 +205,7 @@ mapTerm f t = case f t of
     Let v s e -> Let v (mapTerm f s) (mapTerm f e)
 
     BvConcat a b -> BvConcat (mapTerm f a) (mapTerm f b)
-    BvExtract {} -> error "NYI: Ambiguous!"
-    -- Not handled!! BvExtract a -> BvExtract (mapTerm f a
+    BvExtract i s -> BvExtract i (mapTerm f s)
     BvBinExpr o l r -> BvBinExpr o (mapTerm f l) (mapTerm f r)
     BvBinPred o l r -> BvBinPred o (mapTerm f l) (mapTerm f r)
     IntToBv tt -> IntToBv (mapTerm f tt)
@@ -261,8 +259,7 @@ reduceTerm mapF i foldF t = case mapF t of
     Let _ s e -> foldF (reduceTerm mapF i foldF s) (reduceTerm mapF i foldF e)
 
     BvConcat a b -> foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF b)
-    BvExtract {} -> error "NYI: Ambiguous!"
-    -- Not handled!! BvExtract a -> BvExtract (reduceTerm mapF i foldF a
+    BvExtract _ s -> reduceTerm mapF i foldF s
     BvBinExpr _ l r -> foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
     BvBinPred _ l r -> foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
     IntToBv tt -> reduceTerm mapF i foldF tt
