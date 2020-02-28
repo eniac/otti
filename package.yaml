@@ -40,6 +40,7 @@ library:
   - arithmoi >= 0.10
   - filepath >= 1.4
   - ghc >= 8.3
+  - bv >= 0.5
   build-dependencies:
   - happy >= 1.19
   - alex >= 3.2

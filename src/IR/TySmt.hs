@@ -36,7 +36,10 @@ module IR.TySmt ( IntSort(..)
                 ) where
 
 import           GHC.TypeNats
-import           Data.Dynamic (Typeable)
+import           Data.Dynamic (Typeable, Dynamic, )
+import qualified Data.BitVector as Bv
+import qualified Data.Map       as Map
+import           Data.Map       (Map)
 
 data IntSort = IntSort deriving (Show,Ord,Eq,Typeable)
 data BoolSort = BoolSort deriving (Show,Ord,Eq,Typeable)
@@ -47,6 +50,15 @@ data ArraySort k v = ArraySort deriving (Show,Ord,Eq,Typeable)
 
 type F32 = FpSort 8 24
 type F64 = FpSort 11 53
+
+data Value s where
+    ValBool :: Bool -> Value BoolSort
+    ValInt :: Integer -> Value IntSort
+    ValBv :: KnownNat n => Bv.BV -> Value (BvSort n)
+    ValDouble :: Double -> Value F64
+    ValFloat :: Float -> Value F32
+    ValField :: KnownNat n => Integer -> Value (PfSort n)
+    ValArray :: Map (Value a) (Value b) -> Value (ArraySort a b)
 
 data Sort = SortInt
           | SortBool
@@ -301,15 +313,60 @@ reduceTerm mapF i foldF t = case mapF t of
   Just s -> s
 
 depth :: Term s -> Int
-depth = reduceTerm visit 0 (\a b -> 1 + max a b)
-    where
-        visit :: Term s -> Maybe Int
-        visit t = case t of
-            NewArray -> Just 0
-            Fp64Lit _ -> Just 0
-            Fp32Lit _ -> Just 0
-            IntLit _ -> Just 0
-            BoolLit _ -> Just 0
-            Var _ -> Just 0
-            _ -> Nothing
+depth = reduceTerm (const Nothing) 0 (\a b -> 1 + max a b)
+
+type Env = Map String Dynamic
+
+boolBinFn :: 
+
+eval :: Env -> Term s -> Value s
+eval e t = case t of
+    BoolLit b -> ValBool b
+    BoolBinExpr o l r -> BoolBinExpr o (mapTerm f l) (mapTerm f r)
+    BoolNaryExpr o as -> BoolNaryExpr o (map (mapTerm f) as)
+    Not s -> Not (mapTerm f s)
+
+    Ite c tt ff -> Ite (mapTerm f c) (mapTerm f tt) (mapTerm f ff)
+    Var {} -> t
+    Exists v s tt -> Exists v s (mapTerm f tt)
+    Let v s e -> Let v (mapTerm f s) (mapTerm f e)
+
+    BvConcat a b -> BvConcat (mapTerm f a) (mapTerm f b)
+    BvExtract {} -> error "NYI: Ambiguous!"
+    -- Not handled!! BvExtract a -> BvExtract (mapTerm f a
+    BvBinExpr o l r -> BvBinExpr o (mapTerm f l) (mapTerm f r)
+    BvBinPred o l r -> BvBinPred o (mapTerm f l) (mapTerm f r)
+    IntToBv tt -> IntToBv (mapTerm f tt)
+    FpToBv tt -> FpToBv (mapTerm f tt)
+
+
+    IntLit {} -> t
+    IntBinExpr o l r -> IntBinExpr o (mapTerm f l) (mapTerm f r)
+    IntUnExpr o l -> IntUnExpr o (mapTerm f l)
+    IntBinPred o l r -> IntBinPred o (mapTerm f l) (mapTerm f r)
+    BvToInt tt -> BvToInt (mapTerm f tt)
+    SignedBvToInt tt -> SignedBvToInt (mapTerm f tt)
+    BoolToInt tt -> BoolToInt (mapTerm f tt)
+    PfToInt tt -> PfToInt (mapTerm f tt)
+
+    Fp64Lit {} -> t
+    Fp32Lit {} -> t
+    FpBinExpr o l r -> FpBinExpr o (mapTerm f l) (mapTerm f r)
+    FpUnExpr o l -> FpUnExpr o (mapTerm f l)
+    FpBinPred o l r -> FpBinPred o (mapTerm f l) (mapTerm f r)
+    FpUnPred o l -> FpUnPred o (mapTerm f l)
+    FpFma a b c -> FpFma (mapTerm f a) (mapTerm f b) (mapTerm f c)
+    IntToFp tt -> IntToFp (mapTerm f tt)
+    FpToFp tt -> FpToFp (mapTerm f tt)
+    BvToFp tt -> BvToFp (mapTerm f tt)
+
+    PfNaryExpr o as -> PfNaryExpr o (map (mapTerm f) as)
+    PfUnExpr o l -> PfUnExpr o (mapTerm f l)
+    PfBinPred o l r -> PfBinPred o (mapTerm f l) (mapTerm f r)
+    IntToPf tt -> IntToPf (mapTerm f tt)
+
+    Select a k -> Select (mapTerm f a) (mapTerm f k)
+    Store a k v -> Store (mapTerm f a) (mapTerm f k) (mapTerm f v)
+    NewArray -> t
+    
 
