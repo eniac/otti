@@ -196,10 +196,10 @@ data Term s where
     FpToFp    :: (KnownNat e1, KnownNat s1, KnownNat e2, KnownNat s2) => Term (FpSort e1 s1) -> Term (FpSort e2 s2)
 
     -- Prime field terms
-    PfUnExpr   :: (KnownNat n, 2 <= n) => PfUnOp -> Term (PfSort n) -> Term (PfSort n)
-    PfNaryExpr :: (KnownNat n, 2 <= n) => PfNaryOp -> [Term (PfSort n)] -> Term (PfSort n)
-    PfBinPred  :: (KnownNat n, 2 <= n) => PfBinPred -> Term (PfSort n) -> Term (PfSort n) -> Term BoolSort
-    IntToPf    :: (KnownNat n, 2 <= n) => Term IntSort -> Term (PfSort n)
+    PfUnExpr   :: KnownNat n => PfUnOp -> Term (PfSort n) -> Term (PfSort n)
+    PfNaryExpr :: KnownNat n => PfNaryOp -> [Term (PfSort n)] -> Term (PfSort n)
+    PfBinPred  :: KnownNat n => PfBinPred -> Term (PfSort n) -> Term (PfSort n) -> Term BoolSort
+    IntToPf    :: KnownNat n => Term IntSort -> Term (PfSort n)
 
     -- Array terms
     Select   :: (Typeable k, Typeable v) => Term (ArraySort k v) -> Term k -> Term v

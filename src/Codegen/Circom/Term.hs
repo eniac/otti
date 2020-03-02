@@ -53,7 +53,7 @@ data LTerm = LTermIdent String
            | LTermIdx LTerm Int
            deriving (Show,Ord,Eq)
 
-instance forall n. (KnownNat n, 2 <= n) => Num (Smt.Term (Smt.PfSort n)) where
+instance forall n. KnownNat n => Num (Smt.Term (Smt.PfSort n)) where
   a + b = Smt.PfNaryExpr Smt.PfAdd [a, b]
   a * b = Smt.PfNaryExpr Smt.PfMul [a, b]
   fromInteger i = Smt.IntToPf $ Smt.IntLit $ i `rem` natVal (Proxy :: Proxy n)
@@ -61,7 +61,7 @@ instance forall n. (KnownNat n, 2 <= n) => Num (Smt.Term (Smt.PfSort n)) where
   abs s = s
   negate = Smt.PfUnExpr Smt.PfNeg
 
-instance forall k. (KnownNat k, 2 <= k) => Fractional (Smt.Term (Smt.PfSort k)) where
+instance forall k. KnownNat k => Fractional (Smt.Term (Smt.PfSort k)) where
   fromRational n = error "NYI"
   recip = Smt.PfUnExpr Smt.PfRecip
 
@@ -108,7 +108,7 @@ instance PrimeField k => Fractional (WireBundle k) where
     Linear _     -> Other
     Quadratic {} -> Other
 
-instance forall k. (KnownNat k, 2 <= k) => Num (BaseTerm k) where
+instance forall k. KnownNat k => Num (BaseTerm k) where
     (a, b) + (c, d) = (a + c, b + d)
     (a, b) * (c, d) = (a * c, b * d)
     fromInteger n = (fromInteger n, Smt.IntToPf $ Smt.IntLit n)
@@ -116,11 +116,11 @@ instance forall k. (KnownNat k, 2 <= k) => Num (BaseTerm k) where
     abs (a, b) = (abs a, abs b)
     negate (a, b) = (negate a, negate b)
 
-instance forall k. (KnownNat k, 2 <= k) => Fractional (BaseTerm k) where
+instance forall k. KnownNat k => Fractional (BaseTerm k) where
     fromRational n = (fromRational n, fromRational n)
     recip (a, b) = (recip a, recip b)
 
-instance forall k. (KnownNat k, 2 <= k) => Num (Term k) where
+instance forall k. KnownNat k => Num (Term k) where
   s + t = case (s, t) of
     (a@Array {}, _) -> error $ "Cannot add array term " ++ show a ++ " to anything"
     (a@Struct {}, _) -> error $ "Cannot add struct term " ++ show a ++ " to anything"
@@ -142,7 +142,7 @@ instance forall k. (KnownNat k, 2 <= k) => Num (Term k) where
     Base a     -> Base $ abs a
   negate s = fromInteger (-1) * s
 
-instance forall k. (KnownNat k, 2 <= k) => Fractional (Term k) where
+instance forall k. KnownNat k => Fractional (Term k) where
   fromRational = Base . fromRational
   recip t = case t of
     a@Array {}  -> error $ "Cannot invert array term " ++ show a
@@ -167,7 +167,7 @@ sigAsSigTerm s = Base (Sig s, sigAsSmt s)
 sigAsLinearTerm :: KnownNat k => Signal -> Term k
 sigAsLinearTerm s = Base (Linear (Map.fromList [(s, 1)], 0), sigAsSmt s)
 
-sigAsSmt :: KnownNat n => Signal -> (Smt.Term (Smt.PfSort n))
+sigAsSmt :: KnownNat n => Signal -> Smt.Term (Smt.PfSort n)
 sigAsSmt = Smt.Var . show
 
 mapSignalsInWires :: (Signal -> Signal) -> WireBundle k -> WireBundle k

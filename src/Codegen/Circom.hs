@@ -46,14 +46,15 @@ import           GHC.TypeNats
 import           GHC.TypeLits.KnownNat
 
 intLog2 :: Integral a => a -> a
-intLog2 n = if n == fromInteger 0 then
-        error "intLog2 0 is undefined"
-    else if n == fromInteger 1 then
+intLog2 n =
+    if n <= fromInteger 1 then
         fromInteger 0
     else
         fromInteger 1 + intLog2 n `div` fromInteger 2
 
-instance (KnownNat x, 2 <= x) => KnownNat1 $(nameToSymbol ''Log2) x where
+-- XXX(HACK): Log2 0 is actually undefined, but who wants to deal with that?
+--            we treat it as 0, even though the type systems rejects it.
+instance KnownNat x => KnownNat1 $(nameToSymbol ''Log2) x where
   natSing1 = SNatKn (intLog2 (natVal (Proxy @x)))
   {-# INLINE natSing1 #-}
 
@@ -61,7 +62,7 @@ instance (KnownNat x, 2 <= x) => KnownNat1 $(nameToSymbol ''Log2) x where
 
 -- Given a value, and dimensions, produces a multi-d array of size given by
 -- dimensions, containing copies of the value.
-termMultiDimArray :: (KnownNat k, 2 <= k) => Term k -> [Term k] -> Term k
+termMultiDimArray :: KnownNat k => Term k -> [Term k] -> Term k
 termMultiDimArray = foldr (\d acc -> case d of
         Base (Scalar n, _) -> Array $ replicate (fromIntegral $ fromP n) acc
         _        -> error $ "Illegal dimension " ++ show d
@@ -73,7 +74,7 @@ data DimArray = DABase String [Int] | DARec [DimArray]
 -- consituent signals
 --
 -- Kind of like "a" [2, 1] to [["a.0.0"], ["a.1.0"]]
-termSignalArray :: (KnownNat k, 2 <= k) => String -> [Term k] -> Term k
+termSignalArray :: KnownNat k => String -> [Term k] -> Term k
 termSignalArray name dim = case dim of
     [] -> sigAsSigTerm (SigLocal name [])
     (Base (Scalar n, _)):rest ->
@@ -104,7 +105,7 @@ termGenTimeConst t = case t of
     Array a      -> all termGenTimeConst a
     Struct map _ -> all termGenTimeConst map
 
-genGetUnMutOp :: (KnownNat k, 2 <= k) => UnMutOp -> Term k -> Term k
+genGetUnMutOp :: KnownNat k => UnMutOp -> Term k -> Term k
 genGetUnMutOp op = case op of
     PreInc  -> (+ Base (fromInteger 1))
     PostInc -> (+ Base (fromInteger 1))
@@ -112,7 +113,7 @@ genGetUnMutOp op = case op of
     PostDec -> (+ Base (fromInteger (-1)))
   where
 
-genLocation :: (KnownNat k, 2 <= k) => Ctx k -> Location -> (Ctx k, LTerm)
+genLocation :: KnownNat k => Ctx k -> Location -> (Ctx k, LTerm)
 genLocation ctx loc = case loc of
     Ident s -> (ctx, LTermIdent s)
     Pin loc' pin -> (ctx', LTermPin lt pin)
@@ -130,7 +131,7 @@ type BoolTerm = Smt.Term Smt.BoolSort
 
 -- Lifts a fun: Integer -> Integer -> Integer to one that operates over gen-time constant
 -- terms
-liftToBaseTerm :: (KnownNat k, 2 <= k) =>
+liftToBaseTerm :: KnownNat k =>
     (Integer -> Integer -> Integer) ->
     (PfTerm k -> PfTerm k -> PfTerm k) ->
     BaseTerm k ->
@@ -143,7 +144,7 @@ liftToBaseTerm ft fsmt (sa, sb) (ta, tb) =
     , fsmt sb tb
     )
 
-liftToTerm :: (KnownNat k, 2 <= k) =>
+liftToTerm :: KnownNat k =>
     String ->
     (Integer -> Integer -> Integer) ->
     (PfTerm k -> PfTerm k -> PfTerm k) ->
@@ -156,7 +157,7 @@ liftToTerm name f fsmt s t = case (s, t) of
     (Base a, Base b) -> Base $ liftToBaseTerm f fsmt a b
     (l, r) -> liftToTerm name f fsmt r l
 
-liftBvToTerm :: forall k. (KnownNat k, 2 <= k) =>
+liftBvToTerm :: forall k. KnownNat k =>
     String ->
     (Integer -> Integer -> Integer) ->
     Smt.BvBinOp ->
@@ -176,7 +177,7 @@ liftBvToTerm name f op =
         o = natVal (Proxy :: Proxy k)
         bits = (floor . logBase 2 . fromIntegral) o + 1
 
-liftIntFnToTerm :: forall k. (KnownNat k, 2 <= k) =>
+liftIntFnToTerm :: forall k. KnownNat k =>
     String ->
     (Integer -> Integer -> Integer) ->
     (IntTerm -> IntTerm -> IntTerm) ->
@@ -194,7 +195,7 @@ liftIntOpToTerm name f op = liftIntFnToTerm name f (Smt.IntBinExpr op)
 
 -- Lifts a fun: Integer -> Integer -> Bool to one that operates over gen-time constant
 -- terms
-liftCmpToTerm :: forall k. (KnownNat k, 2 <= k) =>
+liftCmpToTerm :: forall k. KnownNat k =>
     String ->
     (Integer -> Integer -> Bool) ->
     Smt.IntBinPred ->
@@ -207,7 +208,7 @@ liftCmpToTerm name f g =
 
 -- Lifts a fun: Bool -> Bool -> Bool to one that operates over gen-time
 -- constant terms
-liftBoolFnToTerm :: forall k. (KnownNat k, 2 <= k) =>
+liftBoolFnToTerm :: forall k. KnownNat k =>
     String ->
     (Bool -> Bool -> Bool) ->
     (BoolTerm -> BoolTerm -> BoolTerm) ->
@@ -223,7 +224,7 @@ liftBoolFnToTerm name f g =
         z = Smt.IntToPf $ Smt.IntLit 0
 
 -- Lifts a fun: Integer -> Integer to one that operates over gen-time constant terms
-liftUnToBaseTerm :: (KnownNat k, 2 <= k) =>
+liftUnToBaseTerm :: KnownNat k =>
     (Integer -> Integer) ->
     (PfTerm k -> PfTerm k) ->
     BaseTerm k ->
@@ -236,7 +237,7 @@ liftUnToBaseTerm f fsmt (sa, sb) =
     )
 
 
-liftUnToTerm :: (KnownNat k, 2 <= k) =>
+liftUnToTerm :: KnownNat k =>
     String ->
     (Integer -> Integer) ->
     (PfTerm k -> PfTerm k) ->
@@ -247,7 +248,7 @@ liftUnToTerm name f fsmt t = case t of
     a@Struct {} -> error $ "Cannot perform operation \"" ++ name ++ "\" on struct term " ++ show a
     Base a -> Base $ liftUnToBaseTerm f fsmt a
 
-genExpr :: forall k. (KnownNat k, 2 <= k) => Ctx k -> Expr -> (Ctx k, Term k)
+genExpr :: forall k. KnownNat k => Ctx k -> Expr -> (Ctx k, Term k)
 genExpr ctx expr = case expr of
     NumLit i -> (ctx, Base $ fromInteger $ fromIntegral i)
     ArrayLit es -> (ctx', Array ts)
@@ -334,7 +335,7 @@ genExpr ctx expr = case expr of
             (ctx', actualArgs) = genExprs ctx args
 
 
-genUnExpr :: (KnownNat k, 2 <= k) => Ctx k -> UnMutOp -> Location -> (Ctx k, Term k)
+genUnExpr :: KnownNat k => Ctx k -> UnMutOp -> Location -> (Ctx k, Term k)
 genUnExpr ctx op loc = case op of
     PostInc -> (ctx'', term)
     PreInc  -> (ctx'', term')
@@ -347,13 +348,13 @@ genUnExpr ctx op loc = case op of
         term' = genGetUnMutOp op term
         ctx'' = ctxStore ctx' lval term'
 
-genExprs :: (KnownNat k, 2 <= k) => Ctx k -> [Expr] -> (Ctx k, [Term k])
+genExprs :: KnownNat k => Ctx k -> [Expr] -> (Ctx k, [Term k])
 genExprs c = foldl (\(c, ts) e -> let (c', t) = genExpr c e in (c', ts ++ [t])) (c, [])
 
-genStatements :: (KnownNat k, 2 <= k) => Ctx k -> [Statement] -> Ctx k
+genStatements :: KnownNat k => Ctx k -> [Statement] -> Ctx k
 genStatements = foldl (\c s -> if isJust (returning c) then c else genStatement c s)
 
-genStatement :: forall k. (KnownNat k, 2 <= k) => Ctx k -> Statement -> Ctx k
+genStatement :: forall k. KnownNat k => Ctx k -> Statement -> Ctx k
 genStatement ctx statement = case statement of
     -- Note, signals are immutable.
     Assign loc expr -> ctxStore ctx'' lval term
@@ -417,10 +418,10 @@ genStatement ctx statement = case statement of
         where
             (ctx', t) = genExpr ctx e
 
-genMain :: (KnownNat k, 2 <= k) => MainCircuit -> Integer -> Constraints (Prime k)
+genMain :: KnownNat k => MainCircuit -> Integer -> Constraints (Prime k)
 genMain m order = constraints $ genMainCtx m order
 
-genMainCtx :: (KnownNat k, 2 <= k) => MainCircuit -> Integer -> Ctx k
+genMainCtx :: KnownNat k => MainCircuit -> Integer -> Ctx k
 genMainCtx m order =
         ctx'
     where
