@@ -8,6 +8,9 @@ import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
 
+fieldToInt :: Ident -> Int
+fieldToInt = undefined
+
 genVarSMT :: Ident -> Compiler SMTNode
 genVarSMT (Ident name _ _) = getNodeFor name
 
@@ -31,7 +34,37 @@ genExprSMT expr = case expr of
     left' <- genExprSMT left
     right' <- genExprSMT right
     getBinOp op left' right'
-  _                       -> error ""
+  CUnary op arg _ -> genExprSMT arg >>= getUnaryOp op
+  CIndex arr index _ -> do
+    arr' <- genExprSMT arr
+    index' <- genExprSMT index
+    liftIR $ getIdx arr' index'
+  CMember struct field _ _ -> do
+    struct' <- genExprSMT struct
+    liftIR $ getField struct' $ fieldToInt field
+  _                       -> error $ unwords [ "We do not support"
+                                             , show expr
+                                             , "right now"
+                                             ]
+
+getUnaryOp :: CUnaryOp -> SMTNode -> Compiler SMTNode
+getUnaryOp op arg = liftIR $ case op of
+  CPreIncOp -> error ""
+    -- one <- bvNumOfWidth arg 1
+    -- cppAdd one arg >>= smtAssign arg
+    -- return arg
+  -- cpredecop ->
+  -- CPostIncOp ->
+  -- CPostDecOp ->
+  -- CAdrOp ->
+  -- The '*' operation
+  CIndOp    -> smtLoad arg
+  CPlusOp   -> error $ unwords $ ["Do not understand:", show op]
+  CMinOp    -> error $ unwords $ ["Do not understand:", show op]
+  -- One's complement: NOT CORRECT
+  CCompOp   -> cppNeg arg
+  -- Logical negation: NOT CORRECT
+  CNegOp    -> cppNeg arg
 
 getBinOp :: CBinaryOp -> SMTNode -> SMTNode -> Compiler SMTNode
 getBinOp op left right = liftIR $ case op of
@@ -88,3 +121,16 @@ getAssignOp op l r = case op of
   COrAssOp -> liftIR $ do
     result <- cppOr l r
     smtAssign l result >> return l
+
+---
+--- Statements
+---
+
+genStmtSMT :: CStatement a -> Compiler SMTNode
+genStmtSMT stmt = case stmt of
+  CCompound{} -> error ""
+  CExpr{}     -> error ""
+  CIf{}       -> error ""
+  CWhile{}    -> error ""
+  CFor{}      -> error ""
+  _           -> error ""

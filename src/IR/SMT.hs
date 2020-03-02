@@ -20,6 +20,7 @@ module IR.SMT ( SMTNode
                 -- * Variables
               , newVar
               , newInt
+              , SMT.bvNumOfWidth
               , newIntStruct
               , newStruct
               , newIntArray

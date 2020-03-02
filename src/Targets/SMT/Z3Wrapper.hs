@@ -62,6 +62,16 @@ assign n1 n2 = do
 bvNum :: MonadZ3 z3 => Int -> Integer -> z3 AST
 bvNum width val = Z.mkBitvector width val
 
+bvNumOfWidth :: MonadZ3 z3 => AST -> Integer -> z3 AST
+bvNumOfWidth widthNode val = do
+  sort <- Z.getSort widthNode
+  kind <- Z.getSortKind sort
+  case kind of
+    Z.Z3_BV_SORT -> do
+      width <- Z.getBvSortSize sort
+      Z.mkBitvector width val
+    _ -> error "Cannot make bv of width from non-bv width"
+
 doubleNum :: MonadZ3 z3 => Double -> z3 AST
 doubleNum doub = do
   doubSort <- Z.mkDoubleSort

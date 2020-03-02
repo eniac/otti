@@ -17,6 +17,7 @@ module Targets.SMT ( Sort
                      -- * Make variables and numbers
                    , newVar
                    , bvNum
+                   , bvNumOfWidth
                    , doubleNum
                    , bvSort
                    , doubSort
