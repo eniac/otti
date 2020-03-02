@@ -1,5 +1,7 @@
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators       #-}
+{-# LANGUAGE TypeFamilies        #-}
 
 
 module Codegen.Circom.ToSmt ( constraintsToSmt
@@ -15,7 +17,7 @@ import qualified Data.Map.Strict            as Map
 import qualified Data.Maybe                 as Maybe
 import           Data.Proxy                 (Proxy (Proxy))
 import qualified Data.Set                   as Set
-import           GHC.TypeLits               (KnownNat, natVal)
+import           GHC.TypeLits               
 import qualified IR.TySmt                   as S
 import qualified Digraph
 
@@ -28,7 +30,7 @@ collectVars = S.reduceTerm visit Set.empty Set.union
       _ -> Nothing
 
 
-ctxToSmt :: forall k. KnownNat k => C.Ctx k -> S.Term S.BoolSort
+ctxToSmt :: forall k. (KnownNat k, 2 <= k) => C.Ctx k -> S.Term S.BoolSort
 ctxToSmt c = quantified
     where
         sigSort = S.SortPf $ natVal (Proxy :: Proxy k)
@@ -52,7 +54,7 @@ ctxToSmt c = quantified
         quantified = Set.fold (\s f -> S.Exists (show s) sigSort f) letted (CS.public cs)
 
 
-constraintsToSmt :: forall k. KnownNat k =>  CS.Constraints (Prime k) -> S.Term S.BoolSort
+constraintsToSmt :: forall k. (KnownNat k, 2 <= k) =>  CS.Constraints (Prime k) -> S.Term S.BoolSort
 constraintsToSmt c = quantified
     where
         conj = S.BoolNaryExpr S.And $ map constraintToSmt (CS.equalities c)
@@ -60,11 +62,11 @@ constraintsToSmt c = quantified
         sigSort = S.SortPf $ natVal (Proxy :: Proxy k)
         quantified = Set.fold (\s f -> S.Exists (show s) sigSort f) conj sigs
 
-constraintToSmt :: KnownNat k => CS.Constraint (Prime k) -> S.Term S.BoolSort
+constraintToSmt :: (KnownNat k, 2 <= k) => CS.Constraint (Prime k) -> S.Term S.BoolSort
 constraintToSmt (a, b, c) =
     S.PfBinPred S.PfEq (S.PfNaryExpr S.PfMul [lcToSmt a, lcToSmt b]) (lcToSmt c)
 
-lcToSmt :: forall k. KnownNat k => CS.LC (Prime k) -> S.Term (S.PfSort k)
+lcToSmt :: (KnownNat k, 2 <= k) => CS.LC (Prime k) -> S.Term (S.PfSort k)
 lcToSmt (m, c) = S.PfNaryExpr S.PfAdd (cTerm : mTerms)
     where
         constToTerm = S.IntToPf . S.IntLit . fromP

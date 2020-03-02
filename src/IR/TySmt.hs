@@ -6,6 +6,7 @@
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wall #-}
+{-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 
 module IR.TySmt ( IntSort(..)
                 , BoolSort(..)
@@ -42,6 +43,7 @@ import           GHC.TypeLits
 import           Data.Dynamic   (Typeable, Dynamic, fromDyn, toDyn)
 import qualified Data.BitVector as Bv
 import qualified Data.Map       as Map
+import qualified Data.Maybe     as Maybe
 import           Data.Map       (Map)
 import           Data.Bits      as Bits
 import           Data.Proxy     (Proxy(..))
@@ -194,15 +196,15 @@ data Term s where
     FpToFp    :: (KnownNat e1, KnownNat s1, KnownNat e2, KnownNat s2) => Term (FpSort e1 s1) -> Term (FpSort e2 s2)
 
     -- Prime field terms
-    PfUnExpr   :: KnownNat n => PfUnOp -> Term (PfSort n) -> Term (PfSort n)
-    PfNaryExpr :: KnownNat n => PfNaryOp -> [Term (PfSort n)] -> Term (PfSort n)
-    PfBinPred  :: KnownNat n => PfBinPred -> Term (PfSort n) -> Term (PfSort n) -> Term BoolSort
-    IntToPf    :: KnownNat n => Term IntSort -> Term (PfSort n)
+    PfUnExpr   :: (KnownNat n, 2 <= n) => PfUnOp -> Term (PfSort n) -> Term (PfSort n)
+    PfNaryExpr :: (KnownNat n, 2 <= n) => PfNaryOp -> [Term (PfSort n)] -> Term (PfSort n)
+    PfBinPred  :: (KnownNat n, 2 <= n) => PfBinPred -> Term (PfSort n) -> Term (PfSort n) -> Term BoolSort
+    IntToPf    :: (KnownNat n, 2 <= n) => Term IntSort -> Term (PfSort n)
 
     -- Array terms
-    Select   :: Term (ArraySort k v) -> Term k -> Term v
-    Store    :: Term (ArraySort k v) -> Term k -> Term v -> Term (ArraySort k v)
-    NewArray :: Term (ArraySort k v)
+    Select   :: (Typeable k, Typeable v) => Term (ArraySort k v) -> Term k -> Term v
+    Store    :: (Typeable k, Typeable v) => Term (ArraySort k v) -> Term k -> Term v -> Term (ArraySort k v)
+    NewArray :: (Typeable k, Typeable v) => Term (ArraySort k v)
 
 
 deriving instance Show (Term s)
@@ -335,8 +337,8 @@ boolBinFn op = case op of
 
 boolNaryFn :: BoolNaryOp -> [Bool] -> Bool
 boolNaryFn op = case op of
-    And -> foldr (&&) True
-    Or -> foldr (||) False
+    And -> and
+    Or -> or
     Xor -> foldr Bits.xor False
 
 intUnFn :: IntUnOp -> Integer -> Integer
@@ -364,8 +366,8 @@ intBinPredFn op = case op of
 
 intNaryFn :: IntNaryOp -> [Integer] -> Integer
 intNaryFn op = case op of
-    IntAdd -> foldr (+) 0
-    IntMul -> foldr (*) 1
+    IntAdd -> sum
+    IntMul -> product
 
 extGCD :: Integer -> Integer -> (Integer,Integer,Integer)
 extGCD a 0 = (1,0,a)     -- Base case
@@ -381,7 +383,7 @@ invMod x m = x'
 pfUnFn :: PfUnOp -> Integer -> Integer -> Integer
 pfUnFn op m = case op of
     PfNeg -> (m -)
-    PfRecip -> (flip invMod) m
+    PfRecip -> flip invMod m
 
 
 pfBinPredFn :: PfBinPred -> Integer -> Integer -> Bool
@@ -393,6 +395,33 @@ pfNaryFn :: PfNaryOp -> Integer -> [Integer] -> Integer
 pfNaryFn op m = case op of
     PfAdd -> foldr (\a b -> (a + b) `rem` m) 0
     PfMul -> foldr (\a b -> (a * b) `rem` m) 1
+
+bvBinFn :: BvBinOp -> Bv.BV -> Bv.BV -> Bv.BV
+bvBinFn op = case op of
+    BvShl -> Bv.shl
+    BvLshr -> Bv.shr
+    BvAshr -> Bv.ashr
+    BvUrem -> rem
+    BvUdiv -> div
+    BvAdd -> (+)
+    BvMul -> (*)
+    BvSub -> (-)
+    BvOr -> (Bv..|.)
+    BvAnd -> (Bv..&.)
+    BvXor -> Bv.xor
+
+bvBinPredFn :: BvBinPred -> Bv.BV -> Bv.BV -> Bool
+bvBinPredFn op = case op of
+    BvEq -> (==)
+    BvNe -> (/=)
+    BvUgt -> (Bv.>.)
+    BvUge -> (Bv.>=.)
+    BvUlt -> (Bv.<.)
+    BvUle -> (Bv.<=.)
+    BvSgt -> Bv.sgt
+    BvSge -> Bv.sge
+    BvSlt -> Bv.slt
+    BvSle -> Bv.sle
 
 valAsBool :: Value BoolSort -> Bool
 valAsBool (ValBool b) = b
@@ -406,8 +435,14 @@ valAsPf (ValPf b) = b
 valAsBv :: KnownNat n => Value (BvSort n) -> Bv.BV
 valAsBv (ValBv b) = b
 
+valAsArray :: Value (ArraySort k v) -> Map (Value k) (Value v)
+valAsArray (ValArray b) = b
+
 modulus :: forall n. KnownNat n => Term (PfSort n) -> Integer
 modulus _ = natVal (Proxy :: Proxy n)
+
+size :: forall n. KnownNat n => Term (BvSort n) -> Int
+size _ = fromIntegral $ natVal (Proxy :: Proxy n)
 
 eval :: forall s. Typeable s => Env -> Term s -> Value s
 eval e t = case t of
@@ -416,7 +451,7 @@ eval e t = case t of
     BoolNaryExpr o as -> ValBool $ boolNaryFn o (map (valAsBool . eval e) as)
     Not s -> (ValBool . not . valAsBool . eval e) s
 
-    Ite c tt ff -> if (valAsBool $ eval e c) then eval e tt else eval e ff
+    Ite c tt ff -> if valAsBool $ eval e c then eval e tt else eval e ff
     Var s -> fromDyn
         (Map.findWithDefault (error $ "Unknown identifier '" ++ show s ++ "'") s e)
         (error $ "Indentifier '" ++ show s ++ "; of wrong sort")
@@ -425,12 +460,12 @@ eval e t = case t of
         where v  = eval e s
               e' = Map.insert x (toDyn v) e
 --
---    BvConcat a b -> ValBv $ valAsBv (eval e a) `mappend` valAsBv (eval e b)
+    BvConcat a b -> ValBv $ valAsBv (eval e a) `mappend` valAsBv (eval e b)
 --    BvExtract {} -> error "NYI: Ambiguous!"
 --    -- Not handled!! BvExtract a -> BvExtract (mapTerm f a
---    BvBinExpr o l r -> BvBinExpr o (mapTerm f l) (mapTerm f r)
---    BvBinPred o l r -> BvBinPred o (mapTerm f l) (mapTerm f r)
---    IntToBv tt -> IntToBv (mapTerm f tt)
+    BvBinExpr o l r -> ValBv $ bvBinFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
+    BvBinPred o l r -> ValBool $ bvBinPredFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
+    IntToBv i -> ValBv $ Bv.bitVec (size t) (valAsInt (eval e i))
 --    FpToBv tt -> FpToBv (mapTerm f tt)
 
     IntLit i -> ValInt i
@@ -459,7 +494,11 @@ eval e t = case t of
         where m = modulus (PfNaryExpr o as)
     PfBinPred o l r -> ValBool $ pfBinPredFn o (valAsPf $ eval e l) (valAsPf $ eval e r)
 
---    Select a k -> Select (mapTerm f a) (mapTerm f k)
+--    TODO: broken until we have an Ord/Eq instance.
+--    Select a k -> Maybe.fromMaybe (error $ "Array has no entry for " ++ show k') (a' Map.!? k')
+--        where
+--            a' = valAsArray $ eval e a
+--            k' = eval e k
 --    Store a k v -> Store (mapTerm f a) (mapTerm f k) (mapTerm f v)
 --    NewArray -> t
     
