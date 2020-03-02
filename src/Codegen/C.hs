@@ -34,7 +34,25 @@ genExprSMT expr = case expr of
   _                       -> error ""
 
 getBinOp :: CBinaryOp -> SMTNode -> SMTNode -> Compiler SMTNode
-getBinOp = error ""
+getBinOp op left right = liftIR $ case op of
+  CMulOp -> cppMul left right
+  -- CDivOp
+  -- CRmdOp
+  CAddOp -> cppAdd left right
+  CSubOp -> cppSub left right
+  CShlOp -> cppShiftLeft left right
+  CShrOp -> cppShiftRight left right
+  CLeOp  -> cppLt left right
+  CGrOp  -> cppGt left right
+  CLeqOp -> cppLte left right
+  CGeqOp -> cppGte left right
+  CEqOp  -> cppEq left right
+  CNeqOp -> cppEq left right >>= cppNeg
+  CAndOp -> cppAnd left right
+  CXorOp -> cppXor left right
+  COrOp  -> cppOr left right
+  -- CLndOp
+  -- CLorOp
 
 -- | Assign operation
 -- eg x += 1
