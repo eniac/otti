@@ -1,8 +1,10 @@
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE GADTs               #-}
-{-# LANGUAGE PolyKinds           #-}
+{-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE StandaloneDeriving  #-}
 {-# LANGUAGE TypeOperators       #-}
+{-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wall #-}
@@ -44,15 +46,16 @@ import           Data.Dynamic   (Typeable, Dynamic, fromDyn, toDyn)
 import qualified Data.BitVector as Bv
 import qualified Data.Map       as Map
 import           Data.Map       (Map)
+import qualified Data.Maybe     as Maybe
 import           Data.Bits      as Bits
 import           Data.Proxy     (Proxy(..))
 import           Debug.Trace    (trace,traceShowId,traceStack)
 
 data IntSort = IntSort deriving (Show,Ord,Eq,Typeable)
 data BoolSort = BoolSort deriving (Show,Ord,Eq,Typeable)
-data BvSort n = BvSort Int deriving (Show,Ord,Eq,Typeable)
-data PfSort n = PfSort Integer deriving (Show,Ord,Eq,Typeable)
-data FpSort n m = FpSort Int Int deriving (Show,Ord,Eq,Typeable)
+data BvSort (n :: Nat) = BvSort Int deriving (Show,Ord,Eq,Typeable)
+data PfSort (n :: Nat) = PfSort Integer deriving (Show,Ord,Eq,Typeable)
+data FpSort (n :: Nat) (m :: Nat) = FpSort Int Int deriving (Show,Ord,Eq,Typeable)
 data ArraySort k v = ArraySort deriving (Show,Ord,Eq,Typeable)
 
 type F32 = FpSort 8 24
@@ -69,6 +72,8 @@ data Value s where
 
 deriving instance Typeable (Value s)
 deriving instance Show (Value s)
+deriving instance Eq (Value s)
+deriving instance Ord (Value s)
 
 data Sort = SortInt
           | SortBool
@@ -453,6 +458,10 @@ bvExtract env start term = ValBv $ Bv.extract start (min (oldSize - 1) (start + 
     where oldSize = fromInteger $ natVal (Proxy :: Proxy n)
           newSize = fromInteger $ natVal (Proxy :: Proxy i)
 
+newArray :: forall (k :: *) (v :: *). (Typeable k, Typeable v) => Term (ArraySort k v) -> Value (ArraySort k v)
+newArray t = case t of
+    NewArray -> ValArray $ (Map.empty :: (Map.Map (Value k) (Value v)))
+
 
 eval :: forall s. Typeable s => Env -> Term s -> Value s
 eval e t = case trace ("\n" ++ show t) t of
@@ -510,12 +519,11 @@ eval e t = case trace ("\n" ++ show t) t of
     PfBinPred o l r -> ValBool $ pfBinPredFn o (valAsPf $ eval e l) (valAsPf $ eval e r)
     IntToPf t' -> ValPf $ valAsInt $ eval e t'
 
---    TODO: broken until we have an Ord/Eq instance.
---    Select a k -> Maybe.fromMaybe (error $ "Array has no entry for " ++ show k') (a' Map.!? k')
---        where
---            a' = valAsArray $ eval e a
---            k' = eval e k
---    Store a k v -> Store (mapTerm f a) (mapTerm f k) (mapTerm f v)
---    NewArray -> t
+    Select a k -> Maybe.fromMaybe (error $ "Array has no entry for " ++ show k') (a' Map.!? k')
+        where
+            a' = valAsArray $ eval e a
+            k' = eval e k
+    Store a k v -> ValArray $ Map.insert (eval e k) (eval e v) (valAsArray $ eval e a)
+    NewArray -> newArray t
     
 
