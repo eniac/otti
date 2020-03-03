@@ -1,11 +1,13 @@
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE PolyKinds           #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE GADTs #-}
 
 
 module Codegen.Circom.TestSmt ( smtToR1csLines
                               , writeToR1csFile
+                              , extendInputsToAssignment
                               ) where
 
 import qualified Codegen.Circom.Term        as Term
@@ -16,10 +18,13 @@ import           Data.List                  (intercalate)
 import qualified Data.Map.Strict            as Map
 import qualified Data.Maybe                 as Maybe
 import           Data.Proxy                 (Proxy (Proxy))
+import           Data.Dynamic               (Dynamic, toDyn, fromDyn)
 import qualified Data.Set                   as Set
 import           GHC.TypeLits               (KnownNat, natVal)
 import qualified IR.TySmt                   as S
 import qualified Digraph
+
+type Env = Map.Map String Dynamic
 
 getOrder :: S.Term S.BoolSort -> Maybe Integer
 getOrder = S.reduceTerm visit Nothing join
@@ -60,6 +65,35 @@ countExistentials = S.reduceTerm visit 0 (+)
       S.Exists _ _ t' -> Just $ 1 + countExistentials t'
       _ -> Nothing
 
+listExistentials :: S.Term s -> [String]
+listExistentials = S.reduceTerm visit [] (++)
+  where
+    visit :: S.Term t -> Maybe [String]
+    visit t = case t of
+      S.Exists n _ t'-> Just $ n : listExistentials t'
+      _ -> Just []
+
+listLets :: S.Term s -> [String]
+listLets = S.reduceTerm visit [] (++)
+  where
+    visit :: S.Term t -> Maybe [String]
+    visit t = case t of
+      S.Exists _ _ t'-> Just $ listLets t'
+      S.Let n _ t'-> Just $ n : listLets t'
+      _ -> Just []
+
+extendEnvToLets :: Env -> S.Term s -> Env
+extendEnvToLets e = S.reduceTerm visit Map.empty Map.union
+  where
+    visit :: S.Term t -> Maybe Env
+    visit t = case t of
+      S.Exists _ _ t'-> Just $ extendEnvToLets e t'
+      S.Let n s' t'-> Just $ extendEnvToLets e' t'
+        where
+          v = S.eval e s'
+          e' = Map.insert n (toDyn v) e
+      _ -> Just e
+
 countLets :: S.Term s -> Integer
 countLets = S.reduceTerm visit 0 (+)
   where
@@ -67,6 +101,26 @@ countLets = S.reduceTerm visit 0 (+)
     visit t = case t of
       S.Let _ t' t'' -> Just $ 1 + countLets t' + countLets t''
       _ -> Nothing
+
+extendInputsToAssignment :: forall k. KnownNat k => Proxy k -> [Integer] -> S.Term S.BoolSort -> [Integer]
+extendInputsToAssignment orderProxy inputs smt =
+    map getAsFp (existNames ++ letNames)
+  where
+    order = natVal orderProxy
+    existNames = listExistentials smt
+    letNames = listLets smt
+    pfInputs = map (toDyn . S.IntToPf @k . S.IntLit) inputs
+    e = if length pfInputs == length existNames then
+        Map.fromList $ zip existNames pfInputs
+    else
+        error "Wrong number of inputs"
+    e' = extendEnvToLets e smt
+    getAsFp name = case pfVal of
+        S.ValPf i -> i
+      where
+        entry = Maybe.fromMaybe (error $ "Missing assignment variable: " ++ name) (e' Map.!? name)
+        pfVal :: S.Value (S.PfSort k) = fromDyn entry (error $ "Wrong type of variable: " ++ name)
+
 
 type VarIndices = Map.Map String Integer
 

@@ -71,5 +71,5 @@ lcToSmt (m, c) = S.PfNaryExpr S.PfAdd (cTerm : mTerms)
     where
         constToTerm = S.IntToPf . S.IntLit . fromP
         cTerm = constToTerm c
-        mTerms = map (uncurry (\s c -> S.PfNaryExpr S.PfMul [S.Var (show s), constToTerm c]))
+        mTerms = map (\(s, c) -> S.PfNaryExpr S.PfMul [S.Var (show s), constToTerm c])
             $ Map.toList m

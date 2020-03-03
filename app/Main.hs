@@ -8,11 +8,14 @@ import           Codegen.Circom.Constraints (equalities)
 import           Codegen.Circom.Context     (Ctx (..))
 import           Codegen.Circom.Term        (Constraint)
 import           Codegen.Circom.ToSmt       (ctxToSmt)
-import           Codegen.Circom.TestSmt     (writeToR1csFile)
+import           Codegen.Circom.TestSmt     (writeToR1csFile, extendInputsToAssignment)
 import           Data.Field.Galois          (Prime)
+import           Data.Proxy                 (Proxy(..))
+import qualified IR.TySmt                   as Smt
 import           Parser.Circom              (loadMain)
 import           Control.Monad              (when)
 import           System.Environment         (getArgs)
+import           System.IO                  (openFile, hGetContents, hPutStr, IOMode(..))
 import           System.Console.Docopt
 import           System.Process
 
@@ -49,6 +52,27 @@ Commands:
 getArgOrExit = getArgOrExitWith patterns
 
 
+-- input parsing/de-parsing
+parseInputs :: FilePath -> IO [Integer]
+parseInputs path = do
+    handle <- openFile path ReadMode
+    contents <- hGetContents handle
+    return $ tail $ map read $ words contents
+
+emitAssignment :: [Integer] -> FilePath -> IO ()
+emitAssignment xs path = do
+    handle <- openFile path WriteMode
+    hPutStr handle $ concatMap (\i -> show i ++ "\n") (fromIntegral (length xs) : xs)
+
+extendInput :: FilePath -> FilePath -> FilePath -> Smt.Term Smt.BoolSort -> IO ()
+extendInput publicInputPath privateInputPath assignmentPath term = do
+    publicInputs <- parseInputs publicInputPath
+    privateInputs <- parseInputs privateInputPath
+    let inputs = publicInputs ++ privateInputs
+    let assignment = extendInputsToAssignment (Proxy :: Proxy Order) inputs term
+    let witnessAssignment = drop (length publicInputs) assignment
+    emitAssignment witnessAssignment assignmentPath
+
 -- libsnark functions
 runSetup :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 runSetup libsnarkPath circuitPath pkPath vkPath = do
@@ -65,9 +89,13 @@ runVerify libsnarkPath vkPath xPath pfPath  = do
     readProcess libsnarkPath ["verify", "-V", vkPath, "-x", xPath, "-p", pfPath] ""
     return ()
 
-order = 21888242871839275222246405745257275088548364400416034343698204186575808495617
+-- order = 21888242871839275222246405745257275088548364400416034343698204186575808495617
+-- type Order = 21888242871839275222246405745257275088548364400416034343698204186575808495617
+-- type OrderCtx = Ctx Order
 
-type OrderCtx = Ctx 21888242871839275222246405745257275088548364400416034343698204186575808495617
+order = 17
+type Order = 17
+type OrderCtx = Ctx Order
 
 -- Our commands
 cmdPrintSmt :: FilePath -> IO ()
@@ -86,8 +114,15 @@ cmdSetup libsnarkPath circomPath r1csPath pkPath vkPath = do
     writeToR1csFile (ctxToSmt (genMainCtx m order :: OrderCtx)) r1csPath
     runSetup libsnarkPath r1csPath pkPath vkPath
 
-cmdProve :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
-cmdProve = runProve
+cmdProve :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
+cmdProve libsnarkPath pkPath vkPath xPath wPath pfPath circomPath = do
+    m <- loadMain circomPath
+    let term = ctxToSmt (genMainCtx m order :: OrderCtx)
+    extendInput xPath wPath assignmentPath term
+    runProve libsnarkPath pkPath vkPath xPath assignmentPath pfPath
+    error "NYI"
+  where
+    assignmentPath = wPath ++ ".full"
 
 cmdVerify :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdVerify = runVerify
@@ -113,12 +148,13 @@ main = do
         cmdSetup libsnarkPath circomPath r1csPath pkPath vkPath
     else if args `isPresent` command "prove" then do
         libsnarkPath <- args `getArgOrExit` longOption "libsnark"
+        circomPath <- args `getArgOrExit` longOption "circom"
         pkPath <- args `getArgOrExit` shortOption 'P'
         vkPath <- args `getArgOrExit` shortOption 'V'
         xPath <- args `getArgOrExit` shortOption 'x'
         wPath <- args `getArgOrExit` shortOption 'w'
         pfPath <- args `getArgOrExit` shortOption 'p'
-        cmdProve libsnarkPath pkPath vkPath xPath wPath pfPath
+        cmdProve libsnarkPath pkPath vkPath xPath wPath pfPath circomPath
     else if args `isPresent` command "verify" then do
         libsnarkPath <- args `getArgOrExit` longOption "libsnark"
         vkPath <- args `getArgOrExit` shortOption 'V'
