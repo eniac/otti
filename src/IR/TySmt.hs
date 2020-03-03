@@ -444,6 +444,12 @@ modulus _ = natVal (Proxy :: Proxy n)
 size :: forall n. KnownNat n => Term (BvSort n) -> Int
 size _ = fromIntegral $ natVal (Proxy :: Proxy n)
 
+bvExtract :: forall n i. (KnownNat n, KnownNat i, i <= n) => Env -> Int -> Term (BvSort n) -> Value (BvSort i)
+bvExtract env start term = ValBv $ Bv.extract start (min (oldSize - 1) (start + newSize - 1)) (valAsBv $ eval env term)
+    where oldSize = fromInteger $ natVal (Proxy :: Proxy n)
+          newSize = fromInteger $ natVal (Proxy :: Proxy i)
+
+
 eval :: forall s. Typeable s => Env -> Term s -> Value s
 eval e t = case t of
     BoolLit b -> ValBool b
@@ -459,10 +465,9 @@ eval e t = case t of
     Let x s t' -> eval e' t'
         where v  = eval e s
               e' = Map.insert x (toDyn v) e
---
+
     BvConcat a b -> ValBv $ valAsBv (eval e a) `mappend` valAsBv (eval e b)
---    BvExtract {} -> error "NYI: Ambiguous!"
---    -- Not handled!! BvExtract a -> BvExtract (mapTerm f a
+    BvExtract start t' -> bvExtract e start t'
     BvBinExpr o l r -> ValBv $ bvBinFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
     BvBinPred o l r -> ValBool $ bvBinPredFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
     IntToBv i -> ValBv $ Bv.bitVec (size t) (valAsInt (eval e i))
