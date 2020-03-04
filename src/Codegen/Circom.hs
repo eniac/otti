@@ -1,15 +1,14 @@
-{-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
-{-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE PolyKinds           #-}
-{-# LANGUAGE FlexibleInstances   #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE TypeOperators       #-}
-{-# LANGUAGE TypeFamilies        #-}
-{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE PolyKinds             #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE TypeApplications      #-}
+{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE TypeOperators         #-}
 module Codegen.Circom ( genExpr
                       , genStatement
                       , genStatements
@@ -28,22 +27,22 @@ module Codegen.Circom ( genExpr
                       , ctxWithEnv
                       ) where
 
-import qualified IR.TySmt                   as Smt
 import           AST.Circom                 as AST
-import qualified Codegen.Circom.Constraints as CS
 import           Codegen.Circom.Constraints (Constraints)
+import qualified Codegen.Circom.Constraints as CS
 import           Codegen.Circom.Context     as Context
 import           Codegen.Circom.Term        as Term
 import qualified Data.Bits                  as Bits
 import           Data.Field.Galois          (Prime, fromP, toP)
 import           Data.List                  (intercalate)
 import qualified Data.Map.Strict            as Map
-import qualified Data.Set                   as Set
 import           Data.Maybe                 as Maybe
-import           Debug.Trace                (trace,traceShowId)
 import           Data.Proxy                 (Proxy (Proxy))
-import           GHC.TypeNats
+import qualified Data.Set                   as Set
+import           Debug.Trace                (trace)
 import           GHC.TypeLits.KnownNat
+import           GHC.TypeNats
+import qualified IR.TySmt                   as Smt
 
 intLog2 :: Integral a => a -> a
 intLog2 n =
@@ -65,7 +64,7 @@ instance KnownNat x => KnownNat1 $(nameToSymbol ''Log2) x where
 termMultiDimArray :: KnownNat k => Term k -> [Term k] -> Term k
 termMultiDimArray = foldr (\d acc -> case d of
         Base (Scalar n, _) -> Array $ replicate (fromIntegral $ fromP n) acc
-        _        -> error $ "Illegal dimension " ++ show d
+        _                  -> error $ "Illegal dimension " ++ show d
     )
 
 -- Given a signal name and dimensions, produces a multi-d array containing the
@@ -99,9 +98,9 @@ wireGenTimeConst t = case t of
 
 termGenTimeConst :: Term k -> Bool
 termGenTimeConst t = case t of
-    Base (b, _)  -> wireGenTimeConst b
-    Array a      -> all termGenTimeConst a
-    Struct m _ -> all termGenTimeConst m
+    Base (b, _) -> wireGenTimeConst b
+    Array a     -> all termGenTimeConst a
+    Struct m _  -> all termGenTimeConst m
 
 genGetUnMutOp :: KnownNat k => UnMutOp -> Term k -> Term k
 genGetUnMutOp op = case op of
@@ -138,7 +137,7 @@ liftToBaseTerm :: KnownNat k =>
 liftToBaseTerm ft fsmt (sa, sb) (ta, tb) =
     ( case (sa, ta) of
         (Scalar c1 , Scalar c2) -> Scalar $ toP $ ft (fromP c1) (fromP c2)
-        _ -> Other
+        _                       -> Other
     , fsmt sb tb
     )
 
@@ -163,7 +162,7 @@ liftBvToTerm :: forall k. KnownNat k =>
     Term k ->
     Term k
 liftBvToTerm name f op =
-    liftToTerm (traceShowId (show l ++ name ++ show bits ++ show newBits))
+    liftToTerm name
                f
                (\a b -> Smt.IntToPf @k $ Smt.BvToInt $
                         -- Note that `k` is really too big, but it would take
@@ -171,11 +170,6 @@ liftBvToTerm name f op =
                         -- KnownNat.
                         Smt.BvBinExpr op (Smt.IntToBv @(Log2 k + 1) $ Smt.PfToInt a)
                                          (Smt.IntToBv @(Log2 k + 1) $ Smt.PfToInt b))
-    where
-        o = natVal (Proxy :: Proxy k)
-        bits = traceShowId ((floor . logBase 2 . fromIntegral) o + 1)
-        newBits = traceShowId (natVal (Proxy @(Log2 k + 1)))
-        l = length (name ++ show bits ++ show newBits)
 
 liftIntFnToTerm :: forall k. KnownNat k =>
     String ->
@@ -191,6 +185,7 @@ liftIntFnToTerm name f g =
                         g (Smt.PfToInt a)
                           (Smt.PfToInt b))
 
+liftIntOpToTerm :: KnownNat k => String -> (Integer -> Integer -> Integer) -> Smt.IntBinOp -> Term k -> Term k -> Term k
 liftIntOpToTerm name f op = liftIntFnToTerm name f (Smt.IntBinExpr op)
 
 -- Lifts a fun: Integer -> Integer -> Bool to one that operates over gen-time constant
@@ -232,7 +227,7 @@ liftUnToBaseTerm :: KnownNat k =>
 liftUnToBaseTerm f fsmt (sa, sb) =
     ( case sa of
         Scalar c1 -> (Scalar . toP . f . fromP) c1
-        _ -> Other
+        _         -> Other
     , fsmt sb
     )
 
@@ -376,7 +371,7 @@ genStatement ctx statement = case statement of
             zeroTerm = lt - rt
     -- TODO Not quite right: evals twice
     AssignConstrain l e -> genStatements ctx [Assign l e, Constrain (LValue l) e]
-    VarDeclaration name dims init -> case init of
+    VarDeclaration name dims ini -> case ini of
             Just e  -> genStatement ctx'' $ Assign (Ident name) e
             Nothing -> ctx''
         where
@@ -389,7 +384,7 @@ genStatement ctx statement = case statement of
             sigAdder = if AST.isPublic kind then Context.ctxAddPublicSig else Context.ctxAddPrivateSig
             t = termSignalArray name tdims
             (ctx', tdims) = genExprs ctx dims
-    SubDeclaration name dims init -> case init of
+    SubDeclaration name dims ini -> case ini of
             Just e  -> genStatement ctx'' $ Assign (Ident name) e
             Nothing -> ctx''
         where
@@ -408,7 +403,7 @@ genStatement ctx statement = case statement of
             _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
         where
             (ctx', tcond) = genExpr ctx cond
-    For init cond step block -> genStatements ctx [init, While cond (block ++ [step])]
+    For ini cond step block -> genStatements ctx [ini, While cond (block ++ [step])]
     DoWhile block expr -> genStatements ctx (block ++ [While expr block])
     Compute _ -> ctx
     Ignore e -> fst $ genExpr ctx e

@@ -49,7 +49,6 @@ import           Data.Map       (Map)
 import qualified Data.Maybe     as Maybe
 import           Data.Bits      as Bits
 import           Data.Proxy     (Proxy(..))
-import           Debug.Trace    (trace,traceShowId,traceStack)
 
 data IntSort = IntSort deriving (Show,Ord,Eq,Typeable)
 data BoolSort = BoolSort deriving (Show,Ord,Eq,Typeable)
@@ -447,11 +446,7 @@ modulus :: forall n. KnownNat n => Term (PfSort n) -> Integer
 modulus _ = natVal (Proxy :: Proxy n)
 
 size :: forall n. KnownNat n => Term (BvSort n) -> Int
-size t = traceStack (show t) int
-  where
-    o = trace "proxy" (Proxy :: Proxy n)
-    integer :: Integer = trace "start natVal" $ trace ("hi" ++ show (natVal o)) (natVal o)
-    int = trace "fi" (fromIntegral integer)
+size t = fromIntegral $ natVal $ Proxy @n
 
 bvExtract :: forall n i. (KnownNat n, KnownNat i, i <= n) => Env -> Int -> Term (BvSort n) -> Value (BvSort i)
 bvExtract env start term = ValBv $ Bv.extract start (min (oldSize - 1) (start + newSize - 1)) (valAsBv $ eval env term)
@@ -464,7 +459,7 @@ newArray t = case t of
 
 
 eval :: forall s. Typeable s => Env -> Term s -> Value s
-eval e t = case trace ("\nEval: " ++ show e ++ "\n" ++ show t) t of
+eval e t = case t of
     BoolLit b -> ValBool b
     BoolBinExpr o l r -> ValBool $ boolBinFn o (valAsBool $ eval e l) (valAsBool $ eval e r)
     BoolNaryExpr o as -> ValBool $ boolNaryFn o (map (valAsBool . eval e) as)
@@ -484,13 +479,7 @@ eval e t = case trace ("\nEval: " ++ show e ++ "\n" ++ show t) t of
     BvExtract start t' -> bvExtract e start t'
     BvBinExpr o l r -> ValBv $ bvBinFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
     BvBinPred o l r -> ValBool $ bvBinPredFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
-    IntToBv i -> ValBv bv
-      where
-        s = traceStack ("size start: " ++ show e) (size t)
-        i' = traceStack "eval start" (eval e i)
-        v = traceStack "v start" (valAsInt i')
-        bv = Bv.bitVec s v
-
+    IntToBv i -> ValBv $ Bv.bitVec (size t) $ valAsInt $ eval e i
 --    FpToBv tt -> FpToBv (mapTerm f tt)
 
     IntLit i -> ValInt i

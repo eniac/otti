@@ -21,7 +21,6 @@ import           Data.Field.Galois          (Prime)
 import           Data.List                  (intercalate)
 import qualified Data.Map.Strict            as Map
 import qualified Data.Maybe                 as Maybe
-import           Debug.Trace                (trace)
 import           GHC.TypeLits               (KnownNat, natVal)
 
 data Ctx k = Ctx { env         :: Map.Map String (Term k)
