@@ -122,8 +122,15 @@ cmdEmitR1cs circomPath r1csPath = do
 
 cmdSetup :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdSetup libsnarkPath circomPath r1csPath pkPath vkPath = do
+    print "Loading circuit"
     m <- loadMain circomPath
-    writeToR1csFile (ctxToSmt (genMainCtx m order :: OrderCtx)) r1csPath
+    print "Generating main"
+    let ctx = genMainCtx m order :: OrderCtx
+    print $ "Constraints: " ++ show (length $ equalities $ constraints ctx) ++ ". Converting to smt..."
+    let smt = ctxToSmt ctx
+    print $ "Smt depth: " ++ show (Smt.depth smt) ++ ". Serializing smt..."
+    writeToR1csFile smt r1csPath
+    print "Running libsnark"
     runSetup libsnarkPath r1csPath pkPath vkPath
 
 cmdProve :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
