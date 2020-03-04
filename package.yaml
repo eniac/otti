@@ -80,3 +80,4 @@ tests:
     - mtl >= 2.2.2
     - containers >= 0.6
     - z3 >= 4.3.1
+    - bv >= 0.5

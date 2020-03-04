@@ -2,6 +2,7 @@ import           BenchUtils
 import           Codegen.CircomTest
 import           Codegen.SMTGenTest
 import           IR.SMTTest
+import           IR.TySmtTest
 import           Parser.CTest
 import           Parser.WASMTest
 import           Parser.CircomTest
@@ -25,6 +26,7 @@ allTests = [ parserTests
            , irTests
            , codegenTests
            , generatorTests
+           , tySmtTests
            ]
 
 main :: IO ()

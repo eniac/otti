@@ -471,9 +471,10 @@ eval e t = case trace ("\n" ++ show t) t of
     Not s -> (ValBool . not . valAsBool . eval e) s
 
     Ite c tt ff -> if valAsBool $ eval e c then eval e tt else eval e ff
-    Var s -> fromDyn
-        (Map.findWithDefault (error $ "Unknown identifier '" ++ show s ++ "'") s e)
-        (error $ "Indentifier '" ++ show s ++ "; of wrong sort")
+    Var s -> typed
+      where
+        entry = Map.findWithDefault (error $ "Unknown identifier '" ++ show s ++ "'") s e
+        typed = fromDyn entry (error $ "Indentifier '" ++ show s ++ "' of wrong sort.\nValue: " ++ show entry)
     Exists {} -> error "Cannot evaluate existential quantifiers!"
     Let x s t' -> eval e' t'
         where v  = eval e s
