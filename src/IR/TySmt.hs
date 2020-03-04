@@ -446,7 +446,7 @@ modulus :: forall n. KnownNat n => Term (PfSort n) -> Integer
 modulus _ = natVal (Proxy :: Proxy n)
 
 size :: forall n. KnownNat n => Term (BvSort n) -> Int
-size t = fromIntegral $ natVal $ Proxy @n
+size _ = fromIntegral $ natVal $ Proxy @n
 
 bvExtract :: forall n i. (KnownNat n, KnownNat i, i <= n) => Env -> Int -> Term (BvSort n) -> Value (BvSort i)
 bvExtract env start term = ValBv $ Bv.extract start (min (oldSize - 1) (start + newSize - 1)) (valAsBv $ eval env term)
