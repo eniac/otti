@@ -70,7 +70,7 @@ ctxStore ctx loc value = case value of
     where
         (ident, ss) = steps loc
         emmigrateSignal = SigForeign ident (Either.rights ss)
-        emmigrateSignalString s = intercalate "." (ident:map (\i -> "[" ++ show i ++ "]") (Either.rights ss)) ++ "."
+        emmigrateSignalString s = intercalate "." (ident:map (\i -> "[" ++ show i ++ "]") (Either.rights ss)) ++ "." ++ s
 
         -- Given
         --   * a location as a list of pins/indices, ([Either String Int])

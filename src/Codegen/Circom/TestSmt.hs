@@ -41,13 +41,14 @@ getOrder = S.reduceTerm visit Nothing join
         2 -> if head ls == ls !! 1 then Just (head ls) else error $ "Two different orders:\n\t" ++ show (head ls) ++ "\nand\n\t" ++ show (ls !! 1)
       where ls = Maybe.catMaybes [i, j]
 
-collectVars :: S.Term s -> Set.Set String
-collectVars = S.reduceTerm visit Set.empty Set.union
+collectVars :: S.Term s -> [String]
+collectVars = S.reduceTerm visit [] (++)
   where
-    visit :: S.Term t -> Maybe (Set.Set String)
+    visit :: S.Term t -> Maybe [String]
     visit t = case t of
-      S.Var v -> Just $ Set.singleton v
-      _ -> Nothing
+      S.Exists n _ t' -> Just $ n : collectVars t'
+      S.Let n _ t' -> Just $ n : collectVars t'
+      _ -> Just []
 
 extractConstraints :: S.Term s -> [S.Term S.BoolSort]
 extractConstraints = S.reduceTerm visit [] (++)
@@ -109,7 +110,7 @@ extendInputsToAssignment orderProxy inputs smt =
     order = natVal orderProxy
     existNames = listExistentials smt
     letNames = listLets smt
-    pfInputs = map (toDyn . S.IntToPf @k . S.IntLit) inputs
+    pfInputs = map (toDyn . S.ValPf @k . ( `rem` order)) inputs
     e = if length pfInputs == length existNames then
         Map.fromList $ zip existNames pfInputs
     else
@@ -159,9 +160,9 @@ smtToR1csLines :: S.Term S.BoolSort -> [[Integer]]
 smtToR1csLines term =
     [nExistentials, nLets, nConstraints] : bodyLines
   where
-    vars = Set.toList $ collectVars term
+    vars = collectVars term
     varIndices :: VarIndices
-    varIndices = Map.fromList $ zip vars [1,2..]
+    varIndices = Map.fromList $ zip vars [2,3..]
     allConstraints = extractConstraints term
     constraints = if length allConstraints == 1 then head allConstraints else error $ "Should be a single constraint set" ++ show allConstraints
     nExistentials = countExistentials term

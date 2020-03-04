@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 {-# LANGUAGE DataKinds           #-}
@@ -34,13 +35,12 @@ import           Codegen.Circom.Constraints (Constraints)
 import           Codegen.Circom.Context     as Context
 import           Codegen.Circom.Term        as Term
 import qualified Data.Bits                  as Bits
-import           Data.Field.Galois          (Prime, PrimeField, fromP, toP)
-import           Data.List                  as List
+import           Data.Field.Galois          (Prime, fromP, toP)
+import           Data.List                  (intercalate)
 import qualified Data.Map.Strict            as Map
 import qualified Data.Set                   as Set
 import           Data.Maybe                 as Maybe
-import qualified Data.Sequence              as Sequence
-import           Debug.Trace                (trace)
+import           Debug.Trace                (trace,traceShowId)
 import           Data.Proxy                 (Proxy (Proxy))
 import           GHC.TypeNats
 import           GHC.TypeLits.KnownNat
@@ -50,7 +50,7 @@ intLog2 n =
     if n <= fromInteger 1 then
         fromInteger 0
     else
-        fromInteger 1 + intLog2 n `div` fromInteger 2
+        fromInteger 1 + intLog2 (n `div` fromInteger 2)
 
 -- XXX(HACK): Log2 0 is actually undefined, but who wants to deal with that?
 --            we treat it as 0, even though the type systems rejects it.
@@ -68,8 +68,6 @@ termMultiDimArray = foldr (\d acc -> case d of
         _        -> error $ "Illegal dimension " ++ show d
     )
 
-data DimArray = DABase String [Int] | DARec [DimArray]
-
 -- Given a signal name and dimensions, produces a multi-d array containing the
 -- consituent signals
 --
@@ -80,16 +78,16 @@ termSignalArray name dim = case dim of
     (Base (Scalar n, _)):rest ->
         Array $ [ mapSignalsInTerm (subscriptSignal (i - 1)) (sSigString (i - 1)) rec | i <- [1..(fromP n)] ]
         where
-            subscriptSignal idx (SigLocal name idxs) = SigLocal name (fromIntegral idx:idxs)
-            subscriptSignal idx  SigForeign {}       = error "Unreachable"
+            subscriptSignal idx (SigLocal n' idxs) = SigLocal n' (fromIntegral idx:idxs)
+            subscriptSignal _ SigForeign {}       = error "Unreachable"
             sSigString idx s = intercalate "." (t: ("[" ++ show idx ++ "]") : ts)
                 where
                   t:ts = split '.' s
             split :: Eq a => a -> [a] -> [[a]]
-            split d [] = []
+            split _ [] = []
             split d s = x : split d (drop 1 y) where (x,y) = span (/= d) s
             rec = termSignalArray name rest
-    (t:ts) -> error $ "Illegal dimension " ++ show t
+    (t:_) -> error $ "Illegal dimension " ++ show t
 
 wireGenTimeConst :: WireBundle k -> Bool
 wireGenTimeConst t = case t of
@@ -103,7 +101,7 @@ termGenTimeConst :: Term k -> Bool
 termGenTimeConst t = case t of
     Base (b, _)  -> wireGenTimeConst b
     Array a      -> all termGenTimeConst a
-    Struct map _ -> all termGenTimeConst map
+    Struct m _ -> all termGenTimeConst m
 
 genGetUnMutOp :: KnownNat k => UnMutOp -> Term k -> Term k
 genGetUnMutOp op = case op of
@@ -165,7 +163,7 @@ liftBvToTerm :: forall k. KnownNat k =>
     Term k ->
     Term k
 liftBvToTerm name f op =
-    liftToTerm name
+    liftToTerm (traceShowId (show l ++ name ++ show bits ++ show newBits))
                f
                (\a b -> Smt.IntToPf @k $ Smt.BvToInt $
                         -- Note that `k` is really too big, but it would take
@@ -175,7 +173,9 @@ liftBvToTerm name f op =
                                          (Smt.IntToBv @(Log2 k + 1) $ Smt.PfToInt b))
     where
         o = natVal (Proxy :: Proxy k)
-        bits = (floor . logBase 2 . fromIntegral) o + 1
+        bits = traceShowId ((floor . logBase 2 . fromIntegral) o + 1)
+        newBits = traceShowId (natVal (Proxy @(Log2 k + 1)))
+        l = length (name ++ show bits ++ show newBits)
 
 liftIntFnToTerm :: forall k. KnownNat k =>
     String ->
@@ -260,20 +260,20 @@ genExpr ctx expr = case expr of
         Sub    -> l' - r'
         Mul    -> l' * r'
         Div    -> l' / r'
-        IntDiv -> liftIntOpToTerm "//" div Smt.IntDiv l' r'
-        Mod    -> liftIntOpToTerm "%"  mod Smt.IntMod l' r'
-        Lt     -> liftCmpToTerm "<"   (<)  Smt.IntLt l' r'
-        Gt     -> liftCmpToTerm ">"   (>)  Smt.IntGt l' r'
-        Le     -> liftCmpToTerm "<="  (<=) Smt.IntLe l' r'
-        Ge     -> liftCmpToTerm "<="  (>=) Smt.IntGe l' r'
-        Eq     -> liftCmpToTerm "=="  (==) Smt.IntEq l' r'
-        Ne     -> liftCmpToTerm "!="  (/=) Smt.IntNe l' r'
+        IntDiv -> liftIntOpToTerm "//" div  Smt.IntDiv l' r'
+        Mod    -> liftIntOpToTerm "%"  mod  Smt.IntMod l' r'
+        Lt     -> liftCmpToTerm "<"    (<)  Smt.IntLt  l' r'
+        Gt     -> liftCmpToTerm ">"    (>)  Smt.IntGt  l' r'
+        Le     -> liftCmpToTerm "<="   (<=) Smt.IntLe  l' r'
+        Ge     -> liftCmpToTerm "<="   (>=) Smt.IntGe  l' r'
+        Eq     -> liftCmpToTerm "=="   (==) Smt.IntEq  l' r'
+        Ne     -> liftCmpToTerm "!="   (/=) Smt.IntNe  l' r'
         And    -> liftBoolFnToTerm "&&" (&&)
             (\a b -> Smt.BoolNaryExpr Smt.And [a, b]) l' r'
         Or     -> liftBoolFnToTerm "||" (||)
             (\a b -> Smt.BoolNaryExpr Smt.Or [a, b]) l' r'
         Shl    -> liftIntOpToTerm "<<" (liftShiftToInt Bits.shiftL) Smt.IntShl l' r'
-        Shr    -> liftIntOpToTerm "<<" (liftShiftToInt Bits.shiftR) Smt.IntShr l' r'
+        Shr    -> liftIntOpToTerm ">>" (liftShiftToInt Bits.shiftR) Smt.IntShr l' r'
         BitAnd -> liftBvToTerm "&" (Bits..&.) Smt.BvAnd l' r'
         BitOr  -> liftBvToTerm "|" (Bits..|.) Smt.BvOr  l' r'
         BitXor -> liftBvToTerm "^" Bits.xor   Smt.BvXor l' r'
@@ -282,7 +282,7 @@ genExpr ctx expr = case expr of
         (ctx', l') = genExpr ctx l
         (ctx'', r') = genExpr ctx' r
         liftShiftToInt :: (Integer -> Int -> Integer) -> Integer -> Integer -> Integer
-        liftShiftToInt s l r = s l (fromIntegral r)
+        liftShiftToInt a b c = a b (fromIntegral c)
     UnExpr op e ->
         case op of
             UnNeg -> (ctx', - t)
@@ -293,7 +293,7 @@ genExpr ctx expr = case expr of
             UnPos -> (ctx', (case t of
                 Array ts     -> Base $ fromInteger $ fromIntegral $ length ts
                 Struct ts _  -> Base $ fromInteger $ fromIntegral $ Map.size ts
-                t -> t))
+                _ -> t))
             BitNot -> error "NYI" -- The sematics of this are unclear.
         where
             (ctx', t) = genExpr ctx e
@@ -302,7 +302,7 @@ genExpr ctx expr = case expr of
         case condT of
             Base (Scalar 0, _)     -> (ctx''', caseF)
             Base (Scalar _, _)     -> (ctx''', caseT)
-            Base (s, v)            ->
+            Base (_, v)            ->
                 case (caseT, caseF) of
                     (Base t, Base f) -> (ctx''', Base (Other, Smt.Ite (Smt.PfBinPred Smt.PfNe z v) (snd t) (snd f)))
                     (t, f) -> error $ "Cannot evalate a ternary as " ++ show t ++ " or " ++ show f
@@ -349,7 +349,7 @@ genUnExpr ctx op loc = case op of
         ctx'' = ctxStore ctx' lval term'
 
 genExprs :: KnownNat k => Ctx k -> [Expr] -> (Ctx k, [Term k])
-genExprs c = foldl (\(c, ts) e -> let (c', t) = genExpr c e in (c', ts ++ [t])) (c, [])
+genExprs ctx = foldl (\(c, ts) e -> let (c', t) = genExpr c e in (c', ts ++ [t])) (ctx, [])
 
 genStatements :: KnownNat k => Ctx k -> [Statement] -> Ctx k
 genStatements = foldl (\c s -> if isJust (returning c) then c else genStatement c s)

@@ -11,8 +11,11 @@ echo "Temp dir: $temp_dir"
 
 (cd $temp_dir && $frontend_bin setup -P pk -V vk -C "$script_dir/$test_name/$test_name.r1cs")
 
+echo "Prove"
 (cd $temp_dir && $frontend_bin prove -P pk -V vk -x "$script_dir/$test_name/$test_name.x" -w "$script_dir/$test_name/$test_name.w" -p proof)
 
-(cd $temp_dir && $frontend_bin verify -V vk -x "$script_dir/$test_name/$test_name.x" -p proof | grep "Verification status: 1")
+echo "Verification"
+
+(cd $temp_dir && $frontend_bin verify -V vk -x "$script_dir/$test_name/$test_name.x" -p proof)
 
 #rm -r $temp_dir

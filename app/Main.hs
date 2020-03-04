@@ -1,6 +1,13 @@
 {-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE PolyKinds           #-}
 {-# LANGUAGE QuasiQuotes         #-}
+{-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE TypeOperators       #-}
+{-# LANGUAGE FlexibleInstances   #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell     #-}
+{-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 module Main where
 
 import           Codegen.Circom             (genMainCtx)
@@ -11,11 +18,13 @@ import           Codegen.Circom.ToSmt       (ctxToSmt)
 import           Codegen.Circom.TestSmt     (writeToR1csFile, extendInputsToAssignment)
 import           Data.Field.Galois          (Prime)
 import           Data.Proxy                 (Proxy(..))
+import           GHC.TypeNats
+import           GHC.TypeLits.KnownNat
 import qualified IR.TySmt                   as Smt
 import           Parser.Circom              (loadMain)
 import           Control.Monad              (when)
 import           System.Environment         (getArgs)
-import           System.IO                  (openFile, hGetContents, hPutStr, IOMode(..))
+import           System.IO                  (openFile, hGetContents, hPutStr, IOMode(..), hClose)
 import           System.Console.Docopt
 import           System.Process
 
@@ -57,12 +66,14 @@ parseInputs :: FilePath -> IO [Integer]
 parseInputs path = do
     handle <- openFile path ReadMode
     contents <- hGetContents handle
-    return $ tail $ map read $ words contents
+    let r = tail $ map read $ words contents
+    return r
 
 emitAssignment :: [Integer] -> FilePath -> IO ()
 emitAssignment xs path = do
     handle <- openFile path WriteMode
     hPutStr handle $ concatMap (\i -> show i ++ "\n") (fromIntegral (length xs) : xs)
+    hClose handle
 
 extendInput :: FilePath -> FilePath -> FilePath -> Smt.Term Smt.BoolSort -> IO ()
 extendInput publicInputPath privateInputPath assignmentPath term = do
@@ -71,6 +82,7 @@ extendInput publicInputPath privateInputPath assignmentPath term = do
     let inputs = publicInputs ++ privateInputs
     let assignment = extendInputsToAssignment (Proxy :: Proxy Order) inputs term
     let witnessAssignment = drop (length publicInputs) assignment
+    print witnessAssignment
     emitAssignment witnessAssignment assignmentPath
 
 -- libsnark functions
@@ -81,7 +93,7 @@ runSetup libsnarkPath circuitPath pkPath vkPath = do
 
 runProve :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 runProve libsnarkPath pkPath vkPath xPath wPath pfPath = do
-    readProcess libsnarkPath ["prove", "-V", vkPath, "-P", pkPath, "-x", xPath, "-w", wPath, "-p", pfPath] ""
+    callProcess libsnarkPath ["prove", "-V", vkPath, "-P", pkPath, "-x", xPath, "-w", wPath, "-p", pfPath]
     return ()
 
 runVerify :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
@@ -89,13 +101,13 @@ runVerify libsnarkPath vkPath xPath pfPath  = do
     readProcess libsnarkPath ["verify", "-V", vkPath, "-x", xPath, "-p", pfPath] ""
     return ()
 
--- order = 21888242871839275222246405745257275088548364400416034343698204186575808495617
--- type Order = 21888242871839275222246405745257275088548364400416034343698204186575808495617
--- type OrderCtx = Ctx Order
-
-order = 17
-type Order = 17
+order = 21888242871839275222246405745257275088548364400416034343698204186575808495617
+type Order = 21888242871839275222246405745257275088548364400416034343698204186575808495617
 type OrderCtx = Ctx Order
+
+-- order = 17
+-- type Order = 17
+-- type OrderCtx = Ctx Order
 
 -- Our commands
 cmdPrintSmt :: FilePath -> IO ()
@@ -116,11 +128,12 @@ cmdSetup libsnarkPath circomPath r1csPath pkPath vkPath = do
 
 cmdProve :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdProve libsnarkPath pkPath vkPath xPath wPath pfPath circomPath = do
+    print ("order is: "  ++ show (natVal $ Proxy @Order))
+    print ("order is: "  ++ show (natVal $ Proxy @(Log2 Order + 1)))
     m <- loadMain circomPath
     let term = ctxToSmt (genMainCtx m order :: OrderCtx)
     extendInput xPath wPath assignmentPath term
     runProve libsnarkPath pkPath vkPath xPath assignmentPath pfPath
-    error "NYI"
   where
     assignmentPath = wPath ++ ".full"
 

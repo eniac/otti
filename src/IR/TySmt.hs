@@ -450,21 +450,21 @@ size :: forall n. KnownNat n => Term (BvSort n) -> Int
 size t = traceStack (show t) int
   where
     o = trace "proxy" (Proxy :: Proxy n)
-    integer :: Integer = trace "start natVal" (traceShowId $ natVal o)
-    int = fromIntegral integer
+    integer :: Integer = trace "start natVal" $ trace ("hi" ++ show (natVal o)) (natVal o)
+    int = trace "fi" (fromIntegral integer)
 
 bvExtract :: forall n i. (KnownNat n, KnownNat i, i <= n) => Env -> Int -> Term (BvSort n) -> Value (BvSort i)
 bvExtract env start term = ValBv $ Bv.extract start (min (oldSize - 1) (start + newSize - 1)) (valAsBv $ eval env term)
     where oldSize = fromInteger $ natVal (Proxy :: Proxy n)
           newSize = fromInteger $ natVal (Proxy :: Proxy i)
 
-newArray :: forall (k :: *) (v :: *). (Typeable k, Typeable v) => Term (ArraySort k v) -> Value (ArraySort k v)
+newArray :: forall k v. (Typeable k, Typeable v) => Term (ArraySort k v) -> Value (ArraySort k v)
 newArray t = case t of
     NewArray -> ValArray $ (Map.empty :: (Map.Map (Value k) (Value v)))
 
 
 eval :: forall s. Typeable s => Env -> Term s -> Value s
-eval e t = case trace ("\n" ++ show t) t of
+eval e t = case trace ("\nEval: " ++ show e ++ "\n" ++ show t) t of
     BoolLit b -> ValBool b
     BoolBinExpr o l r -> ValBool $ boolBinFn o (valAsBool $ eval e l) (valAsBool $ eval e r)
     BoolNaryExpr o as -> ValBool $ boolNaryFn o (map (valAsBool . eval e) as)
@@ -486,7 +486,7 @@ eval e t = case trace ("\n" ++ show t) t of
     BvBinPred o l r -> ValBool $ bvBinPredFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
     IntToBv i -> ValBv bv
       where
-        s = traceStack "size start" (size t)
+        s = traceStack ("size start: " ++ show e) (size t)
         i' = traceStack "eval start" (eval e i)
         v = traceStack "v start" (valAsInt i')
         bv = Bv.bitVec s v
