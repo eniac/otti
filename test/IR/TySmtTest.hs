@@ -45,6 +45,11 @@ tySmtTests = benchTestGroup "Typed SMT Tests"
         (Map.empty)
         (Smt.BvBinExpr Smt.BvAnd (Smt.IntToBv @4 (Smt.IntLit 9)) (Smt.IntToBv @4 (Smt.IntLit 10)))
         (Smt.ValBv @4 (Bv.bitVec 4 8))
+    , genEvalTest
+        "field -> int -> bv -> shift -> int -> field"
+        (Map.fromList [("a", toDyn (Smt.ValPf @17 4))])
+        (Smt.IntToPf @17 (Smt.BvToInt (Smt.BvBinExpr Smt.BvLshr (Smt.IntToBv @5 (Smt.PfToInt @17 (Smt.Var "a"))) (Smt.IntToBv @5 (Smt.IntLit 1)))))
+        (Smt.ValPf @17 2)
     ]
 
 type Env = Map.Map String Dynamic
