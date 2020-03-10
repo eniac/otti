@@ -12,8 +12,7 @@ module Main where
 
 import           Codegen.Circom             (genMainCtx)
 import           Codegen.Circom.Constraints (equalities)
-import           Codegen.Circom.Context     (Ctx (..))
-import           Codegen.Circom.Term        (Constraint)
+import           Codegen.Circom.Term        (Constraint, Ctx(..))
 import           Codegen.Circom.ToSmt       (ctxToSmt)
 import           Codegen.Circom.TestSmt     (writeToR1csFile, extendInputsToAssignment)
 import           Data.Field.Galois          (Prime)
@@ -41,8 +40,8 @@ Usage:
 
 Options:
   -h, --help         Display this message
-  --circom <path>    Write the verifier key to this path [default: main.circom]
-  -C <path>          Write the verifier key to this path [default: C]
+  --circom <path>    Read the circom circuit from this path [default: main.circom]
+  -C <path>          Write the R1CS circuit to this path [default: C]
   -V <path>          Write the verifier key to this path [default: vk]
   -P <path>          Write the prover key to this path [default: pk]
   -x <path>          Read the primary input from this path [default: x]
@@ -128,7 +127,8 @@ cmdSetup libsnarkPath circomPath r1csPath pkPath vkPath = do
     let ctx = genMainCtx m order :: OrderCtx
     print $ "Constraints: " ++ show (length $ equalities $ constraints ctx) ++ ". Converting to smt..."
     let smt = ctxToSmt ctx
-    print $ "Smt depth: " ++ show (Smt.depth smt) ++ ". Serializing smt..."
+    print $ "Smt nodes: " ++ show (Smt.nNodes smt) ++ "."
+    print $ "Smt characters: " ++ show (Smt.nChars smt) ++ ". Serializing smt..."
     writeToR1csFile smt r1csPath
     print "Running libsnark"
     runSetup libsnarkPath r1csPath pkPath vkPath

@@ -9,7 +9,6 @@ module Codegen.Circom.ToSmt ( constraintsToSmt
                             ) where
 
 import qualified Codegen.Circom.Term        as Term
-import qualified Codegen.Circom.Context     as C
 import qualified Codegen.Circom.Constraints as CS
 import           Data.Field.Galois          (Prime, fromP, toP)
 import           Data.List                  (intercalate)
@@ -29,18 +28,20 @@ collectVars = S.reduceTerm visit Set.empty Set.union
       S.Var v -> Just $ Set.singleton v
       _ -> Nothing
 
-
-ctxToSmt :: forall k. (KnownNat k, 2 <= k) => C.Ctx k -> S.Term S.BoolSort
-ctxToSmt c = quantified
+ctxToSmt :: forall k. (KnownNat k, 2 <= k) => Term.Ctx k -> S.Term S.BoolSort
+ctxToSmt c' = quantified
     where
+        c = c' { Term.env = Map.map (Term.mapVarsInTerm (\s ->
+            Maybe.fromMaybe (error $ "Missing variable: " ++ show s)
+                            (fmap show $ (Term.numberToSignal c') Map.!? (read s)))) (Term.env c') }
         sigSort = S.SortPf $ natVal (Proxy :: Proxy k)
-        cs = C.constraints c
+        cs = Term.constraints c
 
         -- Conjoin the constraints
         conj = S.BoolNaryExpr S.And $ map constraintToSmt (CS.equalities cs)
 
         -- Build a graph of variable dependencies
-        graph = Digraph.graphFromEdgedVerticesOrd $ map (\s -> case C.ctxGet c (Term.sigLocation s) of
+        graph = Digraph.graphFromEdgedVerticesOrd $ map (\s -> case Term.ctxGet c (Term.sigLocation s) of
             Term.Base (_, smt) -> Digraph.DigraphNode smt (show s) (Set.toList $ collectVars smt)
             other -> error $ "Cannot have signal like " ++ show other ++ " because that is not a field element"
           ) $ Set.toList (CS.private cs)

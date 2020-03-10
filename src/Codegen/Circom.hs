@@ -30,7 +30,6 @@ module Codegen.Circom ( genExpr
 import           AST.Circom                 as AST
 import           Codegen.Circom.Constraints (Constraints)
 import qualified Codegen.Circom.Constraints as CS
-import           Codegen.Circom.Context     as Context
 import           Codegen.Circom.Term        as Term
 import qualified Data.Bits                  as Bits
 import           Data.Field.Galois          (Prime, fromP, toP)
@@ -71,22 +70,31 @@ termMultiDimArray = foldr (\d acc -> case d of
 -- consituent signals
 --
 -- Kind of like "a" [2, 1] to [["a.0.0"], ["a.1.0"]]
-termSignalArray :: KnownNat k => String -> [Term k] -> Term k
-termSignalArray name dim = case dim of
-    [] -> sigAsSigTerm (SigLocal name [])
-    (Base (Scalar n, _)):rest ->
-        Array $ [ mapSignalsInTerm (subscriptSignal (i - 1)) (sSigString (i - 1)) rec | i <- [1..(fromP n)] ]
-        where
-            subscriptSignal idx (SigLocal n' idxs) = SigLocal n' (fromIntegral idx:idxs)
-            subscriptSignal _ SigForeign {}       = error "Unreachable"
-            sSigString idx s = intercalate "." (t: ("[" ++ show idx ++ "]") : ts)
-                where
-                  t:ts = split '.' s
-            split :: Eq a => a -> [a] -> [[a]]
-            split _ [] = []
-            split d s = x : split d (drop 1 y) where (x,y) = span (/= d) s
-            rec = termSignalArray name rest
-    (t:_) -> error $ "Illegal dimension " ++ show t
+termSignalArray :: forall k. KnownNat k => Ctx k -> String -> [Term k] -> (Ctx k, Term k)
+termSignalArray ctx name dim = helper ctx name [] (integerizeDims dim)
+  where
+    integerizeDims :: [Term k] -> [Int]
+    integerizeDims [] = []
+    integerizeDims (t:ts) = case t of
+        Base (Scalar n, _) -> fromIntegral (fromP n) : integerizeDims ts
+        _ -> error $ "Illegal dimension " ++ show t
+
+    helper :: Ctx k -> String -> [Int] -> [Int] -> (Ctx k, Term k)
+    helper ctx name location dims =
+      case dims of
+        [] -> (ctx', Base (Sig s, Smt.Var (show i)))
+          where
+            i = nextSignal ctx
+            s = SigLocal name (reverse location)
+            ctx' = ctx { nextSignal = nextSignal ctx + 1, numberToSignal = Map.insert i s (numberToSignal ctx) }
+        n : rest -> (ctx', Array (reverse ts))
+          where
+            (ctx', ts) = foldl folder (ctx, []) [0..(n-1)]
+            folder :: (Ctx k, [Term k]) -> Int -> (Ctx k, [Term k])
+            folder (ctxAcc, tAcc) i =
+              let (ctxAcc', t') = helper ctxAcc name (i:location) rest in
+                (ctxAcc', t' : tAcc)
+
 
 wireGenTimeConst :: WireBundle k -> Bool
 wireGenTimeConst t = case t of
@@ -100,7 +108,7 @@ termGenTimeConst :: Term k -> Bool
 termGenTimeConst t = case t of
     Base (b, _) -> wireGenTimeConst b
     Array a     -> all termGenTimeConst a
-    Struct m _  -> all termGenTimeConst m
+    Struct c    -> all termGenTimeConst $ env c
 
 genGetUnMutOp :: KnownNat k => UnMutOp -> Term k -> Term k
 genGetUnMutOp op = case op of
@@ -287,7 +295,7 @@ genExpr ctx expr = case expr of
                 z = Smt.IntToPf $ Smt.IntLit 0
             UnPos -> (ctx', (case t of
                 Array ts     -> Base $ fromInteger $ fromIntegral $ length ts
-                Struct ts _  -> Base $ fromInteger $ fromIntegral $ Map.size ts
+                Struct c     -> Base $ fromInteger $ fromIntegral $ Map.size $ env c
                 _ -> t))
             BitNot -> error "NYI" -- The sematics of this are unclear.
         where
@@ -318,7 +326,7 @@ genExpr ctx expr = case expr of
                     (returning postCtx)
                 )
             else
-                (ctx', ctxToStruct postCtx)
+                (ctx' { nextSignal = nextSignal postCtx }, ctxToStruct postCtx)
         else
             (ctx', error "NYI")
         where
@@ -378,11 +386,11 @@ genStatement ctx statement = case statement of
             ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0, z)) ts)
             (ctx', ts) = genExprs ctx dims
             z = Smt.IntToPf $ Smt.IntLit 0
-    SigDeclaration name kind dims -> ctxInit ctx'' name t
+    SigDeclaration name kind dims -> ctxInit ctx''' name t
         where
-            ctx'' = Set.fold sigAdder ctx' (termSignals t)
-            sigAdder = if AST.isPublic kind then Context.ctxAddPublicSig else Context.ctxAddPrivateSig
-            t = termSignalArray name tdims
+            ctx''' = Set.fold sigAdder ctx'' (termSignals t)
+            sigAdder = if AST.isPublic kind then Term.ctxAddPublicSig else Term.ctxAddPrivateSig
+            (ctx'', t) = termSignalArray ctx' name tdims
             (ctx', tdims) = genExprs ctx dims
     SubDeclaration name dims ini -> case ini of
             Just e  -> genStatement ctx'' $ Assign (Ident name) e

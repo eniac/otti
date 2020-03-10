@@ -11,7 +11,6 @@ module Codegen.Circom.TestSmt ( smtToR1csLines
                               ) where
 
 import qualified Codegen.Circom.Term        as Term
-import qualified Codegen.Circom.Context     as C
 import qualified Codegen.Circom.Constraints as CS
 import           Data.Field.Galois          (Prime, fromP, toP)
 import           Data.List                  (intercalate)

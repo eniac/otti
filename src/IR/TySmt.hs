@@ -39,6 +39,8 @@ module IR.TySmt ( IntSort(..)
                 , reduceTerm
                 , depth
                 , eval
+                , nNodes
+                , nChars
                 ) where
 
 import           GHC.TypeLits
@@ -332,6 +334,16 @@ reduceTerm mapF i foldF t = case mapF t of
 
 depth :: Term s -> Int
 depth = reduceTerm (const Nothing) 0 (\a b -> 1 + max a b)
+
+nNodes :: Term s -> Int
+nNodes = reduceTerm (const Nothing) 1 ((+) . (1+))
+
+nChars :: Term s -> Int
+nChars = reduceTerm visit 0 (+)
+  where
+    visit t = case t of
+      Var s -> Just $ length s
+      _ -> Nothing
 
 type Env = Map String Dynamic
 

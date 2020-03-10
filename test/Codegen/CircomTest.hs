@@ -7,7 +7,6 @@ import           Codegen.Circom
 import           Codegen.Circom.Term
 import           Codegen.Circom.Constraints (empty)
 import           Codegen.Circom.Constraints as Constraints
-import           Codegen.Circom.Context
 import           Codegen.Circom.ToSmt       (constraintsToSmt)
 import           Control.Monad              (unless)
 import           Data.Either                (fromLeft, isRight)
@@ -98,11 +97,11 @@ circomGenTests = benchTestGroup "Circom generator tests"
         (Array [constTerm 6])
     , ctxStoreGetTest
         "struct in array"
-        (ctxFromList (Map.fromList [("in", Array [Struct (Map.fromList [("a", constTerm 5)]) empty])]))
+        (ctxFromList (Map.fromList [("in", Array [Struct $ genCtxWithScalars [("a", 5)]])]))
         (LTermPin (LTermIdx (LTermIdent "in") 0) "a")
         (constTerm 6)
         (LTermIdent "in")
-        (Array [Struct (Map.fromList [("a", constTerm 6)]) empty])
+        (Array [Struct (genCtxWithScalars [("a", 6)])])
     , genStatementsTest
         "equal"
         (genCtxWithSignals ["a", "b"])
@@ -168,6 +167,7 @@ ctxStoreGetTest :: String -> Ctx 223 -> LTerm -> Term 223 -> LTerm -> Term 223 -
 ctxStoreGetTest name ctx sLoc sVal gLoc gVal = benchTestCase ("store/get test: " ++ name) $ do
     let ctx' = ctxStore ctx sLoc sVal
     let gVal' = ctxGet ctx' gLoc
+    -- TODO uncomment
     -- unless (gVal == gVal') $ error $ "After placing\n\t" ++ show sVal ++ "\nat\n\t" ++ show sLoc ++ "\nin\n\t" ++ show ctx ++"\n, expected\n\t" ++ show gVal ++ "\nat\n\t" ++ show gLoc ++ "\nbut found\n\t" ++ show gVal' ++ "\n"
     unless True $ error $ "After placing\n\t" ++ show sVal ++ "\nat\n\t" ++ show sLoc ++ "\nin\n\t" ++ show ctx ++"\n, expected\n\t" ++ show gVal ++ "\nat\n\t" ++ show gLoc ++ "\nbut found\n\t" ++ show gVal' ++ "\n"
     return ()
@@ -175,6 +175,7 @@ ctxStoreGetTest name ctx sLoc sVal gLoc gVal = benchTestCase ("store/get test: "
 genStatementsTest :: String -> Ctx 223 -> [Statement] -> Ctx 223 -> BenchTest
 genStatementsTest name ctx s expectCtx' = benchTestCase ("statements: " ++ name) $ do
     let ctx' = genStatements ctx s
+    -- TODO uncomment
     -- unless (env ctx' == env expectCtx') $
     unless (True) $
         error $ "Expected\n\t" ++ show s ++ "\nto produce\n\t" ++ show (env expectCtx') ++ "\nbut it produced\n\t" ++ show (env ctx') ++ "\n"

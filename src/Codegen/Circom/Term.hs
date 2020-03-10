@@ -1,8 +1,8 @@
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators       #-}
 {-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE TypeOperators       #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
 module Codegen.Circom.Term ( lcZero
@@ -14,19 +14,35 @@ module Codegen.Circom.Term ( lcZero
                            , BaseTerm
                            , LC
                            , mapSignalsInTerm
+                           , mapVarsInTerm
                            , termSignals
                            , sigAsLinearTerm
                            , sigAsSigTerm
                            , sigAsWire
                            , sigAsLC
+                           , sigAsSmt
                            , sigLocation
+                           , Ctx(..)
+                           , ctxStore
+                           , ctxGet
+                           , ctxAddConstraint
+                           , ctxWithEnv
+                           , ctxInit
+                           , ctxToStruct
+                           , ctxGetCallable
+                           , ctxAddPublicSig
+                           , ctxAddPrivateSig
                            ) where
 
+import qualified AST.Circom                 as AST
 import           Codegen.Circom.Constraints (Constraint, Constraints, LC,
                                              Signal)
 import qualified Codegen.Circom.Constraints as CS
+import qualified Data.Either                as Either
 import           Data.Field.Galois          (Prime, PrimeField)
+import           Data.List                  (intercalate)
 import qualified Data.Map.Strict            as Map
+import qualified Data.Maybe                 as Maybe
 import           Data.Proxy                 (Proxy (Proxy))
 import           Data.Set                   (Set)
 import qualified Data.Set                   as Set
@@ -44,7 +60,7 @@ type BaseTerm k = (WireBundle (Prime k), Smt.Term (Smt.PfSort k))
 
 data Term k = Base (BaseTerm k)
             | Array [Term k]                                    -- An array of terms
-            | Struct (Map.Map String (Term k)) (Constraints (Prime k))  -- A structure, environment and constraints
+            | Struct (Ctx k)
             deriving (Show)
 
 -- An evaluated l-value
@@ -138,7 +154,7 @@ instance forall k. KnownNat k => Num (Term k) where
     Base a    -> Base $ signum a
   abs s = case s of
     Array a    -> Base $ fromIntegral $ length a
-    Struct s _ -> Base $ fromIntegral $ Map.size s
+    Struct c   -> Base $ fromIntegral $ Map.size (env c)
     Base a     -> Base $ abs a
   negate s = fromInteger (-1) * s
 
@@ -178,25 +194,31 @@ mapSignalsInWires f t = case t of
     Scalar c -> Scalar c
     Other -> Other
 
-mapVarsInSmtTerms :: (String -> String) -> Smt.Term s -> Smt.Term s
-mapVarsInSmtTerms f = Smt.mapTerm visit
+mapSignalsInTerm :: (Signal -> Signal) -> Term k -> Term k
+mapSignalsInTerm f t = case t of
+    Array ts -> Array $ map (mapSignalsInTerm f) ts
+    Struct c -> Struct c { env = Map.map (mapSignalsInTerm f) $ env c
+                         , constraints = CS.mapSignals f $ constraints c
+                         -- Not needed, because we lift the map to the top context.
+                         -- , numberToSignal = Map.map f $ numberToSignal c
+                         }
+    Base (a, b) -> Base (mapSignalsInWires f a, b)
+
+mapVarsInTerm :: (String -> String) -> Term k -> Term k
+mapVarsInTerm f t = case t of
+    Array ts -> Array $ map (mapVarsInTerm f) ts
+    Struct c -> Struct c { env = Map.map (mapVarsInTerm f) $ env c
+                         }
+    Base (a, b) -> Base (a, mapVarsInSmtTerm f b)
+
+mapVarsInSmtTerm :: (String -> String) -> Smt.Term k -> Smt.Term k
+mapVarsInSmtTerm f = Smt.mapTerm visit
   where
     visit :: Smt.Term t -> Maybe (Smt.Term t)
     visit t = case t of
-      Smt.Var v ->
-        Just $ Smt.Var (f v)
-      Smt.Exists v s tt ->
-        Just $ Smt.Exists (f v) s (Smt.mapTerm visit tt)
-      Smt.Let v s tt ->
-        Just $ Smt.Let (f v) (Smt.mapTerm visit s) (Smt.mapTerm visit tt)
+      Smt.Var s -> Just $ Smt.Var $ f s
       _ -> Nothing
 
-
-mapSignalsInTerm :: (Signal -> Signal) -> (String -> String) -> Term k -> Term k
-mapSignalsInTerm f fs t = case t of
-    Array ts -> Array $ map (mapSignalsInTerm f fs) ts
-    Struct ts cs -> Struct (Map.map (mapSignalsInTerm f fs) ts) (CS.mapSignals f cs)
-    Base (a, b) -> Base (mapSignalsInWires f a, mapVarsInSmtTerms fs b)
 
 wireSignals :: WireBundle k -> Set Signal
 wireSignals t = case t of
@@ -209,7 +231,7 @@ wireSignals t = case t of
 termSignals :: Term k -> Set Signal
 termSignals t = case t of
     Array ts    -> foldr Set.union Set.empty $ map termSignals ts
-    Struct m cs -> foldr Set.union Set.empty $ map termSignals $ Map.elems m
+    Struct c    -> foldr Set.union Set.empty $ map termSignals $ Map.elems $ env c
     Base (a, _) -> wireSignals a
 
 sigLocation :: Signal -> LTerm
@@ -217,3 +239,122 @@ sigLocation s =
     foldl (flip $ either (flip LTermPin) (flip LTermIdx))
           (LTermIdent (CS.signalLeadingName s))
           (drop 1 $ CS.signalAccesses s)
+
+data Ctx k = Ctx { env            :: Map.Map String (Term k)
+                 , constraints    :: CS.Constraints (Prime k)
+                 --                              (fn? , params  , body     )
+                 -- NB: templates are not fn's.
+                 --     functions are
+                 , callables      :: Map.Map String (Bool, [String], AST.Block)
+                 -- Must be prime.
+                 , fieldOrder     :: Integer
+                 , returning      :: Maybe (Term k)
+                 -- During synthesis signals are all numbered.
+                 , numberToSignal :: Map.Map Int Signal
+                 , nextSignal     :: Int
+                 }
+                 deriving (Show)
+
+updateList :: (a -> a) -> Int -> [a] -> Maybe [a]
+updateList f i l = case splitAt i l of
+    (h, m:t) -> Just $ h ++ (f m : t)
+    _        -> Nothing
+
+
+ctxWithEnv :: KnownNat k => Map.Map String (Term k) -> Integer -> Ctx k
+ctxWithEnv env order = Ctx
+    { env = env
+    , constraints = CS.empty
+    , callables = Map.empty
+    , fieldOrder = order
+    , returning = Nothing
+    , numberToSignal = Map.empty
+    , nextSignal = 0
+    }
+
+assignTerm :: KnownNat k => Term k -> Term k -> Term k
+assignTerm src dst = case (src, dst) of
+    (Base (Sig s, _), Base (_, v)) -> Base (Sig s, v)
+    (_, r)                         -> r
+
+-- Modifies a context to store a value in a location
+ctxStore :: KnownNat k => Ctx k -> LTerm -> Term k -> Ctx k
+ctxStore ctx loc value = case value of
+        -- No storing structures to foreign locations!
+        -- Really, we want something stricter than this
+        Struct ctx' -> if null (Either.lefts ss)
+            then
+                let
+                    m' = Map.map (mapSignalsInTerm emmigrateSignal) $ env ctx'
+                    c' = CS.mapSignals emmigrateSignal $ constraints ctx'
+                    numberToSignal' = Map.map emmigrateSignal $ numberToSignal ctx'
+                    s' = Struct ctx' { env = m', constraints = CS.empty, numberToSignal = Map.empty }
+                in
+                    ctx { env = Map.update (pure . replacein ss s') ident $ env ctx
+                        , constraints = CS.union c' $ constraints ctx
+                        , numberToSignal = Map.union numberToSignal' $ numberToSignal ctx
+                        }
+            else
+                error $ "Cannot assign circuits to non-local location: " ++ show loc
+        _ -> ctx { env = Map.update (pure . replacein ss value) ident (env ctx) }
+    where
+        (ident, ss) = steps loc
+        emmigrateSignal = CS.SigForeign ident (Either.rights ss)
+
+        -- Given
+        --   * a location as a list of pins/indices, ([Either String Int])
+        --   * a value (Term)
+        --   * a term (Term)
+        -- locates the sub-term of term at the location (first pin/idx applies
+        -- to the top of the term) and replaces it with `value`.
+        replacein :: KnownNat k => [Either String Int] -> Term k -> Term k -> Term k
+        replacein location value term = case location of
+            [] -> assignTerm term value
+            Left pin:rest -> case term of
+                Struct c -> Struct c { env = Map.update (pure . replacein rest value) pin (env c) }
+                _ -> error $ "Cannot update pin `" ++ pin ++ "` of non-struct " ++ show term
+            Right idx:rest -> case term of
+                Array m -> Array $ Maybe.fromMaybe (error $ "The index " ++ show idx ++ " is out of bounds for " ++ show m)
+                                                   (updateList (replacein rest value) idx m)
+                _ -> error $ "Cannot update index `" ++ show idx ++ "` of non-array " ++ show term
+
+        -- Extract the steps of the access
+        -- first the identifier
+        -- second the pins/indices to follows, tail-first.
+        rsteps (LTermIdent s) = (s, [])
+        rsteps (LTermPin lt pin) = let (s, ts) = rsteps lt in (s, Left pin:ts)
+        rsteps (LTermIdx lt idx) = let (s, ts) = rsteps lt in (s, Right idx:ts)
+
+        steps l = let (s, ts) = rsteps l in (s, reverse ts)
+
+
+-- Gets a value from a location in a context
+ctxGet :: KnownNat k => Ctx k -> LTerm -> Term k
+ctxGet ctx loc = case loc of
+    LTermIdent s -> r
+        where r = Map.findWithDefault (error $ "Unknown identifier `" ++ s ++ "`") s (env ctx)
+    LTermPin loc' pin -> case ctxGet ctx loc' of
+        Struct c -> (env c) Map.! pin
+        l -> error $ "Non-struct " ++ show l ++ " as location in " ++ show loc
+    LTermIdx loc' i -> case ctxGet ctx loc' of
+        Array ts -> if i < length ts then ts !! i else error $ "Idx " ++ show i ++ " too big for " ++ show ts
+        l -> error $ "Non-array " ++ show l ++ " as location in " ++ show loc
+
+ctxInit :: KnownNat k => Ctx k -> String -> Term k -> Ctx k
+ctxInit ctx name value = ctx { env = Map.insert name value (env ctx) }
+
+-- Given a context and an identifier too find, looks up the callable (function or template) of that name.
+-- Returns the (whether it is a function, the formal parameters, the body)
+ctxGetCallable :: KnownNat k => Ctx k -> String -> (Bool, [String], AST.Block)
+ctxGetCallable ctx name = Maybe.fromMaybe (error $ "No template named " ++ name ++ " found") $ Map.lookup name (callables ctx)
+
+ctxAddConstraint ctx c = ctx { constraints = CS.addEquality c $ constraints ctx }
+
+ctxAddPublicSig :: Signal -> Ctx k -> Ctx k
+ctxAddPublicSig s c = c { constraints = CS.addPublic s $ constraints c }
+
+ctxAddPrivateSig :: Signal -> Ctx k -> Ctx k
+ctxAddPrivateSig s c = c { constraints = CS.addPrivate s $ constraints c }
+
+ctxToStruct :: Ctx k -> Term k
+ctxToStruct ctx = Struct ctx

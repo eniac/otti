@@ -8,7 +8,6 @@ import           Codegen.Circom
 import           Codegen.Circom.Term
 import           Codegen.Circom.Constraints (empty)
 import           Codegen.Circom.Constraints as Constraints
-import           Codegen.Circom.Context
 import           Codegen.Circom.ToSmt       (constraintsToSmt)
 import           Control.Monad              (unless)
 import qualified Data.BitVector as Bv
