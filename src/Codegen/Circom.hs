@@ -86,7 +86,7 @@ termSignalArray ctx name dim = helper ctx name [] (integerizeDims dim)
           where
             i = nextSignal ctx
             s = SigLocal name (reverse location)
-            ctx' = ctx { nextSignal = nextSignal ctx + 1, numberToSignal = Map.insert i s (numberToSignal ctx) }
+            ctx' = ctx { nextSignal = nextSignal ctx + 1, numberToSignal = (show i, s) : (numberToSignal ctx) }
         n : rest -> (ctx', Array (reverse ts))
           where
             (ctx', ts) = foldl folder (ctx, []) [0..(n-1)]

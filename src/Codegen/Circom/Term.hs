@@ -38,6 +38,7 @@ import qualified AST.Circom                 as AST
 import           Codegen.Circom.Constraints (Constraint, Constraints, LC,
                                              Signal)
 import qualified Codegen.Circom.Constraints as CS
+import           Data.Bifunctor
 import qualified Data.Either                as Either
 import           Data.Field.Galois          (Prime, PrimeField)
 import           Data.List                  (intercalate)
@@ -250,7 +251,7 @@ data Ctx k = Ctx { env            :: Map.Map String (Term k)
                  , fieldOrder     :: Integer
                  , returning      :: Maybe (Term k)
                  -- During synthesis signals are all numbered.
-                 , numberToSignal :: Map.Map Int Signal
+                 , numberToSignal :: [(String, Signal)]
                  , nextSignal     :: Int
                  }
                  deriving (Show)
@@ -268,7 +269,7 @@ ctxWithEnv env order = Ctx
     , callables = Map.empty
     , fieldOrder = order
     , returning = Nothing
-    , numberToSignal = Map.empty
+    , numberToSignal = []
     , nextSignal = 0
     }
 
@@ -287,12 +288,12 @@ ctxStore ctx loc value = case value of
                 let
                     m' = Map.map (mapSignalsInTerm emmigrateSignal) $ env ctx'
                     c' = CS.mapSignals emmigrateSignal $ constraints ctx'
-                    numberToSignal' = Map.map emmigrateSignal $ numberToSignal ctx'
-                    s' = Struct ctx' { env = m', constraints = CS.empty, numberToSignal = Map.empty }
+                    numberToSignal' = map (bimap id emmigrateSignal) (numberToSignal ctx')
+                    s' = Struct ctx' { env = m', constraints = CS.empty, numberToSignal = [] }
                 in
                     ctx { env = Map.update (pure . replacein ss s') ident $ env ctx
                         , constraints = CS.union c' $ constraints ctx
-                        , numberToSignal = Map.union numberToSignal' $ numberToSignal ctx
+                        , numberToSignal = numberToSignal' ++ numberToSignal ctx
                         }
             else
                 error $ "Cannot assign circuits to non-local location: " ++ show loc

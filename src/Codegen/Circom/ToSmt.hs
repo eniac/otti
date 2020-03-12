@@ -31,9 +31,10 @@ collectVars = S.reduceTerm visit Set.empty Set.union
 ctxToSmt :: forall k. (KnownNat k, 2 <= k) => Term.Ctx k -> S.Term S.BoolSort
 ctxToSmt c' = quantified
     where
+        m = Map.fromList $ Term.numberToSignal c'
         c = c' { Term.env = Map.map (Term.mapVarsInTerm (\s ->
-            Maybe.fromMaybe (error $ "Missing variable: " ++ show s)
-                            (fmap show $ (Term.numberToSignal c') Map.!? (read s)))) (Term.env c') }
+            Maybe.maybe (error $ "Missing variable: " ++ show s) show
+                            (m Map.!? s))) (Term.env c') }
         sigSort = S.SortPf $ natVal (Proxy :: Proxy k)
         cs = Term.constraints c
 
