@@ -1,12 +1,17 @@
 {-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE StandaloneDeriving  #-}
 {-# LANGUAGE TypeOperators       #-}
 {-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE Rank2Types          #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 
@@ -51,6 +56,7 @@ import           Data.Map       (Map)
 import qualified Data.Maybe     as Maybe
 import           Data.Bits      as Bits
 import           Data.Proxy     (Proxy(..))
+import           Data.Void
 
 data IntSort = IntSort deriving (Show,Ord,Eq,Typeable)
 data BoolSort = BoolSort deriving (Show,Ord,Eq,Typeable)
@@ -62,13 +68,35 @@ data ArraySort k v = ArraySort deriving (Show,Ord,Eq,Typeable)
 type F32 = FpSort 8 24
 type F64 = FpSort 11 53
 
+class (RealFloat repr) => ComputableFp fp repr | fp -> repr where
+    asRepr :: Value fp -> repr
+    fromRepr :: repr -> Value fp
+
+    evalBin :: FpBinOp -> (Value fp) -> (Value fp) -> (Value fp)
+    evalBin op a b = case op of
+        FpAdd -> fromRepr $ (asRepr a) + (asRepr b)
+        FpMul -> fromRepr $ (asRepr a) * (asRepr b)
+        _ -> error "NYI"
+
+instance ComputableFp F64 Double where
+    asRepr (ValDouble x) = x
+    fromRepr = ValDouble
+
+instance ComputableFp F32 Float where
+    asRepr (ValFloat x) = x
+    fromRepr = ValFloat
+
+instance forall s e. (KnownNat s, KnownNat e) => ComputableFp (FpSort s e) Double where
+    asRepr _ = error $ "No representation for " ++ show (natVal (Proxy @s)) ++ " bits of significand and " ++ show (natVal (Proxy @e)) ++ " bits of exponent"
+    fromRepr _ = error $ "No representation for " ++ show (natVal (Proxy @s)) ++ " bits of significand and " ++ show (natVal (Proxy @e)) ++ " bits of exponent"
+
 data Value s where
     ValBool :: Bool -> Value BoolSort
     ValInt :: Integer -> Value IntSort
     ValBv :: KnownNat n => Bv.BV -> Value (BvSort n)
     ValPf :: KnownNat n => Integer -> Value (PfSort n)
-    ValDouble :: Double -> Value F64
     ValFloat :: Float -> Value F32
+    ValDouble :: Double -> Value F64
     ValArray :: Map (Value a) (Value b) -> Value (ArraySort a b)
 
 deriving instance Typeable (Value s)
@@ -192,8 +220,8 @@ data Term s where
     -- Floating point terms
     Fp64Lit   :: Double -> Term F64
     Fp32Lit   :: Float -> Term F32
-    FpUnExpr  :: (KnownNat e, KnownNat s) => FpUnOp -> Term (FpSort e s) -> Term BoolSort
-    FpBinExpr :: (KnownNat e, KnownNat s) => FpBinOp -> Term (FpSort e s) -> Term (FpSort e s) -> Term BoolSort
+    FpUnExpr  :: (KnownNat e, KnownNat s) => FpUnOp -> Term (FpSort e s) -> Term (FpSort e s)
+    FpBinExpr :: (KnownNat e, KnownNat s) => FpBinOp -> Term (FpSort e s) -> Term (FpSort e s) -> Term (FpSort e s)
     FpFma     :: (KnownNat e, KnownNat s) => Term (FpSort e s) -> Term (FpSort e s) -> Term (FpSort e s) -> Term (FpSort e s)
     FpBinPred :: (KnownNat e, KnownNat s) => FpBinPred -> Term (FpSort e s) -> Term (FpSort e s) -> Term BoolSort
     FpUnPred  :: (KnownNat e, KnownNat s) => FpUnPred -> Term (FpSort e s) -> Term BoolSort
@@ -469,6 +497,14 @@ newArray :: forall k v. (Typeable k, Typeable v) => Term (ArraySort k v) -> Valu
 newArray t = case t of
     NewArray -> ValArray $ (Map.empty :: (Map.Map (Value k) (Value v)))
 
+fpBin :: forall s e. (KnownNat s, KnownNat e) => Env ->  Term (FpSort s e) -> Value (FpSort s e)
+fpBin e t = case t of
+    FpUnExpr o x ->
+        x'
+      where
+        x' = eval e x
+    _ -> error ""
+
 
 eval :: forall s. Typeable s => Env -> Term s -> Value s
 eval e t = case t of
@@ -506,7 +542,7 @@ eval e t = case t of
 
     Fp64Lit d -> ValDouble d
     Fp32Lit f -> ValFloat f
---    FpBinExpr o l r -> FpBinExpr o (mapTerm f l) (mapTerm f r)
+    FpBinExpr o l r -> evalBin o (eval e l) (eval e r)
 --    FpUnExpr o l -> FpUnExpr o (mapTerm f l)
 --    FpBinPred o l r -> FpBinPred o (mapTerm f l) (mapTerm f r)
 --    FpUnPred o l -> FpUnPred o (mapTerm f l)
