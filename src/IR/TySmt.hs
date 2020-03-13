@@ -1,12 +1,14 @@
 {-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE AllowAmbiguousTypes           #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE StandaloneDeriving  #-}
 {-# LANGUAGE TypeOperators       #-}
+{-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -49,6 +51,7 @@ module IR.TySmt ( IntSort(..)
                 ) where
 
 import           GHC.TypeLits
+import           Control.Monad  (liftM2)
 import           Data.Dynamic   (Typeable, Dynamic, fromDyn, toDyn)
 import qualified Data.BitVector as Bv
 import qualified Data.Map       as Map
@@ -56,39 +59,83 @@ import           Data.Map       (Map)
 import qualified Data.Maybe     as Maybe
 import           Data.Bits      as Bits
 import           Data.Proxy     (Proxy(..))
-import           Data.Void
+import           Data.Fixed     (mod')
 
 data IntSort = IntSort deriving (Show,Ord,Eq,Typeable)
 data BoolSort = BoolSort deriving (Show,Ord,Eq,Typeable)
 data BvSort (n :: Nat) = BvSort Int deriving (Show,Ord,Eq,Typeable)
 data PfSort (n :: Nat) = PfSort Integer deriving (Show,Ord,Eq,Typeable)
-data FpSort (n :: Nat) (m :: Nat) = FpSort Int Int deriving (Show,Ord,Eq,Typeable)
+data RealFloat f => FpSort f = FpSort Int Int deriving (Show,Ord,Eq,Typeable)
 data ArraySort k v = ArraySort deriving (Show,Ord,Eq,Typeable)
 
-type F32 = FpSort 8 24
-type F64 = FpSort 11 53
+type F32 = FpSort Float
+type F64 = FpSort Double
 
-class (RealFloat repr) => ComputableFp fp repr | fp -> repr where
-    asRepr :: Value fp -> repr
-    fromRepr :: repr -> Value fp
+class (RealFloat fp, Typeable fp) => ComputableFp fp where
+    type Size fp :: Nat
+    asRepr :: Value (FpSort fp) -> fp
+    fromRepr :: fp -> Value (FpSort fp)
 
-    evalBin :: FpBinOp -> (Value fp) -> (Value fp) -> (Value fp)
-    evalBin op a b = case op of
-        FpAdd -> fromRepr $ (asRepr a) + (asRepr b)
-        FpMul -> fromRepr $ (asRepr a) * (asRepr b)
-        _ -> error "NYI"
+    asOther :: ComputableFp fp2 => fp -> fp2
+    asOther = fromRational . toRational
 
-instance ComputableFp F64 Double where
+    evalBin :: FpBinOp -> (Value (FpSort fp)) -> (Value (FpSort fp)) -> (Value (FpSort fp))
+    evalBin op a b = fromRepr $ asRepr a `f` asRepr b
+      where
+        f = case op of
+          FpAdd -> (+)
+          FpSub -> (-)
+          FpMul -> (*)
+          FpDiv -> (/)
+          FpRem -> mod'
+          FpMax -> max
+          FpMin -> min
+
+    evalUn :: FpUnOp -> (Value (FpSort fp)) -> (Value (FpSort fp))
+    evalUn op = fromRepr . f . asRepr
+      where
+        f = case op of
+          FpNeg -> negate
+          FpAbs -> abs
+          FpSqrt -> sqrt
+          FpRound -> fromIntegral @Integer . round
+
+    evalUnPred :: FpUnPred -> (Value (FpSort fp)) -> (Value BoolSort)
+    evalUnPred op = ValBool . f . asRepr
+      where
+        f :: fp -> Bool
+        f = case op of
+          FpIsNormal -> not . isDenormalized
+          FpIsSubnormal -> isDenormalized
+          FpIsZero -> (==0.0)
+          FpIsInfinite -> isInfinite
+          FpIsNaN -> isNaN
+          FpIsNegative -> liftM2 (||) (<0.0) isNegativeZero
+          FpIsPositive -> liftM2 (||) (>0.0) (isNegativeZero . negate)
+
+    evalBinPred :: FpBinPred -> (Value (FpSort fp)) -> (Value (FpSort fp)) -> (Value BoolSort)
+    evalBinPred op a b = ValBool $ f (asRepr a) (asRepr b)
+      where
+        f = case op of
+          FpLe -> (<)
+          FpLt -> (>)
+          FpGe -> (>=)
+          FpGt -> (<=)
+          FpEq -> (==)
+          FpNe -> (/=)
+
+    evalFromInt :: (Value IntSort) -> (Value (FpSort fp))
+    evalFromInt = fromRepr . fromIntegral . valAsInt
+
+instance ComputableFp Double where
+    type Size Double = 64
     asRepr (ValDouble x) = x
     fromRepr = ValDouble
 
-instance ComputableFp F32 Float where
+instance ComputableFp Float where
+    type Size Float = 32
     asRepr (ValFloat x) = x
     fromRepr = ValFloat
-
-instance forall s e. (KnownNat s, KnownNat e) => ComputableFp (FpSort s e) Double where
-    asRepr _ = error $ "No representation for " ++ show (natVal (Proxy @s)) ++ " bits of significand and " ++ show (natVal (Proxy @e)) ++ " bits of exponent"
-    fromRepr _ = error $ "No representation for " ++ show (natVal (Proxy @s)) ++ " bits of significand and " ++ show (natVal (Proxy @e)) ++ " bits of exponent"
 
 data Value s where
     ValBool :: Bool -> Value BoolSort
@@ -173,6 +220,7 @@ data FpBinPred = FpLe
                | FpGe
                | FpGt
                | FpEq
+               | FpNe
                deriving (Show, Ord, Eq, Typeable)
 
 data FpUnPred = FpIsNormal
@@ -204,7 +252,7 @@ data Term s where
     BvBinExpr :: KnownNat n => BvBinOp -> Term (BvSort n) -> Term (BvSort n) -> Term (BvSort n)
     BvBinPred :: KnownNat n => BvBinPred -> Term (BvSort n) -> Term (BvSort n) -> Term BoolSort
     IntToBv   :: KnownNat n => Term IntSort -> Term (BvSort n)
-    FpToBv    :: (KnownNat e, KnownNat s) => Term (FpSort e s) -> Term (BvSort (e + s))
+    FpToBv    :: (ComputableFp f) => Term (FpSort f) -> Term (BvSort (Size f))
 
     -- Integer terms
     IntLit        :: Integer -> Term IntSort
@@ -220,14 +268,14 @@ data Term s where
     -- Floating point terms
     Fp64Lit   :: Double -> Term F64
     Fp32Lit   :: Float -> Term F32
-    FpUnExpr  :: (KnownNat e, KnownNat s) => FpUnOp -> Term (FpSort e s) -> Term (FpSort e s)
-    FpBinExpr :: (KnownNat e, KnownNat s) => FpBinOp -> Term (FpSort e s) -> Term (FpSort e s) -> Term (FpSort e s)
-    FpFma     :: (KnownNat e, KnownNat s) => Term (FpSort e s) -> Term (FpSort e s) -> Term (FpSort e s) -> Term (FpSort e s)
-    FpBinPred :: (KnownNat e, KnownNat s) => FpBinPred -> Term (FpSort e s) -> Term (FpSort e s) -> Term BoolSort
-    FpUnPred  :: (KnownNat e, KnownNat s) => FpUnPred -> Term (FpSort e s) -> Term BoolSort
-    IntToFp   :: (KnownNat e, KnownNat s) => Term IntSort -> Term (FpSort e s)
-    BvToFp    :: (KnownNat e, KnownNat s) => Term (BvSort (e + s)) -> Term (FpSort e s)
-    FpToFp    :: (KnownNat e1, KnownNat s1, KnownNat e2, KnownNat s2) => Term (FpSort e1 s1) -> Term (FpSort e2 s2)
+    FpUnExpr  :: (ComputableFp f) => FpUnOp -> Term (FpSort f) -> Term (FpSort f)
+    FpBinExpr :: (ComputableFp f) => FpBinOp -> Term (FpSort f) -> Term (FpSort f) -> Term (FpSort f)
+    FpFma     :: (ComputableFp f) => Term (FpSort f) -> Term (FpSort f) -> Term (FpSort f) -> Term (FpSort f)
+    FpBinPred :: (ComputableFp f) => FpBinPred -> Term (FpSort f) -> Term (FpSort f) -> Term BoolSort
+    FpUnPred  :: (ComputableFp f) => FpUnPred -> Term (FpSort f) -> Term BoolSort
+    IntToFp   :: (ComputableFp f) => Term IntSort -> Term (FpSort f)
+    BvToFp    :: (ComputableFp f) => Term (BvSort (Size f)) -> Term (FpSort f)
+    FpToFp    :: (ComputableFp f1, ComputableFp f2) => Term (FpSort f1) -> Term (FpSort f2)
 
     -- Prime field terms
     PfUnExpr   :: KnownNat n => PfUnOp -> Term (PfSort n) -> Term (PfSort n)
@@ -497,15 +545,6 @@ newArray :: forall k v. (Typeable k, Typeable v) => Term (ArraySort k v) -> Valu
 newArray t = case t of
     NewArray -> ValArray $ (Map.empty :: (Map.Map (Value k) (Value v)))
 
-fpBin :: forall s e. (KnownNat s, KnownNat e) => Env ->  Term (FpSort s e) -> Value (FpSort s e)
-fpBin e t = case t of
-    FpUnExpr o x ->
-        x'
-      where
-        x' = eval e x
-    _ -> error ""
-
-
 eval :: forall s. Typeable s => Env -> Term s -> Value s
 eval e t = case t of
     BoolLit b -> ValBool b
@@ -543,13 +582,13 @@ eval e t = case t of
     Fp64Lit d -> ValDouble d
     Fp32Lit f -> ValFloat f
     FpBinExpr o l r -> evalBin o (eval e l) (eval e r)
---    FpUnExpr o l -> FpUnExpr o (mapTerm f l)
---    FpBinPred o l r -> FpBinPred o (mapTerm f l) (mapTerm f r)
---    FpUnPred o l -> FpUnPred o (mapTerm f l)
---    FpFma a b c -> FpFma (mapTerm f a) (mapTerm f b) (mapTerm f c)
---    IntToFp tt -> IntToFp (mapTerm f tt)
---    FpToFp tt -> FpToFp (mapTerm f tt)
---    BvToFp tt -> BvToFp (mapTerm f tt)
+    FpUnExpr o l -> evalUn o (eval e l)
+    FpBinPred o l r -> evalBinPred o (eval e l) (eval e r)
+    FpUnPred o l -> evalUnPred o (eval e l)
+    FpFma a b c -> eval e (FpBinExpr FpAdd (FpBinExpr FpMul a b) c)
+    IntToFp tt -> evalFromInt (eval e tt)
+    FpToFp tt -> (fromRepr . asOther . asRepr) (eval e tt)
+    -- BvToFp tt -> (fromRepr . 
 
     PfUnExpr o t' -> ValPf $ pfUnFn o (modulus t') (valAsPf $ eval e t')
     PfNaryExpr o as -> ValPf $ pfNaryFn o m (map (valAsPf . eval e) as)
@@ -563,5 +602,5 @@ eval e t = case t of
             k' = eval e k
     Store a k v -> ValArray $ Map.insert (eval e k) (eval e v) (valAsArray $ eval e a)
     NewArray -> newArray t
-    
+
 
