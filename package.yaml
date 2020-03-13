@@ -42,6 +42,7 @@ library:
   - ghc >= 8.3
   - bv >= 0.5
   - ghc-typelits-knownnat >= 0.7
+  - data-binary-ieee754 >= 0.4
   build-dependencies:
   - happy >= 1.19
   - alex >= 3.2

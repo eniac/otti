@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeOperators       #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE ConstraintKinds    #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -60,6 +61,7 @@ import qualified Data.Maybe     as Maybe
 import           Data.Bits      as Bits
 import           Data.Proxy     (Proxy(..))
 import           Data.Fixed     (mod')
+import qualified Data.Binary.IEEE754 as IEEE754
 
 data IntSort = IntSort deriving (Show,Ord,Eq,Typeable)
 data BoolSort = BoolSort deriving (Show,Ord,Eq,Typeable)
@@ -71,10 +73,12 @@ data ArraySort k v = ArraySort deriving (Show,Ord,Eq,Typeable)
 type F32 = FpSort Float
 type F64 = FpSort Double
 
-class (RealFloat fp, Typeable fp) => ComputableFp fp where
+class (RealFloat fp, Typeable fp, KnownNat (Size fp)) => ComputableFp fp where
     type Size fp :: Nat
     asRepr :: Value (FpSort fp) -> fp
     fromRepr :: fp -> Value (FpSort fp)
+    asBits :: fp -> Bv.BV
+    fromBits :: Bv.BV -> fp
 
     asOther :: ComputableFp fp2 => fp -> fp2
     asOther = fromRational . toRational
@@ -113,7 +117,7 @@ class (RealFloat fp, Typeable fp) => ComputableFp fp where
           FpIsNegative -> liftM2 (||) (<0.0) isNegativeZero
           FpIsPositive -> liftM2 (||) (>0.0) (isNegativeZero . negate)
 
-    evalBinPred :: FpBinPred -> (Value (FpSort fp)) -> (Value (FpSort fp)) -> (Value BoolSort)
+    evalBinPred :: FpBinPred -> Value (FpSort fp) -> Value (FpSort fp) -> Value BoolSort
     evalBinPred op a b = ValBool $ f (asRepr a) (asRepr b)
       where
         f = case op of
@@ -124,18 +128,22 @@ class (RealFloat fp, Typeable fp) => ComputableFp fp where
           FpEq -> (==)
           FpNe -> (/=)
 
-    evalFromInt :: (Value IntSort) -> (Value (FpSort fp))
+    evalFromInt :: Value IntSort -> Value (FpSort fp)
     evalFromInt = fromRepr . fromIntegral . valAsInt
 
 instance ComputableFp Double where
     type Size Double = 64
     asRepr (ValDouble x) = x
     fromRepr = ValDouble
+    asBits = Bv.bitVec 64 . IEEE754.doubleToWord
+    fromBits = IEEE754.wordToDouble . fromIntegral . Bv.nat
 
 instance ComputableFp Float where
     type Size Float = 32
     asRepr (ValFloat x) = x
     fromRepr = ValFloat
+    asBits = Bv.bitVec 32 . IEEE754.floatToWord
+    fromBits = IEEE754.wordToFloat . fromIntegral . Bv.nat
 
 data Value s where
     ValBool :: Bool -> Value BoolSort
@@ -567,7 +575,7 @@ eval e t = case t of
     BvBinExpr o l r -> ValBv $ bvBinFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
     BvBinPred o l r -> ValBool $ bvBinPredFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
     IntToBv i -> ValBv $ Bv.bitVec (size t) $ valAsInt $ eval e i
---    FpToBv tt -> FpToBv (mapTerm f tt)
+    FpToBv tt -> ValBv $ asBits $ asRepr (eval e tt)
 
     IntLit i -> ValInt i
     IntUnExpr o t' -> ValInt $ intUnFn o (valAsInt $ eval e t')
@@ -588,7 +596,7 @@ eval e t = case t of
     FpFma a b c -> eval e (FpBinExpr FpAdd (FpBinExpr FpMul a b) c)
     IntToFp tt -> evalFromInt (eval e tt)
     FpToFp tt -> (fromRepr . asOther . asRepr) (eval e tt)
-    -- BvToFp tt -> (fromRepr . 
+    BvToFp tt -> fromRepr $ fromBits $ valAsBv (eval e tt)
 
     PfUnExpr o t' -> ValPf $ pfUnFn o (modulus t') (valAsPf $ eval e t')
     PfNaryExpr o as -> ValPf $ pfNaryFn o m (map (valAsPf . eval e) as)
