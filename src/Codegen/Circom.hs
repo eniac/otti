@@ -268,6 +268,8 @@ liftUnToTerm name f fsmt t = case t of
     a@Struct {} -> error $ "Cannot perform operation \"" ++ name ++ "\" on struct term " ++ show a
     Base a -> Base $ liftUnToBaseTerm f fsmt a
 
+genExprM e = CtxGen $ state $ (\c -> genExpr e c)
+
 genExpr :: forall k. KnownNat k => Expr -> Ctx k -> (Term k, Ctx k)
 genExpr expr ctx = case expr of
     NumLit i -> (Base $ fromInteger $ fromIntegral i , ctx)
@@ -364,7 +366,7 @@ genUnExpr op loc = do
   let (lval, ctx') = runCtxGen (genLocation loc) ctx
   let term = ctxGet ctx' lval
   let term' = genGetUnMutOp op term
-  let ctx'' = ctxStore ctx' lval term'
+  let ctx'' = ctxStore lval term' ctx'
   put ctx''
   return $ case op of
     PostInc -> term
@@ -390,7 +392,7 @@ genStatements statements =
 genStatement :: forall k. KnownNat k => Statement -> Ctx k -> Ctx k
 genStatement statement ctx = case statement of
     -- Note, signals are immutable.
-    Assign loc expr -> ctxStore ctx'' lval term
+    Assign loc expr -> ctxStore lval term ctx''
         where
             (lval, ctx') = runCtxGen (genLocation loc) ctx
             (term, ctx'') = genExpr expr ctx'

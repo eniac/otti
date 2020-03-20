@@ -305,8 +305,8 @@ assignTerm src dst = case (src, dst) of
     (_, r)                         -> r
 
 -- Modifies a context to store a value in a location
-ctxStore :: KnownNat k => Ctx k -> LTerm -> Term k -> Ctx k
-ctxStore ctx loc value = case value of
+ctxStore :: KnownNat k => LTerm -> Term k -> Ctx k -> Ctx k
+ctxStore loc value ctx = case value of
         -- No storing structures to foreign locations!
         -- Really, we want something stricter than this
         Struct ctx' -> if null (Either.lefts ss)

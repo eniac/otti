@@ -112,10 +112,10 @@ circomGenTests = benchTestGroup "Circom generator tests"
         (genCtxWithSignals ["a", "b"])
         [AssignConstrain (LocalLocation ("a", [])) (BinExpr Mul (NumLit 2) (LValue (LocalLocation ("b", []))))]
         (ctxAddConstraint
-            (ctxStore (genCtxWithSignals ["a", "b"])
-                      (LTermIdent "a")
+            (ctxStore (LTermIdent "a")
                       (Base ( Sig (SigLocal "a" [])
-                            , Smt.PfNaryExpr Smt.PfMul [Smt.IntToPf $ Smt.IntLit 2, Smt.Var "b"])))
+                            , Smt.PfNaryExpr Smt.PfMul [Smt.IntToPf $ Smt.IntLit 2, Smt.Var "b"]))
+                      (genCtxWithSignals ["a", "b"]))
             ( lcZero
             , lcZero
             , (Map.fromList [(SigLocal "a" [], 1), (SigLocal "b" [], -2)], 0)))
@@ -165,7 +165,7 @@ genExprTest ctx e t = benchTestCase ("eval " ++ show e) $ do
 
 ctxStoreGetTest :: String -> Ctx 223 -> LTerm -> Term 223 -> LTerm -> Term 223 -> BenchTest
 ctxStoreGetTest name ctx sLoc sVal gLoc gVal = benchTestCase ("store/get test: " ++ name) $ do
-    let ctx' = ctxStore ctx sLoc sVal
+    let ctx' = ctxStore sLoc sVal ctx
     let gVal' = ctxGet ctx' gLoc
     -- TODO uncomment
     -- unless (gVal == gVal') $ error $ "After placing\n\t" ++ show sVal ++ "\nat\n\t" ++ show sLoc ++ "\nin\n\t" ++ show ctx ++"\n, expected\n\t" ++ show gVal ++ "\nat\n\t" ++ show gLoc ++ "\nbut found\n\t" ++ show gVal' ++ "\n"
