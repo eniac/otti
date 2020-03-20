@@ -1,4 +1,5 @@
 import           BenchUtils
+import           Codegen.CTest
 import           Codegen.SMTGenTest
 import           IR.SMTTest
 import           Parser.CTest
@@ -13,6 +14,7 @@ allTests :: [BenchTest]
 allTests = [ parserTests
            , smtTests
            , irTests
+           , cTests
            , codegenTests
            ]
 

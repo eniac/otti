@@ -8,14 +8,14 @@ import           IR.SMT                (initMem, smtPop, smtPush)
 import           Utils
 
 codegenTests :: BenchTest
-codegenTests = benchTestGroup "Codegen tests" [ solverTest
-                                              , binOpTest
-                                              , ifTest
-                                              , returnTest
-                                              , callTest
-                                              , structTest
-                                              , memTest
-                                              ]
+codegenTests = benchTestGroup "Original codegen tests" [ solverTest
+                                                       , binOpTest
+                                                       , ifTest
+                                                       , returnTest
+                                                       , callTest
+                                                       , structTest
+                                                       , memTest
+                                                       ]
 
 solverTest :: BenchTest
 solverTest = benchTestCase "solver" $ do
