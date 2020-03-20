@@ -312,7 +312,7 @@ genExpr ctx expr = case expr of
             BitNot -> error "NYI" -- The sematics of this are unclear.
         where
             (ctx', t) = genExpr ctx e
-    UnMutExpr op loc -> genUnExpr ctx op loc
+    UnMutExpr op loc -> Tuple.swap $ genUnExpr op loc ctx
     Ite c l r ->
         case condT of
             Base (Scalar 0, _)     -> (ctx''', caseF)
@@ -350,12 +350,12 @@ genExpr ctx expr = case expr of
             (ctx', actualArgs) = genExprs ctx args
 
 
-genUnExpr :: KnownNat k => Ctx k -> UnMutOp -> Location -> (Ctx k, Term k)
-genUnExpr ctx op loc = case op of
-    PostInc -> (ctx'', term)
-    PreInc  -> (ctx'', term')
-    PostDec -> (ctx'', term)
-    PreDec  -> (ctx'', term')
+genUnExpr :: KnownNat k => UnMutOp -> Location -> Ctx k -> (Term k, Ctx k)
+genUnExpr op loc ctx = case op of
+    PostInc -> (term, ctx'')
+    PreInc  -> (term', ctx'')
+    PostDec -> (term, ctx'')
+    PreDec  -> (term', ctx'')
     where
         -- TODO(aozdemir): enforce ctx' == ctx for sanity?
         (ctx', lval) = genLocation ctx loc
