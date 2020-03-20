@@ -342,7 +342,7 @@ genExpr ctx expr = case expr of
         else
             (ctx', error "NYI")
         where
-            postCtx = genStatements newCtx block
+            postCtx = genStatements block newCtx
             newCtx = ctx' { env = Map.fromList (zip formalArgs actualArgs)
                           , constraints = CS.empty
                           }
@@ -366,18 +366,18 @@ genUnExpr op loc ctx = case op of
 genExprs :: KnownNat k => [Expr] -> Ctx k -> ([Term k], Ctx k)
 genExprs es ctx = foldl (\(ts, c) e -> let (c', t) = genExpr c e in (ts ++ [t], c')) ([], ctx) es
 
-genStatements :: KnownNat k => Ctx k -> [Statement] -> Ctx k
-genStatements = foldl (\c s -> if isJust (returning c) then c else genStatement c s)
+genStatements :: KnownNat k => [Statement] -> Ctx k -> Ctx k
+genStatements = flip $ foldl (\c s -> if isJust (returning c) then c else genStatement s c)
 
-genStatement :: forall k. KnownNat k => Ctx k -> Statement -> Ctx k
-genStatement ctx statement = case statement of
+genStatement :: forall k. KnownNat k => Statement -> Ctx k -> Ctx k
+genStatement statement ctx = case statement of
     -- Note, signals are immutable.
     Assign loc expr -> ctxStore ctx'' lval term
         where
             (ctx', lval) = genLocation ctx loc
             (ctx'', term) = genExpr ctx' expr
     -- TODO Not quite right: evals twice
-    OpAssign op loc expr -> genStatement ctx $ Assign loc (BinExpr op (LValue loc) expr)
+    OpAssign op loc expr -> genStatement (Assign loc (BinExpr op (LValue loc) expr)) ctx
     Constrain l r ->
         case zeroTerm of
             Base (Scalar 0, _) -> ctx''
@@ -390,9 +390,9 @@ genStatement ctx statement = case statement of
             (ctx'', rt) = genExpr ctx' r
             zeroTerm = lt - rt
     -- TODO Not quite right: evals twice
-    AssignConstrain l e -> genStatements ctx [Assign l e, Constrain (LValue l) e]
+    AssignConstrain l e -> genStatements [Assign l e, Constrain (LValue l) e] ctx
     VarDeclaration name dims ini -> case ini of
-            Just e  -> genStatement ctx'' $ Assign (LocalLocation (name, [])) e
+            Just e  -> genStatement (Assign (LocalLocation (name, [])) e) ctx''
             Nothing -> ctx''
         where
             ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0, z)) ts)
@@ -405,26 +405,26 @@ genStatement ctx statement = case statement of
             (ctx'', t) = termSignalArray ctx' name tdims
             (tdims, ctx') = genExprs dims ctx
     SubDeclaration name dims ini -> case ini of
-            Just e  -> genStatement ctx'' $ Assign (LocalLocation (name, [])) e
+            Just e  -> genStatement (Assign (LocalLocation (name, [])) e) ctx''
             Nothing -> ctx''
         where
             ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0, z)) ts)
             (ts, ctx') = genExprs dims ctx
             z = Smt.IntToPf $ Smt.IntLit 0
     If cond true false -> case tcond of
-            Base (Scalar 0, _) -> genStatements ctx' (concat $ Maybe.maybeToList false)
-            Base (Scalar _, _) -> genStatements ctx' true
+            Base (Scalar 0, _) -> genStatements (concat $ Maybe.maybeToList false) ctx'
+            Base (Scalar _, _) -> genStatements true ctx'
             _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
         where
             (ctx', tcond) = genExpr ctx cond
     While cond block -> case tcond of
             Base (Scalar 0, _) -> ctx'
-            Base (Scalar _, _) -> genStatement (genStatements ctx block) (While cond block)
+            Base (Scalar _, _) -> genStatement (While cond block) (genStatements block ctx)
             _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
         where
             (ctx', tcond) = genExpr ctx cond
-    For ini cond step block -> genStatements ctx [ini, While cond (block ++ [step])]
-    DoWhile block expr -> genStatements ctx (block ++ [While expr block])
+    For ini cond step block -> genStatements [ini, While cond (block ++ [step])] ctx
+    DoWhile block expr -> genStatements (block ++ [While expr block]) ctx
     Compute _ -> ctx
     Ignore e -> fst $ genExpr ctx e
     Log e -> trace (show e ++ ": " ++ show t) ctx'
@@ -440,7 +440,7 @@ genMainCtx :: KnownNat k => MainCircuit -> Integer -> Ctx k
 genMainCtx m order =
         ctx'
     where
-        ctx' = genStatement ctxEmpty (SubDeclaration "main" [] (Just (main m)))
+        ctx' = genStatement (SubDeclaration "main" [] (Just (main m))) ctxEmpty
         ctxEmpty = (ctxWithEnv Map.empty order) {
             callables = Map.union
                 (Map.map (\(p, b) -> (False, p, b)) (templates m))
