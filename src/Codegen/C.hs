@@ -134,3 +134,7 @@ genStmtSMT stmt = case stmt of
   CWhile{}    -> error ""
   CFor{}      -> error ""
   _           -> error ""
+
+
+codegenC :: CTranslUnit -> Compiler SMTNode
+codegenC = error "NYI"

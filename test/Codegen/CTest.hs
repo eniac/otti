@@ -6,6 +6,7 @@ import           Codegen.CompilerMonad
 import qualified Data.Map              as M
 import           IR.SMT                (initMem, smtPop, smtPush)
 import           Parser.C
+import           Test.Tasty.HUnit
 import           Utils
 
 cTests :: BenchTest
@@ -14,5 +15,13 @@ cTests = benchTestGroup "C codegen test" [ basicTest ]
 basicTest :: BenchTest
 basicTest = benchTestCase "basic" $ do
   result <- parseC "test/Code/C/add.c"
-  print result
+  case result of
+    Left error -> assertFailure $ unwords ["Should not see", show error]
+    Right tu -> do
+      print tu
+
+      r1 <- evalCodegen Nothing $ do
+        codegenC tu
+
+      print "done"
 
