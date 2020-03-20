@@ -268,16 +268,19 @@ liftUnToTerm name f fsmt t = case t of
     a@Struct {} -> error $ "Cannot perform operation \"" ++ name ++ "\" on struct term " ++ show a
     Base a -> Base $ liftUnToBaseTerm f fsmt a
 
-genExprM e = CtxGen $ state $ (\c -> genExpr e c)
-
 genExpr :: forall k. KnownNat k => Expr -> Ctx k -> (Term k, Ctx k)
-genExpr expr ctx = case expr of
-    NumLit i -> (Base $ fromInteger $ fromIntegral i , ctx)
-    ArrayLit es -> (Array ts, ctx')
-      where
-        (ts, ctx') = runCtxGen (genExprs es) ctx
-    BinExpr op l r ->
-      (case op of
+genExpr = runCtxGen . genExprM
+
+genExprM :: forall k. KnownNat k => Expr -> CtxGen k (Term k)
+genExprM expr = case expr of
+    NumLit i -> return $ Base $ fromInteger $ fromIntegral i
+    ArrayLit es -> do
+        ts <- genExprs es
+        return $ Array ts
+    BinExpr op l r -> do
+      l' <- genExprM l
+      r' <- genExprM r
+      return $ case op of
         Add    -> l' + r'
         Sub    -> l' - r'
         Mul    -> l' * r'
@@ -300,65 +303,60 @@ genExpr expr ctx = case expr of
         BitOr  -> liftBvToTerm "|" (Bits..|.) Smt.BvOr  l' r'
         BitXor -> liftBvToTerm "^" Bits.xor   Smt.BvXor l' r'
         Pow    -> liftIntOpToTerm "**" (^) Smt.IntPow l' r'
-        , ctx'')
       where
-        (l', ctx') = genExpr l ctx
-        (r', ctx'') = genExpr r ctx'
         liftShiftToInt :: (Integer -> Int -> Integer) -> Integer -> Integer -> Integer
         liftShiftToInt a b c = a b (fromIntegral c)
-    UnExpr op e ->
-        (case op of
-            UnNeg -> -t
-            Not -> liftUnToTerm "!" (\c -> if c /= 0 then 0 else 1)
-                (Smt.IntToPf . Smt.BoolToInt . Smt.Not . Smt.PfBinPred Smt.PfNe z) t
-              where
-                z = Smt.IntToPf $ Smt.IntLit 0
-            UnPos -> case t of
-                Array ts     -> Base $ fromInteger $ fromIntegral $ length ts
-                Struct c     -> Base $ fromInteger $ fromIntegral $ Map.size $ env c
-                _ -> t
-            BitNot -> error "NYI" -- The sematics of this are unclear.
-        , ctx')
-        where
-            (t, ctx') = genExpr e ctx
-    UnMutExpr op loc -> runCtxGen (genUnExpr op loc) ctx
-    Ite c l r ->
-        case condT of
-            Base (Scalar 0, _)     -> (caseF, ctx''')
-            Base (Scalar _, _)     -> (caseT, ctx''')
-            Base (_, v)            ->
-                case (caseT, caseF) of
-                    (Base t, Base f) -> (Base (Other, Smt.Ite (Smt.PfBinPred Smt.PfNe z v) (snd t) (snd f)), ctx''')
-                    (t, f) -> error $ "Cannot evalate a ternary as " ++ show t ++ " or " ++ show f
-            t -> error $ "Cannot condition on term " ++ show t
-        where
-            (condT, ctx') = genExpr c ctx
-            (caseT, ctx'') = genExpr l ctx'
-            (caseF, ctx''') = genExpr r ctx''
+    UnExpr op e -> do
+      t <- genExprM e
+      return $ case op of
+        UnNeg -> -t
+        Not -> liftUnToTerm "!" (\c -> if c /= 0 then 0 else 1)
+            (Smt.IntToPf . Smt.BoolToInt . Smt.Not . Smt.PfBinPred Smt.PfNe z) t
+          where
             z = Smt.IntToPf $ Smt.IntLit 0
-    LValue loc ->
-            (ctxGet lt ctx', ctx')
-            -- TODO(aozdemir): enforce ctx' == ctx for sanity?
-        where (lt, ctx') = runCtxGen (genLocation loc) ctx
-    Call name args -> if all termGenTimeConst actualArgs then
+        UnPos -> case t of
+            Array ts     -> Base $ fromInteger $ fromIntegral $ length ts
+            Struct c     -> Base $ fromInteger $ fromIntegral $ Map.size $ env c
+            _ -> t
+        BitNot -> error "NYI" -- The sematics of this are unclear.
+    UnMutExpr op loc -> genUnExpr op loc
+    Ite c l r -> do
+      condT <- genExprM c
+      caseT <- genExprM l
+      caseF <- genExprM r
+      let z = Smt.IntToPf $ Smt.IntLit 0
+      return $ case condT of
+        Base (Scalar 0, _)     -> caseF
+        Base (Scalar _, _)     -> caseT
+        Base (_, v)            ->
+          case (caseT, caseF) of
+            (Base t, Base f) -> Base (Other, Smt.Ite (Smt.PfBinPred Smt.PfNe z v) (snd t) (snd f))
+            (t, f) -> error $ "Cannot evalate a ternary as " ++ show t ++ " or " ++ show f
+        t -> error $ "Cannot condition on term " ++ show t
+    LValue loc -> do
+      -- TODO(aozdemir): enforce no ctx change for sanity?
+      lt <- genLocation loc
+      gets (ctxGet lt)
+    Call name args -> do
+      (isFn, formalArgs, block) <- gets $ ctxGetCallable name
+      actualArgs <- genExprs args
+      c <- get
+      let newCtx = c { env = Map.fromList (zip formalArgs actualArgs)
+                     , constraints = CS.empty
+                     }
+      let postCtx = execCtxGen (genStatements block) newCtx
+      if all termGenTimeConst actualArgs then
             if isFn then
-                (Maybe.fromMaybe
+                return $ Maybe.fromMaybe
                     (error $ "The function " ++ name ++ " did not return")
                     (returning postCtx)
-                , ctx'
-                )
             else
-                (ctxToStruct postCtx, ctx' { nextSignal = nextSignal postCtx })
+                do
+                    modify (\c -> c { nextSignal = nextSignal postCtx })
+                    return $ ctxToStruct postCtx
         else
-            (error "NYI", ctx')
+            return $ error "Non-constant arguments to function!! NYI"
         where
-            postCtx = execCtxGen (genStatements block) newCtx
-            newCtx = ctx' { env = Map.fromList (zip formalArgs actualArgs)
-                          , constraints = CS.empty
-                          }
-            (isFn, formalArgs, block) = ctxGetCallable name ctx
-            (actualArgs, ctx') = runCtxGen (genExprs args) ctx
-
 
 genUnExpr :: KnownNat k => UnMutOp -> Location -> CtxGen k (Term k)
 genUnExpr op loc = do
