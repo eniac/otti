@@ -27,6 +27,7 @@ module Codegen.Circom.Term ( lcZero
                            , Ctx(..)
                            , CtxGen(..)
                            , runCtxGen
+                           , execCtxGen
                            , ctxStore
                            , ctxGet
                            , ctxAddConstraint
@@ -277,6 +278,9 @@ newtype CtxGen k a = CtxGen (State (Ctx k) a)
 
 runCtxGen :: CtxGen k a -> Ctx k -> (a, Ctx k)
 runCtxGen (CtxGen g) = runState g
+
+execCtxGen :: CtxGen k a -> Ctx k -> Ctx k
+execCtxGen (CtxGen g) = execState g
 
 updateList :: (a -> a) -> Int -> [a] -> Maybe [a]
 updateList f i l = case splitAt i l of

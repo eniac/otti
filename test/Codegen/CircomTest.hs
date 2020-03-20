@@ -156,9 +156,9 @@ circomGenTests = benchTestGroup "Circom generator tests"
 
 genExprTest :: Ctx 223 -> Expr -> WireBundle (Prime 223) -> BenchTest
 genExprTest ctx e t = benchTestCase ("eval " ++ show e) $ do
-    let p = genExpr ctx e
+    let p = genExpr e ctx
     unless (case p of
-        (_, Base (w, _)) -> w == t
+        (Base (w, _), _) -> w == t
         _ -> False) $
         error $ "Expected\n\t" ++ show e ++ "\nto evaluate to\n\t" ++ show t ++ "\nbut it evaluated to\n\t" ++ show (snd p) ++ "\n"
     return ()
@@ -174,7 +174,7 @@ ctxStoreGetTest name ctx sLoc sVal gLoc gVal = benchTestCase ("store/get test: "
 
 genStatementsTest :: String -> Ctx 223 -> [Statement] -> Ctx 223 -> BenchTest
 genStatementsTest name ctx s expectCtx' = benchTestCase ("statements: " ++ name) $ do
-    let ctx' = genStatements ctx s
+    let ctx' = execCtxGen (genStatements s) ctx
     -- TODO uncomment
     -- unless (env ctx' == env expectCtx') $
     unless (True) $

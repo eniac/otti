@@ -120,11 +120,14 @@ genGetUnMutOp op = case op of
     PostDec -> (+ Base (fromInteger (-1)))
   where
 
-genIndexedIdent :: KnownNat k => IndexedIdent -> Ctx k -> (LTerm, Ctx k)
-genIndexedIdent (i, dims) ctx =
-  foldl (\(l, c) d -> let (t, c') = genExpr d c in (attachDim t l, c'))
+genIndexedIdent :: KnownNat k => IndexedIdent -> CtxGen k LTerm
+genIndexedIdent (i, dims) = do
+  ctx <- get
+  let (lterm, ctx') = foldl (\(l, c) d -> let (t, c') = genExpr d c in (attachDim t l, c'))
         (LTermIdent i, ctx)
         dims
+  put ctx'
+  return lterm
   where
     attachDim :: KnownNat k => Term k -> LTerm -> LTerm
     attachDim dimTerm lTerm  = case dimTerm of
@@ -132,13 +135,14 @@ genIndexedIdent (i, dims) ctx =
       d -> error $ "Non-scalar " ++ show d ++ " as index in " ++ show dims
 
 
-genLocation :: KnownNat k => Ctx k -> Location -> (Ctx k, LTerm)
-genLocation ctx loc = case loc of
-    LocalLocation a -> Tuple.swap $ genIndexedIdent a ctx
-    ForeignLocation a b -> (c'', embed at bt)
+genLocation :: KnownNat k => Location -> CtxGen k LTerm
+genLocation loc = case loc of
+    LocalLocation a -> genIndexedIdent a
+    ForeignLocation a b -> do
+      at <- genIndexedIdent a
+      bt <- genIndexedIdent b
+      return $ embed at bt
       where
-        (at, c') = genIndexedIdent a ctx
-        (bt, c'') = genIndexedIdent b c'
         embed item (LTermIdent s) = LTermPin item s
         embed item (LTermIdx x i) = LTermIdx (embed item x) i
         embed item (LTermPin x p) = LTermPin (embed item x) p
@@ -333,7 +337,7 @@ genExpr expr ctx = case expr of
     LValue loc ->
             (ctxGet ctx' lt, ctx')
             -- TODO(aozdemir): enforce ctx' == ctx for sanity?
-        where (ctx', lt) = genLocation ctx loc
+        where (lt, ctx') = runCtxGen (genLocation loc) ctx
     Call name args -> if all termGenTimeConst actualArgs then
             if isFn then
                 (Maybe.fromMaybe
@@ -346,7 +350,7 @@ genExpr expr ctx = case expr of
         else
             (error "NYI", ctx')
         where
-            postCtx = genStatements block newCtx
+            postCtx = execCtxGen (genStatements block) newCtx
             newCtx = ctx' { env = Map.fromList (zip formalArgs actualArgs)
                           , constraints = CS.empty
                           }
@@ -357,7 +361,7 @@ genExpr expr ctx = case expr of
 genUnExpr :: KnownNat k => UnMutOp -> Location -> CtxGen k (Term k)
 genUnExpr op loc = do
   ctx <- get
-  let (ctx', lval) = genLocation ctx loc
+  let (lval, ctx') = runCtxGen (genLocation loc) ctx
   let term = ctxGet ctx' lval
   let term' = genGetUnMutOp op term
   let ctx'' = ctxStore ctx' lval term'
@@ -376,15 +380,19 @@ genExprs es = do
     put ctx'
     return ts
 
-genStatements :: KnownNat k => [Statement] -> Ctx k -> Ctx k
-genStatements = flip $ foldl (\c s -> if isJust (returning c) then c else genStatement s c)
+genStatements :: KnownNat k => [Statement] -> CtxGen k ()
+genStatements statements =
+  do
+    ctx <- get
+    put $ foldl (\c s -> if isJust (returning c) then c else genStatement s c) ctx statements
+    return ()
 
 genStatement :: forall k. KnownNat k => Statement -> Ctx k -> Ctx k
 genStatement statement ctx = case statement of
     -- Note, signals are immutable.
     Assign loc expr -> ctxStore ctx'' lval term
         where
-            (ctx', lval) = genLocation ctx loc
+            (lval, ctx') = runCtxGen (genLocation loc) ctx
             (term, ctx'') = genExpr expr ctx'
     -- TODO Not quite right: evals twice
     OpAssign op loc expr -> genStatement (Assign loc (BinExpr op (LValue loc) expr)) ctx
@@ -400,7 +408,7 @@ genStatement statement ctx = case statement of
             (rt, ctx'') = genExpr r ctx'
             zeroTerm = lt - rt
     -- TODO Not quite right: evals twice
-    AssignConstrain l e -> genStatements [Assign l e, Constrain (LValue l) e] ctx
+    AssignConstrain l e -> execCtxGen (genStatements [Assign l e, Constrain (LValue l) e]) ctx
     VarDeclaration name dims ini -> case ini of
             Just e  -> genStatement (Assign (LocalLocation (name, [])) e) ctx''
             Nothing -> ctx''
@@ -422,19 +430,19 @@ genStatement statement ctx = case statement of
             (ts, ctx') = runCtxGen (genExprs dims) ctx
             z = Smt.IntToPf $ Smt.IntLit 0
     If cond true false -> case tcond of
-            Base (Scalar 0, _) -> genStatements (concat $ Maybe.maybeToList false) ctx'
-            Base (Scalar _, _) -> genStatements true ctx'
+            Base (Scalar 0, _) -> execCtxGen (genStatements (concat $ Maybe.maybeToList false)) ctx'
+            Base (Scalar _, _) -> execCtxGen (genStatements true) ctx'
             _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
         where
             (tcond, ctx') = genExpr cond ctx
     While cond block -> case tcond of
             Base (Scalar 0, _) -> ctx'
-            Base (Scalar _, _) -> genStatement (While cond block) (genStatements block ctx)
+            Base (Scalar _, _) -> genStatement (While cond block) (execCtxGen (genStatements block) ctx)
             _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
         where
             (tcond, ctx') = genExpr cond ctx
-    For ini cond step block -> genStatements [ini, While cond (block ++ [step])] ctx
-    DoWhile block expr -> genStatements (block ++ [While expr block]) ctx
+    For ini cond step block -> execCtxGen (genStatements [ini, While cond (block ++ [step])]) ctx
+    DoWhile block expr -> execCtxGen (genStatements (block ++ [While expr block])) ctx
     Compute _ -> ctx
     Ignore e -> snd $ genExpr e ctx
     Log e -> trace (show e ++ ": " ++ show t) ctx'
