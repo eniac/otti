@@ -337,7 +337,7 @@ genExpr expr ctx = case expr of
             (caseF, ctx''') = genExpr r ctx''
             z = Smt.IntToPf $ Smt.IntLit 0
     LValue loc ->
-            (ctxGet ctx' lt, ctx')
+            (ctxGet lt ctx', ctx')
             -- TODO(aozdemir): enforce ctx' == ctx for sanity?
         where (lt, ctx') = runCtxGen (genLocation loc) ctx
     Call name args -> if all termGenTimeConst actualArgs then
@@ -356,7 +356,7 @@ genExpr expr ctx = case expr of
             newCtx = ctx' { env = Map.fromList (zip formalArgs actualArgs)
                           , constraints = CS.empty
                           }
-            (isFn, formalArgs, block) = ctxGetCallable ctx name
+            (isFn, formalArgs, block) = ctxGetCallable name ctx
             (actualArgs, ctx') = runCtxGen (genExprs args) ctx
 
 
@@ -364,7 +364,7 @@ genUnExpr :: KnownNat k => UnMutOp -> Location -> CtxGen k (Term k)
 genUnExpr op loc = do
   ctx <- get
   let (lval, ctx') = runCtxGen (genLocation loc) ctx
-  let term = ctxGet ctx' lval
+  let term = ctxGet lval ctx'
   let term' = genGetUnMutOp op term
   let ctx'' = ctxStore lval term' ctx'
   put ctx''
@@ -401,9 +401,9 @@ genStatement statement ctx = case statement of
     Constrain l r ->
         case zeroTerm of
             Base (Scalar 0, _) -> ctx''
-            Base (Sig s, _) -> ctxAddConstraint ctx'' (lcZero, lcZero, sigAsLC s)
-            Base (Linear lc, _) -> ctxAddConstraint ctx'' (lcZero, lcZero, lc)
-            Base (Quadratic a b c, _) -> ctxAddConstraint ctx'' (a, b, c)
+            Base (Sig s, _) -> ctxAddConstraint (lcZero, lcZero, sigAsLC s) ctx''
+            Base (Linear lc, _) -> ctxAddConstraint (lcZero, lcZero, lc) ctx''
+            Base (Quadratic a b c, _) -> ctxAddConstraint (a, b, c) ctx''
             _ -> error $ "Cannot constain " ++ show zeroTerm ++ " to zero"
         where
             (lt, ctx') = genExpr l ctx

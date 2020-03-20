@@ -356,14 +356,14 @@ ctxStore loc value ctx = case value of
 
 
 -- Gets a value from a location in a context
-ctxGet :: KnownNat k => Ctx k -> LTerm -> Term k
-ctxGet ctx loc = case loc of
+ctxGet :: KnownNat k => LTerm -> Ctx k -> Term k
+ctxGet loc ctx = case loc of
     LTermIdent s -> r
         where r = Map.findWithDefault (error $ "Unknown identifier `" ++ s ++ "`") s (env ctx)
-    LTermPin loc' pin -> case ctxGet ctx loc' of
+    LTermPin loc' pin -> case ctxGet loc' ctx of
         Struct c -> (env c) Map.! pin
         l -> error $ "Non-struct " ++ show l ++ " as location in " ++ show loc
-    LTermIdx loc' i -> case ctxGet ctx loc' of
+    LTermIdx loc' i -> case ctxGet loc' ctx of
         Array ts -> if i < length ts then ts !! i else error $ "Idx " ++ show i ++ " too big for " ++ show ts
         l -> error $ "Non-array " ++ show l ++ " as location in " ++ show loc
 
@@ -372,10 +372,10 @@ ctxInit ctx name value = ctx { env = Map.insert name value (env ctx) }
 
 -- Given a context and an identifier too find, looks up the callable (function or template) of that name.
 -- Returns the (whether it is a function, the formal parameters, the body)
-ctxGetCallable :: KnownNat k => Ctx k -> String -> (Bool, [String], AST.Block)
-ctxGetCallable ctx name = Maybe.fromMaybe (error $ "No template named " ++ name ++ " found") $ Map.lookup name (callables ctx)
+ctxGetCallable :: KnownNat k => String -> Ctx k -> (Bool, [String], AST.Block)
+ctxGetCallable name ctx = Maybe.fromMaybe (error $ "No template named " ++ name ++ " found") $ Map.lookup name (callables ctx)
 
-ctxAddConstraint ctx c = ctx { constraints = CS.addEquality c $ constraints ctx }
+ctxAddConstraint c ctx = ctx { constraints = CS.addEquality c $ constraints ctx }
 
 ctxAddPublicSig :: Signal -> Ctx k -> Ctx k
 ctxAddPublicSig s c = c { constraints = CS.addPublic s $ constraints c }

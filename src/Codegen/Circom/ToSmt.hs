@@ -42,7 +42,7 @@ ctxToSmt c' = quantified
         conj = S.BoolNaryExpr S.And $ map constraintToSmt (CS.equalities cs)
 
         -- Build a graph of variable dependencies
-        graph = Digraph.graphFromEdgedVerticesOrd $ map (\s -> case Term.ctxGet c (Term.sigLocation s) of
+        graph = Digraph.graphFromEdgedVerticesOrd $ map (\s -> case Term.ctxGet (Term.sigLocation s) c of
             Term.Base (_, smt) -> Digraph.DigraphNode smt (show s) (Set.toList $ collectVars smt)
             other -> error $ "Cannot have signal like " ++ show other ++ " because that is not a field element"
           ) $ Set.toList (CS.private cs)

@@ -106,19 +106,19 @@ circomGenTests = benchTestGroup "Circom generator tests"
         "equal"
         (genCtxWithSignals ["a", "b"])
         [Constrain (LValue (LocalLocation ("a", []))) (LValue (LocalLocation ("b", [])))]
-        (ctxAddConstraint (genCtxWithSignals ["a", "b"]) (lcZero, lcZero, (Map.fromList [(SigLocal "a" [], 1), (SigLocal "b" [], -1)], 0)))
+        (ctxAddConstraint (lcZero, lcZero, (Map.fromList [(SigLocal "a" [], 1), (SigLocal "b" [], -1)], 0)) (genCtxWithSignals ["a", "b"]))
     , genStatementsTest
         "twice (assign & constrain)"
         (genCtxWithSignals ["a", "b"])
         [AssignConstrain (LocalLocation ("a", [])) (BinExpr Mul (NumLit 2) (LValue (LocalLocation ("b", []))))]
         (ctxAddConstraint
+            ( lcZero
+            , lcZero
+            , (Map.fromList [(SigLocal "a" [], 1), (SigLocal "b" [], -2)], 0))
             (ctxStore (LTermIdent "a")
                       (Base ( Sig (SigLocal "a" [])
                             , Smt.PfNaryExpr Smt.PfMul [Smt.IntToPf $ Smt.IntLit 2, Smt.Var "b"]))
-                      (genCtxWithSignals ["a", "b"]))
-            ( lcZero
-            , lcZero
-            , (Map.fromList [(SigLocal "a" [], 1), (SigLocal "b" [], -2)], 0)))
+                      (genCtxWithSignals ["a", "b"])))
     , genStatementsTest
         "decls of Num2Bits"
         (genCtxWithScalars [("n", 2)])
@@ -166,7 +166,7 @@ genExprTest ctx e t = benchTestCase ("eval " ++ show e) $ do
 ctxStoreGetTest :: String -> Ctx 223 -> LTerm -> Term 223 -> LTerm -> Term 223 -> BenchTest
 ctxStoreGetTest name ctx sLoc sVal gLoc gVal = benchTestCase ("store/get test: " ++ name) $ do
     let ctx' = ctxStore sLoc sVal ctx
-    let gVal' = ctxGet ctx' gLoc
+    let gVal' = ctxGet gLoc ctx'
     -- TODO uncomment
     -- unless (gVal == gVal') $ error $ "After placing\n\t" ++ show sVal ++ "\nat\n\t" ++ show sLoc ++ "\nin\n\t" ++ show ctx ++"\n, expected\n\t" ++ show gVal ++ "\nat\n\t" ++ show gLoc ++ "\nbut found\n\t" ++ show gVal' ++ "\n"
     unless True $ error $ "After placing\n\t" ++ show sVal ++ "\nat\n\t" ++ show sLoc ++ "\nin\n\t" ++ show ctx ++"\n, expected\n\t" ++ show gVal ++ "\nat\n\t" ++ show gLoc ++ "\nbut found\n\t" ++ show gVal' ++ "\n"
