@@ -118,17 +118,28 @@ genGetUnMutOp op = case op of
     PostDec -> (+ Base (fromInteger (-1)))
   where
 
+genIndexedIdent :: KnownNat k => IndexedIdent -> Ctx k -> (Ctx k, LTerm)
+genIndexedIdent (i, dims) ctx =
+  foldl (\(c, l) d -> let (c', t) = genExpr c d in (c', attachDim t l))
+        (ctx, LTermIdent i)
+        dims
+  where
+    attachDim :: KnownNat k => Term k -> LTerm -> LTerm
+    attachDim dimTerm lTerm  = case dimTerm of
+      Base (Scalar d, _) -> LTermIdx lTerm (fromIntegral $ fromP d)
+      d -> error $ "Non-scalar " ++ show d ++ " as index in " ++ show dims
+
+
 genLocation :: KnownNat k => Ctx k -> Location -> (Ctx k, LTerm)
 genLocation ctx loc = case loc of
-    Ident s -> (ctx, LTermIdent s)
-    Pin loc' pin -> (ctx', LTermPin lt pin)
-        where (ctx', lt) = genLocation ctx loc'
-    Index loc' ie -> case iterm of
-            Base (Scalar i, _) -> (ctx'', LTermIdx lt (fromIntegral $ fromP i))
-            i -> error $ "Non-scalar " ++ show i ++ " as index in " ++ show loc
-        where
-            (ctx', lt) = genLocation ctx loc'
-            (ctx'', iterm) = genExpr ctx' ie
+    LocalLocation a -> genIndexedIdent a ctx
+    ForeignLocation a b -> (c'', embed at bt)
+      where
+        (c', at) = genIndexedIdent a ctx
+        (c'', bt) = genIndexedIdent b c'
+        embed item (LTermIdent s) = LTermPin item s
+        embed item (LTermIdx x i) = LTermIdx (embed item x) i
+        embed item (LTermPin x p) = LTermPin (embed item x) p
 
 type PfTerm k = Smt.Term (Smt.PfSort k)
 type IntTerm = Smt.Term Smt.IntSort
@@ -380,7 +391,7 @@ genStatement ctx statement = case statement of
     -- TODO Not quite right: evals twice
     AssignConstrain l e -> genStatements ctx [Assign l e, Constrain (LValue l) e]
     VarDeclaration name dims ini -> case ini of
-            Just e  -> genStatement ctx'' $ Assign (Ident name) e
+            Just e  -> genStatement ctx'' $ Assign (LocalLocation (name, [])) e
             Nothing -> ctx''
         where
             ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0, z)) ts)
@@ -393,7 +404,7 @@ genStatement ctx statement = case statement of
             (ctx'', t) = termSignalArray ctx' name tdims
             (ctx', tdims) = genExprs ctx dims
     SubDeclaration name dims ini -> case ini of
-            Just e  -> genStatement ctx'' $ Assign (Ident name) e
+            Just e  -> genStatement ctx'' $ Assign (LocalLocation (name, [])) e
             Nothing -> ctx''
         where
             ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0, z)) ts)

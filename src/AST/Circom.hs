@@ -4,6 +4,7 @@ module AST.Circom ( File
                   , Item(..)
                   , Statement(..)
                   , Expr(..)
+                  , IndexedIdent
                   , Location(..)
                   , SignalKind(..)
                   , UnOp(..)
@@ -114,9 +115,9 @@ isPublic s = case s of
     Out -> False
     Local -> False
 
-data Location = Ident String
-              | Pin Location String
-              | Index Location Expr
+type IndexedIdent = (String, [Expr])
+data Location = LocalLocation IndexedIdent
+              | ForeignLocation IndexedIdent IndexedIdent
               deriving (Show,Eq)
 
 data UnMutOp = PreInc

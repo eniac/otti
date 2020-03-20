@@ -12,15 +12,15 @@ circomParserTests :: BenchTest
 circomParserTests = benchTestGroup "Circom tests"
     [ testLex "test/Code/Circom/inout.circom"
     , testExprParse "5" Nothing
-    , testExprParse "x" $ Just $ LValue $ Ident "x"
+    , testExprParse "x" $ Just $ LValue $ LocalLocation ("x", [])
     , testExprParse "x + 5" Nothing
     , testExprParse "in[j][k] * 2**k" Nothing --  https://github.com/iden3/circomlib/blob/master/circuits/binsum.circom#L77
-    , testExprParse "2**k * in[j][k]" $ Just $ BinExpr Mul (BinExpr Pow (NumLit 2) (LValue (Ident "k"))) (LValue (Index (Index (Ident "in") (LValue (Ident "j"))) (LValue (Ident "k"))))
+    , testExprParse "2**k * in[j][k]" $ Just $ BinExpr Mul (BinExpr Pow (NumLit 2) (LValue (LocalLocation ("k", [])))) (LValue (LocalLocation ("in", [(LValue (LocalLocation ("j", []))), (LValue (LocalLocation ("k", [])))])))
     , testExprParse "2**(k * in[j][k])" Nothing
     , testExprParse "out[k] * (out[k] - 1)" Nothing --  https://github.com/iden3/circomlib/blob/master/circuits/binsum.circom#L85
-    , testExprParse "[x, y, z + 5]" $ Just $ ArrayLit [LValue $ Ident "x", LValue $ Ident "y", BinExpr Add (LValue $ Ident "z") (NumLit 5)]
-    , testExprParse "x + -x" $ Just $ BinExpr Add (LValue $ Ident "x") (UnExpr UnNeg (LValue $ Ident "x"))
-    , testStatementParse "x + -x;" $ Just $ Ignore $ BinExpr Add (LValue $ Ident "x") (UnExpr UnNeg (LValue $ Ident "x"))
+    , testExprParse "[x, y, z + 5]" $ Just $ ArrayLit [LValue $ LocalLocation ("x", []), LValue $ LocalLocation ("y", []), BinExpr Add (LValue $ LocalLocation ("z", [])) (NumLit 5)]
+    , testExprParse "x + -x" $ Just $ BinExpr Add (LValue $ LocalLocation ("x", [])) (UnExpr UnNeg (LValue $ LocalLocation ("x", [])))
+    , testStatementParse "x + -x;" $ Just $ Ignore $ BinExpr Add (LValue $ LocalLocation ("x", [])) (UnExpr UnNeg (LValue $ LocalLocation ("x", [])))
     , testStatementParse "signal input in[ops][n];" Nothing
     , testStatementParse "var nout = nbits((2**n -1)*ops);" Nothing
     , testStatementParse "for (var i = 0; i < n; i += 1) { j += i; }" Nothing

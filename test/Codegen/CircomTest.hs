@@ -50,25 +50,25 @@ circomGenTests = benchTestGroup "Circom generator tests"
     , genExprTest (genCtxWithSignals []) (BinExpr Div (NumLit 5) (NumLit 2)) (constBundle 114)
     , genExprTest (genCtxWithSignals []) (BinExpr IntDiv (NumLit 5) (NumLit 2)) (constBundle 2)
     , genExprTest (genCtxWithSignals ["in"])
-               (BinExpr Add (LValue $ Ident "in") (LValue $ Ident "in"))
+               (BinExpr Add (LValue $ LocalLocation ("in", [])) (LValue $ LocalLocation ("in", [])))
                (Linear (Map.fromList [(SigLocal "in" [], 2)], 0))
     , genExprTest (genCtxWithSignals ["in"])
-               (BinExpr Add (BinExpr Mul (LValue $ Ident "in") (NumLit 5)) (LValue $ Ident "in"))
+               (BinExpr Add (BinExpr Mul (LValue $ LocalLocation ("in", [])) (NumLit 5)) (LValue $ LocalLocation ("in", [])))
                (Linear (Map.fromList [(SigLocal "in" [], 6)], 0))
     , genExprTest (genCtxWithSignals ["in"])
-               (BinExpr Add (BinExpr Mul (LValue $ Ident "in") (LValue $ Ident "in")) (LValue $ Ident "in"))
+               (BinExpr Add (BinExpr Mul (LValue $ LocalLocation ("in", [])) (LValue $ LocalLocation ("in", []))) (LValue $ LocalLocation ("in", [])))
                (Quadratic (Map.fromList [(SigLocal "in" [], 1)], 0)
                           (Map.fromList [(SigLocal "in" [], 1)], 0)
                           (Map.fromList [(SigLocal "in" [], 1)], 0)
                           )
     , genExprTest (genCtxWithSignals ["in"])
-               (BinExpr Sub (BinExpr Mul (LValue $ Ident "in") (LValue $ Ident "in")) (LValue $ Ident "in"))
+               (BinExpr Sub (BinExpr Mul (LValue $ LocalLocation ("in", [])) (LValue $ LocalLocation ("in", []))) (LValue $ LocalLocation ("in", [])))
                (Quadratic (Map.fromList [(SigLocal "in" [], 1)], 0)
                           (Map.fromList [(SigLocal "in" [], 1)], 0)
                           (Map.fromList [(SigLocal "in" [], -1)], 0)
                           )
     , genExprTest (genCtxWithSignals ["in"])
-               (BinExpr Mul (BinExpr Mul (LValue $ Ident "in") (LValue $ Ident "in")) (LValue $ Ident "in"))
+               (BinExpr Mul (BinExpr Mul (LValue $ LocalLocation ("in", [])) (LValue $ LocalLocation ("in", []))) (LValue $ LocalLocation ("in", [])))
                Other
     , genExprTest (genCtxWithSignals [])
                (UnExpr UnPos (ArrayLit [NumLit 5, NumLit 6, NumLit 7]))
@@ -105,12 +105,12 @@ circomGenTests = benchTestGroup "Circom generator tests"
     , genStatementsTest
         "equal"
         (genCtxWithSignals ["a", "b"])
-        [Constrain (LValue (Ident "a")) (LValue (Ident "b"))]
+        [Constrain (LValue (LocalLocation ("a", []))) (LValue (LocalLocation ("b", [])))]
         (ctxAddConstraint (genCtxWithSignals ["a", "b"]) (lcZero, lcZero, (Map.fromList [(SigLocal "a" [], 1), (SigLocal "b" [], -1)], 0)))
     , genStatementsTest
         "twice (assign & constrain)"
         (genCtxWithSignals ["a", "b"])
-        [AssignConstrain (Ident "a") (BinExpr Mul (NumLit 2) (LValue (Ident "b")))]
+        [AssignConstrain (LocalLocation ("a", [])) (BinExpr Mul (NumLit 2) (LValue (LocalLocation ("b", []))))]
         (ctxAddConstraint
             (ctxStore (genCtxWithSignals ["a", "b"])
                       (LTermIdent "a")
@@ -122,7 +122,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
     , genStatementsTest
         "decls of Num2Bits"
         (genCtxWithScalars [("n", 2)])
-        [SigDeclaration "in" PublicIn [], SigDeclaration "out" Out [LValue $ Ident "n"]]
+        [SigDeclaration "in" PublicIn [], SigDeclaration "out" Out [LValue $ LocalLocation ("n", [])]]
         (ctxFromList $ Map.fromList
             [ ("n", constTerm 2)
             , ("in", signalTerm "in" [])
@@ -136,7 +136,7 @@ circomGenTests = benchTestGroup "Circom generator tests"
         "decls of Num2Bits II"
         (genCtxWithScalars [("n", 2)])
         [ SigDeclaration "in" PublicIn []
-        , SigDeclaration "out" Out [LValue $ Ident "n"]
+        , SigDeclaration "out" Out [LValue $ LocalLocation ("n", [])]
         , VarDeclaration "lc1" [] (Just (NumLit 0))
         ]
         (ctxFromList $ Map.fromList

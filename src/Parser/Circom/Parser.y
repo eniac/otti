@@ -126,16 +126,17 @@ list1(p)                : rev_list1(p)              { reverse $1 }
 list0(p)                : list1(p)                  { $1 }
                         |                           { [] }
 
+indexed_id :: {IndexedIdent}
+           : ident dimensions                       { ($1, $2) }
 
 location :: {Location}
-         : ident                                    { AST.Ident $1 }
-         | location '.' ident     %prec POST        { Pin $1 $3 }
-         | location '[' expr ']'  %prec POST        { Index $1 $3 }
+         : indexed_id                { LocalLocation $1 }
+         | indexed_id '.' indexed_id { ForeignLocation $1 $3 }
 
 dimension : '[' expr ']'                            { $2 }
 
-decl_dimensions :: {[Expr]}
-                : list0(dimension)                  { $1 }
+dimensions :: {[Expr]}
+           : list0(dimension)                       { $1 }
 
 expr :: {Expr}
      : location                                     { LValue $1 }
@@ -222,11 +223,11 @@ line :: {Statement}
      | location '<==' expr                              { AssignConstrain $1 $3 }
      | expr '==>' location                              { AssignConstrain $3 $1 }
      | expr '===' expr                                  { Constrain $1 $3 }
-     | var ident decl_dimensions                        { VarDeclaration $2 $3 Nothing }
-     | var ident decl_dimensions '=' expr               { VarDeclaration $2 $3 (Just $5) }
-     | signal sig_kind ident decl_dimensions            { SigDeclaration $3 $2 $4 }
-     | component ident decl_dimensions                  { SubDeclaration $2 $3 Nothing }
-     | component ident decl_dimensions '=' expr         { SubDeclaration $2 $3 (Just $5) }
+     | var ident dimensions                             { VarDeclaration $2 $3 Nothing }
+     | var ident dimensions '=' expr                    { VarDeclaration $2 $3 (Just $5) }
+     | signal sig_kind ident dimensions                 { SigDeclaration $3 $2 $4 }
+     | component ident dimensions                       { SubDeclaration $2 $3 Nothing }
+     | component ident dimensions '=' expr              { SubDeclaration $2 $3 (Just $5) }
      | return expr                                      { AST.Return $2 }
      | log '(' expr ')'                                 { AST.Log $3 }
      | expr                                             { AST.Ignore $1 }
