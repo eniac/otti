@@ -135,6 +135,24 @@ genStmtSMT stmt = case stmt of
   CFor{}      -> error ""
   _           -> error ""
 
+---
+--- High level codegen (translation unit, etc)
+---
+
+
+genDecl :: CDeclaration a -> Compiler ()
+genDecl = undefined
+
+genFunDef :: CFunctionDef a -> Compiler ()
+genFunDef = undefined
+
+genAsm :: CStringLiteral a -> Compiler ()
+genAsm = undefined
 
 codegenC :: CTranslUnit -> Compiler SMTNode
-codegenC = error "NYI"
+codegenC (CTranslUnit decls _) = do
+  forM_ decls $ \decl -> case decl of
+    CDeclExt decl -> genDecl decl
+    CFDefExt fun  -> genFunDef fun
+    CAsmExt asm _ -> genAsm asm
+  error "NYI"
