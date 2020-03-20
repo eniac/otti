@@ -268,7 +268,7 @@ genExpr ctx expr = case expr of
     NumLit i -> (ctx, Base $ fromInteger $ fromIntegral i)
     ArrayLit es -> (ctx', Array ts)
       where
-        (ctx', ts) = genExprs ctx es
+        (ts, ctx') = genExprs es ctx
     BinExpr op l r ->
       (ctx'', case op of
         Add    -> l' + r'
@@ -347,7 +347,7 @@ genExpr ctx expr = case expr of
                           , constraints = CS.empty
                           }
             (isFn, formalArgs, block) = ctxGetCallable ctx name
-            (ctx', actualArgs) = genExprs ctx args
+            (actualArgs, ctx') = genExprs args ctx
 
 
 genUnExpr :: KnownNat k => UnMutOp -> Location -> Ctx k -> (Term k, Ctx k)
@@ -363,8 +363,8 @@ genUnExpr op loc ctx = case op of
         term' = genGetUnMutOp op term
         ctx'' = ctxStore ctx' lval term'
 
-genExprs :: KnownNat k => Ctx k -> [Expr] -> (Ctx k, [Term k])
-genExprs ctx = foldl (\(c, ts) e -> let (c', t) = genExpr c e in (c', ts ++ [t])) (ctx, [])
+genExprs :: KnownNat k => [Expr] -> Ctx k -> ([Term k], Ctx k)
+genExprs es ctx = foldl (\(ts, c) e -> let (c', t) = genExpr c e in (ts ++ [t], c')) ([], ctx) es
 
 genStatements :: KnownNat k => Ctx k -> [Statement] -> Ctx k
 genStatements = foldl (\c s -> if isJust (returning c) then c else genStatement c s)
@@ -396,20 +396,20 @@ genStatement ctx statement = case statement of
             Nothing -> ctx''
         where
             ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0, z)) ts)
-            (ctx', ts) = genExprs ctx dims
+            (ts, ctx') = genExprs dims ctx
             z = Smt.IntToPf $ Smt.IntLit 0
     SigDeclaration name kind dims -> ctxInit ctx''' name t
         where
             ctx''' = Set.fold sigAdder ctx'' (termSignals t)
             sigAdder = if AST.isPublic kind then Term.ctxAddPublicSig else Term.ctxAddPrivateSig
             (ctx'', t) = termSignalArray ctx' name tdims
-            (ctx', tdims) = genExprs ctx dims
+            (tdims, ctx') = genExprs dims ctx
     SubDeclaration name dims ini -> case ini of
             Just e  -> genStatement ctx'' $ Assign (LocalLocation (name, [])) e
             Nothing -> ctx''
         where
             ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0, z)) ts)
-            (ctx', ts) = genExprs ctx dims
+            (ts, ctx') = genExprs dims ctx
             z = Smt.IntToPf $ Smt.IntLit 0
     If cond true false -> case tcond of
             Base (Scalar 0, _) -> genStatements ctx' (concat $ Maybe.maybeToList false)
