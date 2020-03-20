@@ -121,7 +121,7 @@ genGetUnMutOp op = case op of
 
 genIndexedIdent :: KnownNat k => IndexedIdent -> Ctx k -> (LTerm, Ctx k)
 genIndexedIdent (i, dims) ctx =
-  foldl (\(l, c) d -> let (c', t) = genExpr c d in (attachDim t l, c'))
+  foldl (\(l, c) d -> let (t, c') = genExpr d c in (attachDim t l, c'))
         (LTermIdent i, ctx)
         dims
   where
@@ -263,14 +263,14 @@ liftUnToTerm name f fsmt t = case t of
     a@Struct {} -> error $ "Cannot perform operation \"" ++ name ++ "\" on struct term " ++ show a
     Base a -> Base $ liftUnToBaseTerm f fsmt a
 
-genExpr :: forall k. KnownNat k => Ctx k -> Expr -> (Ctx k, Term k)
-genExpr ctx expr = case expr of
-    NumLit i -> (ctx, Base $ fromInteger $ fromIntegral i)
-    ArrayLit es -> (ctx', Array ts)
+genExpr :: forall k. KnownNat k => Expr -> Ctx k -> (Term k, Ctx k)
+genExpr expr ctx = case expr of
+    NumLit i -> (Base $ fromInteger $ fromIntegral i , ctx)
+    ArrayLit es -> (Array ts, ctx')
       where
         (ts, ctx') = genExprs es ctx
     BinExpr op l r ->
-      (ctx'', case op of
+      (case op of
         Add    -> l' + r'
         Sub    -> l' - r'
         Mul    -> l' * r'
@@ -292,55 +292,58 @@ genExpr ctx expr = case expr of
         BitAnd -> liftBvToTerm "&" (Bits..&.) Smt.BvAnd l' r'
         BitOr  -> liftBvToTerm "|" (Bits..|.) Smt.BvOr  l' r'
         BitXor -> liftBvToTerm "^" Bits.xor   Smt.BvXor l' r'
-        Pow    -> liftIntOpToTerm "**" (^) Smt.IntPow l' r')
+        Pow    -> liftIntOpToTerm "**" (^) Smt.IntPow l' r'
+        , ctx'')
       where
-        (ctx', l') = genExpr ctx l
-        (ctx'', r') = genExpr ctx' r
+        (l', ctx') = genExpr l ctx
+        (r', ctx'') = genExpr r ctx'
         liftShiftToInt :: (Integer -> Int -> Integer) -> Integer -> Integer -> Integer
         liftShiftToInt a b c = a b (fromIntegral c)
     UnExpr op e ->
-        case op of
-            UnNeg -> (ctx', - t)
-            Not -> (ctx', liftUnToTerm "!" (\c -> if c /= 0 then 0 else 1)
-                (Smt.IntToPf . Smt.BoolToInt . Smt.Not . Smt.PfBinPred Smt.PfNe z) t)
+        (case op of
+            UnNeg -> -t
+            Not -> liftUnToTerm "!" (\c -> if c /= 0 then 0 else 1)
+                (Smt.IntToPf . Smt.BoolToInt . Smt.Not . Smt.PfBinPred Smt.PfNe z) t
               where
                 z = Smt.IntToPf $ Smt.IntLit 0
-            UnPos -> (ctx', (case t of
+            UnPos -> case t of
                 Array ts     -> Base $ fromInteger $ fromIntegral $ length ts
                 Struct c     -> Base $ fromInteger $ fromIntegral $ Map.size $ env c
-                _ -> t))
+                _ -> t
             BitNot -> error "NYI" -- The sematics of this are unclear.
+        , ctx')
         where
-            (ctx', t) = genExpr ctx e
-    UnMutExpr op loc -> Tuple.swap $ genUnExpr op loc ctx
+            (t, ctx') = genExpr e ctx
+    UnMutExpr op loc -> genUnExpr op loc ctx
     Ite c l r ->
         case condT of
-            Base (Scalar 0, _)     -> (ctx''', caseF)
-            Base (Scalar _, _)     -> (ctx''', caseT)
+            Base (Scalar 0, _)     -> (caseF, ctx''')
+            Base (Scalar _, _)     -> (caseT, ctx''')
             Base (_, v)            ->
                 case (caseT, caseF) of
-                    (Base t, Base f) -> (ctx''', Base (Other, Smt.Ite (Smt.PfBinPred Smt.PfNe z v) (snd t) (snd f)))
+                    (Base t, Base f) -> (Base (Other, Smt.Ite (Smt.PfBinPred Smt.PfNe z v) (snd t) (snd f)), ctx''')
                     (t, f) -> error $ "Cannot evalate a ternary as " ++ show t ++ " or " ++ show f
             t -> error $ "Cannot condition on term " ++ show t
         where
-            (ctx', condT) = genExpr ctx c
-            (ctx'', caseT) = genExpr ctx' l
-            (ctx''', caseF) = genExpr ctx'' r
+            (condT, ctx') = genExpr c ctx
+            (caseT, ctx'') = genExpr l ctx'
+            (caseF, ctx''') = genExpr r ctx''
             z = Smt.IntToPf $ Smt.IntLit 0
     LValue loc ->
-            (ctx', ctxGet ctx' lt)
+            (ctxGet ctx' lt, ctx')
             -- TODO(aozdemir): enforce ctx' == ctx for sanity?
         where (ctx', lt) = genLocation ctx loc
     Call name args -> if all termGenTimeConst actualArgs then
             if isFn then
-                (ctx', Maybe.fromMaybe
+                (Maybe.fromMaybe
                     (error $ "The function " ++ name ++ " did not return")
                     (returning postCtx)
+                , ctx'
                 )
             else
-                (ctx' { nextSignal = nextSignal postCtx }, ctxToStruct postCtx)
+                (ctxToStruct postCtx, ctx' { nextSignal = nextSignal postCtx })
         else
-            (ctx', error "NYI")
+            (error "NYI", ctx')
         where
             postCtx = genStatements block newCtx
             newCtx = ctx' { env = Map.fromList (zip formalArgs actualArgs)
@@ -364,7 +367,7 @@ genUnExpr op loc ctx = case op of
         ctx'' = ctxStore ctx' lval term'
 
 genExprs :: KnownNat k => [Expr] -> Ctx k -> ([Term k], Ctx k)
-genExprs es ctx = foldl (\(ts, c) e -> let (c', t) = genExpr c e in (ts ++ [t], c')) ([], ctx) es
+genExprs es ctx = foldl (\(ts, c) e -> let (t, c') = genExpr e c in (ts ++ [t], c')) ([], ctx) es
 
 genStatements :: KnownNat k => [Statement] -> Ctx k -> Ctx k
 genStatements = flip $ foldl (\c s -> if isJust (returning c) then c else genStatement s c)
@@ -375,7 +378,7 @@ genStatement statement ctx = case statement of
     Assign loc expr -> ctxStore ctx'' lval term
         where
             (ctx', lval) = genLocation ctx loc
-            (ctx'', term) = genExpr ctx' expr
+            (term, ctx'') = genExpr expr ctx'
     -- TODO Not quite right: evals twice
     OpAssign op loc expr -> genStatement (Assign loc (BinExpr op (LValue loc) expr)) ctx
     Constrain l r ->
@@ -386,8 +389,8 @@ genStatement statement ctx = case statement of
             Base (Quadratic a b c, _) -> ctxAddConstraint ctx'' (a, b, c)
             _ -> error $ "Cannot constain " ++ show zeroTerm ++ " to zero"
         where
-            (ctx', lt) = genExpr ctx l
-            (ctx'', rt) = genExpr ctx' r
+            (lt, ctx') = genExpr l ctx
+            (rt, ctx'') = genExpr r ctx'
             zeroTerm = lt - rt
     -- TODO Not quite right: evals twice
     AssignConstrain l e -> genStatements [Assign l e, Constrain (LValue l) e] ctx
@@ -416,22 +419,22 @@ genStatement statement ctx = case statement of
             Base (Scalar _, _) -> genStatements true ctx'
             _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
         where
-            (ctx', tcond) = genExpr ctx cond
+            (tcond, ctx') = genExpr cond ctx
     While cond block -> case tcond of
             Base (Scalar 0, _) -> ctx'
             Base (Scalar _, _) -> genStatement (While cond block) (genStatements block ctx)
             _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
         where
-            (ctx', tcond) = genExpr ctx cond
+            (tcond, ctx') = genExpr cond ctx
     For ini cond step block -> genStatements [ini, While cond (block ++ [step])] ctx
     DoWhile block expr -> genStatements (block ++ [While expr block]) ctx
     Compute _ -> ctx
-    Ignore e -> fst $ genExpr ctx e
+    Ignore e -> snd $ genExpr e ctx
     Log e -> trace (show e ++ ": " ++ show t) ctx'
-        where (ctx', t) = genExpr ctx e
+        where (t, ctx') = genExpr e ctx
     Return e -> ctx' { returning = Just t }
         where
-            (ctx', t) = genExpr ctx e
+            (t, ctx') = genExpr e ctx
 
 genMain :: KnownNat k => MainCircuit -> Integer -> Constraints (Prime k)
 genMain m order = constraints $ genMainCtx m order
