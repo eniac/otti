@@ -38,6 +38,7 @@ import qualified Data.Map.Strict            as Map
 import           Data.Maybe                 as Maybe
 import           Data.Proxy                 (Proxy (Proxy))
 import qualified Data.Set                   as Set
+import qualified Data.Tuple                 as Tuple
 import           Debug.Trace                (trace)
 import           GHC.TypeLits.KnownNat
 import           GHC.TypeNats
@@ -118,10 +119,10 @@ genGetUnMutOp op = case op of
     PostDec -> (+ Base (fromInteger (-1)))
   where
 
-genIndexedIdent :: KnownNat k => IndexedIdent -> Ctx k -> (Ctx k, LTerm)
+genIndexedIdent :: KnownNat k => IndexedIdent -> Ctx k -> (LTerm, Ctx k)
 genIndexedIdent (i, dims) ctx =
-  foldl (\(c, l) d -> let (c', t) = genExpr c d in (c', attachDim t l))
-        (ctx, LTermIdent i)
+  foldl (\(l, c) d -> let (c', t) = genExpr c d in (attachDim t l, c'))
+        (LTermIdent i, ctx)
         dims
   where
     attachDim :: KnownNat k => Term k -> LTerm -> LTerm
@@ -132,11 +133,11 @@ genIndexedIdent (i, dims) ctx =
 
 genLocation :: KnownNat k => Ctx k -> Location -> (Ctx k, LTerm)
 genLocation ctx loc = case loc of
-    LocalLocation a -> genIndexedIdent a ctx
+    LocalLocation a -> Tuple.swap $ genIndexedIdent a ctx
     ForeignLocation a b -> (c'', embed at bt)
       where
-        (c', at) = genIndexedIdent a ctx
-        (c'', bt) = genIndexedIdent b c'
+        (at, c') = genIndexedIdent a ctx
+        (bt, c'') = genIndexedIdent b c'
         embed item (LTermIdent s) = LTermPin item s
         embed item (LTermIdx x i) = LTermIdx (embed item x) i
         embed item (LTermPin x p) = LTermPin (embed item x) p
