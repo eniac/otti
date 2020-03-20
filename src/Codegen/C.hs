@@ -139,12 +139,23 @@ genStmtSMT stmt = case stmt of
 --- High level codegen (translation unit, etc)
 ---
 
+genBlockStmt :: CStatement a -> Compiler ()
+genBlockStmt = undefined
+
+genBlockDecl :: CDeclaration a -> Compiler ()
+genBlockDecl = error "BOOO"
+
+genNestedFunction :: CFunctionDef a -> Compiler ()
+genNestedFunction = error "We do not and will not support this"
 
 genDecl :: CDeclaration a -> Compiler ()
 genDecl = undefined
 
-genFunDef :: CFunctionDef a -> Compiler ()
-genFunDef = undefined
+genFunDef :: (Show a) => CFunctionDef a -> Compiler ()
+genFunDef (CFunDef specs decl decls stmt _) = do
+  case stmt of
+    CCompound ids blocks _ -> void $ genStmtSMT stmt
+    _                      -> error "Expected C statement block in function definition"
 
 genAsm :: CStringLiteral a -> Compiler ()
 genAsm = undefined
