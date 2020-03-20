@@ -31,6 +31,7 @@ import           AST.Circom                 as AST
 import           Codegen.Circom.Constraints (Constraints)
 import qualified Codegen.Circom.Constraints as CS
 import           Codegen.Circom.Term        as Term
+import           Control.Monad.State.Strict
 import qualified Data.Bits                  as Bits
 import           Data.Field.Galois          (Prime, fromP, toP)
 import           Data.List                  (intercalate)
@@ -314,7 +315,9 @@ genExpr expr ctx = case expr of
         , ctx')
         where
             (t, ctx') = genExpr e ctx
-    UnMutExpr op loc -> genUnExpr op loc ctx
+    UnMutExpr op loc -> runState m ctx
+      where
+        CtxGen m = genUnExpr op loc
     Ite c l r ->
         case condT of
             Base (Scalar 0, _)     -> (caseF, ctx''')
@@ -353,13 +356,15 @@ genExpr expr ctx = case expr of
             (actualArgs, ctx') = genExprs args ctx
 
 
-genUnExpr :: KnownNat k => UnMutOp -> Location -> Ctx k -> (Term k, Ctx k)
-genUnExpr op loc ctx = case op of
-    PostInc -> (term, ctx'')
-    PreInc  -> (term', ctx'')
-    PostDec -> (term, ctx'')
-    PreDec  -> (term', ctx'')
-    where
+genUnExpr :: KnownNat k => UnMutOp -> Location -> CtxGen k (Term k)
+genUnExpr op loc = state f
+  where
+    f ctx = case op of
+        PostInc -> (term, ctx'')
+        PreInc  -> (term', ctx'')
+        PostDec -> (term, ctx'')
+        PreDec  -> (term', ctx'')
+      where
         -- TODO(aozdemir): enforce ctx' == ctx for sanity?
         (ctx', lval) = genLocation ctx loc
         term = ctxGet ctx' lval

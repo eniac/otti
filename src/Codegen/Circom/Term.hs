@@ -1,8 +1,10 @@
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE FlexibleInstances   #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
+{-# LANGUAGE MultiParamTypeClasses       #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
 module Codegen.Circom.Term ( lcZero
@@ -23,6 +25,7 @@ module Codegen.Circom.Term ( lcZero
                            , sigAsSmt
                            , sigLocation
                            , Ctx(..)
+                           , CtxGen(..)
                            , ctxStore
                            , ctxGet
                            , ctxAddConstraint
@@ -38,9 +41,11 @@ import qualified AST.Circom                 as AST
 import           Codegen.Circom.Constraints (Constraint, Constraints, LC,
                                              Signal)
 import qualified Codegen.Circom.Constraints as CS
+import           Control.Monad.State.Strict
 import           Data.Bifunctor
 import qualified Data.Either                as Either
 import           Data.Field.Galois          (Prime, PrimeField)
+import           Data.Functor.Identity      (Identity)
 import           Data.List                  (intercalate)
 import qualified Data.Map.Strict            as Map
 import qualified Data.Maybe                 as Maybe
@@ -255,6 +260,20 @@ data Ctx k = Ctx { env            :: Map.Map String (Term k)
                  , nextSignal     :: Int
                  }
                  deriving (Show)
+
+newtype CtxGen k a = CtxGen (State (Ctx k) a)
+    deriving (Functor, Applicative, Monad, MonadState (Ctx k))
+-- instance KnownNat k => Functor (CtxGen k) where
+--     fmap f (CtxGen a) = CtxGen $ fmap f a
+-- instance KnownNat k => Applicative (CtxGen k) where
+--     pure = CtxGen . pure
+--     (CtxGen f) <*> (CtxGen a) = CtxGen (f <*> a)
+-- instance KnownNat k => Monad (CtxGen k) where
+--     (CtxGen f) >>= g = CtxGen (f >>= (\x -> case g x of
+--       CtxGen k -> k))
+-- instance KnownNat k => MonadState (Ctx k) Identity where
+--     state = CtxGen . state
+
 
 updateList :: (a -> a) -> Int -> [a] -> Maybe [a]
 updateList f i l = case splitAt i l of
