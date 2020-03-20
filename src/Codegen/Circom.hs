@@ -357,19 +357,18 @@ genExpr expr ctx = case expr of
 
 
 genUnExpr :: KnownNat k => UnMutOp -> Location -> CtxGen k (Term k)
-genUnExpr op loc = state f
-  where
-    f ctx = case op of
-        PostInc -> (term, ctx'')
-        PreInc  -> (term', ctx'')
-        PostDec -> (term, ctx'')
-        PreDec  -> (term', ctx'')
-      where
-        -- TODO(aozdemir): enforce ctx' == ctx for sanity?
-        (ctx', lval) = genLocation ctx loc
-        term = ctxGet ctx' lval
-        term' = genGetUnMutOp op term
-        ctx'' = ctxStore ctx' lval term'
+genUnExpr op loc = do
+  ctx <- get
+  let (ctx', lval) = genLocation ctx loc
+  let term = ctxGet ctx' lval
+  let term' = genGetUnMutOp op term
+  let ctx'' = ctxStore ctx' lval term'
+  put ctx''
+  return $ case op of
+    PostInc -> term
+    PreInc  -> term'
+    PostDec -> term
+    PreDec  -> term'
 
 genExprs :: KnownNat k => [Expr] -> Ctx k -> ([Term k], Ctx k)
 genExprs es ctx = foldl (\(ts, c) e -> let (t, c') = genExpr e c in (ts ++ [t], c')) ([], ctx) es
