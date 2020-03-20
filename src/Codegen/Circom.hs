@@ -369,9 +369,12 @@ genUnExpr op loc = do
     PreDec  -> term'
 
 genExprs :: KnownNat k => [Expr] -> CtxGen k [Term k]
-genExprs es = state f
-  where
-   f ctx = foldl (\(ts, c) e -> let (t, c') = genExpr e c in (ts ++ [t], c')) ([], ctx) es
+genExprs es = do
+    -- TODO: more monadic?
+    ctx <- get
+    let (ts, ctx') = foldl (\(ts, c) e -> let (t, c') = genExpr e c in (ts ++ [t], c')) ([], ctx) es
+    put ctx'
+    return ts
 
 genStatements :: KnownNat k => [Statement] -> Ctx k -> Ctx k
 genStatements = flip $ foldl (\c s -> if isJust (returning c) then c else genStatement s c)
