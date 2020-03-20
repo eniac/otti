@@ -269,7 +269,7 @@ genExpr expr ctx = case expr of
     NumLit i -> (Base $ fromInteger $ fromIntegral i , ctx)
     ArrayLit es -> (Array ts, ctx')
       where
-        (ts, ctx') = genExprs es ctx
+        (ts, ctx') = runCtxGen (genExprs es) ctx
     BinExpr op l r ->
       (case op of
         Add    -> l' + r'
@@ -315,9 +315,7 @@ genExpr expr ctx = case expr of
         , ctx')
         where
             (t, ctx') = genExpr e ctx
-    UnMutExpr op loc -> runState m ctx
-      where
-        CtxGen m = genUnExpr op loc
+    UnMutExpr op loc -> runCtxGen (genUnExpr op loc) ctx
     Ite c l r ->
         case condT of
             Base (Scalar 0, _)     -> (caseF, ctx''')
@@ -353,7 +351,7 @@ genExpr expr ctx = case expr of
                           , constraints = CS.empty
                           }
             (isFn, formalArgs, block) = ctxGetCallable ctx name
-            (actualArgs, ctx') = genExprs args ctx
+            (actualArgs, ctx') = runCtxGen (genExprs args) ctx
 
 
 genUnExpr :: KnownNat k => UnMutOp -> Location -> CtxGen k (Term k)
@@ -370,8 +368,10 @@ genUnExpr op loc = do
     PostDec -> term
     PreDec  -> term'
 
-genExprs :: KnownNat k => [Expr] -> Ctx k -> ([Term k], Ctx k)
-genExprs es ctx = foldl (\(ts, c) e -> let (t, c') = genExpr e c in (ts ++ [t], c')) ([], ctx) es
+genExprs :: KnownNat k => [Expr] -> CtxGen k [Term k]
+genExprs es = state f
+  where
+   f ctx = foldl (\(ts, c) e -> let (t, c') = genExpr e c in (ts ++ [t], c')) ([], ctx) es
 
 genStatements :: KnownNat k => [Statement] -> Ctx k -> Ctx k
 genStatements = flip $ foldl (\c s -> if isJust (returning c) then c else genStatement s c)
@@ -403,20 +403,20 @@ genStatement statement ctx = case statement of
             Nothing -> ctx''
         where
             ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0, z)) ts)
-            (ts, ctx') = genExprs dims ctx
+            (ts, ctx') = runCtxGen (genExprs dims) ctx
             z = Smt.IntToPf $ Smt.IntLit 0
     SigDeclaration name kind dims -> ctxInit ctx''' name t
         where
             ctx''' = Set.fold sigAdder ctx'' (termSignals t)
             sigAdder = if AST.isPublic kind then Term.ctxAddPublicSig else Term.ctxAddPrivateSig
             (ctx'', t) = termSignalArray ctx' name tdims
-            (tdims, ctx') = genExprs dims ctx
+            (tdims, ctx') = runCtxGen (genExprs dims) ctx
     SubDeclaration name dims ini -> case ini of
             Just e  -> genStatement (Assign (LocalLocation (name, [])) e) ctx''
             Nothing -> ctx''
         where
             ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0, z)) ts)
-            (ts, ctx') = genExprs dims ctx
+            (ts, ctx') = runCtxGen (genExprs dims) ctx
             z = Smt.IntToPf $ Smt.IntLit 0
     If cond true false -> case tcond of
             Base (Scalar 0, _) -> genStatements (concat $ Maybe.maybeToList false) ctx'

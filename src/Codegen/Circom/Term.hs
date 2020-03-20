@@ -26,6 +26,7 @@ module Codegen.Circom.Term ( lcZero
                            , sigLocation
                            , Ctx(..)
                            , CtxGen(..)
+                           , runCtxGen
                            , ctxStore
                            , ctxGet
                            , ctxAddConstraint
@@ -274,6 +275,8 @@ newtype CtxGen k a = CtxGen (State (Ctx k) a)
 -- instance KnownNat k => MonadState (Ctx k) Identity where
 --     state = CtxGen . state
 
+runCtxGen :: CtxGen k a -> Ctx k -> (a, Ctx k)
+runCtxGen (CtxGen g) = runState g
 
 updateList :: (a -> a) -> Int -> [a] -> Maybe [a]
 updateList f i l = case splitAt i l of
