@@ -367,8 +367,8 @@ ctxGet loc ctx = case loc of
         Array ts -> if i < length ts then ts !! i else error $ "Idx " ++ show i ++ " too big for " ++ show ts
         l -> error $ "Non-array " ++ show l ++ " as location in " ++ show loc
 
-ctxInit :: KnownNat k => Ctx k -> String -> Term k -> Ctx k
-ctxInit ctx name value = ctx { env = Map.insert name value (env ctx) }
+ctxInit :: KnownNat k => String -> Term k -> Ctx k -> Ctx k
+ctxInit name value ctx = ctx { env = Map.insert name value (env ctx) }
 
 -- Given a context and an identifier too find, looks up the callable (function or template) of that name.
 -- Returns the (whether it is a function, the formal parameters, the body)

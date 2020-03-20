@@ -390,68 +390,79 @@ genStatements statements =
     return ()
 
 genStatement :: forall k. KnownNat k => Statement -> Ctx k -> Ctx k
-genStatement statement ctx = case statement of
+genStatement = execCtxGen . genStatementM
+
+genStatementM :: forall k. KnownNat k => Statement -> CtxGen k ()
+genStatementM statement = case statement of
     -- Note, signals are immutable.
-    Assign loc expr -> ctxStore lval term ctx''
-        where
-            (lval, ctx') = runCtxGen (genLocation loc) ctx
-            (term, ctx'') = genExpr expr ctx'
+    Assign loc expr -> do
+      lval <- genLocation loc
+      term <- genExprM expr
+      modify (ctxStore lval term)
     -- TODO Not quite right: evals twice
-    OpAssign op loc expr -> genStatement (Assign loc (BinExpr op (LValue loc) expr)) ctx
-    Constrain l r ->
-        case zeroTerm of
-            Base (Scalar 0, _) -> ctx''
-            Base (Sig s, _) -> ctxAddConstraint (lcZero, lcZero, sigAsLC s) ctx''
-            Base (Linear lc, _) -> ctxAddConstraint (lcZero, lcZero, lc) ctx''
-            Base (Quadratic a b c, _) -> ctxAddConstraint (a, b, c) ctx''
-            _ -> error $ "Cannot constain " ++ show zeroTerm ++ " to zero"
-        where
-            (lt, ctx') = genExpr l ctx
-            (rt, ctx'') = genExpr r ctx'
-            zeroTerm = lt - rt
+    OpAssign op loc expr -> genStatementM (Assign loc (BinExpr op (LValue loc) expr))
+    Constrain l r -> do
+      lt <- genExprM l
+      rt <- genExprM r
+      -- Construct the zero term
+      let zt = lt - rt
+      case zt of
+        Base (Scalar 0, _) -> modify id
+        Base (Sig s, _) -> modify $ ctxAddConstraint (lcZero, lcZero, sigAsLC s)
+        Base (Linear lc, _) -> modify $ ctxAddConstraint (lcZero, lcZero, lc)
+        Base (Quadratic a b c, _) -> modify $ ctxAddConstraint (a, b, c)
+        _ -> error $ "Cannot constain " ++ show zt ++ " to zero"
     -- TODO Not quite right: evals twice
-    AssignConstrain l e -> execCtxGen (genStatements [Assign l e, Constrain (LValue l) e]) ctx
-    VarDeclaration name dims ini -> case ini of
-            Just e  -> genStatement (Assign (LocalLocation (name, [])) e) ctx''
-            Nothing -> ctx''
-        where
-            ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0, z)) ts)
-            (ts, ctx') = runCtxGen (genExprs dims) ctx
-            z = Smt.IntToPf $ Smt.IntLit 0
-    SigDeclaration name kind dims -> ctxInit ctx''' name t
-        where
-            ctx''' = Set.fold sigAdder ctx'' (termSignals t)
-            sigAdder = if AST.isPublic kind then Term.ctxAddPublicSig else Term.ctxAddPrivateSig
-            (ctx'', t) = termSignalArray ctx' name tdims
-            (tdims, ctx') = runCtxGen (genExprs dims) ctx
-    SubDeclaration name dims ini -> case ini of
-            Just e  -> genStatement (Assign (LocalLocation (name, [])) e) ctx''
-            Nothing -> ctx''
-        where
-            ctx'' = ctxInit ctx' name (termMultiDimArray (Base (Scalar 0, z)) ts)
-            (ts, ctx') = runCtxGen (genExprs dims) ctx
-            z = Smt.IntToPf $ Smt.IntLit 0
-    If cond true false -> case tcond of
-            Base (Scalar 0, _) -> execCtxGen (genStatements (concat $ Maybe.maybeToList false)) ctx'
-            Base (Scalar _, _) -> execCtxGen (genStatements true) ctx'
-            _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
-        where
-            (tcond, ctx') = genExpr cond ctx
-    While cond block -> case tcond of
-            Base (Scalar 0, _) -> ctx'
-            Base (Scalar _, _) -> genStatement (While cond block) (execCtxGen (genStatements block) ctx)
-            _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
-        where
-            (tcond, ctx') = genExpr cond ctx
-    For ini cond step block -> execCtxGen (genStatements [ini, While cond (block ++ [step])]) ctx
-    DoWhile block expr -> execCtxGen (genStatements (block ++ [While expr block])) ctx
-    Compute _ -> ctx
-    Ignore e -> snd $ genExpr e ctx
-    Log e -> trace (show e ++ ": " ++ show t) ctx'
-        where (t, ctx') = genExpr e ctx
-    Return e -> ctx' { returning = Just t }
-        where
-            (t, ctx') = genExpr e ctx
+    AssignConstrain l e -> genStatements [Assign l e, Constrain (LValue l) e]
+    VarDeclaration name dims ini -> do
+      let z = Smt.IntToPf $ Smt.IntLit 0
+      ts <- genExprs dims
+      modify (ctxInit name (termMultiDimArray (Base (Scalar 0, z)) ts))
+      case ini of
+        Just e  -> genStatementM (Assign (LocalLocation (name, [])) e)
+        Nothing -> modify id
+    SigDeclaration name kind dims -> do
+      ts <- genExprs dims
+      c <- get
+      let (c', t) = termSignalArray c name ts
+      let c'' = Set.fold sigAdder c' (termSignals t)
+      put c''
+      modify $ ctxInit name t
+      where
+        sigAdder = if AST.isPublic kind then Term.ctxAddPublicSig else Term.ctxAddPrivateSig
+    SubDeclaration name dims ini -> do
+      let z = Smt.IntToPf $ Smt.IntLit 0
+      ts <- genExprs dims
+      modify (ctxInit name (termMultiDimArray (Base (Scalar 0, z)) ts))
+      case ini of
+        Just e  -> genStatementM (Assign (LocalLocation (name, [])) e)
+        Nothing -> return ()
+    If cond true false -> do
+      tcond <- genExprM cond
+      case tcond of
+        Base (Scalar 0, _) -> genStatements $ concat $ Maybe.maybeToList false
+        Base (Scalar _, _) -> genStatements true
+        _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
+    While cond block -> do
+      tcond <- genExprM cond
+      case tcond of
+        Base (Scalar 0, _) -> modify id
+        Base (Scalar _, _) -> do
+          genStatements block
+          genStatementM (While cond block)
+        _ -> error $ "Invalid conditional term " ++ show tcond ++ " in " ++ show cond
+    For ini cond step block -> genStatements [ini, While cond (block ++ [step])]
+    DoWhile block expr -> genStatements (block ++ [While expr block])
+    Compute _ -> return ()
+    Ignore e -> do
+      _ <- genExprM e
+      return ()
+    Log e -> do
+      t <- genExprM e
+      return $ trace (show e ++ ": " ++ show t) ()
+    Return e -> do
+      t <- genExprM e
+      modify (\c -> c { returning = Just t })
 
 genMain :: KnownNat k => MainCircuit -> Integer -> Constraints (Prime k)
 genMain m order = constraints $ genMainCtx m order
