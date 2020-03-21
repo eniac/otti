@@ -13,8 +13,10 @@ import           Language.C.Syntax.Constants
 fieldToInt :: Ident -> Int
 fieldToInt = undefined
 
-genVarSMT :: Ident -> Compiler SMTNode
-genVarSMT (Ident name _ _) = getNodeFor name
+-- genVarSMT :: Ident -> Compiler SMTNode
+-- genVarSMT (Ident name _ _) = getNodeFor name
+-- genVarSMT :: Ident -> Compiler SMTNode
+genVarSMT = getNodeFor
 
 genNumSMT :: CConstant a -> Compiler SMTNode
 genNumSMT c = case c of
@@ -26,7 +28,7 @@ genNumSMT c = case c of
 
 genExprSMT :: CExpression a -> Compiler SMTNode
 genExprSMT expr = case expr of
-  CVar id _               -> genVarSMT id
+  CVar id _               -> genVarSMT $ identToVarName id
   CConst c                -> genNumSMT c
   CAssign op lhs rhs _    -> do
     lhs' <- genExprSMT lhs
@@ -158,8 +160,10 @@ genDeclSMT (CDecl specs decls _) = do
       let init = case fromJust mInit of
                    CInitExpr e _ -> e
                    _             -> error "Malformed CDeclaration: expected expr, got list"
-      expr <- genExprSMT init
-      liftIO $ print "DONE"
+      lhs <- genVarSMT name
+      rhs <- genExprSMT init
+      liftIR $ smtAssign lhs rhs
+
 
   -- forM_ specs $ \spec -> do
   --   print $ specToType spec
@@ -187,10 +191,9 @@ genFunDef f = do
 genAsm :: CStringLiteral a -> Compiler ()
 genAsm = undefined
 
-codegenC :: CTranslUnit -> Compiler SMTNode
+codegenC :: CTranslUnit -> Compiler ()
 codegenC (CTranslUnit decls _) = do
   forM_ decls $ \decl -> case decl of
     CDeclExt decl -> genDeclSMT decl
     CFDefExt fun  -> genFunDef fun
     CAsmExt asm _ -> genAsm asm
-  error "DONE"
