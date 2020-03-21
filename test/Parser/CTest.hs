@@ -13,7 +13,6 @@ cParserTests = benchTestGroup "C parser" [ testAdd
 testParse :: String -> BenchTest
 testParse name = benchTestCase name $ do
   c <- parseC name
-  print c
   unless (isRight c) $ error $ show c
 
 testAdd :: BenchTest

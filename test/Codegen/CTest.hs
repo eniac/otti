@@ -18,7 +18,7 @@ basicTest = benchTestCase "basic" $ do
   case result of
     Left error -> assertFailure $ unwords ["Should not see", show error]
     Right tu -> do
-      print tu
+--      print tu
 
       r1 <- evalCodegen Nothing $ do
         codegenC tu

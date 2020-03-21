@@ -28,6 +28,9 @@ data Type = U8 | S8
           | Ptr32 Type
           | Struct [Type]
           | Array Int Type
+          | Void
+          | Char
+          | Float
           deriving (Eq, Ord, Show)
 
 instance Typed Type where

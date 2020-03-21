@@ -1,7 +1,9 @@
 module Codegen.C where
+import           AST.C
 import           Codegen.CompilerMonad
 import           Control.Monad.State.Strict      (forM, forM_, liftIO, unless,
                                                   void, when)
+import           Data.Maybe                      (fromJust, isJust, isNothing)
 import           IR.SMT
 import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
@@ -22,7 +24,7 @@ genNumSMT c = case c of
   CFloatConst (CFloat str) _   -> error ""
   CStrConst (CString str _) _  -> error ""
 
-genExprSMT :: CExpr -> Compiler SMTNode
+genExprSMT :: CExpression a -> Compiler SMTNode
 genExprSMT expr = case expr of
   CVar id _               -> genVarSMT id
   CConst c                -> genNumSMT c
@@ -43,7 +45,6 @@ genExprSMT expr = case expr of
     struct' <- genExprSMT struct
     liftIR $ getField struct' $ fieldToInt field
   _                       -> error $ unwords [ "We do not support"
-                                             , show expr
                                              , "right now"
                                              ]
 
@@ -126,35 +127,61 @@ getAssignOp op l r = case op of
 --- Statements
 ---
 
-genStmtSMT :: CStatement a -> Compiler SMTNode
+genStmtSMT :: (Show a) => CStatement a -> Compiler ()
 genStmtSMT stmt = case stmt of
-  CCompound{} -> error ""
-  CExpr{}     -> error ""
-  CIf{}       -> error ""
-  CWhile{}    -> error ""
-  CFor{}      -> error ""
-  _           -> error ""
+  CCompound ids items _ ->
+    forM_ items $ \item -> do
+      case item of
+        CBlockStmt stmt -> error "many stmt"--genStmtSMT stmt
+        CBlockDecl decl -> genDeclSMT decl
+        CNestedFunDef{} -> error "Nested function definitions not supported"
+  CExpr{}               -> liftIO $ print "expr"
+  CIf{}                 -> liftIO $ print "if"
+  CWhile{}              -> liftIO $ print "while"
+  CFor{}                -> liftIO $ print "while"
+  _                     -> liftIO $ print "other"
+
+genDeclSMT :: (Show a) => CDeclaration a -> Compiler ()
+genDeclSMT (CDecl specs decls _) = do
+  when (length specs /= length decls) $ error "Malformed CDeclaration: length mismatch"
+  forM_ (zip specs decls) $ \(spec, (mDecl, mInit, mExpr)) -> do
+
+    when (isNothing mDecl) $ error "Malformed CDeclaration: no declarator"
+
+    -- Declare the variable
+    let name = declToVarName $ fromJust mDecl
+        ty   = ctypeToType $ specToType spec
+    declareVar name ty
+
+    -- Do the assignment if an initializer exists
+    when (isJust mInit) $ do
+      let init = case fromJust mInit of
+                   CInitExpr e _ -> e
+                   _             -> error "Malformed CDeclaration: expected expr, got list"
+      expr <- genExprSMT init
+      liftIO $ print "DONE"
+
+  -- forM_ specs $ \spec -> do
+  --   print $ specToType spec
+  -- forM_ decls $ \(mDecl, mInit, mExpr) -> do
+  --   declareVar ()
+  --   print mDecl
+--    print mInit
+--    print mExpr
+
+
 
 ---
 --- High level codegen (translation unit, etc)
 ---
 
-genBlockStmt :: CStatement a -> Compiler ()
-genBlockStmt = undefined
-
-genBlockDecl :: CDeclaration a -> Compiler ()
-genBlockDecl = error "BOOO"
-
-genNestedFunction :: CFunctionDef a -> Compiler ()
-genNestedFunction = error "We do not and will not support this"
-
-genDecl :: CDeclaration a -> Compiler ()
-genDecl = undefined
-
 genFunDef :: (Show a) => CFunctionDef a -> Compiler ()
-genFunDef (CFunDef specs decl decls stmt _) = do
-  case stmt of
-    CCompound ids blocks _ -> void $ genStmtSMT stmt
+genFunDef f = do
+  let args = argsFromFunc f
+      body = bodyFromFunc f
+  forM_ args genDeclSMT
+  case body of
+    CCompound ids blocks _ -> genStmtSMT body
     _                      -> error "Expected C statement block in function definition"
 
 genAsm :: CStringLiteral a -> Compiler ()
@@ -163,7 +190,7 @@ genAsm = undefined
 codegenC :: CTranslUnit -> Compiler SMTNode
 codegenC (CTranslUnit decls _) = do
   forM_ decls $ \decl -> case decl of
-    CDeclExt decl -> genDecl decl
+    CDeclExt decl -> genDeclSMT decl
     CFDefExt fun  -> genFunDef fun
     CAsmExt asm _ -> genAsm asm
-  error "NYI"
+  error "DONE"
