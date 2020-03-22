@@ -7,7 +7,7 @@ import           Utils
 
 cParserTests :: BenchTest
 cParserTests = benchTestGroup "C parser" [ testAdd
---                                         , testMemcpy
+                                         , testMemcpy
                                          ]
 
 testParse :: String -> BenchTest

@@ -33,6 +33,7 @@ data CompilerState = CompilerState { -- Mapping AST variables etc to information
                                    , tys               :: M.Map VarName Type
                                    , funs              :: M.Map FunctionName Function
                                      -- Codegen context information
+                                   , typedefs          :: M.Map VarName Type
                                    , callStack         :: [FunctionName]
                                    , conditionalGuards :: [SMTNode]
                                    , returnValueGuards :: [[SMTNode]]
@@ -79,7 +80,7 @@ prettyState = do
 ---
 
 emptyCompilerState :: CompilerState
-emptyCompilerState = CompilerState M.empty M.empty M.empty [] [] [[]] [] 1 M.empty
+emptyCompilerState = CompilerState M.empty M.empty M.empty M.empty [] [] [[]] [] 1 M.empty
 
 liftIR :: IR a -> Compiler a
 liftIR = Compiler . lift
@@ -238,11 +239,23 @@ registerFunction function = do
     _       -> error $ unwords ["Already declared", fName function]
 
 ---
+--- Typedefs
+---
+
+typedef :: VarName -> Type -> Compiler ()
+typedef name ty = do
+  s0 <- get
+  let tds = typedefs s0
+  case M.lookup name tds of
+    Nothing -> put $ s0 { typedefs = M.insert name ty tds }
+    Just t  -> error $ unwords $ ["Already td'd", name, "to", show t]
+
+---
 --- If-statements
 ---
 
 pushCondGuard :: SMTNode
-             -> Compiler ()
+              -> Compiler ()
 pushCondGuard guardNode = do
   s0 <- get
   put $ s0 { conditionalGuards = guardNode:conditionalGuards s0 }

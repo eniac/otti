@@ -11,11 +11,11 @@ parserTests :: BenchTest
 parserTests = benchTestGroup "Parser tests" [ cParserTests ]
 
 allTests :: [BenchTest]
-allTests = [ parserTests
-           , smtTests
-           , irTests
-           , cTests
-           , codegenTests
+allTests = [ -- parserTests
+           -- , smtTests
+           -- , irTests
+            cTests
+           -- , codegenTests
            ]
 
 main :: IO ()

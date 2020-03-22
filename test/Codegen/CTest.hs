@@ -10,7 +10,9 @@ import           Test.Tasty.HUnit
 import           Utils
 
 cTests :: BenchTest
-cTests = benchTestGroup "C codegen test" [ basicTest ]
+cTests = benchTestGroup "C codegen test" [ basicTest
+                                         , memcpyTest
+                                         ]
 
 basicTest :: BenchTest
 basicTest = benchTestCase "basic" $ do
@@ -24,3 +26,17 @@ basicTest = benchTestCase "basic" $ do
         runSolverOnSMT
 
       vtest r1 $ M.fromList [ ("w_0", 7) ]
+
+memcpyTest :: BenchTest
+memcpyTest = benchTestCase "memcpy" $ do
+  result <- parseC "test/Code/C/memcpy_pp.c"
+  case result of
+    Left error -> assertFailure $ unwords ["Should not see", show error]
+    Right tu -> do
+
+      r1 <- evalCodegen Nothing $ do
+        codegenC tu
+        runSolverOnSMT
+
+      vtest r1 $ M.fromList [ ("w_0", 7) ]
+

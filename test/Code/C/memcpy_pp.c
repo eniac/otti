@@ -6,9 +6,6 @@ int main() {
 
 void *memcpy(void *dst, const void *src, size_t nbytes) {
 
-
-
-
     if(((unsigned)dst % 4 == 0) && ((unsigned)src % 4 == 0) && ((unsigned)nbytes % 4 == 0)) {
         unsigned n = nbytes / 4;
         unsigned *d = dst;
