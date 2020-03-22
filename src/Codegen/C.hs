@@ -1,5 +1,6 @@
 module Codegen.C where
 import           AST.C
+import           AST.Simple
 import           Codegen.CompilerMonad
 import           Control.Monad.State.Strict      (forM, forM_, liftIO, unless,
                                                   void, when)
@@ -13,15 +14,15 @@ import           Language.C.Syntax.Constants
 fieldToInt :: Ident -> Int
 fieldToInt = undefined
 
-genVarSMT :: Ident -> Compiler SMTNode
-genVarSMT (Ident name _ _) = getNodeFor name
-
 declareVarSMT :: Ident -> CTypeSpecifier a -> Compiler ()
 declareVarSMT (Ident name _ _) ty = declareVar name (ctypeToType ty)
 
+genVarSMT :: Ident -> Compiler SMTNode
+genVarSMT (Ident name _ _) = getNodeFor name
+
 genNumSMT :: CConstant a -> Compiler SMTNode
 genNumSMT c = case c of
-  CIntConst (CInteger i _ _) _ -> error ""
+  CIntConst (CInteger i _ _) _ -> liftIR $ newInt S32 i
   CCharConst (CChar c _) _     -> error ""
   CCharConst (CChars c _) _    -> error ""
   CFloatConst (CFloat str) _   -> error ""

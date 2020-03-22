@@ -9,4 +9,5 @@
 
 int add (int x, int y) {
   int z = x + y;
+  int w = 3 + 4;
 }

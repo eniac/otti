@@ -19,7 +19,8 @@ basicTest = benchTestCase "basic" $ do
     Left error -> assertFailure $ unwords ["Should not see", show error]
     Right tu -> do
 
-      evalCodegen Nothing $ do
+      r1 <- evalCodegen Nothing $ do
         codegenC tu
+        runSolverOnSMT
 
-
+      vtest r1 $ M.fromList [ ("w_0", 7) ]
