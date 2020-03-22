@@ -28,11 +28,10 @@ ctypeToType ty = case ty of
                    CDoubleType{} -> Double
                    _             -> error "Not done"
 
-
-declToVarName :: CDeclarator a -> String
-declToVarName (CDeclr mIdent _ _ _ _) = case mIdent of
+identFromDecl :: CDeclarator a -> Ident
+identFromDecl (CDeclr mIdent _ _ _ _) = case mIdent of
                                           Nothing -> error "Expected identifier in declarator"
-                                          Just i  -> identToVarName i
+                                          Just i  -> i
 
 identToVarName :: Ident -> String
 identToVarName (Ident name _ _) = name

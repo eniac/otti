@@ -13,10 +13,11 @@ import           Language.C.Syntax.Constants
 fieldToInt :: Ident -> Int
 fieldToInt = undefined
 
--- genVarSMT :: Ident -> Compiler SMTNode
--- genVarSMT (Ident name _ _) = getNodeFor name
--- genVarSMT :: Ident -> Compiler SMTNode
-genVarSMT = getNodeFor
+genVarSMT :: Ident -> Compiler SMTNode
+genVarSMT (Ident name _ _) = getNodeFor name
+
+declareVarSMT :: Ident -> CTypeSpecifier a -> Compiler ()
+declareVarSMT (Ident name _ _) ty = declareVar name (ctypeToType ty)
 
 genNumSMT :: CConstant a -> Compiler SMTNode
 genNumSMT c = case c of
@@ -28,7 +29,7 @@ genNumSMT c = case c of
 
 genExprSMT :: CExpression a -> Compiler SMTNode
 genExprSMT expr = case expr of
-  CVar id _               -> genVarSMT $ identToVarName id
+  CVar id _               -> genVarSMT id
   CConst c                -> genNumSMT c
   CAssign op lhs rhs _    -> do
     lhs' <- genExprSMT lhs
@@ -150,30 +151,17 @@ genDeclSMT (CDecl specs decls _) = do
 
     when (isNothing mDecl) $ error "Malformed CDeclaration: no declarator"
 
-    -- Declare the variable
-    let name = declToVarName $ fromJust mDecl
-        ty   = ctypeToType $ specToType spec
-    declareVar name ty
+    let ident = identFromDecl $ fromJust mDecl
+    declareVarSMT ident (specToType spec)
 
     -- Do the assignment if an initializer exists
     when (isJust mInit) $ do
       let init = case fromJust mInit of
                    CInitExpr e _ -> e
                    _             -> error "Malformed CDeclaration: expected expr, got list"
-      lhs <- genVarSMT name
+      lhs <- genVarSMT ident
       rhs <- genExprSMT init
       liftIR $ smtAssign lhs rhs
-
-
-  -- forM_ specs $ \spec -> do
-  --   print $ specToType spec
-  -- forM_ decls $ \(mDecl, mInit, mExpr) -> do
-  --   declareVar ()
-  --   print mDecl
---    print mInit
---    print mExpr
-
-
 
 ---
 --- High level codegen (translation unit, etc)
