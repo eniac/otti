@@ -1,9 +1,5 @@
 typedef long unsigned int size_t;
 
-int main() {
-  return 0;
-}
-
 void *memcpy(void *dst, const void *src, size_t nbytes) {
 
     if(((unsigned)dst % 4 == 0) && ((unsigned)src % 4 == 0) && ((unsigned)nbytes % 4 == 0)) {

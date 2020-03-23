@@ -164,7 +164,6 @@ genDeclSMT (CDecl specs decls _) = do
     liftIO $ print fromTy
     liftIO $ print toTy
     typedef (identToVarName toTy) fromTy
-    error "DONE"
 
   -- A variable declaration
   else do
@@ -173,6 +172,8 @@ genDeclSMT (CDecl specs decls _) = do
       when (isNothing mDecl) $ error "Malformed CDeclaration: no declarator"
 
       let ident = identFromDecl $ fromJust mDecl
+      liftIO $ print ident
+      liftIO $ print spec
       declareVarSMT ident [specToType spec]
 
       -- Do the assignment if an initializer exists
@@ -194,8 +195,8 @@ genFunDef f = do
       body = bodyFromFunc f
   forM_ args genDeclSMT
   case body of
-    CCompound ids blocks _ -> genStmtSMT body
-    _                      -> error "Expected C statement block in function definition"
+    CCompound{} -> genStmtSMT body
+    _           -> error "Expected C statement block in function definition"
 
 genAsm :: CStringLiteral a -> Compiler ()
 genAsm = undefined

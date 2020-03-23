@@ -7,11 +7,12 @@ import           Language.C.Syntax.AST
 bodyFromFunc :: CFunctionDef a -> CStatement a
 bodyFromFunc (CFunDef _ _ _ stmt _) = stmt
 
-argsFromFunc :: CFunctionDef a -> [CDeclaration a]
+argsFromFunc :: (Show a) => CFunctionDef a -> [CDeclaration a]
 argsFromFunc (CFunDef _ decl _ _ _) =
   case derivedFromDecl decl of
-    [CFunDeclr (Right decls) _ _] -> fst decls
-    _                             -> error "Expected function declaration"
+    (CFunDeclr (Right decls) _ _):_ -> fst decls
+    f ->
+      error $ unwords ["Expected function declaration but got", show f]
 
 derivedFromDecl :: CDeclarator a -> [CDerivedDeclarator a]
 derivedFromDecl (CDeclr _ derived _ _ _) = derived
@@ -35,10 +36,11 @@ identFromDecl (CDeclr mIdent _ _ _ _) = case mIdent of
 identToVarName :: Ident -> String
 identToVarName (Ident name _ _) = name
 
-specToStorage :: CDeclarationSpecifier a -> CStorageSpecifier a
-specToStorage spec = case spec of
-                       CStorageSpec s -> s
-                       _              -> error "Expected storage specifier in declaration"
+specToStorage :: (Show a) => CDeclarationSpecifier a -> CStorageSpecifier a
+specToStorage spec =
+  case spec of
+    CStorageSpec s -> s
+    s              -> error $ unwords ["Expected storage specifier in declaration", show s]
 
 specToType :: CDeclarationSpecifier a -> CTypeSpecifier a
 specToType spec = case spec of
