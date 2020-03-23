@@ -360,12 +360,10 @@ genExprM expr = case expr of
 
 genUnExpr :: KnownNat k => UnMutOp -> Location -> CtxGen k (Term k)
 genUnExpr op loc = do
-  ctx <- get
-  let (lval, ctx') = runCtxGen (genLocation loc) ctx
-  let term = ctxGet lval ctx'
+  lval <- genLocation loc
+  term <- gets (ctxGet lval)
   let term' = genGetUnMutOp op term
-  let ctx'' = ctxStore lval term' ctx'
-  put ctx''
+  modify (ctxStore lval term')
   return $ case op of
     PostInc -> term
     PreInc  -> term'
