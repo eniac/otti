@@ -122,15 +122,11 @@ genGetUnMutOp op = case op of
 
 genIndexedIdent :: KnownNat k => IndexedIdent -> CtxGen k LTerm
 genIndexedIdent (i, dims) = do
-  ctx <- get
-  let (lterm, ctx') = foldl (\(l, c) d -> let (t, c') = genExpr d c in (attachDim t l, c'))
-        (LTermIdent i, ctx)
-        dims
-  put ctx'
-  return lterm
+  dimTerms <- sequence $ map genExprM dims
+  return $ foldl attachDim (LTermIdent i) dimTerms
   where
-    attachDim :: KnownNat k => Term k -> LTerm -> LTerm
-    attachDim dimTerm lTerm  = case dimTerm of
+    attachDim :: KnownNat k => LTerm -> Term k ->LTerm
+    attachDim lTerm dimTerm = case dimTerm of
       Base (Scalar d, _) -> LTermIdx lTerm (fromIntegral $ fromP d)
       d -> error $ "Non-scalar " ++ show d ++ " as index in " ++ show dims
 
@@ -371,19 +367,18 @@ genUnExpr op loc = do
     PreDec  -> term'
 
 genExprs :: KnownNat k => [Expr] -> CtxGen k [Term k]
-genExprs es = do
-    -- TODO: more monadic?
-    ctx <- get
-    let (ts, ctx') = foldl (\(ts, c) e -> let (t, c') = genExpr e c in (ts ++ [t], c')) ([], ctx) es
-    put ctx'
-    return ts
+genExprs = sequence . map genExprM
 
 genStatements :: KnownNat k => [Statement] -> CtxGen k ()
-genStatements statements =
-  do
-    ctx <- get
-    put $ foldl (\c s -> if isJust (returning c) then c else genStatement s c) ctx statements
-    return ()
+genStatements = fmap (const ()) . sequence . map genStatementMOrReturn
+
+genStatementMOrReturn :: KnownNat k => Statement -> CtxGen k ()
+genStatementMOrReturn s = do
+    c <- get
+    if isJust (returning c) then
+        return ()
+    else
+        genStatementM s
 
 genStatement :: forall k. KnownNat k => Statement -> Ctx k -> Ctx k
 genStatement = execCtxGen . genStatementM
