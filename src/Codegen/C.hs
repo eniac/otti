@@ -147,43 +147,55 @@ genStmtSMT stmt = case stmt of
 
 genDeclSMT :: (Show a) => CDeclaration a -> Compiler ()
 genDeclSMT (CDecl specs decls _) = do
-  let specLen = length specs
+  liftIO $ putStrLn "Specs"
+  liftIO $ forM_ specs print
+  liftIO $ putStrLn "Decls"
+  liftIO $ forM_ decls print
+  liftIO $ putStrLn "------------------------------------------------"
 
-  if (specLen /= length decls)
-  -- A typedef
-  then do
-    unless (specLen >= 2 && (not $ null decls)) $
-      error $ unwords ["Malformed CDeclaration: expected typedef length:", show specLen]
-    unless (isTypedef $ specToStorage $ specs !! 0) $
-      error "Malformed CDeclaration: expected typedef"
+  -- is a type def
 
-    let fromTy = ctypeToType $ map specToType $ drop 1 specs
-        toTy   = case decls !! 0 of
-                   (Just declr, Nothing, Nothing) -> identFromDecl declr
-                   _ -> error $ "Malformed CDeclaration: expected typedef to type"
-    liftIO $ print fromTy
-    liftIO $ print toTy
-    typedef (identToVarName toTy) fromTy
+  -- is a normal declaration (e.g., function argument, variable)
 
-  -- A variable declaration
-  else do
-    forM_ (zip specs decls) $ \(spec, (mDecl, mInit, mExpr)) -> do
 
-      when (isNothing mDecl) $ error "Malformed CDeclaration: no declarator"
 
-      let ident = identFromDecl $ fromJust mDecl
-      liftIO $ print ident
-      liftIO $ print spec
-      declareVarSMT ident [specToType spec]
+  -- let specLen = length specs
 
-      -- Do the assignment if an initializer exists
-      when (isJust mInit) $ do
-        let init = case fromJust mInit of
-                     CInitExpr e _ -> e
-                     _             -> error "Malformed CDeclaration: expected expr, got list"
-        lhs <- genVarSMT ident
-        rhs <- genExprSMT init
-        liftIR $ smtAssign lhs rhs
+  -- if (specLen /= length decls)
+  -- -- A typedef
+  -- then do
+  --   unless (specLen >= 2 && (not $ null decls)) $
+  --     error $ unwords ["Malformed CDeclaration: expected typedef length:", show specLen]
+  --   unless (isTypedef $ specToStorage $ specs !! 0) $
+  --     error "Malformed CDeclaration: expected typedef"
+
+  --   let fromTy = ctypeToType $ map specToType $ drop 1 specs
+  --       toTy   = case decls !! 0 of
+  --                  (Just declr, Nothing, Nothing) -> identFromDecl declr
+  --                  _ -> error $ "Malformed CDeclaration: expected typedef to type"
+  --   -- liftIO $ print fromTy
+  --   -- liftIO $ print toTy
+  --   typedef (identToVarName toTy) fromTy
+
+  -- -- A variable declaration
+  -- else do
+  --   forM_ (zip specs decls) $ \(spec, (mDecl, mInit, mExpr)) -> do
+
+  --     when (isNothing mDecl) $ error "Malformed CDeclaration: no declarator"
+
+  --     let ident = identFromDecl $ fromJust mDecl
+  --     -- liftIO $ print ident
+  --     -- liftIO $ print spec
+  --     declareVarSMT ident [specToType spec]
+
+  --     -- Do the assignment if an initializer exists
+  --     when (isJust mInit) $ do
+  --       let init = case fromJust mInit of
+  --                    CInitExpr e _ -> e
+  --                    _             -> error "Malformed CDeclaration: expected expr, got list"
+  --       lhs <- genVarSMT ident
+  --       rhs <- genExprSMT init
+  --       liftIR $ smtAssign lhs rhs
 
 ---
 --- High level codegen (translation unit, etc)
