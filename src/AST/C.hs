@@ -26,7 +26,14 @@ ctypeToType ty = case ty of
                    [CDoubleType{}] -> Double
                    [ty] -> error $ unwords  ["Unexpected type", show ty]
                    [CLongType{}, CUnsigType{}, CIntType{}] -> U64
+                   [CUnsigType{}, CLongType{}, CIntType{}] -> U64
                    ty -> error $ unwords ["Unexpected type", show ty]
+
+getTy :: (Show a) => Type -> [CDerivedDeclarator a] -> Type
+getTy ty [] = ty
+getTy ty (d:ds) = case d of
+                    _ | isPtrDecl d -> getTy (Ptr64 ty) ds
+                    _ -> error "Do not support"
 
 identFromDecl :: CDeclarator a -> Ident
 identFromDecl (CDeclr mIdent _ _ _ _) = case mIdent of
@@ -47,7 +54,26 @@ specToType spec = case spec of
                     CTypeSpec ts -> ts
                     _            -> error "Expected type specificer in declaration"
 
+-- Declarators
+
+identFromDeclr :: CDeclarator a -> Maybe Ident
+identFromDeclr (CDeclr ids _ _ _ _) = ids
+
+derivedFromDeclr :: CDeclarator a -> [CDerivedDeclarator a]
+derivedFromDeclr (CDeclr _ derived _ _ _) = derived
+
+---- don't know what the maybe string literal is
+
+attrsFromDeclr :: CDeclarator a -> [CAttribute a]
+attrsFromDeclr (CDeclr _ _ _ attrs _) = attrs
+
 -- Declaration specifiers
+
+baseTypeFromSpecs :: (Show a) => [CDeclarationSpecifier a] -> Type
+baseTypeFromSpecs all@(elem:rest) =
+  if isTypeQual elem || isAlignSpec elem
+  then baseTypeFromSpecs rest
+  else ctypeToType $ map typeFromSpec all
 
 isStorageSpec :: CDeclarationSpecifier a -> Bool
 isStorageSpec CStorageSpec{} = True
