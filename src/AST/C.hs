@@ -47,6 +47,48 @@ specToType spec = case spec of
                     CTypeSpec ts -> ts
                     _            -> error "Expected type specificer in declaration"
 
+-- Declaration specifiers
+
+isStorageSpec :: CDeclarationSpecifier a -> Bool
+isStorageSpec CStorageSpec{} = True
+isStorageSpec _              = False
+
+storageFromSpec :: CDeclarationSpecifier a -> CStorageSpecifier a
+storageFromSpec (CStorageSpec spec) = spec
+storageFromSpec _                   = error "Expected storage specifier"
+
+isTypeSpec :: CDeclarationSpecifier a -> Bool
+isTypeSpec CTypeSpec{} = True
+isTypeSpec _           = False
+
+typeFromSpec :: CDeclarationSpecifier a -> CTypeSpecifier a
+typeFromSpec (CTypeSpec spec) = spec
+typeFromSpec _                = error "Expected type specifier"
+
+isTypeQual :: CDeclarationSpecifier a -> Bool
+isTypeQual CTypeQual{} = True
+isTypeQual _           = False
+
+qualFromSpec :: CDeclarationSpecifier a -> CTypeQualifier a
+qualFromSpec (CTypeQual spec) = spec
+qualFromSpec _                = error "Expected type qualifier"
+
+isFuncSpec :: CDeclarationSpecifier a -> Bool
+isFuncSpec CFunSpec{} = True
+isFuncSpec _          = False
+
+funcFromSpec :: CDeclarationSpecifier a -> CFunctionSpecifier a
+funcFromSpec (CFunSpec spec) = spec
+funcFromSpec _               = error "Expected function specifier"
+
+isAlignSpec :: CDeclarationSpecifier a -> Bool
+isAlignSpec CAlignSpec{} = True
+isAlignSpec _            = False
+
+alignFromSpec :: CDeclarationSpecifier a -> CAlignmentSpecifier a
+alignFromSpec (CAlignSpec spec) = spec
+alignFromSpec _                 = error "Expected alignment specifier"
+
 -- Storage specifiers
 
 isAuto :: CStorageSpecifier a -> Bool
