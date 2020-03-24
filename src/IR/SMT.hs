@@ -182,8 +182,12 @@ newDouble ty val = liftSMT $ do
 
 smtAssign :: SMTNode -> SMTNode -> IR ()
 smtAssign n1 n2 = do
---  unless (t n1 == t n2)  $ error "Tried to assign nodes of different types"
-  SMT.assign (n n1) (n n2)
+  -- handle implicit casts
+  let bits1 = numBits $ t n1
+      bits2 = numBits $ t n2
+  n1' <- if bits1 >= bits2 then return bits1 else cppImplicitCast n1 $ t n2
+  n2' <- if bits2 >= bits1 then return bits2 else cppImplicitCast n2 $ t n1
+  SMT.assign (n n1') (n n2')
   SMT.assign (u n1) (u n2)
 
 smtTrue :: IR SMTNode
@@ -307,8 +311,8 @@ binOpWrapper left right op overflowOp opName = do
   -- handle implicit casts
   let leftBits  = numBits $ t left
       rightBits = numBits $ t right
-  left'  <- if leftBits >= rightBits then return left else cppImplicitCast left (t right)
-  right' <- if rightBits >= leftBits then return right else cppImplicitCast right (t left)
+  left'  <- if leftBits >= rightBits then return left else cppImplicitCast left $ t right
+  right' <- if rightBits >= leftBits then return right else cppImplicitCast right $ t left
   parentsUndef <- liftSMT $ SMT.or (u left') (u right')
   canOverflow <- case overflowOp of
                    -- No overflow-checking op provided: there isn't the opertunity
