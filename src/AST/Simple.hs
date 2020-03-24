@@ -97,12 +97,14 @@ int8 _  = False
 int16 S16 = True
 int16 U16 = True
 int16 _   = False
-int32 S32 = True
-int32 U32 = True
-int32 _   = False
-int64 S64 = True
-int64 U64 = True
-int64 _   = False
+int32 S32     = True
+int32 U32     = True
+int32 Ptr32{} = True
+int32 _       = False
+int64 S64     = True
+int64 U64     = True
+int64 Ptr64{} = True
+int64 _       = False
 
 ---
 --- Variables

@@ -41,7 +41,7 @@ genNumSMT c = case c of
   CFloatConst (CFloat str) _   -> error ""
   CStrConst (CString str _) _  -> error ""
 
-genExprSMT :: CExpression a -> Compiler SMTNode
+genExprSMT :: (Show a) => CExpression a -> Compiler SMTNode
 genExprSMT expr = case expr of
   CVar id _               -> genVarSMT id
   CConst c                -> genNumSMT c
@@ -61,7 +61,15 @@ genExprSMT expr = case expr of
   CMember struct field _ _ -> do
     struct' <- genExprSMT struct
     liftIR $ getField struct' $ fieldToInt field
+  CCast decl expr _ ->
+    case decl of
+      CDecl specs _ _ -> do
+        let ty = baseTypeFromSpecs specs
+        expr' <- genExprSMT expr
+        liftIR $ cppCast expr' ty
+      _               -> error "Expected type in cast"
   _                       -> error $ unwords [ "We do not support"
+                                             , show expr
                                              , "right now"
                                              ]
 
@@ -87,8 +95,8 @@ getUnaryOp op arg = liftIR $ case op of
 getBinOp :: CBinaryOp -> SMTNode -> SMTNode -> Compiler SMTNode
 getBinOp op left right = liftIR $ case op of
   CMulOp -> cppMul left right
-  -- CDivOp
-  -- CRmdOp
+  CDivOp -> cppDiv left right
+  CRmdOp -> cppRem left right
   CAddOp -> cppAdd left right
   CSubOp -> cppSub left right
   CShlOp -> cppShiftLeft left right
@@ -100,10 +108,10 @@ getBinOp op left right = liftIR $ case op of
   CEqOp  -> cppEq left right
   CNeqOp -> cppEq left right >>= cppNeg
   CAndOp -> cppAnd left right
+  CLndOp -> cppAnd left right
   CXorOp -> cppXor left right
   COrOp  -> cppOr left right
-  -- CLndOp
-  -- CLorOp
+  _      -> error $ unwords ["Operation not supported yet:", show op]
 
 -- | Assign operation
 -- eg x += 1

@@ -48,6 +48,8 @@ module IR.SMT ( SMTNode
               , cppAdd
               , cppMin
               , cppMax
+              , cppDiv
+              , cppRem
               , cppShiftLeft
               , cppShiftRight
               , cppCond
@@ -325,7 +327,7 @@ binOpWrapper left right op overflowOp opName = liftSMT $ do
            else if isSignedInt $ t left then t left else t right
   return $ mkNode result ty canOverflow
 
-cppOr, cppXor, cppAnd, cppSub, cppMul, cppAdd, cppMin, cppMax :: SMTNode -> SMTNode -> IR SMTNode
+cppOr, cppXor, cppAnd, cppSub, cppMul, cppAdd, cppMin, cppMax, cppDiv, cppRem :: SMTNode -> SMTNode -> IR SMTNode
 
 cppOr left right
   | (isDouble $ t left) || (isDouble $ t right) = error "No bitwise or for doubles"
@@ -366,6 +368,20 @@ cppMax right left
   | isSignedInt (t right) && isSignedInt (t left) =
       binOpWrapper left right SMT.smax Nothing "max"
   | otherwise = error "Compiler error: Can't use std:max on a signed and unsigned"
+
+cppDiv right left
+  | isDouble (t right) || isDouble (t left) = error "UNAVAILABLE"
+  | isUnsignedInt (t right) && isUnsignedInt (t left) =
+      binOpWrapper left right SMT.udiv Nothing "div"
+  | isSignedInt (t right) || isSignedInt (t left) =
+      binOpWrapper left right SMT.sdiv Nothing "div"
+
+cppRem right left
+  | isDouble (t right) || isDouble (t left) = error "UNAVAILABLE"
+  | isUnsignedInt (t right) && isUnsignedInt (t left) =
+      binOpWrapper left right SMT.urem Nothing "rem"
+  | isSignedInt (t right) || isSignedInt (t left) =
+      binOpWrapper left right SMT.srem Nothing "rem"
 
 -- | Make this more general: only supports 32-bit right now, bad!
 cppShiftLeft :: SMTNode -> SMTNode -> IR SMTNode
@@ -478,7 +494,10 @@ cppCast node toTy
                        _ | int64 toTy -> do
                          result <- extend (n node) 32
                          return $ mkNode result toTy (u node)
-                       _          -> error "Illegal cast types"
+                       _          -> error $ unwords [ "Illegal cast types:"
+                                                     , show toTy
+                                                     , show fromTy
+                                                     ]
     | int64 fromTy = case toTy of
                        _ | int8 toTy -> do
                          result <- SMT.slice (n node) 55 0
