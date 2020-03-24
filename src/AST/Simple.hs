@@ -33,6 +33,31 @@ data Type = U8 | S8
           | Float
           deriving (Eq, Ord, Show)
 
+isIntegerType :: Type -> Bool
+isIntegerType ty = case ty of
+                     U8  -> True
+                     S8  -> True
+                     U16 -> True
+                     S16 -> True
+                     U32 -> True
+                     S32 -> True
+                     U64 -> True
+                     S64 -> True
+                     _   -> True
+
+makeType :: Int -> Bool -> Type
+makeType numBits isSigned =
+  case numBits of
+    8  | isSigned -> S8
+    8  -> U8
+    16 | isSigned -> S16
+    16 -> U16
+    32 | isSigned -> S32
+    32 -> U32
+    64 | isSigned -> S64
+    64 -> U64
+    _  -> error "Unexpected width to makeType"
+
 instance Typed Type where
   numBits U8             = 8
   numBits S8             = 8

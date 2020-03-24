@@ -300,18 +300,16 @@ binOpWrapper :: SMTNode -- ^ Left operand
              -> Maybe (Bool -> Node -> Node -> SMT Node) -- ^ Overflow detection operation
              -> String -- ^ Operation name
              -> IR SMTNode -- ^ Result
-binOpWrapper left right op overflowOp opName = liftSMT $ do
-  unless (numBits (t left) == numBits (t right)) $
-    error $ unwords ["Mismatched types to operation"
-                    , opName
-                    , ":"
-                    , show $ numBits $ t left
-                    , "and"
-                    , show $ numBits $ t right
-                    ]
+binOpWrapper left right op overflowOp opName = do
+  -- no fp implicit casting for now
   when (isDouble $ t left) $ unless (isDouble $ t right) $
     error $ unwords ["Expected two doubles to", opName]
-  parentsUndef <- SMT.or (u left) (u right)
+  -- handle implicit casts
+  let leftBits  = numBits $ t left
+      rightBits = numBits $ t right
+  left'  <- if leftBits >= rightBits then return left else cppImplicitCast left (t right)
+  right' <- if rightBits >= leftBits then return right else cppImplicitCast right (t left)
+  parentsUndef <- liftSMT $ SMT.or (u left') (u right')
   canOverflow <- case overflowOp of
                    -- No overflow-checking op provided: there isn't the opertunity
                    -- to overflow/underflow and cause undefined behavior
@@ -319,12 +317,12 @@ binOpWrapper left right op overflowOp opName = liftSMT $ do
                    -- There is an overflow op, so if there's overflow or the parents are
                    -- undef, the child node is also undef
                    Just oop -> do
-                     flow <- oop (isSignedInt $ t left) (n left) (n right)
-                     SMT.or parentsUndef flow
-  result <- op (n left) (n right)
-  let ty = if t left == t right
-           then t left
-           else if isSignedInt $ t left then t left else t right
+                     flow <- liftSMT $ oop (isSignedInt $ t left') (n left') (n right')
+                     liftSMT $ SMT.or parentsUndef flow
+  result <- liftSMT $ op (n left') (n right')
+  let ty = if t left' == t right'
+           then t left'
+           else if isSignedInt $ t left' then t left' else t right'
   return $ mkNode result ty canOverflow
 
 cppOr, cppXor, cppAnd, cppSub, cppMul, cppAdd, cppMin, cppMax, cppDiv, cppRem :: SMTNode -> SMTNode -> IR SMTNode
@@ -525,3 +523,21 @@ maybeDefinedNode :: SMTNode -- ^ Parent 1
 maybeDefinedNode parent1 parent2 node ty = do
   childUndef <- SMT.or (u parent1) (u parent2)
   return $ mkNode node ty childUndef
+
+cppImplicitCast :: SMTNode -> Type -> IR SMTNode
+cppImplicitCast node toty = do
+  let oldWidth = numBits $ t node
+      newWidth = numBits toty
+      extend   = if isSignedInt $ t node then SMT.sext else SMT.uext
+  unless (isIntegerType $ t node) $ error "Don't support implicit casts from non-ints"
+  when (oldWidth >= newWidth) $ error $ unwords ["Bad implicit cast:"
+                                                , show oldWidth
+                                                , show newWidth
+                                                ]
+  result <- extend (n node) (newWidth - oldWidth)
+  let fixedType = makeType newWidth $ isSignedInt $ t node
+  return $ mkNode result fixedType
+  error "Not done with implicit cast"
+
+
+
