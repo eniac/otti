@@ -149,11 +149,22 @@ genStmtSMT stmt = case stmt of
   CCompound ids items _ ->
     forM_ items $ \item -> do
       case item of
-        CBlockStmt stmt -> error "many stmt"--genStmtSMT stmt
+        CBlockStmt stmt -> genStmtSMT stmt
         CBlockDecl decl -> genDeclSMT decl
         CNestedFunDef{} -> error "Nested function definitions not supported"
   CExpr{}               -> liftIO $ print "expr"
-  CIf{}                 -> liftIO $ print "if"
+  CIf cond trueBr falseBr _ -> do
+    trueCond <- genExprSMT cond
+    falseCond <- liftIR $ cppBitwiseNeg trueCond
+    -- Guard the true branch with the true condition
+    pushCondGuard trueCond
+    genStmtSMT trueBr
+    popCondGuard
+    -- Guard the false branch with the false condition
+    when (isJust falseBr) $ do
+      pushCondGuard falseCond
+      genStmtSMT $ fromJust falseBr
+      popCondGuard
   CWhile{}              -> liftIO $ print "while"
   CFor{}                -> liftIO $ print "while"
   _                     -> liftIO $ print "other"

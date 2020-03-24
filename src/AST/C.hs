@@ -20,8 +20,10 @@ derivedFromDecl (CDeclr _ derived _ _ _) = derived
 ctypeToType :: (Show a) => [CTypeSpecifier a] -> Type
 ctypeToType ty = case ty of
                    [CVoidType{}]   -> Void
-                   [CCharType{}]   -> Char
+                   [CCharType{}]   -> S8
+                   [CUnsigType{}, CCharType{}] -> U8
                    [CIntType{}]    -> S32
+                   [CUnsigType{}]  -> U32
                    [CFloatType{}]  -> Float
                    [CDoubleType{}] -> Double
                    [ty] -> error $ unwords  ["Unexpected type", show ty]

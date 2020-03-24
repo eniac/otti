@@ -10,8 +10,8 @@ import           Test.Tasty.HUnit
 import           Utils
 
 cTests :: BenchTest
-cTests = benchTestGroup "C codegen test" [-- basicTest
-                                           featuresTest
+cTests = benchTestGroup "C codegen test" [ --basicTest
+                                          featuresTest
 --                                         , memcpyTest
                                          ]
 
