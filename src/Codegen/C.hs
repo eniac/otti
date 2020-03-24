@@ -2,6 +2,7 @@ module Codegen.C where
 import           AST.C
 import           AST.Simple
 import           Codegen.CompilerMonad
+import           Codegen.Utils
 import           Control.Monad.State.Strict      (forM, forM_, liftIO, unless,
                                                   void, when)
 import           Data.Maybe                      (fromJust, isJust, isNothing)
@@ -19,16 +20,18 @@ typedefSMT :: (Show a)
            -> [CDeclarationSpecifier a]
            -> [CDerivedDeclarator a]
            -> Compiler ()
-typedefSMT (Ident name _ _) tys ptrs = typedef name $
-                                       getTy (baseTypeFromSpecs tys) ptrs
+typedefSMT (Ident name _ _) tys ptrs = do
+  ty <- baseTypeFromSpecs tys
+  typedef name $ getTy ty ptrs
 
 declareVarSMT :: (Show a)
               => Ident
               -> [CDeclarationSpecifier a]
               -> [CDerivedDeclarator a]
               -> Compiler ()
-declareVarSMT (Ident name _ _) tys ptrs = declareVar name $
-                                          getTy (baseTypeFromSpecs tys) ptrs
+declareVarSMT (Ident name _ _) tys ptrs = do
+  ty <- baseTypeFromSpecs tys
+  declareVar name $ getTy ty ptrs
 
 genVarSMT :: Ident -> Compiler SMTNode
 genVarSMT (Ident name _ _) = getNodeFor name
@@ -64,7 +67,7 @@ genExprSMT expr = case expr of
   CCast decl expr _ ->
     case decl of
       CDecl specs _ _ -> do
-        let ty = baseTypeFromSpecs specs
+        ty <- baseTypeFromSpecs specs
         expr' <- genExprSMT expr
         liftIR $ cppCast expr' ty
       _               -> error "Expected type in cast"

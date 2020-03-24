@@ -250,6 +250,14 @@ typedef name ty = do
     Nothing -> put $ s0 { typedefs = M.insert name ty tds }
     Just t  -> error $ unwords $ ["Already td'd", name, "to", show t]
 
+untypedef :: VarName -> Compiler Type
+untypedef name = do
+  tds <- typedefs `liftM` get
+  case M.lookup name tds of
+    Nothing -> error $ unwords ["No type defined for", name]
+    Just ty -> return ty
+
+
 ---
 --- If-statements
 ---

@@ -17,26 +17,6 @@ argsFromFunc (CFunDef _ decl _ _ _) =
 derivedFromDecl :: CDeclarator a -> [CDerivedDeclarator a]
 derivedFromDecl (CDeclr _ derived _ _ _) = derived
 
-ctypeToType :: (Show a) => [CTypeSpecifier a] -> Type
-ctypeToType ty = case ty of
-                   [CVoidType{}]   -> Void
-                   [CCharType{}]   -> S8
-                   [CUnsigType{}, CCharType{}] -> U8
-                   [CIntType{}]    -> S32
-                   [CUnsigType{}]  -> U32
-                   [CFloatType{}]  -> Float
-                   [CDoubleType{}] -> Double
-                   [ty] -> error $ unwords  ["Unexpected type", show ty]
-                   [CLongType{}, CUnsigType{}, CIntType{}] -> U64
-                   [CUnsigType{}, CLongType{}, CIntType{}] -> U64
-                   ty -> error $ unwords ["Unexpected type", show ty]
-
-getTy :: (Show a) => Type -> [CDerivedDeclarator a] -> Type
-getTy ty [] = ty
-getTy ty (d:ds) = case d of
-                    _ | isPtrDecl d -> getTy (Ptr64 ty) ds
-                    _ -> error "Do not support"
-
 identFromDecl :: CDeclarator a -> Ident
 identFromDecl (CDeclr mIdent _ _ _ _) = case mIdent of
                                           Nothing -> error "Expected identifier in declarator"
@@ -72,12 +52,6 @@ attrsFromDeclr :: CDeclarator a -> [CAttribute a]
 attrsFromDeclr (CDeclr _ _ _ attrs _) = attrs
 
 -- Declaration specifiers
-
-baseTypeFromSpecs :: (Show a) => [CDeclarationSpecifier a] -> Type
-baseTypeFromSpecs all@(elem:rest) =
-  if isTypeQual elem || isAlignSpec elem
-  then baseTypeFromSpecs rest
-  else ctypeToType $ map typeFromSpec all
 
 isStorageSpec :: CDeclarationSpecifier a -> Bool
 isStorageSpec CStorageSpec{} = True
