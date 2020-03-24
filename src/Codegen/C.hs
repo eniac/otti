@@ -14,8 +14,21 @@ import           Language.C.Syntax.Constants
 fieldToInt :: Ident -> Int
 fieldToInt = undefined
 
-declareVarSMT :: (Show a) => Ident -> [CTypeSpecifier a] -> Compiler ()
-declareVarSMT (Ident name _ _) ty = declareVar name (ctypeToType ty)
+typedefSMT :: (Show a)
+           => Ident
+           -> [CDeclarationSpecifier a]
+           -> [CDerivedDeclarator a]
+           -> Compiler ()
+typedefSMT (Ident name _ _) tys ptrs = typedef name $
+                                       getTy (baseTypeFromSpecs tys) ptrs
+
+declareVarSMT :: (Show a)
+              => Ident
+              -> [CDeclarationSpecifier a]
+              -> [CDerivedDeclarator a]
+              -> Compiler ()
+declareVarSMT (Ident name _ _) tys ptrs = declareVar name $
+                                          getTy (baseTypeFromSpecs tys) ptrs
 
 genVarSMT :: Ident -> Compiler SMTNode
 genVarSMT (Ident name _ _) = getNodeFor name
@@ -150,23 +163,20 @@ genDeclSMT (CDecl specs decls _) = do
   when (null specs) $ error "Expected specifier in declaration"
   let firstSpec     = head specs
       isTypedefDecl = (isStorageSpec firstSpec) && (isTypedef $ storageFromSpec firstSpec)
-                      -- storage or whatever -> type
-      baseType      = baseTypeFromSpecs $ if isTypedefDecl then tail specs else specs
+      baseType      = if isTypedefDecl then tail specs else specs
 
   forM_ decls $ \(Just dec, mInit, _) -> do
-    let mName = identFromDeclr dec
-        name  = if isJust mName
-                then identToVarName $ fromJust mName
-                else error "Expected identifier in declarator"
-        ty   = getTy baseType $ derivedFromDeclr dec
+    let mName   = identFromDeclr dec
+        name    = if isJust mName then fromJust mName else error "Expected identifier in decl"
+        ptrType = derivedFromDeclr dec
 
     if isTypedefDecl
-    then typedef name ty
+    then typedefSMT name baseType ptrType
     else do
-      declareVar name ty
+      declareVarSMT name baseType ptrType
       case mInit of
         Just (CInitExpr e _) -> do
-          lhs <- genVarSMT $ fromJust mName
+          lhs <- genVarSMT name
           rhs <- genExprSMT e
           liftIR $ smtAssign lhs rhs
         _                    -> return ()

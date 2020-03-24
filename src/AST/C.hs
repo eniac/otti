@@ -54,6 +54,8 @@ specToType spec = case spec of
                     CTypeSpec ts -> ts
                     _            -> error "Expected type specificer in declaration"
 
+-- General utilities
+
 -- Declarators
 
 identFromDeclr :: CDeclarator a -> Maybe Ident
