@@ -126,3 +126,73 @@ isGlobal _           = False
 isLocal :: CStorageSpecifier a -> Bool
 isLocal CClLocal{} = True
 isLocal _          = False
+
+-- Type qualifiers
+
+isConstQualifier :: CTypeQualifier a -> Bool
+isConstQualifier CConstQual{} = True
+isConstQualifier _            = False
+
+isVolatileQualifier :: CTypeQualifier a -> Bool
+isVolatileQualifier CVolatQual{} = True
+isVolatileQualifier _            = False
+
+isRestrictQualifier :: CTypeQualifier a -> Bool
+isRestrictQualifier CRestrQual{} = True
+isRestrictQualifier _            = False
+
+isAtomicQualifier :: CTypeQualifier a -> Bool
+isAtomicQualifier CAtomicQual{} = True
+isAtomicQualifier _             = False
+
+isAttributeQualifier :: CTypeQualifier a -> Bool
+isAttributeQualifier CAttrQual{} = True
+isAttributeQualifier _           = False
+
+attrFromQualifier :: CTypeQualifier a -> CAttribute a
+attrFromQualifier (CAttrQual attr) = attr
+attrFromQualifier _                = error "Expected attribute qualifier"
+
+isNullableQualifier :: CTypeQualifier a -> Bool
+isNullableQualifier CNullableQual{} = True
+isNullableQualifier _               = False
+
+isNonnullableQualifier :: CTypeQualifier a -> Bool
+isNonnullableQualifier CNonnullQual{} = True
+isNonnullableQualifier _              = False
+
+isReadOnlyQualifier :: CTypeQualifier a -> Bool
+isReadOnlyQualifier CClRdOnlyQual{} = True
+isReadOnlyQualifier _               = False
+
+isWriteOnlyQualifier :: CTypeQualifier a -> Bool
+isWriteOnlyQualifier CClWrOnlyQual{} = True
+isWriteOnlyQualifier _               = False
+
+-- Derived declarators
+
+isPtrDecl :: CDerivedDeclarator a -> Bool
+isPtrDecl CPtrDeclr{} = True
+isPtrDecl _           = False
+
+getTypesFromPtrDecl :: CDerivedDeclarator a -> [CTypeQualifier a]
+getTypesFromPtrDecl (CPtrDeclr quals _) = quals
+getTypesFromPtrDecl _                   = error "Expected pointer derived declarator"
+
+isArrDecl :: CDerivedDeclarator a -> Bool
+isArrDecl CArrDeclr{} = True
+isArrDecl _           = False
+
+getInfoFromArrDecl :: CDerivedDeclarator a -> ([CTypeQualifier a], CArraySize a)
+getInfoFromArrDecl (CArrDeclr ty size _) = (ty, size)
+getInfoFromArrDecl _                     = error "Expected array declarator"
+
+isFunDecl :: CDerivedDeclarator a -> Bool
+isFunDecl CFunDeclr{} = True
+isFunDecl _           = False
+
+getInfoFromFunDecl :: CDerivedDeclarator a -> (Either [Ident] ([CDeclaration a], Bool), [CAttribute a])
+getInfoFromFunDecl (CFunDeclr a b _) = (a, b)
+
+
+
