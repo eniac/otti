@@ -9,6 +9,10 @@ int bob (int*** bob, void *dst, const unsigned long int bytes, const void *src, 
     unsigned n = nbytes / 4;
     unsigned *d = dst;
     const unsigned *s = src;
-  }	
+  }
+  else {
+    unsigned char *d = dst;
+    const unsigned char *s = src;
+  }
     
 }
