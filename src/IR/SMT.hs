@@ -185,8 +185,8 @@ smtAssign n1 n2 = do
   -- handle implicit casts
   let bits1 = numBits $ t n1
       bits2 = numBits $ t n2
-  n1' <- if bits1 >= bits2 then return bits1 else cppImplicitCast n1 $ t n2
-  n2' <- if bits2 >= bits1 then return bits2 else cppImplicitCast n2 $ t n1
+  n1' <- if bits1 >= bits2 then return n1 else cppImplicitCast n1 $ t n2
+  n2' <- if bits2 >= bits1 then return n2 else cppImplicitCast n2 $ t n1
   SMT.assign (n n1') (n n2')
   SMT.assign (u n1) (u n2)
 
@@ -540,8 +540,6 @@ cppImplicitCast node toty = do
                                                 ]
   result <- extend (n node) (newWidth - oldWidth)
   let fixedType = makeType newWidth $ isSignedInt $ t node
-  return $ mkNode result fixedType
-  error "Not done with implicit cast"
-
+  return $ mkNode result fixedType (u node)
 
 
