@@ -27,37 +27,37 @@ import           Data.Field.Galois              ( Prime
 import           Debug.Trace                    ( trace )
 import           GHC.TypeLits
 
-type LC n = (Map.Map Sig.Signal n, n) -- A linear combination of signals and gen-time constants
-type QEQ n = (LC n, LC n, LC n)
+type LC s n = (Map.Map s n, n) -- A linear combination of signals and gen-time constants
+type QEQ s n = (LC s n, LC s n, LC s n)
 
 data LowDeg n = Scalar n
-                 | Linear (LC n)
-                 | Quadratic (QEQ n)
+                 | Linear (LC Sig.Signal n)
+                 | Quadratic (QEQ Sig.Signal n)
                  | HighDegree
                  deriving (Show,Eq,Ord)
 
-lcZero :: GaloisField k => LC k
+lcZero :: GaloisField k => LC s k
 lcZero = (Map.empty, 0)
 
-lcAdd :: GaloisField k => LC k -> LC k -> LC k
+lcAdd :: (Ord s, GaloisField k) => LC s k -> LC s k -> LC s k
 lcAdd (sm, sc) (tm, tc) = (Map.unionWith (+) sm tm, sc + tc)
 
-lcSig :: GaloisField k => Sig.Signal -> LC k
-lcSig s = (Map.fromList [(s, fromInteger 1)], fromInteger 0)
+lcSig :: (Ord s, GaloisField k) => s -> LC s k
+lcSig s = (Map.fromList [(s, 1)], 0)
 
-lcScale :: GaloisField k => k -> LC k -> LC k
+lcScale :: GaloisField k => k -> LC s k -> LC s k
 lcScale c (sm, sc) = (Map.map (* c) sm, c * sc)
 
-lcShift :: GaloisField k => k -> LC k -> LC k
+lcShift :: GaloisField k => k -> LC s k -> LC s k
 lcShift c (sm, sc) = (sm, c + sc)
 
-qeqLcAdd :: GaloisField k => QEQ k -> LC k -> QEQ k
+qeqLcAdd :: (Ord s, GaloisField k) => QEQ s k -> LC s k -> QEQ s k
 qeqLcAdd (a1, b1, c1) l = (a1, b1, lcAdd c1 l)
 
-qeqScale :: GaloisField k => k -> QEQ k -> QEQ k
+qeqScale :: GaloisField k => k -> QEQ s k -> QEQ s k
 qeqScale k (a2, b2, c2) = (lcScale k a2, lcScale k b2, lcScale k c2)
 
-qeqShift :: GaloisField k => k -> QEQ k -> QEQ k
+qeqShift :: GaloisField k => k -> QEQ s k -> QEQ s k
 qeqShift k (a2, b2, c2) = (lcShift k a2, lcShift k b2, lcShift k c2)
 
 lowDegAsNum :: (Num n, PrimeField k) => LowDeg k -> n
@@ -143,7 +143,7 @@ instance GaloisField k => Fractional (Term k) where
 type TemplateInvocation = (String, [Integer])
 
 
-data CompCtx n = CompCtx { constraints :: [QEQ n]
+data CompCtx n = CompCtx { constraints :: [QEQ Sig.Signal n]
                          , lowDegEnv :: Map.Map String (Term n)
                          , signals :: Map.Map String (SignalKind, [Int])
                          , type_ :: Typing.InstanceType
