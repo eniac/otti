@@ -2,7 +2,9 @@
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Codegen.Circom.Compilation
-  ()
+  ( CompCtx(..)
+  , compMainCtx
+  )
 where
 
 import           AST.Circom
@@ -14,7 +16,6 @@ import           Control.Monad.State.Strict
 import           Data.Ix
 import qualified Data.Bits                     as Bits
 import qualified Data.Map.Strict               as Map
-import qualified Data.Set                      as Set
 import qualified Data.Maybe                    as Maybe
 import qualified Data.Array                    as Arr
 import           Data.Field.Galois              ( Prime
@@ -150,7 +151,7 @@ data CompCtx n = CompCtx { constraints :: [QEQ n]
                          --                             isFn, frmlArgs, code
                          , callables :: Map.Map String (Bool, [String], Block)
                          , cache :: Map.Map TemplateInvocation (CompCtx n)
-                         }
+                         } deriving (Show)
 
 empty :: CompCtx n
 empty = CompCtx { constraints = []
@@ -169,6 +170,8 @@ data LTerm = LTermLocal Sig.IndexedIdent
 newtype CompState n a = CompState (State (CompCtx (Prime n)) a)
     deriving (Functor, Applicative, Monad, MonadState (CompCtx (Prime n)))
 
+runCompState
+  :: KnownNat n => CompState n a -> CompCtx (Prime n) -> (a, CompCtx (Prime n))
 runCompState (CompState s) = runState s
 
 compIndexedIdent :: KnownNat n => IndexedIdent -> CompState n Sig.IndexedIdent
@@ -259,8 +262,11 @@ compExpr e = case e of
     let (isFn, formalArgs, code) = Maybe.fromMaybe
           (error $ "Unknown callable " ++ name)
           (callables c Map.!? name)
-    unless (length args == length formalArgs) $
-      return $ error $ "Wrong number of arguments for " ++ show name
+    unless (length args == length formalArgs)
+      $  return
+      $  error
+      $  "Wrong number of arguments for "
+      ++ show name
     if isFn
       then do
         let callState = empty { callables = callables c
@@ -280,9 +286,10 @@ compExpr e = case e of
                 , lowDegEnv = Map.fromList (zip formalArgs tArgs)
                 }
           let ((), c') = runCompState (compStatements code) callState
-          let newCache = cache c'
+          let newCache    = cache c'
           let strippedCtx = c' { lowDegEnv = Map.empty, cache = Map.empty }
-          modify (\cc -> cc { cache = Map.insert invocation strippedCtx newCache })
+          modify
+            (\cc -> cc { cache = Map.insert invocation strippedCtx newCache })
         return $ Component invocation
 
 compUnMutExpr
@@ -409,7 +416,7 @@ load loc ctx = case loc of
     let term = Maybe.fromMaybe (error $ "Unknown identifier " ++ name)
                                (lowDegEnv ctx Map.!? name)
     in  case extract idxs term of
-                        -- TODO: Check in-bounds!
+                                        -- TODO: Check in-bounds!
           Component{} ->
             Base $ Linear $ lcSig $ Sig.SigForeign (name, idxs) sigLoc
           t -> error $ "Term " ++ show t ++ " is not a component"
@@ -457,21 +464,16 @@ store
   -> CompCtx (Prime k)
   -> CompCtx (Prime k)
 store loc term ctx = case loc of
-  LTermLocal (name, idxs) -> ctx
-    { lowDegEnv = Map.insert name
-                             (modifyIn idxs (const term) topLevelTerm)
-                             (lowDegEnv ctx)
-    }
+  LTermLocal (name, idxs) -> case lowDegEnv ctx Map.!? name of
+    Just t -> ctx
+      { lowDegEnv = Map.insert name
+                               (modifyIn idxs (const term) t)
+                               (lowDegEnv ctx)
+      }
+    Nothing -> case signals ctx Map.!? name of
+      Just _  -> ctx
+      Nothing -> error $ "Unknown identifier `" ++ name ++ "`"
    where
-    topLevelTerm = Map.findWithDefault
-      (  error
-      $  "Identifier `"
-      ++ name
-      ++ "` does not refer to a write-able location"
-      )
-      name
-      (lowDegEnv ctx)
-
     arrayUpdate :: Ix i => i -> (a -> a) -> Arr.Array i a -> Arr.Array i a
     arrayUpdate i f a = a Arr.// [(i, f (a Arr.! i))]
 
@@ -555,13 +557,8 @@ liftUnLowDegToTerm
   -> Term (Prime n)
   -> Term (Prime n)
 liftUnLowDegToTerm name f t = case t of
-  Array{} ->
-    error
-      $  "Cannot perform operation \""
-      ++ name
-      ++ "\" on array term "
-      ++ show t
   Base a -> Base $ f a
+  _ -> error $ "Cannot perform operation \"" ++ name ++ "\" on term " ++ show t
 
 -- Lifts a fun: Integer -> Integer to one that operates over gen-time constant terms
 liftUnIntToLowDeg
@@ -569,3 +566,13 @@ liftUnIntToLowDeg
 liftUnIntToLowDeg f s = case s of
   Scalar c -> (Scalar . toP . f . fromP) c
   _        -> HighDegree
+
+compMainCtx :: KnownNat k => MainCircuit -> CompCtx (Prime k)
+compMainCtx m =
+  snd
+    $ runCompState (compStatement (SubDeclaration "main" [] (Just (main m))))
+    $ empty
+        { callables = Map.union
+                        (Map.map (\(p, b) -> (False, p, b)) (templates m))
+                        (Map.map (\(p, b) -> (True, p, b)) (functions m))
+        }

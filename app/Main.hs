@@ -11,6 +11,7 @@
 module Main where
 
 import           Codegen.Circom             (genMainCtx)
+import qualified Codegen.Circom.Compilation as Comp
 import           Codegen.Circom.Constraints (equalities)
 import           Codegen.Circom.Term        (Constraint, Ctx(..))
 import           Codegen.Circom.ToSmt       (ctxToSmt)
@@ -32,6 +33,7 @@ patterns :: Docopt
 patterns = [docopt|
 Usage:
   compiler print-smt [options]
+  compiler comp-only [options]
   compiler emit-r1cs [options]
   compiler setup [options]
   compiler prove [options]
@@ -54,6 +56,7 @@ Commands:
   verify           Run the verifier
   setup            Run the setup
   print-smt        Print the smt
+  comp-only        Compile at the fn-level only
   emit-r1cs        Emit the R1CS
 |]
 
@@ -119,6 +122,11 @@ cmdEmitR1cs circomPath r1csPath = do
     m <- loadMain circomPath
     writeToR1csFile (ctxToSmt (genMainCtx m order :: OrderCtx)) r1csPath
 
+cmdCompOnly :: FilePath -> IO ()
+cmdCompOnly circomPath = do
+    m <- loadMain circomPath
+    print (Comp.compMainCtx @Order m)
+
 cmdSetup :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdSetup libsnarkPath circomPath r1csPath pkPath vkPath = do
     print "Loading circuit"
@@ -155,6 +163,9 @@ main = do
     if args `isPresent` command "print-smt" then do
         circomPath <- args `getArgOrExit` longOption "circom"
         cmdPrintSmt circomPath
+    else if args `isPresent` command "comp-only" then do
+        circomPath <- args `getArgOrExit` longOption "circom"
+        cmdCompOnly circomPath
     else if args `isPresent` command "emit-r1cs" then do
         circomPath <- args `getArgOrExit` longOption "circom"
         r1csPath <- args `getArgOrExit` shortOption 'C'
