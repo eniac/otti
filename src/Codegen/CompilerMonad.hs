@@ -7,6 +7,7 @@ import           Control.Monad.Reader
 import           Control.Monad.State.Strict
 import           Data.List                  (intercalate, isInfixOf)
 import qualified Data.Map                   as M
+import           Data.Maybe                 (catMaybes)
 import           IR.SMT
 import qualified Z3.Monad                   as Z
 
@@ -29,7 +30,7 @@ data CodegenVar = CodegenVar VarName Version
 
 -- | Internal state of the compiler for code generation
 data CompilerState = CompilerState { -- Mapping AST variables etc to information
-                                     vers              :: M.Map VarName Version
+                                     vers              :: [M.Map VarName Version]
                                    , tys               :: M.Map VarName Type
                                    , funs              :: M.Map FunctionName Function
                                      -- Codegen context information
@@ -80,7 +81,7 @@ prettyState = do
 ---
 
 emptyCompilerState :: CompilerState
-emptyCompilerState = CompilerState M.empty M.empty M.empty M.empty [] [] [[]] [] 1 M.empty
+emptyCompilerState = CompilerState [M.empty] M.empty M.empty M.empty [] [] [[]] [] 1 M.empty
 
 liftIR :: IR a -> Compiler a
 liftIR = Compiler . lift
@@ -121,16 +122,29 @@ codegenToName (CodegenVar varName ver) = varName ++ "_" ++ show ver
 ---
 ---
 
+pushContext :: Compiler ()
+pushContext = do
+  s0 <- get
+  put $ s0 { vers = M.empty:vers s0 }
+
+popContext :: Compiler ()
+popContext = do
+  s0 <- get
+  case vers s0 of
+    []    -> error "Context stack should never be empty"
+    ctxts | length ctxts > 1 -> put $ s0 { vers = tail ctxts }
+    _     -> error "Cannot pop final context off context stack"
+
 -- | Declare a new variable, or error if the variable is already declared.
 -- This adds the variable's version information (for SSA-ing) and type information
 -- to the compiler state.
 declareVar :: VarName -> Type -> Compiler ()
 declareVar var ty = do
   s0 <- get
-  let allVers = vers s0
+  let allVers = head $ vers s0
       allTys  = tys s0
   case M.lookup var allVers of
-    Nothing -> put $ s0 { vers = M.insert var 0 allVers
+    Nothing -> put $ s0 { vers = (M.insert var 0 allVers):vers s0
                         , tys = M.insert var ty allTys
                         }
     _       -> error $ unwords ["Already declared", var, "in current scope"]
@@ -139,18 +153,19 @@ declareVar var ty = do
 nextVer :: VarName -> Compiler ()
 nextVer var = do
   s0 <- get
-  let allVers = vers s0
+  let allVers = head $ vers s0
   case M.lookup var allVers of
-    Just ver -> put $ s0 { vers = M.insert var (ver + 1) allVers }
+    Just ver -> put $ s0 { vers = (M.insert var (ver + 1) allVers):vers s0 }
     _ -> error $ unwords ["Cannot increment version of undeclared", var]
 
 -- | Get the current version of the variable
 getVer :: VarName -> Compiler Version
 getVer var = do
   allVers <- vers `liftM` get
-  case M.lookup var allVers of
-    Just ver -> return ver
-    _        -> error $ unwords ["Cannot get version of undeclared", var]
+  let vars = map (\verCtxt -> M.lookup var verCtxt) allVers
+  case catMaybes vars of
+    []      -> error $ unwords ["Cannot get version of undeclared", var]
+    (ver:_) -> return ver
 
 -- | Get the C++ type of the variable
 getType :: VarName -> Compiler Type

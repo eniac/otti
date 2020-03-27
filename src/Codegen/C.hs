@@ -169,12 +169,16 @@ genStmtSMT stmt = case stmt of
     falseCond <- liftIR $ cppBitwiseNeg trueCond
     -- Guard the true branch with the true condition
     pushCondGuard trueCond
+    pushContext
     genStmtSMT trueBr
+    popContext
     popCondGuard
     -- Guard the false branch with the false condition
     when (isJust falseBr) $ do
       pushCondGuard falseCond
+      pushContext
       genStmtSMT $ fromJust falseBr
+      popContext
       popCondGuard
   CWhile{}              -> liftIO $ print "while"
   CFor{}                -> liftIO $ print "while"
