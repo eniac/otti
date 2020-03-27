@@ -7,15 +7,20 @@ module AST.Circom ( File
                   , IndexedIdent
                   , Location(..)
                   , SignalKind(..)
+                  , isPublic
+                  , isInput
                   , UnOp(..)
                   , UnMutOp(..)
+                  , unMutOpOp
+                  , UnMutOpOp(..)
+                  , unMutOpTime
+                  , UnMutOpTime(..)
                   , MainCircuit(..)
                   , Block
                   , collectIncludes
                   , collectFunctions
                   , collectTemplates
                   , collectMains
-                  , isPublic
                   ) where
 
 
@@ -115,6 +120,13 @@ isPublic s = case s of
     Out -> False
     Local -> False
 
+isInput :: SignalKind -> Bool
+isInput s = case s of
+    PublicIn -> True
+    PrivateIn -> True
+    Out -> False
+    Local -> False
+
 type IndexedIdent = (String, [Expr])
 data Location = LocalLocation IndexedIdent
               | ForeignLocation IndexedIdent IndexedIdent
@@ -125,6 +137,23 @@ data UnMutOp = PreInc
           | PreDec
           | PostDec
           deriving (Show,Eq)
+
+unMutOpTime :: UnMutOp -> UnMutOpTime
+unMutOpTime o = case o of
+    PreInc -> Pre
+    PostInc -> Post
+    PreDec -> Pre
+    PostDec -> Post
+
+unMutOpOp :: UnMutOp -> UnMutOpOp
+unMutOpOp o = case o of
+    PreInc -> Inc
+    PostInc -> Inc
+    PreDec -> Dec
+    PostDec -> Dec
+
+data UnMutOpTime = Pre | Post deriving (Show, Eq)
+data UnMutOpOp = Inc | Dec deriving (Show, Eq)
 
 data UnOp = UnNeg
           | BitNot
