@@ -14,5 +14,5 @@ int bob (int*** bob, void *dst, const unsigned long int bytes, const void *src, 
     unsigned char *d = dst;
     const unsigned char *s = src;
   }
-    
+  return dst;    
 }

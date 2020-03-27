@@ -182,6 +182,18 @@ genStmtSMT stmt = case stmt of
       popCondGuard
   CWhile{}              -> liftIO $ print "while"
   CFor{}                -> liftIO $ print "while"
+  CReturn expr _ -> when (isJust expr) $ do
+    toReturn <- genExprSMT $ fromJust expr
+    retVal <- getReturnVal
+      -- Get guards for the yes-return case and the no-return case
+    trueGuard <- getCurrentGuardNode
+    notFalseGuard <- getOldReturnGuard
+    shouldOccur <- liftIR $ cppAnd trueGuard notFalseGuard
+    addReturnGuard trueGuard
+    -- This is the equality if the return occurs
+    returnOccurs <- liftIR $ cppEq retVal toReturn
+    -- Only set the return value equal to e if the guard is true
+    liftIR $ smtImplies shouldOccur returnOccurs
   _                     -> liftIO $ print "other"
 
 genDeclSMT :: (Show a) => CDeclaration a -> Compiler ()
@@ -213,9 +225,9 @@ genDeclSMT (CDecl specs decls _) = do
 
 genFunDef :: (Show a) => CFunctionDef a -> Compiler ()
 genFunDef f = do
-  let args = argsFromFunc f
-      body = bodyFromFunc f
-  forM_ args genDeclSMT
+  -- Declare the function and setup the return value
+  forM_ (argsFromFunc f) genDeclSMT
+  let body = bodyFromFunc f
   case body of
     CCompound{} -> genStmtSMT body
     _           -> error "Expected C statement block in function definition"

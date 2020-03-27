@@ -233,7 +233,9 @@ getReturnValName funName = do
 getReturnVal :: Compiler SMTNode
 getReturnVal = do
   retVals <- returnValues `liftM` get
-  return $ head retVals
+  case retVals of
+    [] -> error "Empty return value list"
+    _  -> return $ head retVals
 
 getFunction :: FunctionName
              -> Compiler Function

@@ -4,6 +4,10 @@ import           Data.Maybe            (isJust)
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 
+nameFromFunc = undefined
+
+typeOfFunc = undefined
+
 bodyFromFunc :: CFunctionDef a -> CStatement a
 bodyFromFunc (CFunDef _ _ _ stmt _) = stmt
 
