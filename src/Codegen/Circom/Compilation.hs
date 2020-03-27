@@ -1,9 +1,19 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 module Codegen.Circom.Compilation
   ( CompCtx(..)
   , compMainCtx
+  , LC
+  , QEQ
+  , TemplateInvocation
+  , Term(..)
+  , CompState(..)
+  , empty
+  , runCompState
+  , compExprs
+  , termAsNum
   )
 where
 
@@ -142,11 +152,14 @@ instance GaloisField k => Fractional (Term k) where
 
 type TemplateInvocation = (String, [Integer])
 
+data IdKind = IKVar | IKSig | IKComp deriving (Show,Eq,Ord)
+
 
 data CompCtx n = CompCtx { constraints :: [QEQ Sig.Signal n]
                          , lowDegEnv :: Map.Map String (Term n)
                          , signals :: Map.Map String (SignalKind, [Int])
                          , type_ :: Typing.InstanceType
+                         , ids :: Map.Map String IdKind
                          , returning :: Maybe (Term n)
                          --                             isFn, frmlArgs, code
                          , callables :: Map.Map String (Bool, [String], Block)
@@ -158,6 +171,7 @@ empty = CompCtx { constraints = []
                 , lowDegEnv   = Map.empty
                 , signals     = Map.empty
                 , type_       = Typing.emptyType
+                , ids         = Map.empty
                 , returning   = Nothing
                 , callables   = Map.empty
                 , cache       = Map.empty
@@ -267,12 +281,13 @@ compExpr e = case e of
       $  error
       $  "Wrong number of arguments for "
       ++ show name
+    let callState = empty { callables = callables c
+                          , cache     = cache c
+                          , lowDegEnv = Map.fromList (zip formalArgs tArgs)
+                          , ids       = Map.fromList $ map (, IKVar) formalArgs
+                          }
     if isFn
       then do
-        let callState = empty { callables = callables c
-                              , cache     = cache c
-                              , lowDegEnv = Map.fromList (zip formalArgs tArgs)
-                              }
         let ((), c') = runCompState (compStatements code) callState
         let returnValue = Maybe.fromMaybe
               (error $ "Function " ++ name ++ " did not return")
@@ -280,14 +295,15 @@ compExpr e = case e of
         return returnValue
       else do
         unless (Map.member invocation (cache c)) $ do
-          let callState = empty
-                { callables = callables c
-                , cache     = cache c
-                , lowDegEnv = Map.fromList (zip formalArgs tArgs)
-                }
           let ((), c') = runCompState (compStatements code) callState
-          let newCache    = cache c'
-          let strippedCtx = c' { lowDegEnv = Map.empty, cache = Map.empty }
+          let newCache = cache c'
+          let strippedCtx = c'
+                { lowDegEnv = Map.restrictKeys
+                                (lowDegEnv c')
+                                (Map.keysSet $ Map.filter (== IKComp) (ids c'))
+                , cache     = Map.empty
+                , ids       = Map.empty
+                }
           modify
             (\cc -> cc { cache = Map.insert invocation strippedCtx newCache })
         return $ Component invocation
@@ -344,20 +360,23 @@ compStatement s = do
         compStatements [Assign l e, Constrain (LValue l) e]
       VarDeclaration name dims ini -> do
         ts <- compExprs dims
-        modify (alloc name $ termMultiDimArray (Base (Scalar 0)) ts)
+        modify (alloc name IKVar $ termMultiDimArray (Base (Scalar 0)) ts)
         case ini of
           Just e  -> compStatement (Assign (LocalLocation (name, [])) e)
           Nothing -> modify id
       SigDeclaration name kind dims -> do
-        ts <- compExprs dims
+        ts    <- compExprs dims
+        fresh <- gets (not . Map.member name . ids)
+        unless fresh $ error $ "Signal name " ++ show name ++ " is not fresh"
         modify
           (\c -> c
             { signals = Map.insert name (kind, map termAsNum ts) $ signals c
+            , ids     = Map.insert name IKSig $ ids ctx
             }
           )
       SubDeclaration name dims ini -> do
         ts <- compExprs dims
-        modify (alloc name (termMultiDimArray (Base (Scalar 0)) ts))
+        modify (alloc name IKComp (termMultiDimArray (Base (Scalar 0)) ts))
         case ini of
           Just e  -> compStatement (Assign (LocalLocation (name, [])) e)
           Nothing -> return ()
@@ -404,22 +423,23 @@ compStatement s = do
 -- Gets a value from a location
 load :: forall k . KnownNat k => LTerm -> CompCtx (Prime k) -> Term (Prime k)
 load loc ctx = case loc of
-  LTermLocal (name, idxs) -> case lowDegEnv ctx Map.!? name of
-    Just t  -> extract idxs t
-    Nothing -> case signals ctx Map.!? name of
-      Just (_kind, dims) -> Base $ Linear $ lcSig $ either
-        error
-        (const $ Sig.SigLocal (name, idxs))
-        (checkDims idxs dims)
-      Nothing -> error $ "Unknown identifier `" ++ name ++ "`"
-  LTermForeign (name, idxs) sigLoc ->
-    let term = Maybe.fromMaybe (error $ "Unknown identifier " ++ name)
-                               (lowDegEnv ctx Map.!? name)
-    in  case extract idxs term of
-                                        -- TODO: Check in-bounds!
-          Component{} ->
-            Base $ Linear $ lcSig $ Sig.SigForeign (name, idxs) sigLoc
-          t -> error $ "Term " ++ show t ++ " is not a component"
+  LTermLocal (name, idxs) -> case ids ctx Map.!? name of
+    Just IKVar  -> extract idxs (lowDegEnv ctx Map.! name)
+    Just IKComp -> extract idxs (lowDegEnv ctx Map.! name)
+    Just IKSig  -> Base $ Linear $ lcSig $ either
+      error
+      (const $ Sig.SigLocal (name, idxs))
+      (checkDims idxs dims)
+      where (_kind, dims) = signals ctx Map.! name
+    Nothing ->
+      error $ "Unknown identifier `" ++ name ++ "` in" ++ show (ids ctx)
+  LTermForeign (name, idxs) sigLoc -> case ids ctx Map.!? name of
+    Just IKComp -> case extract idxs (lowDegEnv ctx Map.! name) of
+        -- TODO: bounds check
+      Component{} -> Base $ Linear $ lcSig $ Sig.SigForeign (name, idxs) sigLoc
+      _           -> error "Unreachable: non-component in component id!"
+    Just _  -> error $ "Identifier " ++ show name ++ " is not a component"
+    Nothing -> error $ "Identifier " ++ show name ++ " is unknown"
  where
   subscript :: Int -> Term (Prime k) -> Term (Prime k)
   subscript i t = case t of
@@ -450,11 +470,16 @@ alloc
   :: forall k
    . KnownNat k
   => String
+  -> IdKind
   -> Term (Prime k)
   -> CompCtx (Prime k)
   -> CompCtx (Prime k)
 -- Stores a term in a location
-alloc name term ctx = ctx { lowDegEnv = Map.insert name term $ lowDegEnv ctx }
+alloc name kind term ctx = if Map.member name (ids ctx)
+  then error $ "Identifier " ++ show name ++ " already used"
+  else ctx { lowDegEnv = Map.insert name term $ lowDegEnv ctx
+           , ids       = Map.insert name kind $ ids ctx
+           }
 
 store
   :: forall k

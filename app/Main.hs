@@ -12,6 +12,7 @@ module Main where
 
 import           Codegen.Circom             (genMainCtx)
 import qualified Codegen.Circom.Compilation as Comp
+import qualified Codegen.Circom.Linking     as Link
 import           Codegen.Circom.Constraints (equalities)
 import           Codegen.Circom.Term        (Constraint, Ctx(..))
 import           Codegen.Circom.ToSmt       (ctxToSmt)
@@ -125,7 +126,9 @@ cmdEmitR1cs circomPath r1csPath = do
 cmdCompOnly :: FilePath -> IO ()
 cmdCompOnly circomPath = do
     m <- loadMain circomPath
-    print (Comp.compMainCtx @Order m)
+    let c = Link.linkMain @Order m
+    print $ length c
+
 
 cmdSetup :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdSetup libsnarkPath circomPath r1csPath pkPath vkPath = do
