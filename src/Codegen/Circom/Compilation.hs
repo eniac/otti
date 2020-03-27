@@ -436,33 +436,46 @@ load loc ctx = case loc of
   LTermForeign (name, idxs) sigLoc -> case ids ctx Map.!? name of
     Just IKComp -> case extract idxs (lowDegEnv ctx Map.! name) of
         -- TODO: bounds check
-      Component{} -> Base $ Linear $ lcSig $ Sig.SigForeign (name, idxs) sigLoc
-      _           -> error "Unreachable: non-component in component id!"
+      Component invoc ->
+        let forCtx = cache ctx Map.! invoc
+        in  case signals forCtx Map.!? fst sigLoc of
+              Just (k, dims) | isVisible k -> Base $ Linear $ lcSig $ either
+                error
+                (const $ Sig.SigForeign (name, idxs) sigLoc)
+                (checkDims (snd sigLoc) dims)
+              Just (k, _) ->
+                error
+                  $  "Cannot load foreign signal "
+                  ++ show (fst sigLoc)
+                  ++ " of type "
+                  ++ show k
+                  ++ " at "
+                  ++ show loc
+              _ -> error $ "Unknown foreign signal " ++ show (fst sigLoc)
+      _ -> error "Unreachable: non-component in component id!"
     Just _  -> error $ "Identifier " ++ show name ++ " is not a component"
     Nothing -> error $ "Identifier " ++ show name ++ " is unknown"
- where
-  subscript :: Int -> Term (Prime k) -> Term (Prime k)
-  subscript i t = case t of
-    Array a -> a Arr.! i
-    _       -> error $ "Cannot index term " ++ show t
-  extract :: [Int] -> Term (Prime k) -> Term (Prime k)
-  extract = flip $ foldl (flip subscript)
-  checkDims :: [Int] -> [Int] -> Either String ()
-  checkDims idxs dims = if length idxs == length dims
-    then if all (uncurry (<)) (zip idxs dims)
-      then Right ()
-      else
-        Left
-        $  "Indices "
-        ++ show idxs
-        ++ " out-of-bounds for dimensions "
-        ++ show dims
+
+subscript :: Int -> Term (Prime k) -> Term (Prime k)
+subscript i t = case t of
+  Array a -> a Arr.! i
+  _       -> error $ "Cannot index term " ++ show t
+
+extract :: [Int] -> Term (Prime k) -> Term (Prime k)
+extract = flip $ foldl (flip subscript)
+
+checkDims :: [Int] -> [Int] -> Either String ()
+checkDims idxs dims = if length idxs == length dims
+  then if all (uncurry (<)) (zip idxs dims)
+    then Right ()
     else
       Left
       $  "Indices "
       ++ show idxs
-      ++ " wrong size for dimensions "
+      ++ " out-of-bounds for dimensions "
       ++ show dims
+  else
+    Left $ "Indices " ++ show idxs ++ " wrong size for dimensions " ++ show dims
 
 
 -- allocate a name with a term
@@ -518,7 +531,26 @@ store loc term ctx = case loc of
             ++ " of non-array "
             ++ show t
   -- TODO: Different update?
-  LTermForeign{} -> ctx
+  LTermForeign (name, idxs) sigLoc -> case ids ctx Map.!? name of
+    Just IKComp -> case extract idxs (lowDegEnv ctx Map.! name) of
+        -- TODO: bounds check
+      Component invoc ->
+        let forCtx = cache ctx Map.! invoc
+        in  case signals forCtx Map.!? fst sigLoc of
+              Just (PublicIn, dims) ->
+                either error (const ctx) (checkDims (snd sigLoc) dims)
+              Just (PrivateIn, dims) ->
+                either error (const ctx) (checkDims (snd sigLoc) dims)
+              Just (k, _) ->
+                error
+                  $  "Cannot store into foreign signal "
+                  ++ show (fst sigLoc)
+                  ++ " of type "
+                  ++ show k
+              _ -> error $ "Unknown foreign signal " ++ show (fst sigLoc)
+      _ -> error "Unreachable: non-component in component id!"
+    Just _  -> error $ "Identifier " ++ show name ++ " is not a component"
+    Nothing -> error $ "Identifier " ++ show name ++ " is unknown"
 
 termMultiDimArray
   :: KnownNat k => Term (Prime k) -> [Term (Prime k)] -> Term (Prime k)

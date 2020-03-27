@@ -9,6 +9,7 @@ module AST.Circom ( File
                   , SignalKind(..)
                   , isPublic
                   , isInput
+                  , isVisible
                   , UnOp(..)
                   , UnMutOp(..)
                   , unMutOpOp
@@ -125,6 +126,13 @@ isInput s = case s of
     PublicIn -> True
     PrivateIn -> True
     Out -> False
+    Local -> False
+
+isVisible :: SignalKind -> Bool
+isVisible s = case s of
+    PublicIn -> True
+    PrivateIn -> True
+    Out -> True
     Local -> False
 
 type IndexedIdent = (String, [Expr])
