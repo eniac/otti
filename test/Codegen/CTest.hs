@@ -36,6 +36,7 @@ featuresTest = benchTestCase "features" $ do
     Right tu -> do
 
       r1 <- evalCodegen Nothing $ do
+        liftIR initMem
         codegenC tu
         runSolverOnSMT
 

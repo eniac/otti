@@ -45,7 +45,7 @@ ctypeToType ty = case ty of
 getTy :: (Show a) => Type -> [CDerivedDeclarator a] -> Type
 getTy ty [] = ty
 getTy ty (d:ds) = case d of
-                    _ | isPtrDecl d -> getTy (Ptr64 ty) ds
+                    _ | isPtrDecl d -> getTy (Ptr32 ty) ds
                     _ -> error "Do not support"
 
 baseTypeFromSpecs :: (Show a) => [CDeclarationSpecifier a] -> Compiler Type

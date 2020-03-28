@@ -119,7 +119,11 @@ typeSafeBinary op ast1 ast2 = do
   s2 <- getBVSort op ast2
   size1 <- Z.getBvSortSize s1
   size2 <- Z.getBvSortSize s2
-  unless (size1 == size2) $ error $ unwords [op, ": bit-widths must match"]
+  unless (size1 == size2) $ error $ unwords [ op, ": bit-widths must match"
+                                            , "\n"
+                                            , show size1
+                                            , show size2
+                                            ]
 
 mkTypeSafeBinary :: MonadZ3 z3
                  => (AST -> AST -> z3 AST)

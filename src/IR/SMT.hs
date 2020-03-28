@@ -297,12 +297,15 @@ cppCompareWrapper left right uCompare sCompare fCompare
      unless (t left == t right) $ error "Expected two doubles as argumnets to comparison"
      compare <- fCompare (n left) (n right)
      maybeDefinedNode left right compare Bool
- | isUnsignedInt (t left) || isUnsignedInt (t right) = liftSMT $ do
-     compare <- uCompare (n left) (n right)
-     maybeDefinedNode left right compare Bool
- | otherwise = liftSMT $ do
-     compare <- sCompare (n left) (n right)
-     maybeDefinedNode left right compare Bool
+ | otherwise = do
+   let op = if isUnsignedInt (t left) || isUnsignedInt (t right)
+            then uCompare else sCompare
+       leftBits = numBits $ t left
+       rightBits = numBits $ t right
+   left'  <- if leftBits >= rightBits then return left else cppImplicitCast left $ t right
+   right' <- if rightBits >= leftBits then return right else cppImplicitCast right $ t left
+   compare <- liftSMT $ op (n left') (n right')
+   liftSMT $ maybeDefinedNode left' right' compare Bool
 
 cppEq, cppGt, cppGte, cppLt, cppLte :: SMTNode -> SMTNode -> IR SMTNode
 cppEq left right = cppCompareWrapper left right SMT.eq SMT.eq SMT.fpEq
