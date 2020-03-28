@@ -1,6 +1,10 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
 module Codegen.Circom.Compilation
   ( CompCtx(..)
@@ -8,7 +12,8 @@ module Codegen.Circom.Compilation
   , LC
   , QEQ
   , TemplateInvocation
-  , Term(..)
+  , AbsTerm(..)
+  , Term
   , CompState(..)
   , empty
   , runCompState
@@ -41,10 +46,10 @@ type LC s n = (Map.Map s n, n) -- A linear combination of signals and gen-time c
 type QEQ s n = (LC s n, LC s n, LC s n)
 
 data LowDeg n = Scalar n
-                 | Linear (LC Sig.Signal n)
-                 | Quadratic (QEQ Sig.Signal n)
-                 | HighDegree
-                 deriving (Show,Eq,Ord)
+              | Linear (LC Sig.Signal n)
+              | Quadratic (QEQ Sig.Signal n)
+              | HighDegree
+              deriving (Show,Eq,Ord)
 
 lcZero :: GaloisField k => LC s k
 lcZero = (Map.empty, 0)
@@ -106,49 +111,151 @@ instance GaloisField n => Fractional (LowDeg n) where
     Scalar c1 -> Scalar (recip c1)
     _         -> HighDegree
 
+-- A base term type `b` over constant type `k`
+class (Show b, Num b, Fractional b) => BaseTerm b k | b -> k where
+  fromConst :: k -> b
+  fromSignal :: Sig.Signal -> b
+  -- will not be called with arithmetic operations
+  nonArithBinOp :: BinOp -> b -> b -> b
+  -- will not be called with negation
+  nonNegUnOp :: UnOp -> b -> b
 
-data Term k = Base (LowDeg k)
-            | Array (Arr.Array Int (Term k))
-            | Component TemplateInvocation
-            deriving (Show,Eq,Ord)
+  binOp :: BinOp -> b -> b -> b
+  binOp o = case o of
+    Add -> (+)
+    Sub -> (-)
+    Div -> (/)
+    Mul -> (*)
+    _ -> nonArithBinOp o
+
+  unOp :: UnOp -> b -> b
+  unOp o = case o of
+    UnNeg -> negate
+    _ -> nonNegUnOp o
+
+primeBinOp :: (KnownNat k) => BinOp -> Prime k -> Prime k -> Prime k
+primeBinOp o = case o of
+  IntDiv -> liftIntToPrime div
+  Mod    -> liftIntToPrime mod
+  Lt     -> liftIntPredToPrime (<)
+  Gt     -> liftIntPredToPrime (>)
+  Le     -> liftIntPredToPrime (<=)
+  Ge     -> liftIntPredToPrime (>=)
+  Eq     -> liftIntPredToPrime (==)
+  Ne     -> liftIntPredToPrime (/=)
+  And    -> liftBoolToPrime (&&)
+  Or     -> liftBoolToPrime (||)
+  BitAnd -> liftIntToPrime (Bits..&.)
+  BitOr  -> liftIntToPrime (Bits..|.)
+  BitXor -> liftIntToPrime Bits.xor
+  Pow    -> liftIntToPrime (^)
+  Shl    -> liftIntToPrime (liftShiftToInt Bits.shiftL)
+  Shr    -> liftIntToPrime (liftShiftToInt Bits.shiftR)
+  Add    -> (+)
+  Sub    -> (-)
+  Mul    -> (*)
+  Div    -> (/)
+ where
+  liftIntToPrime f a b = toP $ f (fromP a) (fromP b)
+  liftIntPredToPrime f =
+    liftIntToPrime (\a b -> fromIntegral $ fromEnum (f a b))
+  liftBoolToPrime f = liftIntPredToPrime (\a b -> f (a /= 0) (b /= 0))
+  liftShiftToInt :: (Integer -> Int -> Integer) -> Integer -> Integer -> Integer
+  liftShiftToInt a b c = a b (fromIntegral c)
+
+primeUnOp :: (KnownNat k) => UnOp -> Prime k -> Prime k
+primeUnOp o = case o of
+  UnNeg -> negate
+  BitNot ->
+    error "Bitwise negation has unclear semantics for prime field elements"
+  Not   -> \a -> if a == 0 then 1 else 0
+  UnPos -> id
+
+
+instance KnownNat k => BaseTerm (LowDeg (Prime k)) (Prime k) where
+  fromConst  = Scalar
+  fromSignal = Linear . lcSig
+  nonNegUnOp o t = case t of
+    Scalar f -> Scalar $ primeUnOp o f
+    _        -> HighDegree
+  nonArithBinOp o s t = case (s, t) of
+    (Scalar a, Scalar b) -> Scalar $ primeBinOp o a b
+    _                    -> HighDegree
+
+data AbsTerm b k = Base b
+                 | Array (Arr.Array Int (AbsTerm b k))
+                 | Component TemplateInvocation
+                 | Const k
+                 deriving (Show,Eq,Ord)
+
+type Term k = AbsTerm (LowDeg k) k
 
 termAsNum :: (Num n, PrimeField k) => Term k -> n
 termAsNum t = case t of
-  Base n -> lowDegAsNum n
+  Const n -> fromInteger $ fromP n
   _ -> error $ "term " ++ show t ++ " should be constant integer, but is not"
 
-instance GaloisField k => Num (Term k) where
+instance (BaseTerm b k, GaloisField k) => Num (AbsTerm b k) where
   s + t = case (s, t) of
     (a@Array{}, _) ->
       error $ "Cannot add array term " ++ show a ++ " to anything"
     (a@Component{}, _) ->
       error $ "Cannot add component term " ++ show a ++ " to anything"
-    (Base a, Base b) -> Base $ a + b
-    (l     , r     ) -> r + l
+    (Base  a, Base b ) -> Base $ a + b
+    (Const a, Const b) -> Const $ a + b
+    (Const a, Base b ) -> Base (b + fromConst a)
+    (l      , r      ) -> r + l
   s * t = case (s, t) of
     (a@Array{}, _) ->
       error $ "Cannot multiply array term " ++ show a ++ " with anything"
     (a@Component{}, _) ->
       error $ "Cannot multiply component term " ++ show a ++ " with anything"
-    (Base a, Base b) -> Base $ a * b
-    (l     , r     ) -> r * l
-  fromInteger n = Base $ fromInteger n
+    (Base  a, Base b ) -> Base $ a * b
+    (Const a, Const b) -> Const $ a * b
+    (Const a, Base b ) -> Base (b * fromConst a)
+    (l      , r      ) -> r * l
+  fromInteger = Const . fromInteger
   signum s = case s of
     Array{}     -> error $ "Cannot get sign of array term " ++ show s
     Component{} -> error $ "Cannot get sign of component term " ++ show s
-    Base a      -> Base $ signum a
+    Base  a     -> Base $ signum a
+    Const k     -> Const $ signum k
   abs s = case s of
     Array a     -> Base $ fromIntegral $ length a
     Component{} -> error $ "Cannot get size of component term " ++ show s
-    Base a      -> Base $ abs a
+    Base  a     -> Base $ abs a
+    Const k     -> Const $ abs k
   negate s = fromInteger (-1) * s
 
-instance GaloisField k => Fractional (Term k) where
-  fromRational = Base . fromRational
+instance (BaseTerm b k, GaloisField k) => Fractional (AbsTerm b k) where
+  fromRational = Const . fromRational
   recip t = case t of
     a@Array{}     -> error $ "Cannot invert array term " ++ show a
     a@Component{} -> error $ "Cannot invert component term " ++ show a
-    Base a        -> Base $ recip a
+    Base  a       -> Base $ recip a
+    Const a       -> Const $ recip a
+
+instance (BaseTerm b (Prime k), KnownNat k) => BaseTerm (AbsTerm b (Prime k)) (Prime k) where
+  fromConst  = Const
+  fromSignal = Base . fromSignal
+  nonNegUnOp o t = case t of
+    Const f              -> Const $ primeUnOp o f
+    Base  b              -> Base $ nonNegUnOp o b
+    Array a | o == UnPos -> Const $ fromInteger $ fromIntegral $ length a
+    _ -> error $ "Cannot perform operation " ++ show o ++ " on " ++ show t
+  nonArithBinOp o s t = case (s, t) of
+    (Const a, Const b) -> Const $ primeBinOp o a b
+    (Const a, Base b ) -> Base $ binOp o (fromConst a) b
+    (Base  a, Const b) -> Base $ binOp o a (fromConst b)
+    (Base  a, Base b ) -> Base $ binOp o a b
+    _ ->
+      error
+        $  "Cannot perform operation "
+        ++ show o
+        ++ " on "
+        ++ show s
+        ++ " and "
+        ++ show t
 
 type TemplateInvocation = (String, [Integer])
 
@@ -206,57 +313,21 @@ compLoc l = case l of
 
 compExpr :: KnownNat n => Expr -> CompState n (Term (Prime n))
 compExpr e = case e of
-  NumLit   i  -> return $ Base $ fromInteger $ fromIntegral i
+  NumLit   i  -> return $ Const $ fromInteger $ fromIntegral i
   ArrayLit es -> do
     ts <- compExprs es
     return $ Array $ Arr.listArray (0, length ts - 1) ts
   BinExpr op l r -> do
     l' <- compExpr l
     r' <- compExpr r
-    return $ f l' r'
-   where
-    f = case op of
-      Add    -> (+)
-      Sub    -> (-)
-      Mul    -> (*)
-      Div    -> (/)
-      IntDiv -> liftLowDegToTerm "//" $ liftIntToLowDeg div
-      Mod    -> liftLowDegToTerm "%" $ liftIntToLowDeg mod
-      Lt     -> liftLowDegToTerm "<" $ liftIntPredToLowDeg (<)
-      Gt     -> liftLowDegToTerm ">" $ liftIntPredToLowDeg (>)
-      Le     -> liftLowDegToTerm "<=" $ liftIntPredToLowDeg (<=)
-      Ge     -> liftLowDegToTerm "<=" $ liftIntPredToLowDeg (>=)
-      Eq     -> liftLowDegToTerm "==" $ liftIntPredToLowDeg (==)
-      Ne     -> liftLowDegToTerm "!=" $ liftIntPredToLowDeg (/=)
-      And    -> liftLowDegToTerm "&&" $ liftBoolToLowDeg (&&)
-      Or     -> liftLowDegToTerm "||" $ liftBoolToLowDeg (||)
-      BitAnd -> liftLowDegToTerm "&" $ liftIntToLowDeg (Bits..&.)
-      BitOr  -> liftLowDegToTerm "|" $ liftIntToLowDeg (Bits..|.)
-      BitXor -> liftLowDegToTerm "^" $ liftIntToLowDeg Bits.xor
-      Pow    -> liftLowDegToTerm "**" $ liftIntToLowDeg (^)
-      Shl ->
-        liftLowDegToTerm "<<" $ liftIntToLowDeg (liftShiftToInt Bits.shiftL)
-      Shr ->
-        liftLowDegToTerm ">>" $ liftIntToLowDeg (liftShiftToInt Bits.shiftR)
-    liftShiftToInt
-      :: (Integer -> Int -> Integer) -> Integer -> Integer -> Integer
-    liftShiftToInt a b c = a b (fromIntegral c)
+    return $ binOp op l' r'
   UnExpr op e' -> do
     t <- compExpr e'
-    return $ case op of
-      UnNeg -> -t
-      Not   -> liftUnLowDegToTerm
-        "!"
-        (liftUnIntToLowDeg (\c -> if c /= 0 then 0 else 1))
-        t
-      UnPos -> case t of
-        Array ts -> Base $ fromInteger $ fromIntegral $ length ts
-        _        -> t
-      BitNot -> error "Bitwise negation has unclear semantics" -- The sematics of this are unclear.
+    return $ unOp op t
   UnMutExpr op loc -> do
     lval <- compLoc loc
     term <- gets (load lval)
-    let term'  = term + Base (Scalar $ toP $ opToOffset op)
+    let term' = term + Const (toP $ opToOffset op)
     modify (store lval term')
     case unMutOpTime op of
       Post -> return term
@@ -265,15 +336,15 @@ compExpr e = case e of
     opToOffset o = case unMutOpOp o of
       Inc -> 1
       Dec -> -1
-  Ite c l r        -> do
+  Ite c l r -> do
     condT <- compExpr c
     caseT <- compExpr l
     caseF <- compExpr r
     return $ case condT of
-      Base (Scalar 0) -> caseF
-      Base (Scalar _) -> caseT
-      Base _          -> Base HighDegree
-      t               -> error $ "Cannot condition on term " ++ show t
+      Const 0 -> caseF
+      Const _ -> caseT
+      Base  _ -> Base HighDegree
+      t       -> error $ "Cannot condition on term " ++ show t
   LValue loc -> do
     -- TODO(aozdemir): enforce no ctx change for sanity?
     lt <- compLoc loc
@@ -294,7 +365,7 @@ compExpr e = case e of
       ++ show name
     let callState = empty { callables = callables c
                           , cache     = cache c
-                          , lowDegEnv = Map.fromList (zip formalArgs tArgs)
+                          , lowDegEnv = Map.fromList $ zip formalArgs tArgs
                           , ids       = Map.fromList $ map (, IKVar) formalArgs
                           }
     if isFn
@@ -344,8 +415,9 @@ compStatement s = do
         -- Construct the zero term
         let zt = lt - rt
         case zt of
-          Base (Scalar 0 ) -> modify id
-          Base (Linear lc) -> modify
+          Const 0           -> pure ()
+          Base  (Scalar 0 ) -> pure ()
+          Base  (Linear lc) -> modify
             $ \c -> c { constraints = (lcZero, lcZero, lc) : constraints c }
           Base (Quadratic q) ->
             modify $ \c -> c { constraints = q : constraints c }
@@ -355,7 +427,7 @@ compStatement s = do
         compStatements [Assign l e, Constrain (LValue l) e]
       VarDeclaration name dims ini -> do
         ts <- compExprs dims
-        modify (alloc name IKVar $ termMultiDimArray (Base (Scalar 0)) ts)
+        modify (alloc name IKVar $ termMultiDimArray (Const 0) ts)
         case ini of
           Just e  -> compStatement (Assign (LocalLocation (name, [])) e)
           Nothing -> modify id
@@ -371,33 +443,33 @@ compStatement s = do
           )
       SubDeclaration name dims ini -> do
         ts <- compExprs dims
-        modify (alloc name IKComp (termMultiDimArray (Base (Scalar 0)) ts))
+        modify (alloc name IKComp (termMultiDimArray (Const 0) ts))
         case ini of
           Just e  -> compStatement (Assign (LocalLocation (name, [])) e)
           Nothing -> return ()
       If cond true false -> do
         tcond <- compExpr cond
         case tcond of
-          Base (Scalar 0) -> maybe (return ()) compStatements false
-          Base (Scalar _) -> compStatements true
+          Const 0 -> maybe (return ()) compStatements false
+          Const _ -> compStatements true
           _ ->
             error
               $  "Invalid conditional term "
               ++ show tcond
-              ++ " in "
+              ++ " in if condition "
               ++ show cond
       While cond block -> do
         tcond <- compExpr cond
         case tcond of
-          Base (Scalar 0) -> return ()
-          Base (Scalar _) -> do
+          Const 0 -> return ()
+          Const _ -> do
             compStatements block
             compStatement (While cond block)
           _ ->
             error
               $  "Invalid conditional term "
               ++ show tcond
-              ++ " in "
+              ++ " in while condition "
               ++ show cond
       For ini cond step block ->
         compStatements [ini, While cond (block ++ [step])]
@@ -411,6 +483,7 @@ compStatement s = do
         t <- compExpr e
         return $ trace (show e ++ ": " ++ show t) ()
       Return e -> do
+
         t <- compExpr e
         modify (\c -> c { returning = Just t })
         return ()
@@ -551,73 +624,10 @@ termMultiDimArray
   :: KnownNat k => Term (Prime k) -> [Term (Prime k)] -> Term (Prime k)
 termMultiDimArray = foldr
   (\d acc -> case d of
-    Base (Scalar n) -> Array $ Arr.listArray (0, i - 1) (replicate i acc)
+    Const n -> Array $ Arr.listArray (0, i - 1) (replicate i acc)
       where i = fromIntegral $ fromP n
     _ -> error $ "Illegal dimension " ++ show d
   )
-
--- lifting integer/boolean functions to scalar functions
-liftIntToLowDeg
-  :: KnownNat n
-  => (Integer -> Integer -> Integer)
-  -> LowDeg (Prime n)
-  -> LowDeg (Prime n)
-  -> LowDeg (Prime n)
-liftIntToLowDeg f a b = case (a, b) of
-  (Scalar c1, Scalar c2) -> Scalar $ toP $ f (fromP c1) (fromP c2)
-  _                      -> HighDegree
-
-liftLowDegToTerm
-  :: KnownNat n
-  => String
-  -> (LowDeg (Prime n) -> LowDeg (Prime n) -> LowDeg (Prime n))
-  -> Term (Prime n)
-  -> Term (Prime n)
-  -> Term (Prime n)
-liftLowDegToTerm name f s t = case (s, t) of
-  (Base a, Base b) -> Base $ f a b
-  _ ->
-    error
-      $  "Cannot perform operation \""
-      ++ name
-      ++ "\" on terms "
-      ++ show s
-      ++ " and "
-      ++ show t
-
-liftIntPredToLowDeg
-  :: KnownNat n
-  => (Integer -> Integer -> Bool)
-  -> LowDeg (Prime n)
-  -> LowDeg (Prime n)
-  -> LowDeg (Prime n)
-liftIntPredToLowDeg f = liftIntToLowDeg (\a b -> if f a b then 1 else 0)
-
-liftBoolToLowDeg
-  :: KnownNat n
-  => (Bool -> Bool -> Bool)
-  -> LowDeg (Prime n)
-  -> LowDeg (Prime n)
-  -> LowDeg (Prime n)
-liftBoolToLowDeg f =
-  liftIntToLowDeg (\a b -> if f (a /= 0) (b /= 0) then 1 else 0)
-
-liftUnLowDegToTerm
-  :: KnownNat n
-  => String
-  -> (LowDeg (Prime n) -> LowDeg (Prime n))
-  -> Term (Prime n)
-  -> Term (Prime n)
-liftUnLowDegToTerm name f t = case t of
-  Base a -> Base $ f a
-  _ -> error $ "Cannot perform operation \"" ++ name ++ "\" on term " ++ show t
-
--- Lifts a fun: Integer -> Integer to one that operates over gen-time constant terms
-liftUnIntToLowDeg
-  :: KnownNat k => (Integer -> Integer) -> LowDeg (Prime k) -> LowDeg (Prime k)
-liftUnIntToLowDeg f s = case s of
-  Scalar c -> (Scalar . toP . f . fromP) c
-  _        -> HighDegree
 
 compMainCtx :: KnownNat k => MainCircuit -> CompCtx (Prime k)
 compMainCtx m =

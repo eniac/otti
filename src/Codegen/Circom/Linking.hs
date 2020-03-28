@@ -39,6 +39,7 @@ extractComponents
   -> Seq.Seq (IndexedIdent, Comp.TemplateInvocation)
 extractComponents idxs name term = case term of
   Comp.Base      _ -> Seq.empty
+  Comp.Const     _ -> Seq.empty
   Comp.Component i -> Seq.singleton ((name, idxs), i)
   Comp.Array a ->
     foldMap (\(i, t) -> extractComponents (i : idxs) name t) $ Arr.assocs a
