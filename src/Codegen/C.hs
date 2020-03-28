@@ -49,6 +49,8 @@ genExprSMT expr = case expr of
   CVar id _               -> genVarSMT id
   CConst c                -> genNumSMT c
   CAssign op lhs rhs _    -> do
+    -- It's a storing assignment (e.g., x[4] = 4)
+    -- It's a simple assignment (e.g., x = 5)
     lhs' <- genExprSMT lhs
     rhs' <- genExprSMT rhs
     getAssignOp op lhs' rhs'
@@ -90,7 +92,10 @@ getUnaryOp op arg = liftIR $ case op of
     one <- newInt (cppType arg) 1
     cppAdd one arg >>= smtAssign arg
     return arg
-  CPostDecOp -> do 
+  CPostDecOp -> do
+    one <- newInt (cppType arg) 1
+    cppSub arg one >>= smtAssign arg
+    return arg
   -- CAdrOp ->
   -- The '*' operation
   CIndOp    -> smtLoad arg
@@ -170,7 +175,7 @@ genStmtSMT stmt = case stmt of
         CBlockStmt stmt -> genStmtSMT stmt
         CBlockDecl decl -> genDeclSMT decl
         CNestedFunDef{} -> error "Nested function definitions not supported"
-  CExpr{}               -> liftIO $ print "expr"
+  CExpr e _             -> when (isJust e) $ void $ genExprSMT $ fromJust e
   CIf cond trueBr falseBr _ -> do
     trueCond <- genExprSMT cond
     falseCond <- liftIR $ cppBitwiseNeg trueCond

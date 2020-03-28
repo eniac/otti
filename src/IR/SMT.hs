@@ -204,9 +204,14 @@ getIdx :: SMTNode -- ^ Array
        -> SMTNode -- ^ Index
        -> IR SMTNode -- ^ Element
 getIdx arr idx = do
-  result <- irGetIdx arr idx
-  undef <- SMT.or (u arr) (u idx)
-  return $ mkNode result (arrayBaseType $ t arr) undef
+  let ty = t arr
+  case ty of
+    Array{} -> do
+      result <- irGetIdx arr idx
+      undef <- SMT.or (u arr) (u idx)
+      return $ mkNode result (arrayBaseType $ t arr) undef
+    _ | isPointer ty -> do
+      error "Pointer lookup"
 
 setIdx :: SMTNode -- ^ Array
        -> SMTNode -- ^ Index
@@ -247,7 +252,6 @@ smtLoad addr = do
 
 smtStore :: SMTNode -> SMTNode -> SMTNode -> IR ()
 smtStore addr val guard = irStore addr val $ Just guard
-
 
 -- Types
 
