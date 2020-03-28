@@ -78,16 +78,19 @@ genExprSMT expr = case expr of
 
 getUnaryOp :: CUnaryOp -> SMTNode -> Compiler SMTNode
 getUnaryOp op arg = liftIR $ case op of
-  CPreIncOp -> error ""
-    -- one <- bvNumOfWidth arg 1
-    -- cppAdd one arg >>= smtAssign arg
-    -- return arg
-  -- cpredecop ->
+  CPreIncOp -> do
+    one <- newInt (cppType arg) 1
+    cppAdd one arg >>= smtAssign arg
+    return arg
+  CPreDecOp -> do
+    one <- newInt (cppType arg) 1
+    cppSub arg one >>= smtAssign arg
+    return arg
   CPostIncOp -> do
     one <- newInt (cppType arg) 1
     cppAdd one arg >>= smtAssign arg
     return arg
-  -- CPostDecOp ->
+  CPostDecOp -> do 
   -- CAdrOp ->
   -- The '*' operation
   CIndOp    -> smtLoad arg
