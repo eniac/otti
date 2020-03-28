@@ -1,7 +1,6 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -15,8 +14,10 @@ module Codegen.Circom.Compilation
   , AbsTerm(..)
   , Term
   , CompState(..)
+  , LowDegCtx(..)
+  , LowDegCompCtx
   , empty
-  , runCompState
+  , runLowDegCompState
   , compExprs
   , termAsNum
   )
@@ -75,12 +76,6 @@ qeqScale k (a2, b2, c2) = (lcScale k a2, lcScale k b2, lcScale k c2)
 qeqShift :: GaloisField k => k -> QEQ s k -> QEQ s k
 qeqShift k (a2, b2, c2) = (lcShift k a2, lcShift k b2, lcShift k c2)
 
-lowDegAsNum :: (Num n, PrimeField k) => LowDeg k -> n
-lowDegAsNum t = case t of
-  Scalar n -> fromInteger $ fromP n
-  _ ->
-    error $ "low-degree term " ++ show t ++ " should be constant, but is not"
-
 instance GaloisField n => Num (LowDeg n) where
   s + t = case (s, t) of
     (HighDegree  , _          ) -> HighDegree
@@ -133,6 +128,12 @@ class (Show b, Num b, Fractional b) => BaseTerm b k | b -> k where
     UnNeg -> negate
     _ -> nonNegUnOp o
 
+class (BaseTerm b k) => BaseCtx c b k | c -> b where
+  assert :: b -> c -> c
+  emptyCtx :: c
+
+newtype LowDegCtx k = LowDegCtx { constraints :: [QEQ Sig.Signal k] }
+
 primeBinOp :: (KnownNat k) => BinOp -> Prime k -> Prime k -> Prime k
 primeBinOp o = case o of
   IntDiv -> liftIntToPrime div
@@ -182,6 +183,14 @@ instance KnownNat k => BaseTerm (LowDeg (Prime k)) (Prime k) where
     (Scalar a, Scalar b) -> Scalar $ primeBinOp o a b
     _                    -> HighDegree
 
+instance KnownNat k => BaseCtx (LowDegCtx (Prime k)) (LowDeg (Prime k)) (Prime k) where
+  assert t (LowDegCtx cs) = case t of
+    Scalar    0  -> LowDegCtx cs
+    Linear    lc -> LowDegCtx ((lcZero, lcZero, lc) : cs)
+    Quadratic q  -> LowDegCtx (q : cs)
+    _            -> error $ "Cannot constain " ++ show t ++ " to zero"
+  emptyCtx = LowDegCtx []
+
 data AbsTerm b k = Base b
                  | Array (Arr.Array Int (AbsTerm b k))
                  | Component TemplateInvocation
@@ -190,7 +199,7 @@ data AbsTerm b k = Base b
 
 type Term k = AbsTerm (LowDeg k) k
 
-termAsNum :: (Num n, PrimeField k) => Term k -> n
+termAsNum :: (Show b, Num n, PrimeField k) => AbsTerm b k -> n
 termAsNum t = case t of
   Const n -> fromInteger $ fromP n
   _ -> error $ "term " ++ show t ++ " should be constant integer, but is not"
@@ -262,46 +271,61 @@ type TemplateInvocation = (String, [Integer])
 data IdKind = IKVar | IKSig | IKComp deriving (Show,Eq,Ord)
 
 
-data CompCtx n = CompCtx { constraints :: [QEQ Sig.Signal n]
-                         , lowDegEnv :: Map.Map String (Term n)
-                         , signals :: Map.Map String (SignalKind, [Int])
-                         , type_ :: Typing.InstanceType
-                         , ids :: Map.Map String IdKind
-                         , returning :: Maybe (Term n)
-                         --                             isFn, frmlArgs, code
-                         , callables :: Map.Map String (Bool, [String], Block)
-                         , cache :: Map.Map TemplateInvocation (CompCtx n)
-                         } deriving (Show)
+data CompCtx c b n = CompCtx { lowDegEnv :: Map.Map String (AbsTerm b n)
+                             , baseCtx :: c
+                             , signals :: Map.Map String (SignalKind, [Int])
+                             , type_ :: Typing.InstanceType
+                             , ids :: Map.Map String IdKind
+                             , returning :: Maybe (AbsTerm b n)
+                             --                             isFn, frmlArgs, code
+                             , callables :: Map.Map String (Bool, [String], Block)
+                             , cache :: Map.Map TemplateInvocation (CompCtx c b n)
+                             } deriving (Show)
 
-empty :: CompCtx n
-empty = CompCtx { constraints = []
-                , lowDegEnv   = Map.empty
-                , signals     = Map.empty
-                , type_       = Typing.emptyType
-                , ids         = Map.empty
-                , returning   = Nothing
-                , callables   = Map.empty
-                , cache       = Map.empty
+type LowDegCompCtx n = CompCtx (LowDegCtx n) (LowDeg n) n
+
+empty :: (BaseCtx c b n) => CompCtx c b n
+empty = CompCtx { lowDegEnv = Map.empty
+                , baseCtx   = emptyCtx
+                , signals   = Map.empty
+                , type_     = Typing.emptyType
+                , ids       = Map.empty
+                , returning = Nothing
+                , callables = Map.empty
+                , cache     = Map.empty
                 }
 
 data LTerm = LTermLocal Sig.IndexedIdent
            | LTermForeign Sig.IndexedIdent Sig.IndexedIdent
            deriving (Show,Eq,Ord)
 
-newtype CompState n a = CompState (State (CompCtx (Prime n)) a)
-    deriving (Functor, Applicative, Monad, MonadState (CompCtx (Prime n)))
+newtype CompState c b n a = CompState (State (CompCtx c b (Prime n)) a)
+    deriving (Functor, Applicative, Monad, MonadState (CompCtx c b (Prime n)))
 
 runCompState
-  :: KnownNat n => CompState n a -> CompCtx (Prime n) -> (a, CompCtx (Prime n))
+  :: KnownNat n
+  => CompState c b n a
+  -> CompCtx c b (Prime n)
+  -> (a, CompCtx c b (Prime n))
 runCompState (CompState s) = runState s
 
-compIndexedIdent :: KnownNat n => IndexedIdent -> CompState n Sig.IndexedIdent
+runLowDegCompState
+  :: KnownNat n
+  => CompState (LowDegCtx (Prime n)) (LowDeg (Prime n)) n a
+  -> LowDegCompCtx (Prime n)
+  -> (a, LowDegCompCtx (Prime n))
+runLowDegCompState = runCompState
+
+compIndexedIdent
+  :: (BaseCtx c b (Prime n), KnownNat n)
+  => IndexedIdent
+  -> CompState c b n Sig.IndexedIdent
 compIndexedIdent (name, dims) = do
   dimTerms <- compExprs dims
   let dimInts = map termAsNum dimTerms
   return (name, dimInts)
 
-compLoc :: KnownNat n => Location -> CompState n LTerm
+compLoc :: (BaseCtx c b (Prime n), KnownNat n) => Location -> CompState c b n LTerm
 compLoc l = case l of
   LocalLocation a -> do
     at <- compIndexedIdent a
@@ -311,7 +335,10 @@ compLoc l = case l of
     bt <- compIndexedIdent b
     return $ LTermForeign at bt
 
-compExpr :: KnownNat n => Expr -> CompState n (Term (Prime n))
+compExpr
+  :: (BaseCtx c b (Prime n), KnownNat n)
+  => Expr
+  -> CompState c b n (AbsTerm b (Prime n))
 compExpr e = case e of
   NumLit   i  -> return $ Const $ fromInteger $ fromIntegral i
   ArrayLit es -> do
@@ -343,7 +370,7 @@ compExpr e = case e of
     return $ case condT of
       Const 0 -> caseF
       Const _ -> caseT
-      Base  _ -> Base HighDegree
+      -- TODO: allow: Base  _ -> Base HighDegree
       t       -> error $ "Cannot condition on term " ++ show t
   LValue loc -> do
     -- TODO(aozdemir): enforce no ctx change for sanity?
@@ -390,13 +417,18 @@ compExpr e = case e of
             (\cc -> cc { cache = Map.insert invocation strippedCtx newCache })
         return $ Component invocation
 
-compExprs :: KnownNat n => [Expr] -> CompState n [Term (Prime n)]
+compExprs
+  :: (BaseCtx c b (Prime n), KnownNat n)
+  => [Expr]
+  -> CompState c b n [AbsTerm b (Prime n)]
 compExprs = mapM compExpr
 
-compStatements :: KnownNat n => [Statement] -> CompState n ()
+compStatements
+  :: (BaseCtx c b (Prime n), KnownNat n) => [Statement] -> CompState c b n ()
 compStatements = void . mapM compStatement
 
-compStatement :: KnownNat n => Statement -> CompState n ()
+compStatement
+  :: (BaseCtx c b (Prime n), KnownNat n) => Statement -> CompState c b n ()
 compStatement s = do
   ctx <- get
   if Maybe.isJust (returning ctx)
@@ -415,12 +447,7 @@ compStatement s = do
         -- Construct the zero term
         let zt = lt - rt
         case zt of
-          Const 0           -> pure ()
-          Base  (Scalar 0 ) -> pure ()
-          Base  (Linear lc) -> modify
-            $ \c -> c { constraints = (lcZero, lcZero, lc) : constraints c }
-          Base (Quadratic q) ->
-            modify $ \c -> c { constraints = q : constraints c }
+          Base  b -> modify $ \c -> c { baseCtx = assert b (baseCtx c) }
           _ -> error $ "Cannot constain " ++ show zt ++ " to zero"
       -- TODO Not quite right: evals twice
       AssignConstrain l e ->
@@ -489,12 +516,17 @@ compStatement s = do
         return ()
 
 -- Gets a value from a location
-load :: forall k . KnownNat k => LTerm -> CompCtx (Prime k) -> Term (Prime k)
+load
+  :: forall c b k
+   . (BaseTerm b (Prime k), KnownNat k)
+  => LTerm
+  -> CompCtx c b (Prime k)
+  -> AbsTerm b (Prime k)
 load loc ctx = case loc of
   LTermLocal (name, idxs) -> case ids ctx Map.!? name of
     Just IKVar  -> extract idxs (lowDegEnv ctx Map.! name)
     Just IKComp -> extract idxs (lowDegEnv ctx Map.! name)
-    Just IKSig  -> Base $ Linear $ lcSig $ either
+    Just IKSig  -> Base $ fromSignal $ either
       error
       (const $ Sig.SigLocal (name, idxs))
       (checkDims idxs dims)
@@ -507,7 +539,7 @@ load loc ctx = case loc of
       Component invoc ->
         let forCtx = cache ctx Map.! invoc
         in  case signals forCtx Map.!? fst sigLoc of
-              Just (k, dims) | isVisible k -> Base $ Linear $ lcSig $ either
+              Just (k, dims) | isVisible k -> Base $ fromSignal $ either
                 error
                 (const $ Sig.SigForeign (name, idxs) sigLoc)
                 (checkDims (snd sigLoc) dims)
@@ -524,12 +556,12 @@ load loc ctx = case loc of
     Just _  -> error $ "Identifier " ++ show name ++ " is not a component"
     Nothing -> error $ "Identifier " ++ show name ++ " is unknown"
 
-subscript :: Int -> Term (Prime k) -> Term (Prime k)
+subscript :: Show b => Int -> AbsTerm b (Prime k) -> AbsTerm b (Prime k)
 subscript i t = case t of
   Array a -> a Arr.! i
   _       -> error $ "Cannot index term " ++ show t
 
-extract :: [Int] -> Term (Prime k) -> Term (Prime k)
+extract :: Show b => [Int] -> AbsTerm b (Prime k) -> AbsTerm b (Prime k)
 extract = flip $ foldl (flip subscript)
 
 checkDims :: [Int] -> [Int] -> Either String ()
@@ -548,13 +580,13 @@ checkDims idxs dims = if length idxs == length dims
 
 -- allocate a name with a term
 alloc
-  :: forall k
+  :: forall c b k
    . KnownNat k
   => String
   -> IdKind
-  -> Term (Prime k)
-  -> CompCtx (Prime k)
-  -> CompCtx (Prime k)
+  -> AbsTerm b (Prime k)
+  -> CompCtx c b (Prime k)
+  -> CompCtx c b (Prime k)
 -- Stores a term in a location
 alloc name kind term ctx = if Map.member name (ids ctx)
   then error $ "Identifier " ++ show name ++ " already used"
@@ -563,12 +595,12 @@ alloc name kind term ctx = if Map.member name (ids ctx)
            }
 
 store
-  :: forall k
-   . KnownNat k
+  :: forall c b k
+   . (Show b, KnownNat k)
   => LTerm
-  -> Term (Prime k)
-  -> CompCtx (Prime k)
-  -> CompCtx (Prime k)
+  -> AbsTerm b (Prime k)
+  -> CompCtx c b (Prime k)
+  -> CompCtx c b (Prime k)
 store loc term ctx = case loc of
   LTermLocal (name, idxs) -> case lowDegEnv ctx Map.!? name of
     Just t -> ctx
@@ -585,9 +617,9 @@ store loc term ctx = case loc of
 
     modifyIn
       :: [Int]
-      -> (Term (Prime k) -> Term (Prime k))
-      -> Term (Prime k)
-      -> Term (Prime k)
+      -> (AbsTerm b (Prime k) -> AbsTerm b (Prime k))
+      -> AbsTerm b (Prime k)
+      -> AbsTerm b (Prime k)
     modifyIn is f t = case is of
       []      -> f t
       i : is' -> case t of
@@ -621,7 +653,10 @@ store loc term ctx = case loc of
     Nothing -> error $ "Identifier " ++ show name ++ " is unknown"
 
 termMultiDimArray
-  :: KnownNat k => Term (Prime k) -> [Term (Prime k)] -> Term (Prime k)
+  :: (Show b, KnownNat k)
+  => AbsTerm b (Prime k)
+  -> [AbsTerm b (Prime k)]
+  -> AbsTerm b (Prime k)
 termMultiDimArray = foldr
   (\d acc -> case d of
     Const n -> Array $ Arr.listArray (0, i - 1) (replicate i acc)
@@ -629,7 +664,7 @@ termMultiDimArray = foldr
     _ -> error $ "Illegal dimension " ++ show d
   )
 
-compMainCtx :: KnownNat k => MainCircuit -> CompCtx (Prime k)
+compMainCtx :: KnownNat k => MainCircuit -> CompCtx (LowDegCtx (Prime k)) (LowDeg (Prime k)) (Prime k)
 compMainCtx m =
   snd
     $ runCompState (compStatement (SubDeclaration "main" [] (Just (main m))))

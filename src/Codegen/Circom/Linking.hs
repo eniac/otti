@@ -50,12 +50,12 @@ link
   :: KnownNat n
   => Namespace
   -> Comp.TemplateInvocation
-  -> Comp.CompCtx (Prime n)
+  -> Comp.LowDegCompCtx (Prime n)
   -> R1CS n
 link namespace invocation ctx =
   let c = cache ctx Map.! invocation
       cons =
-          Seq.fromList $ map (sigMapQeq $ joinName namespace) $ Comp.constraints c
+          Seq.fromList $ map (sigMapQeq $ joinName namespace) $ Comp.constraints $ Comp.baseCtx c
       components =
           foldMap (uncurry $ extractComponents []) $ Map.assocs $ Comp.lowDegEnv c
   in  mappend
@@ -68,7 +68,7 @@ linkMain m =
   in  case AST.main m of
         AST.Call name args ->
           let (tArgs, _) =
-                  Comp.runCompState (Comp.compExprs @k args) Comp.empty
+                  Comp.runLowDegCompState @k (Comp.compExprs args) Comp.empty
               iArgs :: [Integer] = map termAsNum tArgs
               invocation         = (name, iArgs)
           in  link [("main", [])] invocation c
