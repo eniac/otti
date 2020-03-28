@@ -83,7 +83,10 @@ getUnaryOp op arg = liftIR $ case op of
     -- cppAdd one arg >>= smtAssign arg
     -- return arg
   -- cpredecop ->
-  -- CPostIncOp ->
+  CPostIncOp -> do
+    one <- newInt (cppType arg) 1
+    cppAdd one arg >>= smtAssign arg
+    return arg
   -- CPostDecOp ->
   -- CAdrOp ->
   -- The '*' operation
@@ -94,7 +97,7 @@ getUnaryOp op arg = liftIR $ case op of
   CCompOp   -> cppNeg arg
   -- Logical negation: NOT CORRECT
   CNegOp    -> cppNeg arg
-  _         -> error "Not supported"
+  _         -> error $ unwords [show op, "not supported"]
 
 getBinOp :: CBinaryOp -> SMTNode -> SMTNode -> Compiler SMTNode
 getBinOp op left right = liftIR $ case op of

@@ -20,7 +20,6 @@ module IR.SMT ( SMTNode
                 -- * Variables
               , newVar
               , newInt
-              , SMT.bvNumOfWidth
               , newIntStruct
               , newStruct
               , newIntArray
@@ -33,6 +32,7 @@ module IR.SMT ( SMTNode
               , getField
               , setField
                 -- * C++ IR
+              , cppType
               , cppNeg
               , cppBitwiseNeg
               , cppEq
@@ -248,6 +248,11 @@ smtLoad addr = do
 smtStore :: SMTNode -> SMTNode -> SMTNode -> IR ()
 smtStore addr val guard = irStore addr val $ Just guard
 
+
+-- Types
+
+cppType :: SMTNode -> Type
+cppType = t
 
 -- Unary operations
 
