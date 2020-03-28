@@ -1,6 +1,7 @@
 import           BenchUtils
 import           Codegen.SMTGenTest
 import           IR.SMTTest
+import           IR.TySmtTest
 import           Parser.CTest
 import           Parser.WASMTest
 import           Targets.SMT
@@ -17,6 +18,7 @@ allTests = [ parserTests
            , smtTests
            , irTests
            , codegenTests
+           , tySmtTests
            ]
 
 main :: IO ()

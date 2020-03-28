@@ -35,6 +35,10 @@ library:
   - language-c >= 0.8.3
   - llvm-hs >= 9.0.1
   - llvm-hs-pure >= 9.0.0
+  - ghc >= 8.3
+  - bv >= 0.5
+  - ghc-typelits-knownnat >= 0.7
+  - data-binary-ieee754 >= 0.4
 
 executables:
   compiler-exe:
@@ -67,4 +71,5 @@ tests:
     - bytestring
     - mtl >= 2.2.2
     - containers >= 0.6
-    - z3 >= 4.3.1    
+    - z3 >= 4.3.1
+    - bv >= 0.5
