@@ -8,7 +8,7 @@ import           IR.SMTIRMonad
 import           Targets.SMT   (Node, SMTResult)
 import qualified Targets.SMT   as SMT
 
-class (Typed b, Eq b) => IRNode a b | a -> b where
+class (Typed b, Eq b, Show b) => IRNode a b | a -> b where
   n :: a -> Node
   t :: a -> b
 
@@ -151,7 +151,9 @@ irLoad :: (IRNode a b)
        => a
        -> IR Node
 irLoad addr = do
-  (unless $ isPointer $ t addr) $ error "Must load from pointer"
+  (unless $ isPointer $ t addr) $ error $ unwords [ "Must load from pointer, not"
+                                                  , show $ t addr
+                                                  ]
   memStrat <- getMemoryStrategy
   case memStrat of
     Flat blockSize -> do

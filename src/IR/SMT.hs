@@ -26,8 +26,9 @@ module IR.SMT ( SMTNode
               , newArray
               , newPtr
               , newDouble
-                -- * Struct
+                -- * Struct, pointer, etc
               , getIdx
+              , getIdxPointer
               , setIdx
               , getField
               , setField
@@ -204,14 +205,19 @@ getIdx :: SMTNode -- ^ Array
        -> SMTNode -- ^ Index
        -> IR SMTNode -- ^ Element
 getIdx arr idx = do
-  let ty = t arr
-  case ty of
-    Array{} -> do
-      result <- irGetIdx arr idx
-      undef <- SMT.or (u arr) (u idx)
-      return $ mkNode result (arrayBaseType $ t arr) undef
-    _ | isPointer ty -> do
-      error "Pointer lookup"
+  unless (isArray $ t arr) $ error "Expected array in getIdx"
+  result <- irGetIdx arr idx
+  undef <- SMT.or (u arr) (u idx)
+  return $ mkNode result (arrayBaseType $ t arr) undef
+
+getIdxPointer :: SMTNode -- ^ Pointer
+              -> SMTNode -- ^ Index
+              -> IR SMTNode -- ^ New pointer
+getIdxPointer ptr idx = do
+  unless (isPointer $ t ptr) $ error "Expected pointer in getIdxPointer"
+  jumpSize <- newInt (cppType idx) (fromIntegral $ numBits $ pointeeType $ t ptr)
+  offset <- cppMul jumpSize idx
+  cppAdd ptr offset
 
 setIdx :: SMTNode -- ^ Array
        -> SMTNode -- ^ Index
@@ -335,7 +341,9 @@ binOpWrapper left right op overflowOp opName = do
   result <- liftSMT $ op (n left') (n right')
   let ty = if t left' == t right'
            then t left'
-           else if isSignedInt $ t left' then t left' else t right'
+           else if isPointer $ t left' then t left'
+                else if isPointer $ t right' then t right'
+                     else if isSignedInt $ t left' then t left' else t right'
   return $ mkNode result ty canOverflow
 
 cppOr, cppXor, cppAnd, cppSub, cppMul, cppAdd, cppMin, cppMax, cppDiv, cppRem :: SMTNode -> SMTNode -> IR SMTNode

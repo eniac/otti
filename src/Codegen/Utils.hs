@@ -5,10 +5,25 @@ import           Codegen.CompilerMonad
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 
+-- | When expr appears on the lhs of an assignment, the assignment is actually a store
+isStore :: (Show a) => CExpression a -> Bool
+isStore expr = case expr of
+                 CIndex{}          -> True
+                 CUnary CIndOp _ _ -> True
+                 CVar{}            -> False
+                 _ -> error $ unwords ["Unexpected assignment with", show expr]
+
+--
+
 ctype :: (Show a) => [CDeclarationSpecifier a] -> [CDerivedDeclarator a] -> Compiler Type
 ctype tys ptrs = do
   ty <- baseTypeFromSpecs tys
   return $ getTy ty ptrs
+
+refTy :: Type -> Type
+refTy (Ptr32 ty) = ty
+refTy (Ptr64 ty) = ty
+refTy ty         = error $ unwords ["Expected pointer ty in refTy", show ty]
 
 -- helpers to be renamed
 

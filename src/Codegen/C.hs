@@ -44,25 +44,47 @@ genNumSMT c = case c of
   CFloatConst (CFloat str) _   -> error ""
   CStrConst (CString str _) _  -> error ""
 
+genAddrSMT :: (Show a) => CExpression a -> Compiler SMTNode
+genAddrSMT expr = case expr of
+  CUnary CIndOp addr _ -> genExprSMT addr
+  CIndex base idx _    -> do
+    base' <- genExprSMT base
+    idx' <- genExprSMT idx
+    liftIR $ getIdxPointer base' idx'
+  _                    -> error "Not yet impled "
+
 genExprSMT :: (Show a) => CExpression a -> Compiler SMTNode
 genExprSMT expr = case expr of
   CVar id _               -> genVarSMT id
   CConst c                -> genNumSMT c
   CAssign op lhs rhs _    -> do
-    -- It's a storing assignment (e.g., x[4] = 4)
-    -- It's a simple assignment (e.g., x = 5)
-    lhs' <- genExprSMT lhs
-    rhs' <- genExprSMT rhs
-    getAssignOp op lhs' rhs'
+    if isStore lhs
+    then do
+      -- It's a storing assignment (e.g., x[5] = 6)
+      guard <- getCurrentGuardNode
+      addr <- genAddrSMT lhs
+      value <- genExprSMT lhs
+      liftIR $ smtStore addr value guard
+      return value
+    else do
+      -- It's a simple assignment (e.g., x = 5)
+      lhs' <- genExprSMT lhs
+      rhs' <- genExprSMT rhs
+      getAssignOp op lhs' rhs'
   CBinary op left right _ -> do
     left' <- genExprSMT left
     right' <- genExprSMT right
     getBinOp op left' right'
   CUnary op arg _ -> genExprSMT arg >>= getUnaryOp op
-  CIndex arr index _ -> do
-    arr' <- genExprSMT arr
+  CIndex base index _ -> do
+    base' <- genExprSMT base
     index' <- genExprSMT index
-    liftIR $ getIdx arr' index'
+    let baseTy = cppType base'
+    case baseTy of
+      Array{}          -> liftIR $ getIdx base' index'
+      _ | isPointer baseTy -> liftIR $ do
+        addr <- getIdxPointer base' index'
+        smtLoad addr
   CMember struct field _ _ -> do
     struct' <- genExprSMT struct
     liftIR $ getField struct' $ fieldToInt field
