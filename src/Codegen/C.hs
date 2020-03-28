@@ -21,8 +21,8 @@ typedefSMT :: (Show a)
            -> [CDerivedDeclarator a]
            -> Compiler ()
 typedefSMT (Ident name _ _) tys ptrs = do
-  ty <- baseTypeFromSpecs tys
-  typedef name $ getTy ty ptrs
+  ty <- ctype tys ptrs
+  typedef name ty
 
 declareVarSMT :: (Show a)
               => Ident
@@ -30,8 +30,8 @@ declareVarSMT :: (Show a)
               -> [CDerivedDeclarator a]
               -> Compiler ()
 declareVarSMT (Ident name _ _) tys ptrs = do
-  ty <- baseTypeFromSpecs tys
-  declareVar name $ getTy ty ptrs
+  ty <- ctype tys ptrs
+  declareVar name ty
 
 genVarSMT :: Ident -> Compiler SMTNode
 genVarSMT (Ident name _ _) = getNodeFor name
@@ -226,6 +226,14 @@ genDeclSMT (CDecl specs decls _) = do
 genFunDef :: (Show a) => CFunctionDef a -> Compiler ()
 genFunDef f = do
   -- Declare the function and setup the return value
+  let name = nameFromFunc f
+      ptrs = ptrsFromFunc f
+      tys  = baseTypeFromFunc f
+  retTy <- ctype tys ptrs
+  returnValName <- getReturnValName name
+  returnVal <- liftIR $ newVar retTy returnValName
+  pushFunction name returnVal
+  -- Declare the arguments and execute the body
   forM_ (argsFromFunc f) genDeclSMT
   let body = bodyFromFunc f
   case body of

@@ -5,6 +5,13 @@ import           Codegen.CompilerMonad
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 
+ctype :: (Show a) => [CDeclarationSpecifier a] -> [CDerivedDeclarator a] -> Compiler Type
+ctype tys ptrs = do
+  ty <- baseTypeFromSpecs tys
+  return $ getTy ty ptrs
+
+-- helpers to be renamed
+
 ctypeToType :: (Show a) => [CTypeSpecifier a] -> Compiler Type
 ctypeToType ty = case ty of
                    [CVoidType{}]   -> return Void

@@ -4,27 +4,34 @@ import           Data.Maybe            (isJust)
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 
-nameFromFunc = undefined
+nameFromFunc :: CFunctionDef a -> String
+nameFromFunc (CFunDef _ decl _ _ _) = nameFromIdent $ identFromDecl decl
 
-typeOfFunc = undefined
+baseTypeFromFunc :: CFunctionDef a -> [CDeclarationSpecifier a]
+baseTypeFromFunc (CFunDef tys _ _ stmt _) = tys
 
 bodyFromFunc :: CFunctionDef a -> CStatement a
 bodyFromFunc (CFunDef _ _ _ stmt _) = stmt
+
+ptrsFromFunc :: (Show a) => CFunctionDef a -> [CDerivedDeclarator a]
+ptrsFromFunc (CFunDef _ decl _ _ _) =
+  case derivedFromDecl decl of
+    _:ptrs -> ptrs
+    f      -> error $ unwords ["Expected function declaration but got", show f]
 
 argsFromFunc :: (Show a) => CFunctionDef a -> [CDeclaration a]
 argsFromFunc (CFunDef _ decl _ _ _) =
   case derivedFromDecl decl of
     (CFunDeclr (Right decls) _ _):_ -> fst decls
-    f ->
-      error $ unwords ["Expected function declaration but got", show f]
+    f -> error $ unwords ["Expected function declaration but got", show f]
 
 derivedFromDecl :: CDeclarator a -> [CDerivedDeclarator a]
 derivedFromDecl (CDeclr _ derived _ _ _) = derived
 
 identFromDecl :: CDeclarator a -> Ident
 identFromDecl (CDeclr mIdent _ _ _ _) = case mIdent of
-                                          Nothing -> error "Expected identifier in declarator"
-                                          Just i  -> i
+  Nothing -> error "Expected identifier in declarator"
+  Just i  -> i
 
 identToVarName :: Ident -> String
 identToVarName (Ident name _ _) = name
@@ -202,7 +209,10 @@ isFunDecl _           = False
 getInfoFromFunDecl :: CDerivedDeclarator a -> (Either [Ident] ([CDeclaration a], Bool), [CAttribute a])
 getInfoFromFunDecl (CFunDeclr a b _) = (a, b)
 
+-- Misc
 
+nameFromIdent :: Ident -> String
+nameFromIdent (Ident name _ _) = name
 
 
 
