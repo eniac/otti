@@ -271,7 +271,7 @@ type TemplateInvocation = (String, [Integer])
 data IdKind = IKVar | IKSig | IKComp deriving (Show,Eq,Ord)
 
 
-data CompCtx c b n = CompCtx { lowDegEnv :: Map.Map String (AbsTerm b n)
+data CompCtx c b n = CompCtx { env :: Map.Map String (AbsTerm b n)
                              , baseCtx :: c
                              , signals :: Map.Map String (SignalKind, [Int])
                              , type_ :: Typing.InstanceType
@@ -285,7 +285,7 @@ data CompCtx c b n = CompCtx { lowDegEnv :: Map.Map String (AbsTerm b n)
 type LowDegCompCtx n = CompCtx (LowDegCtx n) (LowDeg n) n
 
 empty :: (BaseCtx c b n) => CompCtx c b n
-empty = CompCtx { lowDegEnv = Map.empty
+empty = CompCtx { env       = Map.empty
                 , baseCtx   = emptyCtx
                 , signals   = Map.empty
                 , type_     = Typing.emptyType
@@ -325,7 +325,8 @@ compIndexedIdent (name, dims) = do
   let dimInts = map termAsNum dimTerms
   return (name, dimInts)
 
-compLoc :: (BaseCtx c b (Prime n), KnownNat n) => Location -> CompState c b n LTerm
+compLoc
+  :: (BaseCtx c b (Prime n), KnownNat n) => Location -> CompState c b n LTerm
 compLoc l = case l of
   LocalLocation a -> do
     at <- compIndexedIdent a
@@ -392,7 +393,7 @@ compExpr e = case e of
       ++ show name
     let callState = empty { callables = callables c
                           , cache     = cache c
-                          , lowDegEnv = Map.fromList $ zip formalArgs tArgs
+                          , env       = Map.fromList $ zip formalArgs tArgs
                           , ids       = Map.fromList $ map (, IKVar) formalArgs
                           }
     if isFn
@@ -407,11 +408,11 @@ compExpr e = case e of
           let ((), c') = runCompState (compStatements code) callState
           let newCache = cache c'
           let strippedCtx = c'
-                { lowDegEnv = Map.restrictKeys
-                                (lowDegEnv c')
-                                (Map.keysSet $ Map.filter (== IKComp) (ids c'))
-                , cache     = Map.empty
-                , ids       = Map.empty
+                { env   = Map.restrictKeys
+                            (env c')
+                            (Map.keysSet $ Map.filter (== IKComp) (ids c'))
+                , cache = Map.empty
+                , ids   = Map.empty
                 }
           modify
             (\cc -> cc { cache = Map.insert invocation strippedCtx newCache })
@@ -447,8 +448,8 @@ compStatement s = do
         -- Construct the zero term
         let zt = lt - rt
         case zt of
-          Base  b -> modify $ \c -> c { baseCtx = assert b (baseCtx c) }
-          _ -> error $ "Cannot constain " ++ show zt ++ " to zero"
+          Base b -> modify $ \c -> c { baseCtx = assert b (baseCtx c) }
+          _      -> error $ "Cannot constain " ++ show zt ++ " to zero"
       -- TODO Not quite right: evals twice
       AssignConstrain l e ->
         compStatements [Assign l e, Constrain (LValue l) e]
@@ -524,8 +525,8 @@ load
   -> AbsTerm b (Prime k)
 load loc ctx = case loc of
   LTermLocal (name, idxs) -> case ids ctx Map.!? name of
-    Just IKVar  -> extract idxs (lowDegEnv ctx Map.! name)
-    Just IKComp -> extract idxs (lowDegEnv ctx Map.! name)
+    Just IKVar  -> extract idxs (env ctx Map.! name)
+    Just IKComp -> extract idxs (env ctx Map.! name)
     Just IKSig  -> Base $ fromSignal $ either
       error
       (const $ Sig.SigLocal (name, idxs))
@@ -534,7 +535,7 @@ load loc ctx = case loc of
     Nothing ->
       error $ "Unknown identifier `" ++ name ++ "` in" ++ show (ids ctx)
   LTermForeign (name, idxs) sigLoc -> case ids ctx Map.!? name of
-    Just IKComp -> case extract idxs (lowDegEnv ctx Map.! name) of
+    Just IKComp -> case extract idxs (env ctx Map.! name) of
         -- TODO: bounds check
       Component invoc ->
         let forCtx = cache ctx Map.! invoc
@@ -590,8 +591,8 @@ alloc
 -- Stores a term in a location
 alloc name kind term ctx = if Map.member name (ids ctx)
   then error $ "Identifier " ++ show name ++ " already used"
-  else ctx { lowDegEnv = Map.insert name term $ lowDegEnv ctx
-           , ids       = Map.insert name kind $ ids ctx
+  else ctx { env = Map.insert name term $ env ctx
+           , ids = Map.insert name kind $ ids ctx
            }
 
 store
@@ -602,12 +603,9 @@ store
   -> CompCtx c b (Prime k)
   -> CompCtx c b (Prime k)
 store loc term ctx = case loc of
-  LTermLocal (name, idxs) -> case lowDegEnv ctx Map.!? name of
-    Just t -> ctx
-      { lowDegEnv = Map.insert name
-                               (modifyIn idxs (const term) t)
-                               (lowDegEnv ctx)
-      }
+  LTermLocal (name, idxs) -> case env ctx Map.!? name of
+    Just t ->
+      ctx { env = Map.insert name (modifyIn idxs (const term) t) (env ctx) }
     Nothing -> case signals ctx Map.!? name of
       Just _  -> ctx
       Nothing -> error $ "Unknown identifier `" ++ name ++ "`"
@@ -632,7 +630,7 @@ store loc term ctx = case loc of
             ++ show t
   -- TODO: Different update?
   LTermForeign (name, idxs) sigLoc -> case ids ctx Map.!? name of
-    Just IKComp -> case extract idxs (lowDegEnv ctx Map.! name) of
+    Just IKComp -> case extract idxs (env ctx Map.! name) of
         -- TODO: bounds check
       Component invoc ->
         let forCtx = cache ctx Map.! invoc
@@ -664,7 +662,10 @@ termMultiDimArray = foldr
     _ -> error $ "Illegal dimension " ++ show d
   )
 
-compMainCtx :: KnownNat k => MainCircuit -> CompCtx (LowDegCtx (Prime k)) (LowDeg (Prime k)) (Prime k)
+compMainCtx
+  :: KnownNat k
+  => MainCircuit
+  -> CompCtx (LowDegCtx (Prime k)) (LowDeg (Prime k)) (Prime k)
 compMainCtx m =
   snd
     $ runCompState (compStatement (SubDeclaration "main" [] (Just (main m))))

@@ -57,7 +57,7 @@ link namespace invocation ctx =
       cons =
           Seq.fromList $ map (sigMapQeq $ joinName namespace) $ Comp.constraints $ Comp.baseCtx c
       components =
-          foldMap (uncurry $ extractComponents []) $ Map.assocs $ Comp.lowDegEnv c
+          foldMap (uncurry $ extractComponents []) $ Map.assocs $ Comp.env c
   in  mappend
         cons
         (foldMap (\(loc, inv) -> link (loc : namespace) inv ctx) components)
