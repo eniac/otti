@@ -253,7 +253,18 @@ compExpr e = case e of
         Array ts -> Base $ fromInteger $ fromIntegral $ length ts
         _        -> t
       BitNot -> error "Bitwise negation has unclear semantics" -- The sematics of this are unclear.
-  UnMutExpr op loc -> compUnMutExpr op loc
+  UnMutExpr op loc -> do
+    lval <- compLoc loc
+    term <- gets (load lval)
+    let term'  = term + Base (Scalar $ toP $ opToOffset op)
+    modify (store lval term')
+    case unMutOpTime op of
+      Post -> return term
+      Pre  -> return term'
+   where
+    opToOffset o = case unMutOpOp o of
+      Inc -> 1
+      Dec -> -1
   Ite c l r        -> do
     condT <- compExpr c
     caseT <- compExpr l
@@ -307,22 +318,6 @@ compExpr e = case e of
           modify
             (\cc -> cc { cache = Map.insert invocation strippedCtx newCache })
         return $ Component invocation
-
-compUnMutExpr
-  :: KnownNat k => UnMutOp -> Location -> CompState k (Term (Prime k))
-compUnMutExpr op loc = do
-  lval <- compLoc loc
-  term <- gets (load lval)
-  let offset = opToOffset op
-  let term'  = term + Base (Scalar $ toP offset)
-  modify (store lval term')
-  case unMutOpTime op of
-    Post -> return term
-    Pre  -> return term'
- where
-  opToOffset o = case unMutOpOp o of
-    Inc -> 1
-    Dec -> -1
 
 compExprs :: KnownNat n => [Expr] -> CompState n [Term (Prime n)]
 compExprs = mapM compExpr
