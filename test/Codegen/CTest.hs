@@ -49,6 +49,7 @@ memcpyTest = benchTestCase "memcpy" $ do
     Right tu -> do
 
       r1 <- evalCodegen Nothing $ do
+        liftIR initMem
         codegenC tu
         runSolverOnSMT
 
