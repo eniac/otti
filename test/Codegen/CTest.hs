@@ -11,8 +11,8 @@ import           Utils
 
 cTests :: BenchTest
 cTests = benchTestGroup "C codegen test" [ --basicTest
-                                          featuresTest
---                                         , memcpyTest
+--                                          featuresTest
+                                          memcpyTest
                                          ]
 
 basicTest :: BenchTest

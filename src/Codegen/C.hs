@@ -94,6 +94,7 @@ getUnaryOp op arg = liftIR $ case op of
   CCompOp   -> cppNeg arg
   -- Logical negation: NOT CORRECT
   CNegOp    -> cppNeg arg
+  _         -> error "Not supported"
 
 getBinOp :: CBinaryOp -> SMTNode -> SMTNode -> Compiler SMTNode
 getBinOp op left right = liftIR $ case op of
@@ -181,7 +182,27 @@ genStmtSMT stmt = case stmt of
       popContext
       popCondGuard
   CWhile{}              -> liftIO $ print "while"
-  CFor{}                -> liftIO $ print "while"
+  CFor init bound incr body _ -> do
+    case init of
+      Left (Just expr) -> void $ genExprSMT expr
+      Right decl       -> genDeclSMT decl
+      _                -> return ()
+    -- Make a guard on the bound to guard execution of the loop
+    guard <- case bound of
+               Just b -> genExprSMT b
+               _      -> error "NYI"
+    -- Execute up to the loop bound
+    bound <- getLoopBound
+    forM_ [0..bound] $ \_ -> do
+      pushCondGuard guard
+      pushContext
+      genStmtSMT body
+      -- increment the variable
+      case incr of
+        Just inc -> void $ genExprSMT inc
+        _        -> error "Not yet supported"
+      popContext
+      popCondGuard
   CReturn expr _ -> when (isJust expr) $ do
     toReturn <- genExprSMT $ fromJust expr
     retVal <- getReturnVal

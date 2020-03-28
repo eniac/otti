@@ -40,6 +40,7 @@ data CompilerState = CompilerState { -- Mapping AST variables etc to information
                                    , returnValueGuards :: [[SMTNode]]
                                    , returnValues      :: [SMTNode]
                                    , ctr               :: Int -- To disambiguate retVals
+                                   , loopBound         :: Int
                                      -- SMT variables: SSA'd versions of AST variables
                                    , vars              :: M.Map CodegenVar SMTNode
                                    }
@@ -81,7 +82,7 @@ prettyState = do
 ---
 
 emptyCompilerState :: CompilerState
-emptyCompilerState = CompilerState [M.empty] M.empty M.empty M.empty [] [] [[]] [] 1 M.empty
+emptyCompilerState = CompilerState [M.empty] M.empty M.empty M.empty [] [] [[]] [] 1 4 M.empty
 
 liftIR :: IR a -> Compiler a
 liftIR = Compiler . lift
@@ -333,5 +334,15 @@ getOldReturnGuard = do
     put $ s0 { returnValueGuards = [true]:tail allGuards }
     return true
   else liftIR $ foldM cppAnd (head currentGuards) (tail currentGuards)
+
+-- Loops
+
+getLoopBound :: Compiler Int
+getLoopBound = loopBound `liftM` get
+
+setLoopBound :: Int -> Compiler ()
+setLoopBound bound = do
+  s0 <- get
+  put $ s0 { loopBound = bound }
 
 
