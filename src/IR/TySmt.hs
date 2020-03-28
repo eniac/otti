@@ -552,6 +552,7 @@ bvExtract env start term = ValBv $ Bv.extract start (min (oldSize - 1) (start + 
 newArray :: forall k v. (Typeable k, Typeable v) => Term (ArraySort k v) -> Value (ArraySort k v)
 newArray t = case t of
     NewArray -> ValArray $ (Map.empty :: (Map.Map (Value k) (Value v)))
+    _ -> error "should be unreachable"
 
 eval :: forall s. Typeable s => Env -> Term s -> Value s
 eval e t = case t of
