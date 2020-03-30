@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving   #-}
@@ -5,7 +6,7 @@
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
 {-# LANGUAGE MultiParamTypeClasses       #-}
-{-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Codegen.Circom.Term ( lcZero
                            , Term(..)
@@ -40,15 +41,12 @@ module Codegen.Circom.Term ( lcZero
                            ) where
 
 import qualified AST.Circom                 as AST
-import           Codegen.Circom.Constraints (Constraint, Constraints, LC,
-                                             Signal)
+import           Codegen.Circom.Constraints (Constraint, LC, Signal)
 import qualified Codegen.Circom.Constraints as CS
 import           Control.Monad.State.Strict
 import           Data.Bifunctor
 import qualified Data.Either                as Either
 import           Data.Field.Galois          (Prime, PrimeField)
-import           Data.Functor.Identity      (Identity)
-import           Data.List                  (intercalate)
 import qualified Data.Map.Strict            as Map
 import qualified Data.Maybe                 as Maybe
 import           Data.Proxy                 (Proxy (Proxy))
@@ -81,18 +79,18 @@ instance forall n. KnownNat n => Num (Smt.Term (Smt.PfSort n)) where
   a + b = Smt.PfNaryExpr Smt.PfAdd [a, b]
   a * b = Smt.PfNaryExpr Smt.PfMul [a, b]
   fromInteger i = Smt.IntToPf $ Smt.IntLit $ i `rem` natVal (Proxy :: Proxy n)
-  signum s = Smt.IntToPf $ Smt.IntLit 1
+  signum = const $ Smt.IntToPf $ Smt.IntLit 1
   abs s = s
   negate = Smt.PfUnExpr Smt.PfNeg
 
 instance forall k. KnownNat k => Fractional (Smt.Term (Smt.PfSort k)) where
-  fromRational n = error "NYI"
+  fromRational _ = error "NYI"
   recip = Smt.PfUnExpr Smt.PfRecip
 
 instance PrimeField k => Num (WireBundle k) where
   s + t = case (s, t) of
     (Other, _) -> Other
-    (Sig s, r) -> sigAsWire s + r
+    (Sig sig, r) -> sigAsWire sig + r
     (Linear (m1, c1), Linear (m2, c2)) -> Linear (Map.unionWith (+) m1 m2, c1 + c2)
     (Linear (m1, c1), Quadratic a b (m2, c2)) -> Quadratic a b (Map.unionWith (+) m1 m2, c1 + c2)
     (Linear (m1, c1), Scalar c) -> Linear (m1, c1 + c)
@@ -102,7 +100,7 @@ instance PrimeField k => Num (WireBundle k) where
     (l, r) -> r + l
   s * t = case (s, t) of
     (Other, _) -> Other
-    (Sig s, r) -> sigAsWire s * r
+    (Sig sig, r) -> sigAsWire sig * r
     (Linear l1, Linear l2) -> Quadratic l1 l2 (Map.empty, 0)
     (Linear _, Quadratic {}) -> Other
     (Linear l, Scalar c) -> Linear $ lcScale l c
@@ -234,7 +232,7 @@ wireSignals t = case t of
     Sig s       -> Set.insert s Set.empty
     Linear (m, _) -> Set.fromList (Map.keys m)
     Quadratic (a, _) (b, _) (c, _) -> foldr Set.union Set.empty (map (Set.fromList . Map.keys) [a, b, c])
-    Scalar s -> Set.empty
+    Scalar _ -> Set.empty
 
 termSignals :: Term k -> Set Signal
 termSignals t = case t of
@@ -289,8 +287,8 @@ updateList f i l = case splitAt i l of
 
 
 ctxWithEnv :: KnownNat k => Map.Map String (Term k) -> Integer -> Ctx k
-ctxWithEnv env order = Ctx
-    { env = env
+ctxWithEnv e order = Ctx
+    { env = e
     , constraints = CS.empty
     , callables = Map.empty
     , fieldOrder = order
@@ -335,14 +333,14 @@ ctxStore loc value ctx = case value of
         -- locates the sub-term of term at the location (first pin/idx applies
         -- to the top of the term) and replaces it with `value`.
         replacein :: KnownNat k => [Either String Int] -> Term k -> Term k -> Term k
-        replacein location value term = case location of
-            [] -> assignTerm term value
+        replacein location v term = case location of
+            [] -> assignTerm term v
             Left pin:rest -> case term of
-                Struct c -> Struct c { env = Map.update (pure . replacein rest value) pin (env c) }
+                Struct c -> Struct c { env = Map.update (pure . replacein rest v) pin (env c) }
                 _ -> error $ "Cannot update pin `" ++ pin ++ "` of non-struct " ++ show term
             Right idx:rest -> case term of
                 Array m -> Array $ Maybe.fromMaybe (error $ "The index " ++ show idx ++ " is out of bounds for " ++ show m)
-                                                   (updateList (replacein rest value) idx m)
+                                                   (updateList (replacein rest v) idx m)
                 _ -> error $ "Cannot update index `" ++ show idx ++ "` of non-array " ++ show term
 
         -- Extract the steps of the access
@@ -361,7 +359,7 @@ ctxGet loc ctx = case loc of
     LTermIdent s -> r
         where r = Map.findWithDefault (error $ "Unknown identifier `" ++ s ++ "`") s (env ctx)
     LTermPin loc' pin -> case ctxGet loc' ctx of
-        Struct c -> (env c) Map.! pin
+        Struct c -> env c Map.! pin
         l -> error $ "Non-struct " ++ show l ++ " as location in " ++ show loc
     LTermIdx loc' i -> case ctxGet loc' ctx of
         Array ts -> if i < length ts then ts !! i else error $ "Idx " ++ show i ++ " too big for " ++ show ts
@@ -375,6 +373,7 @@ ctxInit name value ctx = ctx { env = Map.insert name value (env ctx) }
 ctxGetCallable :: KnownNat k => String -> Ctx k -> (Bool, [String], AST.Block)
 ctxGetCallable name ctx = Maybe.fromMaybe (error $ "No template named " ++ name ++ " found") $ Map.lookup name (callables ctx)
 
+ctxAddConstraint :: KnownNat k => Constraint (Prime k) -> Ctx k -> Ctx k
 ctxAddConstraint c ctx = ctx { constraints = CS.addEquality c $ constraints ctx }
 
 ctxAddPublicSig :: Signal -> Ctx k -> Ctx k

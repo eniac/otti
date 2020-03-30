@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
+{-# OPTIONS_GHC -Wall #-}
 module AST.Circom ( File
                   , BinOp(..)
                   , Item(..)
@@ -25,11 +25,8 @@ module AST.Circom ( File
                   ) where
 
 
-import Data.Maybe       (mapMaybe, fromMaybe, maybeToList)
-import qualified Data.Bits as Bits
-import qualified Data.Sequence as Sequence
+import Data.Maybe       (mapMaybe)
 import qualified Data.Map.Strict as Map
-import qualified Data.Either as Either
 
 data BinOp = Add
            | Sub

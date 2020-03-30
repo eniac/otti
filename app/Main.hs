@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE PolyKinds           #-}
 {-# LANGUAGE QuasiQuotes         #-}
@@ -14,16 +15,14 @@ import           Codegen.Circom             (genMainCtx)
 import qualified Codegen.Circom.Compilation as Comp
 import qualified Codegen.Circom.Linking     as Link
 import           Codegen.Circom.Constraints (equalities)
-import           Codegen.Circom.Term        (Constraint, Ctx(..))
+import           Codegen.Circom.Term        (Ctx(..))
 import           Codegen.Circom.ToSmt       (ctxToSmt)
 import           Codegen.Circom.TestSmt     (writeToR1csFile, extendInputsToAssignment)
-import           Data.Field.Galois          (Prime)
+import qualified Data.Map       as Map
 import           Data.Proxy                 (Proxy(..))
 import           GHC.TypeNats
-import           GHC.TypeLits.KnownNat
 import qualified IR.TySmt                   as Smt
 import           Parser.Circom              (loadMain)
-import           Control.Monad              (when)
 import           System.Environment         (getArgs)
 import           System.IO                  (openFile, hGetContents, hPutStr, IOMode(..), hClose)
 import           System.Console.Docopt
@@ -35,6 +34,7 @@ patterns = [docopt|
 Usage:
   compiler print-smt [options]
   compiler comp-only [options]
+  compiler count-terms [options]
   compiler emit-r1cs [options]
   compiler setup [options]
   compiler prove [options]
@@ -58,9 +58,11 @@ Commands:
   setup            Run the setup
   print-smt        Print the smt
   comp-only        Compile at the fn-level only
+  count-terms      Compile at the fn-level only
   emit-r1cs        Emit the R1CS
 |]
 
+getArgOrExit :: Arguments -> Option -> IO String
 getArgOrExit = getArgOrExitWith patterns
 
 
@@ -91,7 +93,7 @@ extendInput publicInputPath privateInputPath assignmentPath term = do
 -- libsnark functions
 runSetup :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 runSetup libsnarkPath circuitPath pkPath vkPath = do
-    readProcess libsnarkPath ["setup", "-V", vkPath, "-P", pkPath, "-C", circuitPath] ""
+    _ <- readProcess libsnarkPath ["setup", "-V", vkPath, "-P", pkPath, "-C", circuitPath] ""
     return ()
 
 runProve :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
@@ -101,9 +103,10 @@ runProve libsnarkPath pkPath vkPath xPath wPath pfPath = do
 
 runVerify :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 runVerify libsnarkPath vkPath xPath pfPath  = do
-    readProcess libsnarkPath ["verify", "-V", vkPath, "-x", xPath, "-p", pfPath] ""
+    _ <- readProcess libsnarkPath ["verify", "-V", vkPath, "-x", xPath, "-p", pfPath] ""
     return ()
 
+order :: Integer
 order = 21888242871839275222246405745257275088548364400416034343698204186575808495617
 type Order = 21888242871839275222246405745257275088548364400416034343698204186575808495617
 type OrderCtx = Ctx Order
@@ -128,6 +131,16 @@ cmdCompOnly circomPath = do
     m <- loadMain circomPath
     let c = Link.linkMain @Order m
     print $ length c
+    print $ Link.r1csCountVars c
+
+cmdCountTerms :: FilePath -> IO ()
+cmdCountTerms circomPath = do
+    m <- loadMain circomPath
+    let c = Comp.compMainWitCtx @Order m
+    print $ (count c) + (foldr (+) 0 $ Map.map count $ Comp.cache c)
+    print c
+    where
+     count = Comp.nSmtNodes . Comp.baseCtx
 
 
 cmdSetup :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
@@ -158,6 +171,7 @@ cmdProve libsnarkPath pkPath vkPath xPath wPath pfPath circomPath = do
 cmdVerify :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdVerify = runVerify
 
+defaultR1cs :: String
 defaultR1cs = "C"
 
 main :: IO ()
@@ -169,6 +183,9 @@ main = do
     else if args `isPresent` command "comp-only" then do
         circomPath <- args `getArgOrExit` longOption "circom"
         cmdCompOnly circomPath
+    else if args `isPresent` command "count-terms" then do
+        circomPath <- args `getArgOrExit` longOption "circom"
+        cmdCountTerms circomPath
     else if args `isPresent` command "emit-r1cs" then do
         circomPath <- args `getArgOrExit` longOption "circom"
         r1csPath <- args `getArgOrExit` shortOption 'C'

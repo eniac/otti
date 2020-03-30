@@ -1,9 +1,8 @@
+{-# OPTIONS_GHC -Wall #-}
 module Codegen.Circom.Signal ( IndexedIdent
                              , Signal(..)
                              , GlobalSignal
                              ) where
-
-import qualified AST.Circom as AST
 
 type IndexedIdent = (String, [Int])
 

@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE AllowAmbiguousTypes           #-}
 {-# LANGUAGE GADTs               #-}
@@ -15,7 +16,6 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 
 module IR.TySmt ( IntSort(..)
@@ -552,6 +552,7 @@ bvExtract env start term = ValBv $ Bv.extract start (min (oldSize - 1) (start + 
 newArray :: forall k v. (Typeable k, Typeable v) => Term (ArraySort k v) -> Value (ArraySort k v)
 newArray t = case t of
     NewArray -> ValArray $ (Map.empty :: (Map.Map (Value k) (Value v)))
+    _ -> error "Unreachable"
 
 eval :: forall s. Typeable s => Env -> Term s -> Value s
 eval e t = case t of

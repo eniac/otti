@@ -5,6 +5,7 @@ module Codegen.Circom.Linking
   ( link
   , linkMain
   , R1CS
+  , r1csCountVars
   )
 where
 
@@ -18,6 +19,11 @@ import qualified Data.Sequence                 as Seq
 import qualified Data.Map.Strict               as Map
 
 type R1CS n = Seq.Seq (Comp.QEQ GlobalSignal (Prime n))
+
+r1csCountVars :: KnownNat n => R1CS n -> Int
+r1csCountVars = foldr ((+) . qeqSize) 0
+ where
+  qeqSize ((a, _), (b, _), (c, _)) = Map.size a + Map.size b + Map.size c
 
 type Namespace = GlobalSignal
 
@@ -35,7 +41,7 @@ sigMapQeq f (a, b, c) = (sigMapLc f a, sigMapLc f b, sigMapLc f c)
 extractComponents
   :: [Int]
   -> String
-  -> Comp.Term k
+  -> Comp.LowDegTerm k
   -> Seq.Seq (IndexedIdent, Comp.TemplateInvocation)
 extractComponents idxs name term = case term of
   Comp.Base      _ -> Seq.empty

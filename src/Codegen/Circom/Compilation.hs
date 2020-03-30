@@ -1,21 +1,32 @@
 {-# OPTIONS_GHC -Wall #-}
+{-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
+-- Because of out KnownNat1 instance for the Log2 family...
+{-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DataKinds #-}
 module Codegen.Circom.Compilation
   ( CompCtx(..)
   , compMainCtx
+  , compMainWitCtx
+  , nSmtNodes
   , LC
   , QEQ
   , TemplateInvocation
   , AbsTerm(..)
-  , Term
+  , LowDegTerm
   , CompState(..)
   , LowDegCtx(..)
   , LowDegCompCtx
+  , WitBaseCtx(..)
+  , WitCompCtx
   , empty
   , runLowDegCompState
   , compExprs
@@ -41,7 +52,24 @@ import           Data.Field.Galois              ( Prime
                                                 , toP
                                                 )
 import           Debug.Trace                    ( trace )
-import           GHC.TypeLits
+import qualified IR.TySmt as Smt
+import           GHC.TypeLits.KnownNat
+import           GHC.TypeNats
+import           Data.Proxy                 (Proxy (Proxy))
+
+intLog2 :: Integral a => a -> a
+intLog2 n =
+    if n <= fromInteger 1 then
+        fromInteger 0
+    else
+        fromInteger 1 + intLog2 (n `div` fromInteger 2)
+
+-- XXX(HACK): Log2 0 is actually undefined, but who wants to deal with that?
+--            we treat it as 0, even though the type systems rejects it.
+instance KnownNat x => KnownNat1 $(nameToSymbol ''Log2) x where
+  natSing1 = SNatKn (intLog2 (natVal (Proxy @x)))
+  {-# INLINE natSing1 #-}
+
 
 type LC s n = (Map.Map s n, n) -- A linear combination of signals and gen-time constants
 type QEQ s n = (LC s n, LC s n, LC s n)
@@ -131,6 +159,8 @@ class (Show b, Num b, Fractional b) => BaseTerm b k | b -> k where
 class (BaseTerm b k) => BaseCtx c b k | c -> b where
   assert :: b -> c -> c
   emptyCtx :: c
+  storeCtx :: SignalKind -> LTerm -> b -> c -> c
+  ignoreCompBlock :: c -> Bool
 
 newtype LowDegCtx k = LowDegCtx { constraints :: [QEQ Sig.Signal k] }
 
@@ -190,6 +220,8 @@ instance KnownNat k => BaseCtx (LowDegCtx (Prime k)) (LowDeg (Prime k)) (Prime k
     Quadratic q  -> LowDegCtx (q : cs)
     _            -> error $ "Cannot constain " ++ show t ++ " to zero"
   emptyCtx = LowDegCtx []
+  storeCtx _sigKind _signalLoc _term = id
+  ignoreCompBlock = const True
 
 data AbsTerm b k = Base b
                  | Array (Arr.Array Int (AbsTerm b k))
@@ -197,7 +229,7 @@ data AbsTerm b k = Base b
                  | Const k
                  deriving (Show,Eq,Ord)
 
-type Term k = AbsTerm (LowDeg k) k
+type LowDegTerm k = AbsTerm (LowDeg k) k
 
 termAsNum :: (Show b, Num n, PrimeField k) => AbsTerm b k -> n
 termAsNum t = case t of
@@ -266,6 +298,65 @@ instance (BaseTerm b (Prime k), KnownNat k) => BaseTerm (AbsTerm b (Prime k)) (P
         ++ " and "
         ++ show t
 
+newtype WitBaseTerm n = WitBaseTerm (Smt.Term (Smt.PfSort n)) deriving (Show)
+
+instance KnownNat n => Num (WitBaseTerm n) where
+  (WitBaseTerm s) + (WitBaseTerm t) = WitBaseTerm $ Smt.PfNaryExpr Smt.PfAdd [s, t]
+  (WitBaseTerm s) * (WitBaseTerm t) = WitBaseTerm $ Smt.PfNaryExpr Smt.PfMul [s, t]
+  negate (WitBaseTerm s) = WitBaseTerm $ Smt.PfUnExpr Smt.PfNeg s
+  abs _= error "ndef"
+  signum _ = error "ndef"
+  fromInteger = WitBaseTerm . Smt.IntToPf . Smt.IntLit
+
+instance KnownNat n => Fractional (WitBaseTerm n) where
+  recip (WitBaseTerm s) = WitBaseTerm $ Smt.PfUnExpr Smt.PfRecip s
+  fromRational _ = error "NYI"
+
+instance KnownNat n => BaseTerm (WitBaseTerm n) (Prime n) where
+  fromConst = fromInteger . fromP
+  fromSignal = WitBaseTerm . Smt.Var . show
+  nonArithBinOp o = case o of
+    IntDiv -> liftIntToPf (Smt.IntBinExpr Smt.IntDiv)
+    Mod    -> liftIntToPf (Smt.IntBinExpr Smt.IntMod)
+    Lt     -> liftIntPredToPf (Smt.IntBinPred Smt.IntLt)
+    Gt     -> liftIntPredToPf (Smt.IntBinPred Smt.IntGt)
+    Le     -> liftIntPredToPf (Smt.IntBinPred Smt.IntLe)
+    Ge     -> liftIntPredToPf (Smt.IntBinPred Smt.IntGe)
+    Eq     -> liftIntPredToPf (Smt.IntBinPred Smt.IntEq)
+    Ne     -> liftIntPredToPf (Smt.IntBinPred Smt.IntNe)
+    And    -> liftBoolToPf (\a b -> Smt.BoolNaryExpr Smt.And [a, b])
+    Or     -> liftBoolToPf (\a b -> Smt.BoolNaryExpr Smt.Or [a, b])
+    BitAnd -> liftBvToPf (Smt.BvBinExpr Smt.BvAnd)
+    BitOr  -> liftBvToPf (Smt.BvBinExpr Smt.BvOr)
+    BitXor -> liftBvToPf (Smt.BvBinExpr Smt.BvXor)
+    Pow    -> liftIntToPf (Smt.IntBinExpr Smt.IntPow)
+    Shl    -> liftBvToPf (Smt.BvBinExpr Smt.BvShl)
+    Shr    -> liftBvToPf (Smt.BvBinExpr Smt.BvLshr)
+    _ -> error "Unreachable"
+   where
+    liftIntToPf f (WitBaseTerm a) (WitBaseTerm b) = WitBaseTerm $ Smt.IntToPf $ f (Smt.PfToInt a) (Smt.PfToInt b)
+    liftBvToPf f = liftIntToPf (\a b -> Smt.BvToInt @(Log2 n + 1) (f (Smt.IntToBv @(Log2 n + 1) a) (Smt.IntToBv @(Log2 n + 1) b)))
+    liftIntPredToPf f = liftIntToPf (\a b -> Smt.BoolToInt $ f a b)
+    liftBoolToPf f = liftIntPredToPf (\a b -> f (Smt.IntBinPred Smt.IntNe (Smt.IntLit 0) a) (Smt.IntBinPred Smt.IntNe (Smt.IntLit 0) b))
+  nonNegUnOp o = case o of
+    BitNot ->
+      error "Bitwise negation has unclear semantics for prime field elements"
+    Not   -> \(WitBaseTerm a) -> WitBaseTerm $ Smt.IntToPf $ Smt.BoolToInt $ Smt.Not $ Smt.PfBinPred Smt.PfNe z a
+     where z = Smt.IntToPf $ Smt.IntLit 0
+    UnPos -> id
+    UnNeg -> error "Unreachable"
+
+newtype WitBaseCtx n = WitBaseCtx { signalTerms :: Map.Map LTerm (WitBaseTerm n) } deriving (Show)
+
+instance KnownNat n => BaseCtx (WitBaseCtx n) (WitBaseTerm n) (Prime n) where
+  assert _ = id
+  emptyCtx = WitBaseCtx Map.empty
+  storeCtx _kind sig term ctx = ctx { signalTerms = Map.insert sig term $ signalTerms ctx }
+  ignoreCompBlock = const False
+
+nSmtNodes :: WitBaseCtx n -> Int
+nSmtNodes = Map.foldr ((+) . (\(WitBaseTerm a) -> Smt.nNodes a)) 0 . signalTerms
+
 type TemplateInvocation = (String, [Integer])
 
 data IdKind = IKVar | IKSig | IKComp deriving (Show,Eq,Ord)
@@ -283,6 +374,8 @@ data CompCtx c b n = CompCtx { env :: Map.Map String (AbsTerm b n)
                              } deriving (Show)
 
 type LowDegCompCtx n = CompCtx (LowDegCtx n) (LowDeg n) n
+
+type WitCompCtx n = CompCtx (WitBaseCtx n) (WitBaseTerm n) (Prime n)
 
 empty :: (BaseCtx c b n) => CompCtx c b n
 empty = CompCtx { env       = Map.empty
@@ -439,7 +532,7 @@ compStatement s = do
         lval <- compLoc loc
         term <- compExpr expr
         modify (store lval term)
-      -- TODO Not quite right: evals twice
+      -- TODO Not quite right: evals location twice
       OpAssign op loc expr ->
         compStatement (Assign loc (BinExpr op (LValue loc) expr))
       Constrain l r -> do
@@ -450,7 +543,7 @@ compStatement s = do
         case zt of
           Base b -> modify $ \c -> c { baseCtx = assert b (baseCtx c) }
           _      -> error $ "Cannot constain " ++ show zt ++ " to zero"
-      -- TODO Not quite right: evals twice
+      -- TODO Not quite right: evals location twice
       AssignConstrain l e ->
         compStatements [Assign l e, Constrain (LValue l) e]
       VarDeclaration name dims ini -> do
@@ -502,8 +595,11 @@ compStatement s = do
       For ini cond step block ->
         compStatements [ini, While cond (block ++ [step])]
       DoWhile block expr -> compStatements (block ++ [While expr block])
-      -- TODO: Dont' ignore!
-      Compute _          -> return ()
+      Compute b          -> do
+        ignore <- gets (ignoreCompBlock . baseCtx)
+        if ignore
+          then return ()
+          else compStatements b
       Ignore  e          -> do
         _ <- compExpr e
         return ()
@@ -597,18 +693,24 @@ alloc name kind term ctx = if Map.member name (ids ctx)
 
 store
   :: forall c b k
-   . (Show b, KnownNat k)
+   . (BaseCtx c b (Prime k), KnownNat k)
   => LTerm
   -> AbsTerm b (Prime k)
   -> CompCtx c b (Prime k)
   -> CompCtx c b (Prime k)
 store loc term ctx = case loc of
-  LTermLocal (name, idxs) -> case env ctx Map.!? name of
-    Just t ->
-      ctx { env = Map.insert name (modifyIn idxs (const term) t) (env ctx) }
-    Nothing -> case signals ctx Map.!? name of
-      Just _  -> ctx
-      Nothing -> error $ "Unknown identifier `" ++ name ++ "`"
+  LTermLocal (name, idxs) -> case ids ctx Map.!? name of
+    Nothing -> error $ "Unknown identifier `" ++ name ++ "`"
+    Just IKSig -> case signals ctx Map.!? name of
+      Just (k, dims) ->
+        either error (const $ storeSig k loc ctx) (checkDims idxs dims)
+      Nothing -> error "Unreachable"
+    Just _ -> case env ctx Map.!? name of
+      Just t ->
+        ctx { env = Map.insert name (modifyIn idxs (const term) t) (env ctx) }
+      Nothing -> case signals ctx Map.!? name of
+        Just _  -> ctx
+        Nothing -> error $ "Unknown identifier `" ++ name ++ "`"
    where
     arrayUpdate :: Ix i => i -> (a -> a) -> Arr.Array i a -> Arr.Array i a
     arrayUpdate i f a = a Arr.// [(i, f (a Arr.! i))]
@@ -635,10 +737,8 @@ store loc term ctx = case loc of
       Component invoc ->
         let forCtx = cache ctx Map.! invoc
         in  case signals forCtx Map.!? fst sigLoc of
-              Just (PublicIn, dims) ->
-                either error (const ctx) (checkDims (snd sigLoc) dims)
-              Just (PrivateIn, dims) ->
-                either error (const ctx) (checkDims (snd sigLoc) dims)
+              Just (k, dims) | isInput k ->
+                either error (const $ storeSig k loc ctx) (checkDims (snd sigLoc) dims)
               Just (k, _) ->
                 error
                   $  "Cannot store into foreign signal "
@@ -649,6 +749,11 @@ store loc term ctx = case loc of
       _ -> error "Unreachable: non-component in component id!"
     Just _  -> error $ "Identifier " ++ show name ++ " is not a component"
     Nothing -> error $ "Identifier " ++ show name ++ " is unknown"
+ where
+  storeSig k l c = case term of
+    Base b -> c { baseCtx = storeCtx k l b $ baseCtx c }
+    Const b -> c { baseCtx = storeCtx k l (fromConst b) $ baseCtx c }
+    _ -> error $ "Cannot store non-base term " ++ show term ++ " in signal " ++ show l
 
 termMultiDimArray
   :: (Show b, KnownNat k)
@@ -667,6 +772,19 @@ compMainCtx
   => MainCircuit
   -> CompCtx (LowDegCtx (Prime k)) (LowDeg (Prime k)) (Prime k)
 compMainCtx m =
+  snd
+    $ runCompState (compStatement (SubDeclaration "main" [] (Just (main m))))
+    $ empty
+        { callables = Map.union
+                        (Map.map (\(p, b) -> (False, p, b)) (templates m))
+                        (Map.map (\(p, b) -> (True, p, b)) (functions m))
+        }
+
+compMainWitCtx
+  :: KnownNat k
+  => MainCircuit
+  -> CompCtx (WitBaseCtx k) (WitBaseTerm k) (Prime k)
+compMainWitCtx m =
   snd
     $ runCompState (compStatement (SubDeclaration "main" [] (Just (main m))))
     $ empty

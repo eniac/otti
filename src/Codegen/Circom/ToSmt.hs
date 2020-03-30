@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators       #-}
@@ -10,8 +11,7 @@ module Codegen.Circom.ToSmt ( constraintsToSmt
 
 import qualified Codegen.Circom.Term        as Term
 import qualified Codegen.Circom.Constraints as CS
-import           Data.Field.Galois          (Prime, fromP, toP)
-import           Data.List                  (intercalate)
+import           Data.Field.Galois          (Prime, fromP)
 import qualified Data.Map.Strict            as Map
 import qualified Data.Maybe                 as Maybe
 import           Data.Proxy                 (Proxy (Proxy))
@@ -73,5 +73,5 @@ lcToSmt (m, c) = S.PfNaryExpr S.PfAdd (cTerm : mTerms)
     where
         constToTerm = S.IntToPf . S.IntLit . fromP
         cTerm = constToTerm c
-        mTerms = map (\(s, c) -> S.PfNaryExpr S.PfMul [S.Var (show s), constToTerm c])
+        mTerms = map (\(s, k) -> S.PfNaryExpr S.PfMul [S.Var (show s), constToTerm k])
             $ Map.toList m

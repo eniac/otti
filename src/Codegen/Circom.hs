@@ -1,4 +1,5 @@
-{-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
+{-# OPTIONS_GHC -Wall #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleInstances     #-}
@@ -34,12 +35,10 @@ import           Codegen.Circom.Term        as Term
 import           Control.Monad.State.Strict
 import qualified Data.Bits                  as Bits
 import           Data.Field.Galois          (Prime, fromP, toP)
-import           Data.List                  (intercalate)
 import qualified Data.Map.Strict            as Map
 import           Data.Maybe                 as Maybe
 import           Data.Proxy                 (Proxy (Proxy))
 import qualified Data.Set                   as Set
-import qualified Data.Tuple                 as Tuple
 import           Debug.Trace                (trace)
 import           GHC.TypeLits.KnownNat
 import           GHC.TypeNats
@@ -82,19 +81,19 @@ termSignalArray ctx name dim = helper ctx name [] (integerizeDims dim)
         _ -> error $ "Illegal dimension " ++ show t
 
     helper :: Ctx k -> String -> [Int] -> [Int] -> (Ctx k, Term k)
-    helper ctx name location dims =
+    helper c name' location dims =
       case dims of
-        [] -> (ctx', Base (Sig s, Smt.Var (show i)))
+        [] -> (c', Base (Sig s, Smt.Var (show i)))
           where
-            i = nextSignal ctx
-            s = SigLocal name (reverse location)
-            ctx' = ctx { nextSignal = nextSignal ctx + 1, numberToSignal = (show i, s) : (numberToSignal ctx) }
-        n : rest -> (ctx', Array (reverse ts))
+            i = nextSignal c
+            s = SigLocal name' (reverse location)
+            c' = c { nextSignal = nextSignal c + 1, numberToSignal = (show i, s) : (numberToSignal c) }
+        n : rest -> (c', Array (reverse ts))
           where
-            (ctx', ts) = foldl folder (ctx, []) [0..(n-1)]
+            (c', ts) = foldl folder (c, []) [0..(n-1)]
             folder :: (Ctx k, [Term k]) -> Int -> (Ctx k, [Term k])
             folder (ctxAcc, tAcc) i =
-              let (ctxAcc', t') = helper ctxAcc name (i:location) rest in
+              let (ctxAcc', t') = helper ctxAcc name' (i:location) rest in
                 (ctxAcc', t' : tAcc)
 
 
@@ -348,7 +347,7 @@ genExprM expr = case expr of
                     (returning postCtx)
             else
                 do
-                    modify (\c -> c { nextSignal = nextSignal postCtx })
+                    modify (\c' -> c' { nextSignal = nextSignal postCtx })
                     return $ ctxToStruct postCtx
         else
             return $ error "Non-constant arguments to function!! NYI"
