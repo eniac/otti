@@ -767,11 +767,8 @@ termMultiDimArray = foldr
     _ -> error $ "Illegal dimension " ++ show d
   )
 
-compMainCtx
-  :: KnownNat k
-  => MainCircuit
-  -> CompCtx (LowDegCtx (Prime k)) (LowDeg (Prime k)) (Prime k)
-compMainCtx m =
+compMain :: forall c b k. (KnownNat k, BaseCtx c b (Prime k)) => MainCircuit -> CompCtx c b (Prime k)
+compMain m =
   snd
     $ runCompState (compStatement (SubDeclaration "main" [] (Just (main m))))
     $ empty
@@ -780,15 +777,14 @@ compMainCtx m =
                         (Map.map (\(p, b) -> (True, p, b)) (functions m))
         }
 
+compMainCtx
+  :: KnownNat k
+  => MainCircuit
+  -> CompCtx (LowDegCtx (Prime k)) (LowDeg (Prime k)) (Prime k)
+compMainCtx = compMain
+
 compMainWitCtx
   :: KnownNat k
   => MainCircuit
   -> CompCtx (WitBaseCtx k) (WitBaseTerm k) (Prime k)
-compMainWitCtx m =
-  snd
-    $ runCompState (compStatement (SubDeclaration "main" [] (Just (main m))))
-    $ empty
-        { callables = Map.union
-                        (Map.map (\(p, b) -> (False, p, b)) (templates m))
-                        (Map.map (\(p, b) -> (True, p, b)) (functions m))
-        }
+compMainWitCtx = compMain
