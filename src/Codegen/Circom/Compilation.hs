@@ -467,7 +467,6 @@ compExpr e = case e of
       -- TODO: allow: Base  _ -> Base HighDegree
       t       -> error $ "Cannot condition on term " ++ show t
   LValue loc -> do
-    -- TODO(aozdemir): enforce no ctx change for sanity?
     lt <- compLoc loc
     gets (load lt)
   Call name args -> do
@@ -632,7 +631,6 @@ load loc ctx = case loc of
       error $ "Unknown identifier `" ++ name ++ "` in" ++ show (ids ctx)
   LTermForeign (name, idxs) sigLoc -> case ids ctx Map.!? name of
     Just IKComp -> case extract idxs (env ctx Map.! name) of
-        -- TODO: bounds check
       Component invoc ->
         let forCtx = cache ctx Map.! invoc
         in  case signals forCtx Map.!? fst sigLoc of
@@ -730,10 +728,8 @@ store loc term ctx = case loc of
             ++ show i
             ++ " of non-array "
             ++ show t
-  -- TODO: Different update?
   LTermForeign (name, idxs) sigLoc -> case ids ctx Map.!? name of
     Just IKComp -> case extract idxs (env ctx Map.! name) of
-        -- TODO: bounds check
       Component invoc ->
         let forCtx = cache ctx Map.! invoc
         in  case signals forCtx Map.!? fst sigLoc of
