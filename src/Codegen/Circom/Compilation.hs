@@ -31,6 +31,7 @@ module Codegen.Circom.Compilation
   , runLowDegCompState
   , compExprs
   , termAsNum
+  , nPublicInputs
   )
 where
 
@@ -51,6 +52,7 @@ import           Data.Field.Galois              ( Prime
                                                 , fromP
                                                 , toP
                                                 )
+import qualified Data.Foldable                 as Fold
 import           Debug.Trace                    ( trace )
 import qualified IR.TySmt as Smt
 import           GHC.TypeLits.KnownNat
@@ -387,6 +389,9 @@ empty = CompCtx { env       = Map.empty
                 , callables = Map.empty
                 , cache     = Map.empty
                 }
+
+nPublicInputs :: CompCtx c b n -> Int
+nPublicInputs c = sum $ map (\(_, ds) -> product ds) $ filter (\(k, _) -> k == PublicIn) $ Fold.toList $ signals c
 
 data LTerm = LTermLocal Sig.IndexedIdent
            | LTermForeign Sig.IndexedIdent Sig.IndexedIdent

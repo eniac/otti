@@ -109,7 +109,7 @@ data SignalKind = PublicIn
                 | PrivateIn
                 | Out
                 | Local
-                deriving (Show,Eq)
+                deriving (Show,Eq,Ord)
 
 isPublic :: SignalKind -> Bool
 isPublic s = case s of
