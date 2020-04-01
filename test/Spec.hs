@@ -11,9 +11,8 @@ import           Targets.SMTTest
 import           Test.Tasty
 
 parserTests :: BenchTest
-parserTests = benchTestGroup "Parser tests" [ cParserTests
-                                            , wasmParserTests
-                                            , circomParserTests
+parserTests = benchTestGroup "Parser tests" [ 
+                                            circomParserTests
                                             ]
 
 generatorTests :: BenchTest
@@ -22,10 +21,7 @@ generatorTests = benchTestGroup "Generator tests" [ circomGenTests
 
 allTests :: [BenchTest]
 allTests = [ parserTests
-           , smtTests
            , irTests
-           , codegenTests
-           , generatorTests
            , tySmtTests
            ]
 
