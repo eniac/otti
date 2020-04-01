@@ -153,7 +153,7 @@ lcToR1csLine (m, c) =
   in  nPairs : concatMap (\(x, f) -> [fromP f, fromIntegral x]) augmentedPairs
 
 qeqToR1csLines :: PrimeField n => Comp.QEQ Int n -> [[Integer]]
-qeqToR1csLines (a, b, c) = map lcToR1csLine [a, b, c]
+qeqToR1csLines (a, b, c) = [] : map lcToR1csLine [a, b, c]
 
 r1csAsLines :: KnownNat n => R1CS n -> [[Integer]]
 r1csAsLines r1cs =
