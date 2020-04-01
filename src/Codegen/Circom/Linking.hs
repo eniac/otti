@@ -4,10 +4,9 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 module Codegen.Circom.Linking
-  ( link
-  , linkMain
-  , R1CS(..)
+  ( R1CS(..)
   , r1csCountVars
+  , linkMain
   , writeToR1csFile
   )
 where
@@ -86,7 +85,9 @@ link namespace invocation ctx =
 
     newSignals :: [Signal]
     newSignals =
-      -- We sort the signals in public-inputs-first order.
+      -- We sort the signals in public-inputs-first order. By starting with
+      -- signal number 2, this ensures that signals numbered 2...n will be the
+      -- public inputs, which is what our r1cs format requires
       map snd
         $ List.sort
         $ concatMap (\(n, (k, d)) -> map (k, ) $ expandSig n d)
@@ -132,35 +133,33 @@ execLink (LinkState s) = execState s
 linkMain :: forall k . KnownNat k => AST.MainCircuit -> R1CS k
 linkMain m =
   let c = Comp.compMainCtx m
-  in
-    case AST.main m of
-      AST.Call name args ->
-        let
-          (tArgs, _) =
-            Comp.runLowDegCompState @k (Comp.compExprs args) Comp.empty
-          iArgs :: [Integer] = map Comp.termAsNum tArgs
-          invocation         = (name, iArgs)
-          mainCtx            = Comp.cache c Map.! invocation
-          n                  = Comp.nPublicInputs mainCtx
-        in
-          (execLink @k (link [("main", [])] invocation c) emptyR1cs) { nPublicInputs = n
-                                                                     }
-      e -> error $ "Invalid main expression: " ++ show e
+  in  case AST.main m of
+        AST.Call name args ->
+          let (tArgs, _) =
+                  Comp.runLowDegCompState @k (Comp.compExprs args) Comp.empty
+              iArgs :: [Integer] = map Comp.termAsNum tArgs
+              invocation         = (name, iArgs)
+              mainCtx            = Comp.cache c Map.! invocation
+          in  (execLink @k (link [("main", [])] invocation c) emptyR1cs)
+                { nPublicInputs = Comp.nPublicInputs mainCtx
+                }
+        e -> error $ "Invalid main expression: " ++ show e
+
 lcToR1csLine :: PrimeField n => Comp.LC Int n -> [Integer]
-lcToR1csLine (m, c) = let
-  pairs = Map.toAscList m
-  augmentedPairs = if fromP c == 0 then pairs else (1, c) : pairs
-  nPairs = fromIntegral (length augmentedPairs)
-  in nPairs : concatMap (\(x, f) -> [fromP f, fromIntegral x]) augmentedPairs
+lcToR1csLine (m, c) =
+  let pairs          = Map.toAscList m
+      augmentedPairs = if fromP c == 0 then pairs else (1, c) : pairs
+      nPairs         = fromIntegral (length augmentedPairs)
+  in  nPairs : concatMap (\(x, f) -> [fromP f, fromIntegral x]) augmentedPairs
 
 qeqToR1csLines :: PrimeField n => Comp.QEQ Int n -> [[Integer]]
 qeqToR1csLines (a, b, c) = map lcToR1csLine [a, b, c]
 
 r1csAsLines :: KnownNat n => R1CS n -> [[Integer]]
 r1csAsLines r1cs =
-  let nPubIns      = fromIntegral $ nPublicInputs r1cs
-      nWit         = fromIntegral (Map.size $ sigNums r1cs) - nPubIns
-      nConstraints = fromIntegral $ Seq.length $ constraints r1cs
+  let nPubIns         = fromIntegral $ nPublicInputs r1cs
+      nWit            = fromIntegral (Map.size $ sigNums r1cs) - nPubIns
+      nConstraints    = fromIntegral $ Seq.length $ constraints r1cs
       constraintLines = concatMap qeqToR1csLines $ constraints r1cs
   in  [nPubIns, nWit, nConstraints] : constraintLines
 
