@@ -44,6 +44,7 @@ module IR.TySmt ( IntSort(..)
                 , FpUnPred(..)
                 , Term(..)
                 , Value(..)
+                , valAsPf
                 , mapTerm
                 , reduceTerm
                 , depth
