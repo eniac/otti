@@ -30,6 +30,7 @@ import qualified Data.Array                    as Arr
 import qualified Data.Sequence                 as Seq
 import qualified Data.List.Split               as Split
 import qualified Data.Maybe                    as Maybe
+import qualified Data.Tuple                    as Tuple
 import qualified Data.Map.Strict               as Map
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
@@ -37,13 +38,22 @@ import           Data.Dynamic                   ( Dynamic
 import           Data.Proxy                     ( Proxy(Proxy) )
 
 data R1CS n = R1CS { sigNums :: Map.Map GlobalSignal Int
+                   , numSigs :: Map.Map Int GlobalSignal
                    , constraints :: Seq.Seq (Comp.QEQ Int (Prime n))
                    , nextSigNum :: Int
                    , nPublicInputs :: Int
-                   }
+                   } deriving (Show)
+
+r1csAddSignals :: [GlobalSignal] -> R1CS n -> R1CS n
+r1csAddSignals sigs r1cs =
+  let zipped = zip sigs [(nextSigNum r1cs)..]
+  in  r1cs { sigNums = Map.union (Map.fromList zipped) (sigNums r1cs)
+           , numSigs = Map.union (Map.fromList $ map Tuple.swap zipped) (numSigs r1cs)
+           , nextSigNum = length zipped + (nextSigNum r1cs)
+           }
 
 emptyR1cs :: R1CS n
-emptyR1cs = R1CS Map.empty Seq.empty 2 0
+emptyR1cs = R1CS Map.empty Map.empty Seq.empty 2 0
 
 newtype LinkState n a = LinkState (State (R1CS n) a)
     deriving (Functor, Applicative, Monad, MonadState (R1CS n))
@@ -106,19 +116,7 @@ link namespace invocation ctx =
   in
     do
       -- add our signals
-      modify
-        (\ls -> ls
-          { sigNums    =
-            Map.union
-                (Map.fromList
-                  (zip (map (joinName namespace) $ Fold.toList newSignals)
-                       [(nextSigNum ls) ..]
-                  )
-                )
-              $ sigNums ls
-          , nextSigNum = nextSigNum ls + length newSignals
-          }
-        )
+      modify (r1csAddSignals (map (joinName namespace) newSignals))
       -- link sub-modules
       mapM_ (\(loc, inv) -> link (loc : namespace) inv ctx) components
       -- add our constraints
@@ -269,9 +267,11 @@ computeWitnesses order main inputs =
     dynInputs       = Map.map (toDyn . Smt.ValPf @n . fromP) inputs
     c               = Comp.compMainWitCtx @n main
     invocation      = Comp.getMainInvocation order main
-    WitCompWriter w = computeWitnessesIn c [("main", [])] invocation dynInputs
+    namespace       = [("main", [])]
+    WitCompWriter w = computeWitnessesIn c namespace invocation dynInputs
   in
-    execWriter w
+    -- Add the input signals to the global map :P
+    Map.union (execWriter w) $ Map.map fromP $ Map.mapKeys (joinName namespace . SigLocal) inputs
 
 parseIndexedIdent :: String -> IndexedIdent
 parseIndexedIdent s =

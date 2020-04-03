@@ -19,7 +19,6 @@ import           Codegen.Circom.ToSmt       (ctxToSmt)
 import           Codegen.Circom.TestSmt     (writeToR1csFile, extendInputsToAssignment)
 import qualified Data.Map       as Map
 import           Data.Proxy                 (Proxy(..))
-import           GHC.TypeNats
 import qualified IR.TySmt                   as Smt
 import           Parser.Circom              (loadMain)
 import           System.Environment         (getArgs)
@@ -46,10 +45,11 @@ Options:
   -C <path>          Write the R1CS circuit to this path [default: C]
   -V <path>          Write the verifier key to this path [default: vk]
   -P <path>          Write the prover key to this path [default: pk]
-  -x <path>          Read the primary input from this path [default: x]
-  -w <path>          Read the auxiliary input from this path [default: w]
+  -i <path>          Read all inputs from this path [default: i]
+  -x <path>          Write the public input to this path [default: x]
+  -w <path>          Write the the auxiliary input to this path [default: w]
   -p <path>          Write/Read the proof at this path [default: pf]
-  --libsnark <path>  Location of the libsnark binary
+  --libsnark <path>  Location of the libsnark binary [default: libsnark-frontend/build/src/main]
 
 Commands:
   prove            Run the prover
@@ -135,7 +135,7 @@ cmdCountTerms :: FilePath -> IO ()
 cmdCountTerms circomPath = do
     m <- loadMain circomPath
     let c = Comp.compMainWitCtx @Order m
-    print $ (count c) + (foldr (+) 0 $ Map.map count $ Comp.cache c)
+    print $ count c + sum (Map.map count $ Comp.cache c)
     print c
     where
      count = Comp.nSmtNodes . Comp.baseCtx
@@ -152,16 +152,16 @@ cmdSetup libsnarkPath circomPath r1csPath pkPath vkPath = do
     print "Running libsnark"
     runSetup libsnarkPath r1csPath pkPath vkPath
 
-cmdProve :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
-cmdProve libsnarkPath pkPath vkPath xPath wPath pfPath circomPath = do
-    print ("order is: "  ++ show (natVal $ Proxy @Order))
-    print ("order is: "  ++ show (natVal $ Proxy @(Log2 Order + 1)))
+cmdProve :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
+cmdProve libsnarkPath pkPath vkPath inPath xPath wPath pfPath circomPath = do
     m <- loadMain circomPath
-    let term = ctxToSmt (genMainCtx m order :: OrderCtx)
-    extendInput xPath wPath assignmentPath term
-    runProve libsnarkPath pkPath vkPath xPath assignmentPath pfPath
-  where
-    assignmentPath = wPath ++ ".full"
+    inputsSignals <- Link.parseSignalsFromFile (Proxy @Order) inPath
+    let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
+    let r1cs = Link.linkMain @Order m
+    let lookupSignalVal :: Int -> Integer = (allSignals Map.!) . (Link.numSigs r1cs Map.!)
+    emitAssignment (map lookupSignalVal [2..(1 + Link.nPublicInputs r1cs)]) xPath
+    emitAssignment (map lookupSignalVal [(2 + Link.nPublicInputs r1cs)..(Link.nextSigNum r1cs - 1)]) wPath
+    runProve libsnarkPath pkPath vkPath xPath wPath pfPath
 
 cmdVerify :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdVerify = runVerify
@@ -197,10 +197,11 @@ main = do
         circomPath <- args `getArgOrExit` longOption "circom"
         pkPath <- args `getArgOrExit` shortOption 'P'
         vkPath <- args `getArgOrExit` shortOption 'V'
+        inPath <- args `getArgOrExit` shortOption 'i'
         xPath <- args `getArgOrExit` shortOption 'x'
         wPath <- args `getArgOrExit` shortOption 'w'
         pfPath <- args `getArgOrExit` shortOption 'p'
-        cmdProve libsnarkPath pkPath vkPath xPath wPath pfPath circomPath
+        cmdProve libsnarkPath pkPath vkPath inPath xPath wPath pfPath circomPath
     else if args `isPresent` command "verify" then do
         libsnarkPath <- args `getArgOrExit` longOption "libsnark"
         vkPath <- args `getArgOrExit` shortOption 'V'
