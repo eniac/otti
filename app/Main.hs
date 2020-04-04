@@ -11,15 +11,10 @@
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 module Main where
 
-import           Codegen.Circom             (genMainCtx)
 import qualified Codegen.Circom.Compilation as Comp
 import qualified Codegen.Circom.Linking     as Link
-import           Codegen.Circom.Term        (Ctx(..))
-import           Codegen.Circom.ToSmt       (ctxToSmt)
-import           Codegen.Circom.TestSmt     (writeToR1csFile, extendInputsToAssignment)
 import qualified Data.Map       as Map
 import           Data.Proxy                 (Proxy(..))
-import qualified IR.TySmt                   as Smt
 import           Parser.Circom              (loadMain)
 import           System.Environment         (getArgs)
 import           System.IO                  (openFile, hGetContents, hPutStr, IOMode(..), hClose)
@@ -30,10 +25,8 @@ import           System.Process
 patterns :: Docopt
 patterns = [docopt|
 Usage:
-  compiler print-smt [options]
   compiler comp-only [options]
   compiler count-terms [options]
-  compiler emit-r1cs [options]
   compiler setup [options]
   compiler prove [options]
   compiler verify [options]
@@ -55,10 +48,8 @@ Commands:
   prove            Run the prover
   verify           Run the verifier
   setup            Run the setup
-  print-smt        Print the smt
   comp-only        Compile at the fn-level only
   count-terms      Compile at the fn-level only
-  emit-r1cs        Emit the R1CS
 |]
 
 getArgOrExit :: Arguments -> Option -> IO String
@@ -79,16 +70,6 @@ emitAssignment xs path = do
     hPutStr handle $ concatMap (\i -> show i ++ "\n") (fromIntegral (length xs) : xs)
     hClose handle
 
-extendInput :: FilePath -> FilePath -> FilePath -> Smt.Term Smt.BoolSort -> IO ()
-extendInput publicInputPath privateInputPath assignmentPath term = do
-    publicInputs <- parseInputs publicInputPath
-    privateInputs <- parseInputs privateInputPath
-    let inputs = publicInputs ++ privateInputs
-    let assignment = extendInputsToAssignment (Proxy :: Proxy Order) inputs term
-    let witnessAssignment = drop (length publicInputs) assignment
-    print witnessAssignment
-    emitAssignment witnessAssignment assignmentPath
-
 -- libsnark functions
 runSetup :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 runSetup libsnarkPath circuitPath pkPath vkPath = do
@@ -108,22 +89,10 @@ runVerify libsnarkPath vkPath xPath pfPath  = do
 order :: Integer
 order = 21888242871839275222246405745257275088548364400416034343698204186575808495617
 type Order = 21888242871839275222246405745257275088548364400416034343698204186575808495617
-type OrderCtx = Ctx Order
 
 -- order = 17
 -- type Order = 17
 -- type OrderCtx = Ctx Order
-
--- Our commands
-cmdPrintSmt :: FilePath -> IO ()
-cmdPrintSmt circomPath = do
-    m <- loadMain circomPath
-    print (ctxToSmt (genMainCtx m order :: OrderCtx))
-
-cmdEmitR1cs :: FilePath -> FilePath -> IO ()
-cmdEmitR1cs circomPath r1csPath = do
-    m <- loadMain circomPath
-    writeToR1csFile (ctxToSmt (genMainCtx m order :: OrderCtx)) r1csPath
 
 cmdCompOnly :: FilePath -> IO ()
 cmdCompOnly circomPath = do
@@ -172,19 +141,12 @@ defaultR1cs = "C"
 main :: IO ()
 main = do
     args <- parseArgsOrExit patterns =<< getArgs
-    if args `isPresent` command "print-smt" then do
-        circomPath <- args `getArgOrExit` longOption "circom"
-        cmdPrintSmt circomPath
-    else if args `isPresent` command "comp-only" then do
+    if args `isPresent` command "comp-only" then do
         circomPath <- args `getArgOrExit` longOption "circom"
         cmdCompOnly circomPath
     else if args `isPresent` command "count-terms" then do
         circomPath <- args `getArgOrExit` longOption "circom"
         cmdCountTerms circomPath
-    else if args `isPresent` command "emit-r1cs" then do
-        circomPath <- args `getArgOrExit` longOption "circom"
-        r1csPath <- args `getArgOrExit` shortOption 'C'
-        cmdEmitR1cs circomPath r1csPath
     else if args `isPresent` command "setup" then do
         libsnarkPath <- args `getArgOrExit` longOption "libsnark"
         circomPath <- args `getArgOrExit` longOption "circom"

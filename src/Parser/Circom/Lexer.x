@@ -1,5 +1,5 @@
 {
-module Parser.Circom.Lexer (tokenize, tokenPosn, Token(..), AlexPosn(AlexPn)) where
+module Parser.Circom.Lexer (tokenize, tokenStartPosn, tokenEndPosn, tokenStr, Token(..), AlexPosn(AlexPn)) where
 }
 
 %wrapper "posn"
@@ -31,8 +31,8 @@ tokens :-
   "do"                                  { \p s -> Do p }
   "log"                                 { \p s -> Log p }
   "return"                              { \p s -> Return p }
-  "0x"[0-9 a-f A-F]+                    { \p s -> NumLit p (read s) }
-  $digit+                               { \p s -> NumLit p (read s) }
+  "0x"[0-9 a-f A-F]+                    { \p s -> NumLit p s }
+  $digit+                               { \p s -> NumLit p s }
   $alpha [$alpha $digit \_ \']*         { \p s -> Ident p s }
   \" ($printable # \")* \"              { \p s -> StrLit p $ take (length s - 2) $ drop 1 s }
   \;                                    { \p s -> SemiColon p }
@@ -69,7 +69,7 @@ data Token = Var AlexPosn
            | Return AlexPosn
            | Include AlexPosn
            | Main AlexPosn
-           | NumLit AlexPosn Int
+           | NumLit AlexPosn String
            | Ident AlexPosn String
            | Symbols AlexPosn String
            | StrLit AlexPosn String
@@ -87,36 +87,76 @@ data Token = Var AlexPosn
 --tokenize :: String -> [Token]
 tokenize = alexScanTokens
 
-tokenPosn :: Token -> AlexPosn
-tokenPosn (Var p) = p
-tokenPosn (Signal p) = p
-tokenPosn (Private p) = p
-tokenPosn (Input p) = p
-tokenPosn (Output p) = p
-tokenPosn (Component p) = p
-tokenPosn (Template p) = p
-tokenPosn (Function p) = p
-tokenPosn (If p) = p
-tokenPosn (Else p) = p
-tokenPosn (While p) = p
-tokenPosn (For p) = p
-tokenPosn (Compute p) = p
-tokenPosn (Do p) = p
-tokenPosn (Return p) = p
-tokenPosn (Include p) = p
-tokenPosn (Main p) = p
-tokenPosn (NumLit p _) = p
-tokenPosn (Ident p _) = p
-tokenPosn (Symbols p _) = p
-tokenPosn (StrLit p _) = p
-tokenPosn (SemiColon p) = p
-tokenPosn (Comma p) = p
-tokenPosn (Dot p) = p
-tokenPosn (BeginParen p) = p
-tokenPosn (BeginBracket p) = p
-tokenPosn (BeginBrace p) = p
-tokenPosn (EndParen p) = p
-tokenPosn (EndBracket p) = p
-tokenPosn (EndBrace p) = p
+tokenStartPosn :: Token -> AlexPosn
+tokenStartPosn t = case t of
+    Var p -> p
+    Signal p -> p
+    Private p -> p
+    Input p -> p
+    Output p -> p
+    Component p -> p
+    Template p -> p
+    Function p -> p
+    If p -> p
+    Else p -> p
+    While p -> p
+    For p -> p
+    Compute p -> p
+    Do p -> p
+    Return p -> p
+    Include p -> p
+    Main p -> p
+    NumLit p _ -> p
+    Ident p _ -> p
+    Symbols p _ -> p
+    StrLit p _ -> p
+    SemiColon p -> p
+    Comma p -> p
+    Dot p -> p
+    BeginParen p -> p
+    BeginBracket p -> p
+    BeginBrace p -> p
+    EndParen p -> p
+    EndBracket p -> p
+    EndBrace p -> p
+
+tokenEndPosn :: Token -> AlexPosn
+tokenEndPosn t =
+  let len = length $ tokenStr t
+      AlexPn charN line col = tokenStartPosn t
+  in  AlexPn (charN + len) line (col + len)
+
+tokenStr :: Token -> String
+tokenStr t = case t of
+    Var p -> "var"
+    Signal p -> "signal"
+    Private p -> "private"
+    Input p -> "input"
+    Output p -> "output"
+    Component p -> "component"
+    Template p -> "template"
+    Function p -> "function"
+    If p -> "if"
+    Else p -> "else"
+    While p -> "while"
+    For p -> "for"
+    Compute p -> "compute"
+    Do p -> "do"
+    Return p -> "return"
+    Include p -> "include"
+    Main p -> "main"
+    NumLit _ n -> n
+    Ident _ i -> i
+    Symbols _ s -> s
+    StrLit _ l -> l
+    SemiColon p -> ";"
+    Comma p -> ","
+    Dot p -> "."
+    BeginParen p -> "("
+    BeginBracket p -> "["
+    BeginBrace p -> "{"
+    EndParen p -> ")"
+    EndBracket p -> "]"
+    EndBrace p -> "}"
 
 }

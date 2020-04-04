@@ -24,7 +24,6 @@ import           Data.Field.Galois              ( Prime
                                                 , fromP
                                                 , toP
                                                 )
-import qualified Data.Foldable                 as Fold
 import           GHC.TypeLits                   ( KnownNat )
 import qualified Data.Array                    as Arr
 import qualified Data.Sequence                 as Seq
@@ -127,7 +126,7 @@ link namespace invocation ctx =
 execLink :: KnownNat n => LinkState n a -> R1CS n -> R1CS n
 execLink (LinkState s) = execState s
 
-linkMain :: forall k . KnownNat k => AST.MainCircuit -> R1CS k
+linkMain :: forall k . KnownNat k => AST.SMainCircuit -> R1CS k
 linkMain m =
   let c          = Comp.compMainCtx m
       invocation = Comp.getMainInvocation (Proxy @k) m
@@ -259,7 +258,7 @@ computeWitnesses
   :: forall n
    . KnownNat n
   => Proxy n
-  -> AST.MainCircuit
+  -> AST.SMainCircuit
   -> Map.Map IndexedIdent (Prime n)
   -> Map.Map GlobalSignal Integer
 computeWitnesses order main inputs =

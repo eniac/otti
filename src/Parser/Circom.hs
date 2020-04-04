@@ -1,32 +1,33 @@
 module Parser.Circom(parseFile,loadFilesRecursively,loadMain,Files) where
 
 import System.FilePath
-import AST.Circom           (File, Item(..), Expr, Block, MainCircuit(..), collectIncludes, collectFunctions, collectMains, collectTemplates)
+import AST.Circom           (Annotated(..), SFile, Item(..), SStatement, Block, MainCircuit(..), collectIncludes, collectFunctions, collectMains, collectTemplates, Span(..), PosnPair(..), mapAnns)
 import Parser.Circom.Parser (parseCircomFile)
 import Parser.Circom.Lexer  (tokenize)
-import Data.Map.Strict as Map
+import qualified Data.Map.Strict as Map
 import Data.Maybe
 
 -- Parse the given file.
-parseFile :: FilePath -> IO File
+parseFile :: FilePath -> IO SFile
 parseFile p = do
     f <- readFile p
-    return (parseCircomFile $ tokenize f)
+    return (map (mapAnns toSpan) $ parseCircomFile $ tokenize f)
+  where toSpan (PosnPair x y) = Span p x y
 
-type Files = Map FilePath File
+type Files = Map.Map FilePath SFile
 
 -- Implementation of DFS file loading
 extendInclude :: Files -> [FilePath] -> IO Files
 extendInclude currentProgram [] = pure currentProgram
 extendInclude currentProgram (filePath:toInclude) =
-    if member filePath currentProgram
+    if Map.member filePath currentProgram
         then extendInclude currentProgram toInclude
         else
             do
                 newFile <- parseFile filePath
-                let newProgram = insert filePath newFile currentProgram
-                let includedPaths = Prelude.map (filePath `relativize`) $ collectIncludes newFile
-                let additionalIncludes = Prelude.filter (\p -> not $ member p newProgram) includedPaths
+                let newProgram = Map.insert filePath newFile currentProgram
+                let includedPaths = map ((filePath `relativize`) . ast) $ collectIncludes newFile
+                let additionalIncludes = Prelude.filter (\p -> not $ Map.member p newProgram) includedPaths
                 extendInclude newProgram (additionalIncludes ++ toInclude)
 
 
@@ -35,7 +36,7 @@ relativize :: FilePath -> FilePath -> FilePath
 relativize baseFile relativeFile = fst (splitFileName baseFile) </> relativeFile
 
 -- Given a file, gets the first main expression
-getFirstMain :: File -> Expr
+getFirstMain :: SFile -> SStatement
 getFirstMain file
     | l == 0 = error "Missing main"
     | l == 1 = head mains
@@ -51,11 +52,11 @@ loadFilesRecursively path = extendInclude Map.empty [path]
 
 loadMain path = do
     loaded <- loadFilesRecursively path
-    let mainItems = findWithDefault (error $ "missing main file " ++ path) path loaded
-    let allItems = concat (elems loaded)
+    let mainItems = Map.findWithDefault (error $ "missing main file " ++ path) path loaded
+    let allItems = concat (Map.elems loaded)
     let functions = collectFunctions allItems
     let templates = collectTemplates allItems
     return $ MainCircuit
         (getFirstMain mainItems)
-        (Map.fromList (Prelude.map (\t -> let (n, a, b) = t in (n, (a, b))) functions))
-        (Map.fromList (Prelude.map (\t -> let (n, a, b) = t in (n, (a, b))) templates))
+        (Map.fromList (Prelude.map (\t -> let (n, a, b) = t in (ast n, (map ast a, b))) functions))
+        (Map.fromList (Prelude.map (\t -> let (n, a, b) = t in (ast n, (map ast a, b))) templates))
