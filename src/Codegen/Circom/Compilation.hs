@@ -581,7 +581,6 @@ compExpr e = case ast e of
                             (env c')
                             (Map.keysSet $ Map.filter (== IKComp) (ids c'))
                 , cache = Map.empty
-                , ids   = Map.empty
                 }
           modify
             (\cc -> cc { cache = Map.insert invocation strippedCtx newCache })
