@@ -35,6 +35,9 @@ import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
 import           Data.Proxy                     ( Proxy(Proxy) )
+import           Debug.Trace                    ( trace
+                                                , traceShowId
+                                                )
 
 data R1CS n = R1CS { sigNums :: Map.Map GlobalSignal Int
                    , numSigs :: Map.Map Int GlobalSignal
@@ -169,11 +172,6 @@ type ExtValues = Map.Map IndexedIdent Dynamic
 newtype WitCompWriter a = WitCompWriter (Writer GlobalValues a)
     deriving (Functor, Applicative, Monad, MonadWriter GlobalValues)
 
-ltermToSig :: Comp.LTerm -> Signal
-ltermToSig l = case l of
-  Comp.LTermLocal a     -> SigLocal a
-  Comp.LTermForeign a b -> SigForeign a b
-
 computeWitnessesIn
   :: forall n
    . KnownNat n
@@ -221,7 +219,7 @@ computeWitnessesIn ctx namespace invocation inputs =
       -> WitCompWriter LocalValues
     folder localCtx step = case step of
       Left lterm -> do
-        let sig                  = ltermToSig lterm
+        let sig                  = Comp.ltermToSig lterm
         let Comp.WitBaseTerm smt = evalExprs Map.! lterm
         let value                = Smt.eval (stringValues localCtx) smt
         let dValue               = toDyn value

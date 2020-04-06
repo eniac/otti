@@ -36,6 +36,7 @@ module Codegen.Circom.Compilation
   , ctxOrderedSignals
   , load
   , getMainInvocation
+  , ltermToSig
   )
 where
 
@@ -59,9 +60,13 @@ import           Data.Functor
 import qualified Data.List                     as List
 import qualified Data.Map.Strict               as Map
 import qualified Data.Maybe                    as Maybe
+import qualified Data.Either                   as Either
 import qualified Data.Set                      as Set
 import           Data.Proxy                     ( Proxy(Proxy) )
-import           Debug.Trace                    ( trace , traceShowId )
+import           Debug.Trace                    ( trace
+                                                , traceShowId
+                                                )
+import qualified Digraph
 import qualified IR.TySmt                      as Smt
 import           GHC.TypeLits.KnownNat
 import           GHC.TypeNats
@@ -177,10 +182,12 @@ class (Show b, Num b, Fractional b) => BaseTerm b k | b -> k where
 class (Show c, BaseTerm b k) => BaseCtx c b k | c -> b where
   assert :: b -> c -> c
   emptyCtx :: c
-  storeCtx :: SignalKind -> LTerm -> b -> c -> c
+  storeCtx :: Span -> SignalKind -> LTerm -> b -> c -> c
   -- Notification that a particular signal was gotten.
   getCtx :: SignalKind -> LTerm -> c -> c
   ignoreCompBlock :: c -> Bool
+  -- Called after function exit.
+  finalize :: c -> c
 
 newtype LowDegCtx k = LowDegCtx { constraints :: [QEQ Sig.Signal k] } deriving (Show)
 
@@ -240,9 +247,10 @@ instance KnownNat k => BaseCtx (LowDegCtx (Prime k)) (LowDeg (Prime k)) (Prime k
     Quadratic q  -> LowDegCtx (q : cs)
     _            -> error $ "Cannot constain " ++ show t ++ " to zero"
   emptyCtx = LowDegCtx []
-  storeCtx _sigKind _signalLoc _term = id
+  storeCtx _span _sigKind _signalLoc _term = id
   getCtx _kind _loc = id
   ignoreCompBlock = const True
+  finalize        = id
 
 data AbsTerm b k = Base b
                  | Array (Arr.Array Int (AbsTerm b k))
@@ -252,10 +260,10 @@ data AbsTerm b k = Base b
 
 type LowDegTerm k = AbsTerm (LowDeg k) k
 
-termAsNum :: (Show b, Num n, PrimeField k) => AbsTerm b k -> n
-termAsNum t = case t of
+termAsNum :: (Show b, Num n, PrimeField k) => Span -> AbsTerm b k -> n
+termAsNum s t = case t of
   Const n -> fromInteger $ fromP n
-  _ -> error $ "term " ++ show t ++ " should be constant integer, but is not"
+  _ -> spanE s $ "term " ++ show t ++ " should be constant integer, but is not"
 
 instance (BaseTerm b k, GaloisField k) => Num (AbsTerm b k) where
   s + t = case (s, t) of
@@ -381,43 +389,83 @@ instance KnownNat n => BaseTerm (WitBaseTerm n) (Prime n) where
     UnNeg -> error "Unreachable"
 
 data WitBaseCtx n = WitBaseCtx { signalTerms :: Map.Map LTerm (WitBaseTerm n)
-                               , alreadyInstantiated :: Set.Set Sig.IndexedIdent
                                -- The order in which signals and components are written to
                                -- lefts are signals, rights are components
+                               -- Initialize unordered, then ordered in finalize.
                                , assignmentOrder :: [Either LTerm Sig.IndexedIdent]
                                } deriving (Show)
 
+ltermToSig :: LTerm -> Sig.Signal
+ltermToSig l = case l of
+  LTermLocal a     -> Sig.SigLocal a
+  LTermForeign a b -> Sig.SigForeign a b
+
+sigToLterm :: Sig.Signal -> LTerm
+sigToLterm l = case l of
+  Sig.SigLocal a     -> LTermLocal a
+  Sig.SigForeign a b -> LTermForeign a b
+
+
 instance KnownNat n => BaseCtx (WitBaseCtx n) (WitBaseTerm n) (Prime n) where
   assert _ = id
-  emptyCtx = WitBaseCtx Map.empty Set.empty []
-  storeCtx kind sig term ctx = if Map.member sig (signalTerms ctx)
-    then error $ "Signal " ++ show sig ++ " has already been assigned to"
-    else
-      let newCtx = ctx { signalTerms     = Map.insert sig term $ signalTerms ctx
-                       , assignmentOrder = Left sig : assignmentOrder ctx
-                       }
-      in  case sig of
-            LTermLocal{} -> newCtx
-            LTermForeign cLoc sLoc ->
-              if isInput kind && Set.member cLoc (alreadyInstantiated ctx)
-                then
-                  error
-                  $  "Cannot write to input "
-                  ++ show sLoc
-                  ++ " of component at location "
-                  ++ show cLoc
-                  ++ " when an output of that component has already been read"
-                else newCtx
+  emptyCtx = WitBaseCtx Map.empty []
+  storeCtx span_ _kind sig term ctx = if Map.member sig (signalTerms ctx)
+    then spanE span_ $ "Signal " ++ show sig ++ " has already been assigned to"
+    else ctx { signalTerms     = Map.insert sig term $ signalTerms ctx
+             , assignmentOrder = Left sig : assignmentOrder ctx
+             }
   getCtx kind sig c = if kind == Out
     then case sig of
-      LTermLocal{}        -> c
-      LTermForeign cLoc _ -> if Set.member cLoc (alreadyInstantiated c)
-        then c
-        else c { alreadyInstantiated = Set.insert cLoc $ alreadyInstantiated c
-               , assignmentOrder     = Right cLoc : assignmentOrder c
-               }
+      LTermLocal{} -> c
+      LTermForeign cLoc _ ->
+        c { assignmentOrder = Right cLoc : assignmentOrder c }
     else c
   ignoreCompBlock = const False
+  finalize c =
+    let
+      keys = assignmentOrder c
+
+      collectSigs :: Smt.Term s -> Set.Set Sig.Signal
+      collectSigs = Smt.reduceTerm visit Set.empty Set.union
+       where
+        visit :: Smt.Term t -> Maybe (Set.Set Sig.Signal)
+        visit t = case t of
+          Smt.Var v -> Just $ Set.singleton $ read v
+          _         -> Nothing
+
+      asLterm :: Either LTerm Sig.IndexedIdent -> LTerm
+      asLterm = either id LTermLocal
+
+      outputComponent o = case o of
+        LTermForeign a _ -> LTermLocal a
+        LTermLocal _     -> o
+
+      dependencies :: Either LTerm Sig.IndexedIdent -> [LTerm]
+      dependencies assignment = case assignment of
+        Left signal ->
+          map (outputComponent . sigToLterm)
+            $ Fold.toList
+            $ collectSigs
+            $ (let WitBaseTerm s = signalTerms c Map.! signal in s)
+        Right componentLoc -> filter inputToComponent $ Either.lefts keys
+         where
+          inputToComponent l = case l of
+            LTermForeign x _ | x == componentLoc -> True
+            _ -> False
+
+      graph
+        :: Digraph.Graph (Digraph.Node LTerm (Either LTerm Sig.IndexedIdent))
+      graph = Digraph.graphFromEdgedVerticesOrd $ map
+        (\assignment -> Digraph.DigraphNode assignment
+                                            (asLterm assignment)
+                                            (dependencies assignment)
+        )
+        keys
+    in
+      c
+        { assignmentOrder = map Digraph.node_payload
+                              $ Digraph.topologicalSortG graph
+        }
 
 nSmtNodes :: WitBaseCtx n -> Int
 nSmtNodes =
@@ -478,7 +526,7 @@ nPublicInputs c =
 
 data LTerm = LTermLocal Sig.IndexedIdent
            | LTermForeign Sig.IndexedIdent Sig.IndexedIdent
-           deriving (Show,Eq,Ord)
+           deriving (Show,Eq,Ord,Read)
 
 newtype CompState c b n a = CompState (State (CompCtx c b (Prime n)) a)
     deriving (Functor, Applicative, Monad, MonadState (CompCtx c b (Prime n)))
@@ -505,7 +553,7 @@ compIndexedIdent i =
   let (name, dims) = ast i
   in  do
         dimTerms <- compExprs dims
-        let dimInts = map termAsNum dimTerms
+        let dimInts = map (termAsNum $ ann i) dimTerms
         return (ast name, dimInts)
 
 compLoc
@@ -539,7 +587,7 @@ compExpr e = case ast e of
     lval <- compLoc loc
     term <- load (ann loc) lval
     let term' = term + Const (toP $ opToOffset op)
-    modify (store lval term')
+    modify (store (ann e) lval term')
     case unMutOpTime op of
       Post -> return term
       Pre  -> return term'
@@ -562,7 +610,7 @@ compExpr e = case ast e of
   Call name args -> do
     tArgs <- compExprs args
     -- TODO: Allow non-constant arguments
-    let intArgs :: [Integer]             = map termAsNum tArgs
+    let intArgs :: [Integer]             = map (termAsNum $ ann e) tArgs
     let invocation :: TemplateInvocation = (ast name, intArgs)
     c <- get
     let (isFn, formalArgs, code) = Maybe.fromMaybe
@@ -582,7 +630,11 @@ compExpr e = case ast e of
       then do
         let ((), c') = runCompState (compStatements $ ast code) callState
         let returnValue = Maybe.fromMaybe
-              (spanE (ann e) $ "Function " ++ show (ast name) ++ " did not return")
+              (  spanE (ann e)
+              $  "Function "
+              ++ show (ast name)
+              ++ " did not return"
+              )
               (returning c')
         return returnValue
       else do
@@ -590,10 +642,11 @@ compExpr e = case ast e of
           let ((), c') = runCompState (compStatements $ ast code) callState
           let newCache = cache c'
           let strippedCtx = c'
-                { env   = Map.restrictKeys
-                            (env c')
-                            (Map.keysSet $ Map.filter (== IKComp) (ids c'))
-                , cache = Map.empty
+                { env     = Map.restrictKeys
+                              (env c')
+                              (Map.keysSet $ Map.filter (== IKComp) (ids c'))
+                , cache   = Map.empty
+                , baseCtx = finalize $ baseCtx c'
                 }
           modify
             (\cc -> cc { cache = Map.insert invocation strippedCtx newCache })
@@ -638,13 +691,13 @@ compStatement s = do
       Assign loc expr -> do
         lval <- compLoc loc
         term <- compExpr expr
-        modify (store lval term)
+        modify (store (ann s) lval term)
       OpAssign op loc expr -> do
         lval <- compLoc loc
         base <- load (ann loc) lval
         new  <- compExpr expr
         let base' = binOp op base new
-        modify (store lval base')
+        modify (store (ann s) lval base')
       Constrain l r -> do
         lt <- compExpr l
         rt <- compExpr r
@@ -660,23 +713,31 @@ compStatement s = do
         ]
       VarDeclaration name dims ini -> do
         ts <- compExprs dims
-        modify (alloc (ast name) IKVar $ termMultiDimArray (Const 0) ts)
-        mapM_ (compExpr >=> modify' . store (LTermLocal (ast name, []))) ini
+        modify (alloc name IKVar $ termMultiDimArray (ann s) (Const 0) ts)
+        mapM_
+          (compExpr >=> modify' . store (ann s) (LTermLocal (ast name, [])))
+          ini
       SigDeclaration name kind dims -> do
         ts    <- compExprs dims
         fresh <- gets (not . Map.member (ast name) . ids)
-        unless fresh $ spanE (ann name) $ "Signal name " ++ show name ++ " is not fresh"
+        unless fresh
+          $  spanE (ann name)
+          $  "Signal name "
+          ++ show name
+          ++ " is not fresh"
         modify
           (\c -> c
-            { signals = Map.insert (ast name) (kind, map termAsNum ts)
+            { signals = Map.insert (ast name) (kind, map (termAsNum $ ann s) ts)
                           $ signals c
             , ids     = Map.insert (ast name) IKSig $ ids ctx
             }
           )
       SubDeclaration name dims ini -> do
         ts <- compExprs dims
-        modify (alloc (ast name) IKComp (termMultiDimArray (Const 1) ts))
-        mapM_ (compExpr >=> modify' . store (LTermLocal (ast name, []))) ini
+        modify (alloc name IKComp (termMultiDimArray (ann s) (Const 1) ts))
+        mapM_
+          (compExpr >=> modify' . store (ann s) (LTermLocal (ast name, [])))
+          ini
       If cond true false -> do
         b <- compCondition cond
         if b
@@ -713,7 +774,7 @@ load
   => Span
   -> LTerm
   -> CompState c b k (AbsTerm b (Prime k))
-load span loc = do
+load span_ loc = do
   ctx <- get
   case loc of
     LTermLocal (name, idxs) -> case ids ctx Map.!? name of
@@ -722,12 +783,13 @@ load span loc = do
       Just IKSig  -> do
         modify (\c -> c { baseCtx = getCtx kind loc $ baseCtx c })
         return $ Base $ fromSignal $ either
-          (spanE span)
+          (spanE span_)
           (const $ Sig.SigLocal (name, idxs))
           (checkDims idxs dims)
         where (kind, dims) = signals ctx Map.! name
       Nothing ->
-        spanE span $ "Unknown identifier `" ++ name ++ "` in " ++ show (ids ctx)
+        spanE span_ $ "Unknown identifier `" ++ name ++ "` in " ++ show
+          (ids ctx)
     LTermForeign (name, idxs) sigLoc -> case ids ctx Map.!? name of
       Just IKComp -> case extract idxs (env ctx Map.! name) of
         Component invoc ->
@@ -736,21 +798,23 @@ load span loc = do
                 Just (k, dims) | isVisible k -> do
                   modify (\c -> c { baseCtx = getCtx k loc $ baseCtx c })
                   return $ Base $ fromSignal $ either
-                    (spanE span)
+                    (spanE span_)
                     (const $ Sig.SigForeign (name, idxs) sigLoc)
                     (checkDims (snd sigLoc) dims)
                 Just (k, _) ->
-                  spanE span
+                  spanE span_
                     $  "Cannot load foreign signal "
                     ++ show (fst sigLoc)
                     ++ " of type "
                     ++ show k
                     ++ " at "
                     ++ show loc
-                _ -> spanE span $ "Unknown foreign signal " ++ show (fst sigLoc)
-        _ -> spanE span "Unreachable: non-component in component id!"
-      Just _  -> spanE span $ "Identifier " ++ show name ++ " is not a component"
-      Nothing -> spanE span $ "Identifier " ++ show name ++ " is unknown"
+                _ ->
+                  spanE span_ $ "Unknown foreign signal " ++ show (fst sigLoc)
+        _ -> spanE span_ "Unreachable: non-component in component id!"
+      Just _ ->
+        spanE span_ $ "Identifier " ++ show name ++ " is not a component"
+      Nothing -> spanE span_ $ "Identifier " ++ show name ++ " is unknown"
 
 subscript :: Show b => Int -> AbsTerm b (Prime k) -> AbsTerm b (Prime k)
 subscript i t = case t of
@@ -778,38 +842,44 @@ checkDims idxs dims = if length idxs == length dims
 alloc
   :: forall c b k
    . KnownNat k
-  => String
+  => SString
   -> IdKind
   -> AbsTerm b (Prime k)
   -> CompCtx c b (Prime k)
   -> CompCtx c b (Prime k)
 -- Stores a term in a location
-alloc name kind term ctx = if Map.member name (ids ctx)
-  then error $ "Identifier " ++ show name ++ " already used"
-  else ctx { env = Map.insert name term $ env ctx
-           , ids = Map.insert name kind $ ids ctx
-           }
+alloc name kind term ctx = case ids ctx Map.!? ast name of
+  Just IKVar -> ctx'
+  Nothing    -> ctx'
+  Just IKSig -> e
+  Just IKComp -> e
+ where
+  ctx' = ctx { env = Map.insert (ast name) term $ env ctx
+             , ids = Map.insert (ast name) kind $ ids ctx
+             }
+  e = spanE (ann name) $ "Identifier " ++ show name ++ " already used"
 
 store
   :: forall c b k
    . (BaseCtx c b (Prime k), KnownNat k)
-  => LTerm
+  => Span
+  -> LTerm
   -> AbsTerm b (Prime k)
   -> CompCtx c b (Prime k)
   -> CompCtx c b (Prime k)
-store loc term ctx = case loc of
+store span_ loc term ctx = case loc of
   LTermLocal (name, idxs) -> case ids ctx Map.!? name of
-    Nothing    -> error $ "Unknown identifier `" ++ name ++ "`"
+    Nothing    -> spanE span_ $ "Unknown identifier `" ++ name ++ "`"
     Just IKSig -> case signals ctx Map.!? name of
       Just (k, dims) ->
-        either error (const $ storeSig k loc ctx) (checkDims idxs dims)
-      Nothing -> error "Unreachable"
+        either (spanE span_) (const $ storeSig k loc ctx) (checkDims idxs dims)
+      Nothing -> spanE span_ "Unreachable"
     Just _ -> case env ctx Map.!? name of
       Just t ->
         ctx { env = Map.insert name (modifyIn idxs (const term) t) (env ctx) }
       Nothing -> case signals ctx Map.!? name of
         Just _  -> ctx
-        Nothing -> error $ "Unknown identifier `" ++ name ++ "`"
+        Nothing -> spanE span_ $ "Unknown identifier `" ++ name ++ "`"
    where
     arrayUpdate :: Ix i => i -> (a -> a) -> Arr.Array i a -> Arr.Array i a
     arrayUpdate i f a = a Arr.// [(i, f (a Arr.! i))]
@@ -824,7 +894,7 @@ store loc term ctx = case loc of
       i : is' -> case t of
         Array a -> Array $ arrayUpdate i (modifyIn is' f) a
         _ ->
-          error
+          spanE span_
             $  "Cannot update index "
             ++ show i
             ++ " of non-array "
@@ -835,25 +905,25 @@ store loc term ctx = case loc of
         let forCtx = cache ctx Map.! invoc
         in  case signals forCtx Map.!? fst sigLoc of
               Just (k, dims) | isInput k -> either
-                error
+                (spanE span_)
                 (const $ storeSig k loc ctx)
                 (checkDims (snd sigLoc) dims)
               Just (k, _) ->
-                error
+                spanE span_
                   $  "Cannot store into foreign signal "
                   ++ show (fst sigLoc)
                   ++ " of type "
                   ++ show k
-              _ -> error $ "Unknown foreign signal " ++ show (fst sigLoc)
-      _ -> error "Unreachable: non-component in component id!"
-    Just _  -> error $ "Identifier " ++ show name ++ " is not a component"
-    Nothing -> error $ "Identifier " ++ show name ++ " is unknown"
+              _ -> spanE span_ $ "Unknown foreign signal " ++ show (fst sigLoc)
+      _ -> spanE span_ "Unreachable: non-component in component id!"
+    Just _  -> spanE span_ $ "Identifier " ++ show name ++ " is not a component"
+    Nothing -> spanE span_ $ "Identifier " ++ show name ++ " is unknown"
  where
   storeSig k l c = case term of
-    Base  b -> c { baseCtx = storeCtx k l b $ baseCtx c }
-    Const b -> c { baseCtx = storeCtx k l (fromConst b) $ baseCtx c }
+    Base  b -> c { baseCtx = storeCtx span_ k l b $ baseCtx c }
+    Const b -> c { baseCtx = storeCtx span_ k l (fromConst b) $ baseCtx c }
     _ ->
-      error
+      spanE span_
         $  "Cannot store non-base term "
         ++ show term
         ++ " in signal "
@@ -861,14 +931,15 @@ store loc term ctx = case loc of
 
 termMultiDimArray
   :: (Show b, KnownNat k)
-  => AbsTerm b (Prime k)
+  => Span
+  -> AbsTerm b (Prime k)
   -> [AbsTerm b (Prime k)]
   -> AbsTerm b (Prime k)
-termMultiDimArray = foldr
+termMultiDimArray span_ = foldr
   (\d acc -> case d of
     Const n -> Array $ Arr.listArray (0, i - 1) (replicate i acc)
       where i = fromIntegral $ fromP n
-    _ -> error $ "Illegal dimension " ++ show d
+    _ -> spanE span_ $ "Illegal dimension " ++ show d
   )
 
 compMain
@@ -898,7 +969,6 @@ getMainInvocation
 getMainInvocation _order m = case ast (main m) of
   SubDeclaration _ [] (Just (Annotated (Call name args) _)) ->
     ( ast name
-    , map termAsNum $ fst $ runLowDegCompState @k (compExprs args) empty
+    , map (termAsNum nullSpan) $ fst $ runLowDegCompState @k (compExprs args) empty
     )
   expr -> spanE (ann $ main m) $ "Invalid main expression " ++ show expr
-

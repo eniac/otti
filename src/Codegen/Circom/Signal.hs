@@ -8,6 +8,6 @@ type IndexedIdent = (String, [Int])
 
 data Signal = SigLocal IndexedIdent
             | SigForeign IndexedIdent IndexedIdent
-            deriving (Show,Eq,Ord)
+            deriving (Show,Eq,Ord,Read)
 
 type GlobalSignal = [IndexedIdent]
