@@ -236,7 +236,7 @@ computeWitnessesIn ctx namespace invocation inputs =
           callNamespace = loc : namespace
           call =
             case
-                fst $ Comp.runCompState (Comp.load (Comp.LTermLocal loc)) c
+                fst $ Comp.runCompState (Comp.load AST.nullSpan (Comp.LTermLocal loc)) c
               of
                 Comp.Component i -> i
                 t -> error $ "Non-component " ++ show t ++ " at " ++ show loc

@@ -44,6 +44,7 @@ module AST.Circom
   , Posn(..)
   , PosnPair(..)
   , Span(..)
+  , nullSpan
   , Annotated(..)
   , Interval(..)
   , mapAnns
@@ -58,7 +59,9 @@ import qualified Data.Map.Strict               as Map
 -- An annotated AST
 data Annotated a s = Annotated { ast :: a
                                , ann :: s
-                               } deriving (Show,Eq)
+                               } deriving (Eq)
+instance Show a => Show (Annotated a s) where
+  show = show . ast
 
 mapAnns :: Functor a => (s -> t) -> Annotated (a s) s -> Annotated (a t) t
 mapAnns f (Annotated x y) = Annotated (f <$> x) (f y)
@@ -79,10 +82,16 @@ class Interval b where
   union = foldr (\/)
 
 -- Line, Column
-data Posn = Posn Int Int Int deriving (Show,Eq,Ord)
-data PosnPair = PosnPair Posn Posn deriving (Show,Eq)
-data Span = Span FilePath Posn Posn deriving (Show,Eq)
+data Posn = Posn !Int !Int !Int deriving (Eq,Ord)
+data PosnPair = PosnPair !Posn !Posn deriving (Show,Eq)
+data Span = Span FilePath !Posn !Posn deriving (Show,Eq)
 
+nullSpan :: Span
+nullSpan = Span "<unknown>" (Posn 0 0 0) (Posn 0 0 0)
+
+
+instance Show Posn where
+  show (Posn _ l c) = show l ++ ":" ++ show c
 
 instance Interval PosnPair where
   (PosnPair a b) \/ (PosnPair c d) = PosnPair (min a c) (max b d)

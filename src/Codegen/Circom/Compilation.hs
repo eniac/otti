@@ -87,6 +87,17 @@ data LowDeg n = Scalar n
               | HighDegree
               deriving (Show,Eq,Ord)
 
+spanE :: Span -> String -> a
+spanE (Span path s e) m =
+  error
+    $  m
+    ++ "\nLocation:\n\t"
+    ++ path
+    ++ "\n\tbetween "
+    ++ show s
+    ++ "\n\t    and "
+    ++ show e
+
 lcZero :: GaloisField k => LC s k
 lcZero = (Map.empty, 0)
 
@@ -490,10 +501,12 @@ compIndexedIdent
   :: (BaseCtx c b (Prime n), KnownNat n)
   => SIndexedIdent
   -> CompState c b n Sig.IndexedIdent
-compIndexedIdent i = let (name, dims) = ast i in do
-  dimTerms <- compExprs dims
-  let dimInts = map termAsNum dimTerms
-  return (ast name, dimInts)
+compIndexedIdent i =
+  let (name, dims) = ast i
+  in  do
+        dimTerms <- compExprs dims
+        let dimInts = map termAsNum dimTerms
+        return (ast name, dimInts)
 
 compLoc
   :: (BaseCtx c b (Prime n), KnownNat n) => SLocation -> CompState c b n LTerm
@@ -524,7 +537,7 @@ compExpr e = case ast e of
     return $ unOp op t
   UnMutExpr op loc -> do
     lval <- compLoc loc
-    term <- load lval
+    term <- load (ann loc) lval
     let term' = term + Const (toP $ opToOffset op)
     modify (store lval term')
     case unMutOpTime op of
@@ -542,22 +555,22 @@ compExpr e = case ast e of
       Const 0 -> caseF
       Const _ -> caseT
       -- TODO: allow: Base  _ -> Base HighDegree
-      t       -> error $ "Cannot condition on term " ++ show t
+      t       -> spanE (ann c) $ "Cannot condition on term " ++ show t
   LValue loc -> do
     lt <- compLoc loc
-    load lt
+    load (ann loc) lt
   Call name args -> do
     tArgs <- compExprs args
     -- TODO: Allow non-constant arguments
-    let intArgs :: [Integer] = map termAsNum tArgs
+    let intArgs :: [Integer]             = map termAsNum tArgs
     let invocation :: TemplateInvocation = (ast name, intArgs)
     c <- get
     let (isFn, formalArgs, code) = Maybe.fromMaybe
-          (error $ "Unknown callable " ++ ast name)
+          (spanE (ann name) $ "Unknown callable " ++ ast name)
           (callables c Map.!? ast name)
     unless (length args == length formalArgs)
       $  return
-      $  error
+      $  (spanE (ann e))
       $  "Wrong number of arguments for "
       ++ show name
     let callState = empty { callables = callables c
@@ -569,7 +582,7 @@ compExpr e = case ast e of
       then do
         let ((), c') = runCompState (compStatements $ ast code) callState
         let returnValue = Maybe.fromMaybe
-              (error $ "Function " ++ show (ast name) ++ " did not return")
+              (spanE (ann e) $ "Function " ++ show (ast name) ++ " did not return")
               (returning c')
         return returnValue
       else do
@@ -593,19 +606,18 @@ compExprs
 compExprs = mapM compExpr
 
 compCondition
-  :: (BaseCtx c b (Prime n), KnownNat n)
-  => SExpr
-  -> CompState c b n Bool
+  :: (BaseCtx c b (Prime n), KnownNat n) => SExpr -> CompState c b n Bool
 compCondition cond = do
   tcond <- compExpr cond
   case tcond of
     Const 0 -> return False
     Const _ -> return True
-    _ -> error
-                  $  "Invalid conditional term "
-                  ++ show tcond
-                  ++ " in while condition "
-                  ++ show cond
+    _ ->
+      spanE (ann cond)
+        $  "Invalid conditional term "
+        ++ show tcond
+        ++ " in while condition "
+        ++ show cond
 
 compStatements
   :: (BaseCtx c b (Prime n), KnownNat n) => [SStatement] -> CompState c b n ()
@@ -614,9 +626,7 @@ compStatements = void . mapM compStatement
 whileM_ :: Monad m => m Bool -> m a -> m ()
 whileM_ condition step = do
   b <- condition
-  if b
-    then step *> whileM_ condition step
-    else pure ()
+  if b then step *> whileM_ condition step else pure ()
 
 compStatement
   :: (BaseCtx c b (Prime n), KnownNat n) => SStatement -> CompState c b n ()
@@ -631,8 +641,8 @@ compStatement s = do
         modify (store lval term)
       OpAssign op loc expr -> do
         lval <- compLoc loc
-        base <- load lval
-        new <- compExpr expr
+        base <- load (ann loc) lval
+        new  <- compExpr expr
         let base' = binOp op base new
         modify (store lval base')
       Constrain l r -> do
@@ -642,10 +652,12 @@ compStatement s = do
         let zt = lt - rt
         case zt of
           Base b -> modify $ \c -> c { baseCtx = assert b (baseCtx c) }
-          _      -> error $ "Cannot constain " ++ show zt ++ " to zero"
+          _      -> spanE (ann s) $ "Cannot constain " ++ show zt ++ " to zero"
       -- TODO Not quite right: evals location twice
-      AssignConstrain l e ->
-        compStatements [Annotated (Assign l e) (ann s), Annotated (Constrain (Annotated (LValue l) (ann l)) e) (ann s)]
+      AssignConstrain l e -> compStatements
+        [ Annotated (Assign l e) (ann s)
+        , Annotated (Constrain (Annotated (LValue l) (ann l)) e) (ann s)
+        ]
       VarDeclaration name dims ini -> do
         ts <- compExprs dims
         modify (alloc (ast name) IKVar $ termMultiDimArray (Const 0) ts)
@@ -653,10 +665,11 @@ compStatement s = do
       SigDeclaration name kind dims -> do
         ts    <- compExprs dims
         fresh <- gets (not . Map.member (ast name) . ids)
-        unless fresh $ error $ "Signal name " ++ show name ++ " is not fresh"
+        unless fresh $ spanE (ann name) $ "Signal name " ++ show name ++ " is not fresh"
         modify
           (\c -> c
-            { signals = Map.insert (ast name) (kind, map termAsNum ts) $ signals c
+            { signals = Map.insert (ast name) (kind, map termAsNum ts)
+                          $ signals c
             , ids     = Map.insert (ast name) IKSig $ ids ctx
             }
           )
@@ -669,13 +682,16 @@ compStatement s = do
         if b
           then compStatements $ ast true
           else mapM_ (compStatements . ast) false
-      While cond block -> whileM_ (compCondition cond) (compStatements $ ast block) $> ()
+      While cond block ->
+        whileM_ (compCondition cond) (compStatements $ ast block) $> ()
       For ini cond step block -> do
         compStatement ini
-        _ <- whileM_ (compCondition cond) (compStatements (ast block) *> compStatement step)
+        _ <- whileM_ (compCondition cond)
+                     (compStatements (ast block) *> compStatement step)
         return ()
-      DoWhile block cond -> compStatements (ast block) <* whileM_ (compCondition cond) (compStatements $ ast block)
-      Compute b          -> do
+      DoWhile block cond -> compStatements (ast block)
+        <* whileM_ (compCondition cond) (compStatements $ ast block)
+      Compute b -> do
         ignore <- gets (ignoreCompBlock . baseCtx)
         if ignore then return () else compStatements (ast b)
       Ignore e -> do
@@ -694,9 +710,10 @@ compStatement s = do
 load
   :: forall c b k
    . (BaseCtx c b (Prime k), KnownNat k)
-  => LTerm
+  => Span
+  -> LTerm
   -> CompState c b k (AbsTerm b (Prime k))
-load loc = do
+load span loc = do
   ctx <- get
   case loc of
     LTermLocal (name, idxs) -> case ids ctx Map.!? name of
@@ -705,12 +722,12 @@ load loc = do
       Just IKSig  -> do
         modify (\c -> c { baseCtx = getCtx kind loc $ baseCtx c })
         return $ Base $ fromSignal $ either
-          error
+          (spanE span)
           (const $ Sig.SigLocal (name, idxs))
           (checkDims idxs dims)
         where (kind, dims) = signals ctx Map.! name
       Nothing ->
-        error $ "Unknown identifier `" ++ name ++ "` in " ++ show (ids ctx)
+        spanE span $ "Unknown identifier `" ++ name ++ "` in " ++ show (ids ctx)
     LTermForeign (name, idxs) sigLoc -> case ids ctx Map.!? name of
       Just IKComp -> case extract idxs (env ctx Map.! name) of
         Component invoc ->
@@ -719,21 +736,21 @@ load loc = do
                 Just (k, dims) | isVisible k -> do
                   modify (\c -> c { baseCtx = getCtx k loc $ baseCtx c })
                   return $ Base $ fromSignal $ either
-                    error
+                    (spanE span)
                     (const $ Sig.SigForeign (name, idxs) sigLoc)
                     (checkDims (snd sigLoc) dims)
                 Just (k, _) ->
-                  error
+                  spanE span
                     $  "Cannot load foreign signal "
                     ++ show (fst sigLoc)
                     ++ " of type "
                     ++ show k
                     ++ " at "
                     ++ show loc
-                _ -> error $ "Unknown foreign signal " ++ show (fst sigLoc)
-        _ -> error "Unreachable: non-component in component id!"
-      Just _  -> error $ "Identifier " ++ show name ++ " is not a component"
-      Nothing -> error $ "Identifier " ++ show name ++ " is unknown"
+                _ -> spanE span $ "Unknown foreign signal " ++ show (fst sigLoc)
+        _ -> spanE span "Unreachable: non-component in component id!"
+      Just _  -> spanE span $ "Identifier " ++ show name ++ " is not a component"
+      Nothing -> spanE span $ "Identifier " ++ show name ++ " is unknown"
 
 subscript :: Show b => Int -> AbsTerm b (Prime k) -> AbsTerm b (Prime k)
 subscript i t = case t of
@@ -859,14 +876,10 @@ compMain
    . (KnownNat k, BaseCtx c b (Prime k))
   => SMainCircuit
   -> CompCtx c b (Prime k)
-compMain m =
-  snd
-    $ runCompState (compStatement $ main m)
-    $ empty
-        { callables = Map.union
-                        (Map.map (\(p, b) -> (False, p, b)) (templates m))
-                        (Map.map (\(p, b) -> (True, p, b)) (functions m))
-        }
+compMain m = snd $ runCompState (compStatement $ main m) $ empty
+  { callables = Map.union (Map.map (\(p, b) -> (False, p, b)) (templates m))
+                          (Map.map (\(p, b) -> (True, p, b)) (functions m))
+  }
 
 compMainCtx
   :: KnownNat k
@@ -880,10 +893,12 @@ compMainWitCtx
   -> CompCtx (WitBaseCtx k) (WitBaseTerm k) (Prime k)
 compMainWitCtx = compMain
 
-getMainInvocation :: forall k . KnownNat k => Proxy k -> SMainCircuit -> TemplateInvocation
+getMainInvocation
+  :: forall k . KnownNat k => Proxy k -> SMainCircuit -> TemplateInvocation
 getMainInvocation _order m = case ast (main m) of
   SubDeclaration _ [] (Just (Annotated (Call name args) _)) ->
-    (ast name, map termAsNum $ fst $ runLowDegCompState @k (compExprs args) empty)
-  expr -> error $ "Invalid main expression " ++ show expr
-
+    ( ast name
+    , map termAsNum $ fst $ runLowDegCompState @k (compExprs args) empty
+    )
+  expr -> spanE (ann $ main m) $ "Invalid main expression " ++ show expr
 
