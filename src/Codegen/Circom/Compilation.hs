@@ -5,6 +5,7 @@
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE EmptyDataDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
@@ -64,7 +65,6 @@ import qualified Data.Either                   as Either
 import qualified Data.Set                      as Set
 import           Data.Proxy                     ( Proxy(Proxy) )
 import           Debug.Trace                    ( trace
-                                                , traceShowId
                                                 )
 import qualified Digraph
 import qualified IR.TySmt                      as Smt
@@ -81,6 +81,9 @@ intLog2 n = if n <= fromInteger 1
 instance KnownNat x => KnownNat1 $(nameToSymbol ''Log2) x where
   natSing1 = SNatKn (intLog2 (natVal (Proxy @x)))
   {-# INLINE natSing1 #-}
+
+mapGetE :: Ord k => String -> k -> Map.Map k v -> v
+mapGetE = Map.findWithDefault . error
 
 
 type LC s n = (Map.Map s n, n) -- A linear combination of signals and gen-time constants
@@ -229,6 +232,11 @@ primeUnOp o = case o of
   Not   -> \a -> if a == 0 then 1 else 0
   UnPos -> id
 
+data Void k deriving (Show,Eq,Ord)
+
+instance Num (Void k) where
+instance Fractional (Void k) where
+instance BaseTerm (Void k) k where
 
 instance KnownNat k => BaseTerm (LowDeg (Prime k)) (Prime k) where
   fromConst  = Scalar
@@ -252,10 +260,10 @@ instance KnownNat k => BaseCtx (LowDegCtx (Prime k)) (LowDeg (Prime k)) (Prime k
   ignoreCompBlock = const True
   finalize        = id
 
-data AbsTerm b k = Base b
-                 | Array (Arr.Array Int (AbsTerm b k))
-                 | Component TemplateInvocation
-                 | Const k
+data AbsTerm b n = Base b
+                 | Array (Arr.Array Int (AbsTerm b n))
+                 | Component (TemplateInvocation n)
+                 | Const n
                  deriving (Show,Eq,Ord)
 
 type LowDegTerm k = AbsTerm (LowDeg k) k
@@ -264,6 +272,13 @@ termAsNum :: (Show b, Num n, PrimeField k) => Span -> AbsTerm b k -> n
 termAsNum s t = case t of
   Const n -> fromInteger $ fromP n
   _ -> spanE s $ "term " ++ show t ++ " should be constant integer, but is not"
+
+termAsConst :: (Show b, Show k) => Span -> AbsTerm b k -> AbsTerm (Void k) k
+termAsConst s t = case t of
+  Const     n -> Const n
+  Array     a -> Array $ fmap (termAsConst s) a
+  Component _ -> spanE s "don't pass function calls as arguments"
+  Base{} -> spanE s $ "term " ++ show t ++ " should be constant, but is not"
 
 instance (BaseTerm b k, GaloisField k) => Num (AbsTerm b k) where
   s + t = case (s, t) of
@@ -446,7 +461,12 @@ instance KnownNat n => BaseCtx (WitBaseCtx n) (WitBaseTerm n) (Prime n) where
           map (outputComponent . sigToLterm)
             $ Fold.toList
             $ collectSigs
-            $ (let WitBaseTerm s = signalTerms c Map.! signal in s)
+            $ (let WitBaseTerm s = mapGetE
+                     ("Signal " ++ show signal ++ " has no term")
+                     signal
+                     (signalTerms c)
+               in  s
+              )
         Right componentLoc -> filter inputToComponent $ Either.lefts keys
          where
           inputToComponent l = case l of
@@ -471,7 +491,7 @@ nSmtNodes :: WitBaseCtx n -> Int
 nSmtNodes =
   Map.foldr ((+) . (\(WitBaseTerm a) -> Smt.nNodes a)) 0 . signalTerms
 
-type TemplateInvocation = (String, [Integer])
+type TemplateInvocation n = (String, [AbsTerm (Void n) n])
 
 data IdKind = IKVar | IKSig | IKComp deriving (Show,Eq,Ord)
 
@@ -484,7 +504,7 @@ data CompCtx c b n = CompCtx { env :: Map.Map String (AbsTerm b n)
                              , returning :: Maybe (AbsTerm b n)
                              --                             isFn, frmlArgs, code
                              , callables :: Map.Map String (Bool, [String], SBlock)
-                             , cache :: Map.Map TemplateInvocation (CompCtx c b n)
+                             , cache :: Map.Map (TemplateInvocation n) (CompCtx c b n)
                              } deriving (Show)
 
 ctxOrderedSignals :: CompCtx c b n -> [Sig.IndexedIdent]
@@ -610,8 +630,8 @@ compExpr e = case ast e of
   Call name args -> do
     tArgs <- compExprs args
     -- TODO: Allow non-constant arguments
-    let intArgs :: [Integer]             = map (termAsNum $ ann e) tArgs
-    let invocation :: TemplateInvocation = (ast name, intArgs)
+    let constArgs  = map (termAsConst $ ann e) tArgs
+    let invocation = (ast name, constArgs)
     c <- get
     let (isFn, formalArgs, code) = Maybe.fromMaybe
           (spanE (ann name) $ "Unknown callable " ++ ast name)
@@ -778,40 +798,62 @@ load span_ loc = do
   ctx <- get
   case loc of
     LTermLocal (name, idxs) -> case ids ctx Map.!? name of
-      Just IKVar  -> return $ extract idxs (env ctx Map.! name)
-      Just IKComp -> return $ extract idxs (env ctx Map.! name)
-      Just IKSig  -> do
+      Just IKVar -> return
+        $ extract idxs (mapGetE ("Unknown var " ++ show name) name (env ctx))
+      Just IKComp -> return $ extract
+        idxs
+        (mapGetE ("Unknown component " ++ show name) name (env ctx))
+      Just IKSig -> do
         modify (\c -> c { baseCtx = getCtx kind loc $ baseCtx c })
         return $ Base $ fromSignal $ either
           (spanE span_)
           (const $ Sig.SigLocal (name, idxs))
           (checkDims idxs dims)
-        where (kind, dims) = signals ctx Map.! name
+       where
+        (kind, dims) =
+          mapGetE ("Unknown signal " ++ show name) name (signals ctx)
       Nothing ->
         spanE span_ $ "Unknown identifier `" ++ name ++ "` in " ++ show
           (ids ctx)
     LTermForeign (name, idxs) sigLoc -> case ids ctx Map.!? name of
-      Just IKComp -> case extract idxs (env ctx Map.! name) of
-        Component invoc ->
-          let forCtx = cache ctx Map.! invoc
-          in  case signals forCtx Map.!? fst sigLoc of
-                Just (k, dims) | isVisible k -> do
-                  modify (\c -> c { baseCtx = getCtx k loc $ baseCtx c })
-                  return $ Base $ fromSignal $ either
-                    (spanE span_)
-                    (const $ Sig.SigForeign (name, idxs) sigLoc)
-                    (checkDims (snd sigLoc) dims)
-                Just (k, _) ->
-                  spanE span_
-                    $  "Cannot load foreign signal "
-                    ++ show (fst sigLoc)
-                    ++ " of type "
-                    ++ show k
-                    ++ " at "
-                    ++ show loc
-                _ ->
-                  spanE span_ $ "Unknown foreign signal " ++ show (fst sigLoc)
-        _ -> spanE span_ "Unreachable: non-component in component id!"
+      Just IKComp ->
+        case
+            extract
+              idxs
+              (mapGetE
+                (  "Unknown component "
+                ++ show name
+                ++ " in foreign location "
+                ++ show loc
+                )
+                name
+                (env ctx)
+              )
+          of
+            Component invoc ->
+              let
+                forCtx = mapGetE ("Missing invocation " ++ show invoc)
+                                 invoc
+                                 (cache ctx)
+              in
+                case signals forCtx Map.!? fst sigLoc of
+                  Just (k, dims) | isVisible k -> do
+                    modify (\c -> c { baseCtx = getCtx k loc $ baseCtx c })
+                    return $ Base $ fromSignal $ either
+                      (spanE span_)
+                      (const $ Sig.SigForeign (name, idxs) sigLoc)
+                      (checkDims (snd sigLoc) dims)
+                  Just (k, _) ->
+                    spanE span_
+                      $  "Cannot load foreign signal "
+                      ++ show (fst sigLoc)
+                      ++ " of type "
+                      ++ show k
+                      ++ " at "
+                      ++ show loc
+                  _ ->
+                    spanE span_ $ "Unknown foreign signal " ++ show (fst sigLoc)
+            _ -> spanE span_ "Unreachable: non-component in component id!"
       Just _ ->
         spanE span_ $ "Identifier " ++ show name ++ " is not a component"
       Nothing -> spanE span_ $ "Identifier " ++ show name ++ " is unknown"
@@ -849,9 +891,9 @@ alloc
   -> CompCtx c b (Prime k)
 -- Stores a term in a location
 alloc name kind term ctx = case ids ctx Map.!? ast name of
-  Just IKVar -> ctx'
-  Nothing    -> ctx'
-  Just IKSig -> e
+  Just IKVar  -> ctx'
+  Nothing     -> ctx'
+  Just IKSig  -> e
   Just IKComp -> e
  where
   ctx' = ctx { env = Map.insert (ast name) term $ env ctx
@@ -900,22 +942,38 @@ store span_ loc term ctx = case loc of
             ++ " of non-array "
             ++ show t
   LTermForeign (name, idxs) sigLoc -> case ids ctx Map.!? name of
-    Just IKComp -> case extract idxs (env ctx Map.! name) of
-      Component invoc ->
-        let forCtx = cache ctx Map.! invoc
-        in  case signals forCtx Map.!? fst sigLoc of
-              Just (k, dims) | isInput k -> either
-                (spanE span_)
-                (const $ storeSig k loc ctx)
-                (checkDims (snd sigLoc) dims)
-              Just (k, _) ->
-                spanE span_
-                  $  "Cannot store into foreign signal "
-                  ++ show (fst sigLoc)
-                  ++ " of type "
-                  ++ show k
-              _ -> spanE span_ $ "Unknown foreign signal " ++ show (fst sigLoc)
-      _ -> spanE span_ "Unreachable: non-component in component id!"
+    Just IKComp ->
+      case
+          extract
+            idxs
+            (mapGetE
+              (  "Unknown component "
+              ++ show name
+              ++ " in foreign location "
+              ++ show loc
+              )
+              name
+              (env ctx)
+            )
+        of
+          Component invoc ->
+            let
+              forCtx =
+                mapGetE ("Missing invocation " ++ show invoc) invoc (cache ctx)
+            in  case signals forCtx Map.!? fst sigLoc of
+                  Just (k, dims) | isInput k -> either
+                    (spanE span_)
+                    (const $ storeSig k loc ctx)
+                    (checkDims (snd sigLoc) dims)
+                  Just (k, _) ->
+                    spanE span_
+                      $  "Cannot store into foreign signal "
+                      ++ show (fst sigLoc)
+                      ++ " of type "
+                      ++ show k
+                  _ ->
+                    spanE span_ $ "Unknown foreign signal " ++ show (fst sigLoc)
+          _ -> spanE span_ "Unreachable: non-component in component id!"
     Just _  -> spanE span_ $ "Identifier " ++ show name ++ " is not a component"
     Nothing -> spanE span_ $ "Identifier " ++ show name ++ " is unknown"
  where
@@ -965,10 +1023,15 @@ compMainWitCtx
 compMainWitCtx = compMain
 
 getMainInvocation
-  :: forall k . KnownNat k => Proxy k -> SMainCircuit -> TemplateInvocation
+  :: forall k
+   . KnownNat k
+  => Proxy k
+  -> SMainCircuit
+  -> TemplateInvocation (Prime k)
 getMainInvocation _order m = case ast (main m) of
   SubDeclaration _ [] (Just (Annotated (Call name args) _)) ->
     ( ast name
-    , map (termAsNum nullSpan) $ fst $ runLowDegCompState @k (compExprs args) empty
+    , map (termAsNum nullSpan) $ fst $ runLowDegCompState @k (compExprs args)
+                                                             empty
     )
   expr -> spanE (ann $ main m) $ "Invalid main expression " ++ show expr

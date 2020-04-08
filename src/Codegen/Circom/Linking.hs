@@ -35,9 +35,6 @@ import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
 import           Data.Proxy                     ( Proxy(Proxy) )
-import           Debug.Trace                    ( trace
-                                                , traceShowId
-                                                )
 
 data R1CS n = R1CS { sigNums :: Map.Map GlobalSignal Int
                    , numSigs :: Map.Map Int GlobalSignal
@@ -46,13 +43,27 @@ data R1CS n = R1CS { sigNums :: Map.Map GlobalSignal Int
                    , nPublicInputs :: Int
                    } deriving (Show)
 
+sigNumLookup :: R1CS n -> GlobalSignal -> Int
+sigNumLookup r1cs s = Map.findWithDefault
+  (  error
+  $  "No signal number for "
+  ++ show s
+  ++ "\nSignal numbers for these signals:\n"
+  ++ unlines (map (("  " ++) . show) $ Map.keys m)
+  )
+  s
+  m
+  where m = sigNums r1cs
+
 r1csAddSignals :: [GlobalSignal] -> R1CS n -> R1CS n
 r1csAddSignals sigs r1cs =
-  let zipped = zip sigs [(nextSigNum r1cs)..]
-  in  r1cs { sigNums = Map.union (Map.fromList zipped) (sigNums r1cs)
-           , numSigs = Map.union (Map.fromList $ map Tuple.swap zipped) (numSigs r1cs)
-           , nextSigNum = length zipped + (nextSigNum r1cs)
-           }
+  let zipped = zip sigs [(nextSigNum r1cs) ..]
+  in  r1cs
+        { sigNums    = Map.union (Map.fromList zipped) (sigNums r1cs)
+        , numSigs    = Map.union (Map.fromList $ map Tuple.swap zipped)
+                                 (numSigs r1cs)
+        , nextSigNum = length zipped + (nextSigNum r1cs)
+        }
 
 emptyR1cs :: R1CS n
 emptyR1cs = R1CS Map.empty Map.empty Seq.empty 2 0
@@ -81,11 +92,11 @@ extractComponents
   :: [Int]
   -> String
   -> Comp.LowDegTerm k
-  -> Seq.Seq (IndexedIdent, Comp.TemplateInvocation)
+  -> Seq.Seq (IndexedIdent, Comp.TemplateInvocation k)
 extractComponents idxs name term = case term of
   Comp.Base      _ -> Seq.empty
   Comp.Const     _ -> Seq.empty
-  Comp.Component i -> Seq.singleton ((name, idxs), i)
+  Comp.Component i -> Seq.singleton ((name, reverse idxs), i)
   Comp.Array a ->
     foldMap (\(i, t) -> extractComponents (i : idxs) name t) $ Arr.assocs a
 
@@ -95,12 +106,16 @@ link
   :: forall n
    . KnownNat n
   => Namespace
-  -> Comp.TemplateInvocation
+  -> Comp.TemplateInvocation (Prime n)
   -> Comp.LowDegCompCtx (Prime n)
   -> LinkState n ()
 link namespace invocation ctx =
   let
-    c = Comp.cache ctx Map.! invocation
+    c =
+      Maybe.fromMaybe
+          (error $ "Missing invocation " ++ show invocation ++ " from cache")
+        $      Comp.cache ctx
+        Map.!? invocation
 
     newSignals :: [Signal]
     newSignals = map SigLocal $ Comp.ctxOrderedSignals c
@@ -108,11 +123,11 @@ link namespace invocation ctx =
     newConstraints :: R1CS n -> Seq.Seq (Comp.QEQ Int (Prime n))
     newConstraints ls =
       Seq.fromList
-        $ map (sigMapQeq ((sigNums ls Map.!) . joinName namespace))
+        $ map (sigMapQeq (sigNumLookup ls . joinName namespace))
         $ Comp.constraints
         $ Comp.baseCtx c
 
-    components :: Seq.Seq (IndexedIdent, Comp.TemplateInvocation)
+    components :: Seq.Seq (IndexedIdent, Comp.TemplateInvocation (Prime n))
     components =
       foldMap (uncurry $ extractComponents []) $ Map.assocs $ Comp.env c
   in
@@ -133,8 +148,18 @@ linkMain :: forall k . KnownNat k => AST.SMainCircuit -> R1CS k
 linkMain m =
   let c          = Comp.compMainCtx m
       invocation = Comp.getMainInvocation (Proxy @k) m
-      mainCtx    = Comp.cache c Map.! invocation
-  in  (execLink @k (link [("main", [])] invocation c) emptyR1cs)
+      mainCtx =
+          Maybe.fromMaybe
+              (error $ "Missing invocation " ++ show invocation ++ " from cache")
+            $      Comp.cache c
+            Map.!? invocation
+  in  (execLink @k
+        (link [("main", [])]
+              invocation
+              c
+        )
+        emptyR1cs
+      )
         { nPublicInputs = Comp.nPublicInputs mainCtx
         }
 
@@ -177,19 +202,28 @@ computeWitnessesIn
    . KnownNat n
   => Comp.WitCompCtx n
   -> Namespace
-  -> Comp.TemplateInvocation
+  -> Comp.TemplateInvocation (Prime n)
   -> ExtValues
   -> WitCompWriter ExtValues
 computeWitnessesIn ctx namespace invocation inputs =
   let
-    c = Comp.cache ctx Map.! invocation
+    c =
+      Maybe.fromMaybe
+          (error $ "Missing invocation " ++ show invocation ++ " from cache")
+        $      Comp.cache ctx
+        Map.!? invocation
     extractOutputs :: LocalValues -> ExtValues
     extractOutputs ctx' =
       Map.fromList
         $ Maybe.mapMaybe
             (\(sig, v) -> case sig of
-              SigLocal sLoc | AST.Out == fst (Comp.signals c Map.! fst sLoc) ->
-                Just (sLoc, v)
+              SigLocal sLoc
+                | AST.Out == fst
+                  (      Maybe.fromMaybe (error $ "No signal " ++ fst sLoc)
+                  $      Comp.signals c
+                  Map.!? fst sLoc
+                  )
+                -> Just (sLoc, v)
               _ -> Nothing
             )
         $ Map.toList (values ctx')
@@ -219,34 +253,38 @@ computeWitnessesIn ctx namespace invocation inputs =
       -> WitCompWriter LocalValues
     folder localCtx step = case step of
       Left lterm -> do
-        let sig                  = Comp.ltermToSig lterm
-        let Comp.WitBaseTerm smt = evalExprs Map.! lterm
-        let value                = Smt.eval (stringValues localCtx) smt
-        let dValue               = toDyn value
+        let sig = Comp.ltermToSig lterm
+        let Comp.WitBaseTerm smt =
+              Maybe.fromMaybe (error $ "No term for " ++ show lterm)
+                $      evalExprs
+                Map.!? lterm
+        let value  = Smt.eval (stringValues localCtx) smt
+        let dValue = toDyn value
         tell $ Map.singleton (joinName namespace sig) (Smt.valAsPf value)
         return $ localCtx
           { stringValues = Map.insert (show sig) dValue $ stringValues localCtx
           , values       = Map.insert sig dValue $ values localCtx
           }
       Right loc ->
-        let
-          callCtx       = emmigrateInputs loc localCtx
-          callNamespace = loc : namespace
-          call =
-            case
-                fst $ Comp.runCompState (Comp.load AST.nullSpan (Comp.LTermLocal loc)) c
-              of
-                Comp.Component i -> i
-                t -> error $ "Non-component " ++ show t ++ " at " ++ show loc
-        in
-          do
-            retCtx <- computeWitnessesIn ctx callNamespace call callCtx
-            let retLocal = immigrateOuputs loc retCtx
-            return $ LocalValues
-              { values       = Map.union (values localCtx) (values retLocal)
-              , stringValues = Map.union (stringValues localCtx)
-                                         (stringValues retLocal)
-              }
+        let callCtx       = emmigrateInputs loc localCtx
+            callNamespace = loc : namespace
+            call =
+                case
+                    fst $ Comp.runCompState
+                      (Comp.load AST.nullSpan (Comp.LTermLocal loc))
+                      c
+                  of
+                    Comp.Component i -> i
+                    t ->
+                      error $ "Non-component " ++ show t ++ " at " ++ show loc
+        in  do
+              retCtx <- computeWitnessesIn ctx callNamespace call callCtx
+              let retLocal = immigrateOuputs loc retCtx
+              return $ LocalValues
+                { values       = Map.union (values localCtx) (values retLocal)
+                , stringValues = Map.union (stringValues localCtx)
+                                           (stringValues retLocal)
+                }
   in
     do
       postC <- foldM folder (expandInputs inputs) instantiations
@@ -260,15 +298,16 @@ computeWitnesses
   -> Map.Map IndexedIdent (Prime n)
   -> Map.Map GlobalSignal Integer
 computeWitnesses order main inputs =
-  let
-    dynInputs       = Map.map (toDyn . Smt.ValPf @n . fromP) inputs
-    c               = Comp.compMainWitCtx @n main
-    invocation      = Comp.getMainInvocation order main
-    namespace       = [("main", [])]
-    WitCompWriter w = computeWitnessesIn c namespace invocation dynInputs
-  in
+  let dynInputs       = Map.map (toDyn . Smt.ValPf @n . fromP) inputs
+      c               = Comp.compMainWitCtx @n main
+      invocation      = Comp.getMainInvocation order main
+      namespace       = [("main", [])]
+      WitCompWriter w = computeWitnessesIn c namespace invocation dynInputs
+  in 
     -- Add the input signals to the global map :P
-    Map.union (execWriter w) $ Map.map fromP $ Map.mapKeys (joinName namespace . SigLocal) inputs
+      Map.union (execWriter w) $ Map.map fromP $ Map.mapKeys
+        (joinName namespace . SigLocal)
+        inputs
 
 parseIndexedIdent :: String -> IndexedIdent
 parseIndexedIdent s =
