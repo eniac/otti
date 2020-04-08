@@ -20,6 +20,8 @@ import           Control.Monad.State.Strict
 import           Control.Monad.Writer.Lazy
 import qualified Codegen.Circom.Compilation    as Comp
 import qualified Codegen.Circom.CompTypes      as CompT
+import qualified Codegen.Circom.CompTypes.LowDeg
+                                               as LD
 import           Data.Field.Galois              ( Prime
                                                 , PrimeField
                                                 , fromP
@@ -39,7 +41,7 @@ import           Data.Proxy                     ( Proxy(Proxy) )
 
 data R1CS n = R1CS { sigNums :: Map.Map GlobalSignal Int
                    , numSigs :: Map.Map Int GlobalSignal
-                   , constraints :: Seq.Seq (Comp.QEQ Int (Prime n))
+                   , constraints :: Seq.Seq (LD.QEQ Int (Prime n))
                    , nextSigNum :: Int
                    , nPublicInputs :: Int
                    } deriving (Show)
@@ -63,7 +65,7 @@ r1csAddSignals sigs r1cs =
         { sigNums    = Map.union (Map.fromList zipped) (sigNums r1cs)
         , numSigs    = Map.union (Map.fromList $ map Tuple.swap zipped)
                                  (numSigs r1cs)
-        , nextSigNum = length zipped + (nextSigNum r1cs)
+        , nextSigNum = length zipped + nextSigNum r1cs
         }
 
 emptyR1cs :: R1CS n
@@ -83,16 +85,16 @@ joinName n s = case s of
   SigLocal a     -> a : n
   SigForeign a b -> b : a : n
 
-sigMapLc :: (Ord s, Ord t) => (s -> t) -> Comp.LC s n -> Comp.LC t n
+sigMapLc :: (Ord s, Ord t) => (s -> t) -> LD.LC s n -> LD.LC t n
 sigMapLc f (m, c) = (Map.mapKeys f m, c)
 
-sigMapQeq :: (Ord s, Ord t) => (s -> t) -> Comp.QEQ s n -> Comp.QEQ t n
+sigMapQeq :: (Ord s, Ord t) => (s -> t) -> LD.QEQ s n -> LD.QEQ t n
 sigMapQeq f (a, b, c) = (sigMapLc f a, sigMapLc f b, sigMapLc f c)
 
 extractComponents
   :: [Int]
   -> String
-  -> Comp.LowDegTerm k
+  -> LD.LowDegTerm k
   -> Seq.Seq (IndexedIdent, Comp.TemplateInvocation k)
 extractComponents idxs name term = case term of
   CompT.Base      _ -> Seq.empty
@@ -108,7 +110,7 @@ link
    . KnownNat n
   => Namespace
   -> Comp.TemplateInvocation (Prime n)
-  -> Comp.LowDegCompCtx (Prime n)
+  -> LD.LowDegCompCtx (Prime n)
   -> LinkState n ()
 link namespace invocation ctx =
   let
@@ -121,11 +123,11 @@ link namespace invocation ctx =
     newSignals :: [Signal]
     newSignals = map SigLocal $ CompT.ctxOrderedSignals c
 
-    newConstraints :: R1CS n -> Seq.Seq (Comp.QEQ Int (Prime n))
+    newConstraints :: R1CS n -> Seq.Seq (LD.QEQ Int (Prime n))
     newConstraints ls =
       Seq.fromList
         $ map (sigMapQeq (sigNumLookup ls . joinName namespace))
-        $ Comp.constraints
+        $ LD.constraints
         $ CompT.baseCtx c
 
     components :: Seq.Seq (IndexedIdent, Comp.TemplateInvocation (Prime n))
@@ -154,24 +156,18 @@ linkMain m =
               (error $ "Missing invocation " ++ show invocation ++ " from cache")
             $      CompT.cache c
             Map.!? invocation
-  in  (execLink @k
-        (link [("main", [])]
-              invocation
-              c
-        )
-        emptyR1cs
-      )
+  in  (execLink @k (link [("main", [])] invocation c) emptyR1cs)
         { nPublicInputs = CompT.nPublicInputs mainCtx
         }
 
-lcToR1csLine :: PrimeField n => Comp.LC Int n -> [Integer]
+lcToR1csLine :: PrimeField n => LD.LC Int n -> [Integer]
 lcToR1csLine (m, c) =
   let pairs          = Map.toAscList m
       augmentedPairs = if fromP c == 0 then pairs else (1, c) : pairs
       nPairs         = fromIntegral (length augmentedPairs)
   in  nPairs : concatMap (\(x, f) -> [fromP f, fromIntegral x]) augmentedPairs
 
-qeqToR1csLines :: PrimeField n => Comp.QEQ Int n -> [[Integer]]
+qeqToR1csLines :: PrimeField n => LD.QEQ Int n -> [[Integer]]
 qeqToR1csLines (a, b, c) = [] : map lcToR1csLine [a, b, c]
 
 r1csAsLines :: KnownNat n => R1CS n -> [[Integer]]
