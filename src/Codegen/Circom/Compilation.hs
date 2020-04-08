@@ -44,6 +44,7 @@ where
 import           AST.Circom
 import qualified Codegen.Circom.Signal         as Sig
 import qualified Codegen.Circom.Typing         as Typing
+import           Codegen.Circom.CompTypes
 
 import           Control.Monad
 import           Control.Monad.State.Strict
@@ -159,38 +160,6 @@ instance GaloisField n => Fractional (LowDeg n) where
   recip t = case t of
     Scalar c1 -> Scalar (recip c1)
     _         -> HighDegree
-
--- A base term type `b` over constant type `k`
-class (Show b, Num b, Fractional b) => BaseTerm b k | b -> k where
-  fromConst :: k -> b
-  fromSignal :: Sig.Signal -> b
-  -- will not be called with arithmetic operations
-  nonArithBinOp :: BinOp -> b -> b -> b
-  -- will not be called with negation
-  nonNegUnOp :: UnOp -> b -> b
-
-  binOp :: BinOp -> b -> b -> b
-  binOp o = case o of
-    Add -> (+)
-    Sub -> (-)
-    Div -> (/)
-    Mul -> (*)
-    _ -> nonArithBinOp o
-
-  unOp :: UnOp -> b -> b
-  unOp o = case o of
-    UnNeg -> negate
-    _ -> nonNegUnOp o
-
-class (Show c, BaseTerm b k) => BaseCtx c b k | c -> b where
-  assert :: b -> c -> c
-  emptyCtx :: c
-  storeCtx :: Span -> SignalKind -> LTerm -> b -> c -> c
-  -- Notification that a particular signal was gotten.
-  getCtx :: SignalKind -> LTerm -> c -> c
-  ignoreCompBlock :: c -> Bool
-  -- Called after function exit.
-  finalize :: c -> c
 
 newtype LowDegCtx k = LowDegCtx { constraints :: [QEQ Sig.Signal k] } deriving (Show)
 
@@ -543,10 +512,6 @@ nPublicInputs c =
     $ filter (isPublic . fst)
     $ Fold.toList
     $ signals c
-
-data LTerm = LTermLocal Sig.IndexedIdent
-           | LTermForeign Sig.IndexedIdent Sig.IndexedIdent
-           deriving (Show,Eq,Ord,Read)
 
 newtype CompState c b n a = CompState (State (CompCtx c b (Prime n)) a)
     deriving (Functor, Applicative, Monad, MonadState (CompCtx c b (Prime n)))
