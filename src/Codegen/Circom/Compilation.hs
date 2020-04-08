@@ -21,7 +21,7 @@ module Codegen.Circom.Compilation
   , LC
   , QEQ
   , TemplateInvocation
-  , AbsTerm(..)
+  , Term(..)
   , LTerm(..)
   , LowDegTerm
   , CompState(..)
@@ -260,27 +260,27 @@ instance KnownNat k => BaseCtx (LowDegCtx (Prime k)) (LowDeg (Prime k)) (Prime k
   ignoreCompBlock = const True
   finalize        = id
 
-data AbsTerm b n = Base b
-                 | Array (Arr.Array Int (AbsTerm b n))
+data Term b n = Base b
+                 | Array (Arr.Array Int (Term b n))
                  | Component (TemplateInvocation n)
                  | Const n
                  deriving (Show,Eq,Ord)
 
-type LowDegTerm k = AbsTerm (LowDeg k) k
+type LowDegTerm k = Term (LowDeg k) k
 
-termAsNum :: (Show b, Num n, PrimeField k) => Span -> AbsTerm b k -> n
+termAsNum :: (Show b, Num n, PrimeField k) => Span -> Term b k -> n
 termAsNum s t = case t of
   Const n -> fromInteger $ fromP n
   _ -> spanE s $ "term " ++ show t ++ " should be constant integer, but is not"
 
-termAsConst :: (Show b, Show k) => Span -> AbsTerm b k -> AbsTerm (Void k) k
+termAsConst :: (Show b, Show k) => Span -> Term b k -> Term (Void k) k
 termAsConst s t = case t of
   Const     n -> Const n
   Array     a -> Array $ fmap (termAsConst s) a
   Component _ -> spanE s "don't pass function calls as arguments"
   Base{} -> spanE s $ "term " ++ show t ++ " should be constant, but is not"
 
-instance (BaseTerm b k, GaloisField k) => Num (AbsTerm b k) where
+instance (BaseTerm b k, GaloisField k) => Num (Term b k) where
   s + t = case (s, t) of
     (a@Array{}, _) ->
       error $ "Cannot add array term " ++ show a ++ " to anything"
@@ -312,7 +312,7 @@ instance (BaseTerm b k, GaloisField k) => Num (AbsTerm b k) where
     Const k     -> Const $ abs k
   negate s = fromInteger (-1) * s
 
-instance (BaseTerm b k, GaloisField k) => Fractional (AbsTerm b k) where
+instance (BaseTerm b k, GaloisField k) => Fractional (Term b k) where
   fromRational = Const . fromRational
   recip t = case t of
     a@Array{}     -> error $ "Cannot invert array term " ++ show a
@@ -320,7 +320,7 @@ instance (BaseTerm b k, GaloisField k) => Fractional (AbsTerm b k) where
     Base  a       -> Base $ recip a
     Const a       -> Const $ recip a
 
-instance (BaseTerm b (Prime k), KnownNat k) => BaseTerm (AbsTerm b (Prime k)) (Prime k) where
+instance (BaseTerm b (Prime k), KnownNat k) => BaseTerm (Term b (Prime k)) (Prime k) where
   fromConst  = Const
   fromSignal = Base . fromSignal
   nonNegUnOp o t = case t of
@@ -491,17 +491,17 @@ nSmtNodes :: WitBaseCtx n -> Int
 nSmtNodes =
   Map.foldr ((+) . (\(WitBaseTerm a) -> Smt.nNodes a)) 0 . signalTerms
 
-type TemplateInvocation n = (String, [AbsTerm (Void n) n])
+type TemplateInvocation n = (String, [Term (Void n) n])
 
 data IdKind = IKVar | IKSig | IKComp deriving (Show,Eq,Ord)
 
 
-data CompCtx c b n = CompCtx { env :: Map.Map String (AbsTerm b n)
+data CompCtx c b n = CompCtx { env :: Map.Map String (Term b n)
                              , baseCtx :: c
                              , signals :: Map.Map String (SignalKind, [Int])
                              , type_ :: Typing.InstanceType
                              , ids :: Map.Map String IdKind
-                             , returning :: Maybe (AbsTerm b n)
+                             , returning :: Maybe (Term b n)
                              --                             isFn, frmlArgs, code
                              , callables :: Map.Map String (Bool, [String], SBlock)
                              , cache :: Map.Map (TemplateInvocation n) (CompCtx c b n)
@@ -590,7 +590,7 @@ compLoc l = case ast l of
 compExpr
   :: (BaseCtx c b (Prime n), KnownNat n)
   => SExpr
-  -> CompState c b n (AbsTerm b (Prime n))
+  -> CompState c b n (Term b (Prime n))
 compExpr e = case ast e of
   NumLit   i  -> return $ Const $ fromInteger $ fromIntegral i
   ArrayLit es -> do
@@ -675,7 +675,7 @@ compExpr e = case ast e of
 compExprs
   :: (BaseCtx c b (Prime n), KnownNat n)
   => [SExpr]
-  -> CompState c b n [AbsTerm b (Prime n)]
+  -> CompState c b n [Term b (Prime n)]
 compExprs = mapM compExpr
 
 compCondition
@@ -793,7 +793,7 @@ load
    . (BaseCtx c b (Prime k), KnownNat k)
   => Span
   -> LTerm
-  -> CompState c b k (AbsTerm b (Prime k))
+  -> CompState c b k (Term b (Prime k))
 load span_ loc = do
   ctx <- get
   case loc of
@@ -858,12 +858,12 @@ load span_ loc = do
         spanE span_ $ "Identifier " ++ show name ++ " is not a component"
       Nothing -> spanE span_ $ "Identifier " ++ show name ++ " is unknown"
 
-subscript :: Show b => Int -> AbsTerm b (Prime k) -> AbsTerm b (Prime k)
+subscript :: Show b => Int -> Term b (Prime k) -> Term b (Prime k)
 subscript i t = case t of
   Array a -> a Arr.! i
   _       -> error $ "Cannot index term " ++ show t
 
-extract :: Show b => [Int] -> AbsTerm b (Prime k) -> AbsTerm b (Prime k)
+extract :: Show b => [Int] -> Term b (Prime k) -> Term b (Prime k)
 extract = flip $ foldl (flip subscript)
 
 checkDims :: [Int] -> [Int] -> Either String ()
@@ -886,7 +886,7 @@ alloc
    . KnownNat k
   => SString
   -> IdKind
-  -> AbsTerm b (Prime k)
+  -> Term b (Prime k)
   -> CompCtx c b (Prime k)
   -> CompCtx c b (Prime k)
 -- Stores a term in a location
@@ -906,7 +906,7 @@ store
    . (BaseCtx c b (Prime k), KnownNat k)
   => Span
   -> LTerm
-  -> AbsTerm b (Prime k)
+  -> Term b (Prime k)
   -> CompCtx c b (Prime k)
   -> CompCtx c b (Prime k)
 store span_ loc term ctx = case loc of
@@ -928,9 +928,9 @@ store span_ loc term ctx = case loc of
 
     modifyIn
       :: [Int]
-      -> (AbsTerm b (Prime k) -> AbsTerm b (Prime k))
-      -> AbsTerm b (Prime k)
-      -> AbsTerm b (Prime k)
+      -> (Term b (Prime k) -> Term b (Prime k))
+      -> Term b (Prime k)
+      -> Term b (Prime k)
     modifyIn is f t = case is of
       []      -> f t
       i : is' -> case t of
@@ -990,9 +990,9 @@ store span_ loc term ctx = case loc of
 termMultiDimArray
   :: (Show b, KnownNat k)
   => Span
-  -> AbsTerm b (Prime k)
-  -> [AbsTerm b (Prime k)]
-  -> AbsTerm b (Prime k)
+  -> Term b (Prime k)
+  -> [Term b (Prime k)]
+  -> Term b (Prime k)
 termMultiDimArray span_ = foldr
   (\d acc -> case d of
     Const n -> Array $ Arr.listArray (0, i - 1) (replicate i acc)
