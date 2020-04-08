@@ -19,6 +19,7 @@ import           Data.Bifunctor
 import           Control.Monad.State.Strict
 import           Control.Monad.Writer.Lazy
 import qualified Codegen.Circom.Compilation    as Comp
+import qualified Codegen.Circom.CompTypes      as CompT
 import           Data.Field.Galois              ( Prime
                                                 , PrimeField
                                                 , fromP
@@ -94,10 +95,10 @@ extractComponents
   -> Comp.LowDegTerm k
   -> Seq.Seq (IndexedIdent, Comp.TemplateInvocation k)
 extractComponents idxs name term = case term of
-  Comp.Base      _ -> Seq.empty
-  Comp.Const     _ -> Seq.empty
-  Comp.Component i -> Seq.singleton ((name, reverse idxs), i)
-  Comp.Array a ->
+  CompT.Base      _ -> Seq.empty
+  CompT.Const     _ -> Seq.empty
+  CompT.Component i -> Seq.singleton ((name, reverse idxs), i)
+  CompT.Array a ->
     foldMap (\(i, t) -> extractComponents (i : idxs) name t) $ Arr.assocs a
 
 
@@ -114,22 +115,22 @@ link namespace invocation ctx =
     c =
       Maybe.fromMaybe
           (error $ "Missing invocation " ++ show invocation ++ " from cache")
-        $      Comp.cache ctx
+        $      CompT.cache ctx
         Map.!? invocation
 
     newSignals :: [Signal]
-    newSignals = map SigLocal $ Comp.ctxOrderedSignals c
+    newSignals = map SigLocal $ CompT.ctxOrderedSignals c
 
     newConstraints :: R1CS n -> Seq.Seq (Comp.QEQ Int (Prime n))
     newConstraints ls =
       Seq.fromList
         $ map (sigMapQeq (sigNumLookup ls . joinName namespace))
         $ Comp.constraints
-        $ Comp.baseCtx c
+        $ CompT.baseCtx c
 
     components :: Seq.Seq (IndexedIdent, Comp.TemplateInvocation (Prime n))
     components =
-      foldMap (uncurry $ extractComponents []) $ Map.assocs $ Comp.env c
+      foldMap (uncurry $ extractComponents []) $ Map.assocs $ CompT.env c
   in
     do
       -- add our signals
@@ -151,7 +152,7 @@ linkMain m =
       mainCtx =
           Maybe.fromMaybe
               (error $ "Missing invocation " ++ show invocation ++ " from cache")
-            $      Comp.cache c
+            $      CompT.cache c
             Map.!? invocation
   in  (execLink @k
         (link [("main", [])]
@@ -160,7 +161,7 @@ linkMain m =
         )
         emptyR1cs
       )
-        { nPublicInputs = Comp.nPublicInputs mainCtx
+        { nPublicInputs = CompT.nPublicInputs mainCtx
         }
 
 lcToR1csLine :: PrimeField n => Comp.LC Int n -> [Integer]
@@ -210,7 +211,7 @@ computeWitnessesIn ctx namespace invocation inputs =
     c =
       Maybe.fromMaybe
           (error $ "Missing invocation " ++ show invocation ++ " from cache")
-        $      Comp.cache ctx
+        $      CompT.cache ctx
         Map.!? invocation
     extractOutputs :: LocalValues -> ExtValues
     extractOutputs ctx' =
@@ -220,7 +221,7 @@ computeWitnessesIn ctx namespace invocation inputs =
               SigLocal sLoc
                 | AST.Out == fst
                   (      Maybe.fromMaybe (error $ "No signal " ++ fst sLoc)
-                  $      Comp.signals c
+                  $      CompT.signals c
                   Map.!? fst sLoc
                   )
                 -> Just (sLoc, v)
@@ -229,8 +230,8 @@ computeWitnessesIn ctx namespace invocation inputs =
         $ Map.toList (values ctx')
     expandInputs :: ExtValues -> LocalValues
     expandInputs vs = localValuesFromValues $ Map.mapKeys SigLocal vs
-    evalExprs      = Comp.signalTerms $ Comp.baseCtx c
-    instantiations = reverse $ Comp.assignmentOrder $ Comp.baseCtx c
+    evalExprs      = Comp.signalTerms $ CompT.baseCtx c
+    instantiations = reverse $ Comp.assignmentOrder $ CompT.baseCtx c
     emmigrateInputs :: IndexedIdent -> LocalValues -> ExtValues
     emmigrateInputs loc ctx' =
       Map.fromList
@@ -249,7 +250,7 @@ computeWitnessesIn ctx namespace invocation inputs =
         $ Map.toList vs
     folder
       :: LocalValues
-      -> Either Comp.LTerm IndexedIdent
+      -> Either CompT.LTerm IndexedIdent
       -> WitCompWriter LocalValues
     folder localCtx step = case step of
       Left lterm -> do
@@ -270,11 +271,11 @@ computeWitnessesIn ctx namespace invocation inputs =
             callNamespace = loc : namespace
             call =
                 case
-                    fst $ Comp.runCompState
-                      (Comp.load AST.nullSpan (Comp.LTermLocal loc))
+                    fst $ CompT.runCompState
+                      (CompT.load AST.nullSpan (CompT.LTermLocal loc))
                       c
                   of
-                    Comp.Component i -> i
+                    CompT.Component i -> i
                     t ->
                       error $ "Non-component " ++ show t ++ " at " ++ show loc
         in  do
