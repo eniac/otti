@@ -22,6 +22,8 @@ import qualified Codegen.Circom.Compilation    as Comp
 import qualified Codegen.Circom.CompTypes      as CompT
 import qualified Codegen.Circom.CompTypes.LowDeg
                                                as LD
+import qualified Codegen.Circom.CompTypes.WitComp
+                                               as Wit
 import           Data.Field.Galois              ( Prime
                                                 , PrimeField
                                                 , fromP
@@ -226,8 +228,8 @@ computeWitnessesIn ctx namespace invocation inputs =
         $ Map.toList (values ctx')
     expandInputs :: ExtValues -> LocalValues
     expandInputs vs = localValuesFromValues $ Map.mapKeys SigLocal vs
-    evalExprs      = Comp.signalTerms $ CompT.baseCtx c
-    instantiations = reverse $ Comp.assignmentOrder $ CompT.baseCtx c
+    evalExprs      = Wit.signalTerms $ CompT.baseCtx c
+    instantiations = reverse $ Wit.assignmentOrder $ CompT.baseCtx c
     emmigrateInputs :: IndexedIdent -> LocalValues -> ExtValues
     emmigrateInputs loc ctx' =
       Map.fromList
@@ -251,7 +253,7 @@ computeWitnessesIn ctx namespace invocation inputs =
     folder localCtx step = case step of
       Left lterm -> do
         let sig = Comp.ltermToSig lterm
-        let Comp.WitBaseTerm smt =
+        let Wit.WitBaseTerm smt =
               Maybe.fromMaybe (error $ "No term for " ++ show lterm)
                 $      evalExprs
                 Map.!? lterm

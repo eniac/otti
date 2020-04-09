@@ -12,6 +12,8 @@
 module Main where
 
 import qualified Codegen.Circom.Compilation as Comp
+import qualified Codegen.Circom.CompTypes.WitComp
+                                            as Wit
 import qualified Codegen.Circom.CompTypes   as CompT
 import qualified Codegen.Circom.Linking     as Link
 import qualified Data.Map       as Map
@@ -108,7 +110,7 @@ cmdCountTerms circomPath = do
     print $ count c + sum (Map.map count $ CompT.cache c)
     print c
     where
-     count = Comp.nSmtNodes . CompT.baseCtx
+     count = Wit.nSmtNodes . CompT.baseCtx
 
 
 cmdSetup :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()

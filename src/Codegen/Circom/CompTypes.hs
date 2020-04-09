@@ -26,6 +26,8 @@ module Codegen.Circom.CompTypes
   , empty
   , nPublicInputs
   , runCompState
+  , ltermToSig
+  , sigToLterm
   )
 where
 
@@ -66,6 +68,17 @@ import           GHC.TypeNats
 data LTerm = LTermLocal Sig.IndexedIdent
            | LTermForeign Sig.IndexedIdent Sig.IndexedIdent
            deriving (Show,Eq,Ord,Read)
+
+ltermToSig :: LTerm -> Sig.Signal
+ltermToSig l = case l of
+  LTermLocal a     -> Sig.SigLocal a
+  LTermForeign a b -> Sig.SigForeign a b
+
+sigToLterm :: Sig.Signal -> LTerm
+sigToLterm l = case l of
+  Sig.SigLocal a     -> LTermLocal a
+  Sig.SigForeign a b -> LTermForeign a b
+
 
 -- A base term type `b` over constant type `k`
 class (Show b, Num b, Fractional b) => BaseTerm b k | b -> k where
