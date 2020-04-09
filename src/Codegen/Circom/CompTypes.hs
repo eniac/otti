@@ -32,6 +32,7 @@ module Codegen.Circom.CompTypes
 where
 
 
+
 import           AST.Circom                     ( BinOp(..)
                                                 , UnOp(..)
                                                 , Span

@@ -28,7 +28,7 @@ import           System.Process
 patterns :: Docopt
 patterns = [docopt|
 Usage:
-  compiler comp-only [options]
+  compiler emit-r1cs [options]
   compiler count-terms [options]
   compiler setup [options]
   compiler prove [options]
@@ -51,7 +51,7 @@ Commands:
   prove            Run the prover
   verify           Run the verifier
   setup            Run the setup
-  comp-only        Compile at the fn-level only
+  emit-r1cs        Emit R1CS
   count-terms      Compile at the fn-level only
 |]
 
@@ -97,11 +97,14 @@ type Order = 2188824287183927522224640574525727508854836440041603434369820418657
 -- type Order = 17
 -- type OrderCtx = Ctx Order
 
-cmdCompOnly :: FilePath -> IO ()
-cmdCompOnly circomPath = do
+cmdEmitR1cs :: FilePath -> FilePath -> IO ()
+cmdEmitR1cs circomPath r1csPath = do
+    print "Loading circuit"
     m <- loadMain circomPath
-    let c = Link.linkMain @Order m
-    print $ Link.r1csCountVars c
+    print "Generating main"
+    let r1cs = Link.linkMain @Order m
+    print $ "Constraints: " ++ show (length $ Link.constraints r1cs)
+    Link.writeToR1csFile r1cs r1csPath
 
 cmdCountTerms :: FilePath -> IO ()
 cmdCountTerms circomPath = do
@@ -144,9 +147,10 @@ defaultR1cs = "C"
 main :: IO ()
 main = do
     args <- parseArgsOrExit patterns =<< getArgs
-    if args `isPresent` command "comp-only" then do
+    if args `isPresent` command "emit-r1cs" then do
         circomPath <- args `getArgOrExit` longOption "circom"
-        cmdCompOnly circomPath
+        r1csPath <- args `getArgOrExit` shortOption 'C'
+        cmdEmitR1cs circomPath r1csPath
     else if args `isPresent` command "count-terms" then do
         circomPath <- args `getArgOrExit` longOption "circom"
         cmdCountTerms circomPath
