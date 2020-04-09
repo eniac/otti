@@ -208,16 +208,13 @@ compStatement s = do
       Constrain l r -> do
         lt <- compExpr l
         rt <- compExpr r
-        -- Construct the zero term
-        let zt = lt - rt
-        case zt of
-          Base b -> modify $ \c -> c { baseCtx = assert b (baseCtx c) }
-          _      -> spanE (ann s) $ "Cannot constain " ++ show zt ++ " to zero"
-      -- TODO Not quite right: evals location twice
-      AssignConstrain l e -> compStatements
-        [ Annotated (Assign l e) (ann s)
-        , Annotated (Constrain (Annotated (LValue l) (ann l)) e) (ann s)
-        ]
+        assert' $ lt - rt
+      AssignConstrain loc e -> do
+        l  <- compLoc loc
+        t1 <- compExpr e
+        modify (store (ann s) l t1)
+        t0 <- load (ann loc) l
+        assert' $ t0 - t1
       VarDeclaration name dims ini -> do
         ts <- compExprs dims
         modify (alloc name IKVar $ termMultiDimArray (ann s) (Const 0) ts)
@@ -273,6 +270,9 @@ compStatement s = do
         t <- compExpr e
         modify (\c -> c { returning = Just t })
         return ()
+ where
+  assert' (Base b) = modify $ \c -> c { baseCtx = assert b (baseCtx c) }
+  assert' t        = spanE (ann s) $ "Cannot constain " ++ show t ++ " to zero"
 
 
 termMultiDimArray
