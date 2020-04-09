@@ -136,14 +136,10 @@ compExpr e = case ast e of
     if isFn
       then do
         let ((), c') = runCompState (compStatements $ ast code) callState
-        let returnValue = Maybe.fromMaybe
-              (  spanE (ann e)
-              $  "Function "
-              ++ show (ast name)
-              ++ " did not return"
-              )
-              (returning c')
-        return returnValue
+        case returning c' of
+          Just r -> return r
+          Nothing ->
+            spanE (ann e) $ "Function " ++ ast name ++ " did not return"
       else do
         unless (Map.member invocation (cache c)) $ do
           let ((), c') = runCompState (compStatements $ ast code) callState
@@ -183,97 +179,88 @@ compStatements
   :: (BaseCtx c b (Prime n), KnownNat n) => [SStatement] -> CompState c b n ()
 compStatements = void . mapM compStatement
 
-whileM_ :: Monad m => m Bool -> m a -> m ()
-whileM_ condition step = do
-  b <- condition
-  if b then step *> whileM_ condition step else pure ()
-
 compStatement
   :: (BaseCtx c b (Prime n), KnownNat n) => SStatement -> CompState c b n ()
 compStatement s = do
-  ctx <- get
-  if Maybe.isJust (returning ctx)
-    then return ()
-    else case ast s of
-      Assign loc expr -> do
-        lval <- compLoc loc
-        term <- compExpr expr
-        modify (store (ann s) lval term)
-      OpAssign op loc expr -> do
-        lval <- compLoc loc
-        base <- load (ann loc) lval
-        new  <- compExpr expr
-        let base' = binOp op base new
-        modify (store (ann s) lval base')
-      Constrain l r -> do
-        lt <- compExpr l
-        rt <- compExpr r
-        assert' $ lt - rt
-      AssignConstrain loc e -> do
-        l  <- compLoc loc
-        t1 <- compExpr e
-        modify (store (ann s) l t1)
-        t0 <- load (ann loc) l
-        assert' $ t0 - t1
-      VarDeclaration name dims ini -> do
-        ts <- compExprs dims
-        modify (alloc name IKVar $ termMultiDimArray (ann s) (Const 0) ts)
-        mapM_
-          (compExpr >=> modify' . store (ann s) (LTermLocal (ast name, [])))
-          ini
-      SigDeclaration name kind dims -> do
-        ts    <- compExprs dims
-        fresh <- gets (not . Map.member (ast name) . ids)
-        unless fresh
-          $  spanE (ann name)
-          $  "Signal name "
-          ++ show name
-          ++ " is not fresh"
-        modify
-          (\c -> c
-            { signals = Map.insert (ast name) (kind, map (termAsNum $ ann s) ts)
-                          $ signals c
-            , ids     = Map.insert (ast name) IKSig $ ids ctx
-            }
-          )
-      SubDeclaration name dims ini -> do
-        ts <- compExprs dims
-        modify (alloc name IKComp (termMultiDimArray (ann s) (Const 1) ts))
-        mapM_
-          (compExpr >=> modify' . store (ann s) (LTermLocal (ast name, [])))
-          ini
-      If cond true false -> do
-        b <- compCondition cond
-        if b
-          then compStatements $ ast true
-          else mapM_ (compStatements . ast) false
-      While cond block ->
-        whileM_ (compCondition cond) (compStatements $ ast block) $> ()
-      For ini cond step block -> do
-        compStatement ini
-        _ <- whileM_ (compCondition cond)
-                     (compStatements (ast block) *> compStatement step)
-        return ()
-      DoWhile block cond -> compStatements (ast block)
-        <* whileM_ (compCondition cond) (compStatements $ ast block)
-      Compute b -> do
-        ignore <- gets (ignoreCompBlock . baseCtx)
-        if ignore then return () else compStatements (ast b)
-      Ignore e -> do
-        _ <- compExpr e
-        return ()
-      Log e -> do
-        t <- compExpr e
-        return $ trace (show e ++ ": " ++ show t) ()
-      Return e -> do
+  c <- get
+  if Maybe.isJust (returning c) then return () else compStatementNoReturn s
 
-        t <- compExpr e
-        modify (\c -> c { returning = Just t })
-        return ()
+compStatementNoReturn
+  :: (BaseCtx c b (Prime n), KnownNat n) => SStatement -> CompState c b n ()
+compStatementNoReturn s = case ast s of
+  Assign loc expr -> do
+    lval <- compLoc loc
+    term <- compExpr expr
+    modify (store (ann s) lval term)
+  OpAssign op loc expr -> do
+    lval <- compLoc loc
+    base <- load (ann loc) lval
+    new  <- compExpr expr
+    let base' = binOp op base new
+    modify (store (ann s) lval base')
+  Constrain l r -> do
+    lt <- compExpr l
+    rt <- compExpr r
+    assert' $ lt - rt
+  AssignConstrain loc e -> do
+    l  <- compLoc loc
+    t1 <- compExpr e
+    modify (store (ann s) l t1)
+    t0 <- load (ann loc) l
+    assert' $ t0 - t1
+  VarDeclaration name dims ini -> do
+    ts <- compExprs dims
+    modify (alloc name IKVar $ termMultiDimArray (ann s) (Const 0) ts)
+    mapM_ (compExpr >=> modify' . store (ann s) (LTermLocal (ast name, []))) ini
+  SigDeclaration name kind dims -> do
+    ts    <- compExprs dims
+    fresh <- gets (not . Map.member (ast name) . ids)
+    unless fresh $ spanE (ann name) $ show name ++ " is not fresh"
+    modify
+      (\c -> c
+        { signals = Map.insert (ast name) (kind, map (termAsNum $ ann s) ts)
+                      $ signals c
+        , ids     = Map.insert (ast name) IKSig $ ids c
+        }
+      )
+  SubDeclaration name dims ini -> do
+    ts <- compExprs dims
+    modify (alloc name IKComp (termMultiDimArray (ann s) (Const 1) ts))
+    mapM_ (compExpr >=> modify' . store (ann s) (LTermLocal (ast name, []))) ini
+  If cond true false -> do
+    b <- compCondition cond
+    if b then compStatements $ ast true else mapM_ (compStatements . ast) false
+  While cond block ->
+    whileM_ (compCondition cond) (compStatements $ ast block) $> ()
+  For ini cond step block -> do
+    compStatement ini
+    _ <- whileM_ (compCondition cond)
+                 (compStatements (ast block) *> compStatement step)
+    return ()
+  DoWhile block cond -> compStatements (ast block)
+    <* whileM_ (compCondition cond) (compStatements $ ast block)
+  Compute b -> do
+    ignore <- gets (ignoreCompBlock . baseCtx)
+    if ignore then return () else compStatements (ast b)
+  Ignore e -> do
+    _ <- compExpr e
+    return ()
+  Log e -> do
+    t <- compExpr e
+    return $ trace (show e ++ ": " ++ show t) ()
+  Return e -> do
+
+    t <- compExpr e
+    modify (\c -> c { returning = Just t })
+    return ()
  where
   assert' (Base b) = modify $ \c -> c { baseCtx = assert b (baseCtx c) }
   assert' t        = spanE (ann s) $ "Cannot constain " ++ show t ++ " to zero"
 
+  whileM_ :: Monad m => m Bool -> m a -> m ()
+  whileM_ condition step = do
+    b <- condition
+    if b then step *> whileM_ condition step else pure ()
 
 termMultiDimArray
   :: (Show b, KnownNat k)
