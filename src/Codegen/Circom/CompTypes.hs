@@ -170,6 +170,10 @@ ctxOrderedSignals =
 data Void k deriving (Show,Eq,Ord)
 
 instance BaseTerm (Void k) k where
+  fromConst _ = error "Void"
+  fromSignal _ = error "Void"
+  binOp _ = error "Void"
+  unOp _ = error "Void"
 
 primeBinOp :: (KnownNat k) => BinOp -> Prime k -> Prime k -> Prime k
 primeBinOp o = case o of

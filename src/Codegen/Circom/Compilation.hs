@@ -1,16 +1,10 @@
 {-# OPTIONS_GHC -Wall #-}
-{-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
--- Because of out KnownNat1 instance for the Log2 family...
-{-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE DataKinds #-}
 module Codegen.Circom.Compilation
   ( compMainCtx
   , compMainWitCtx
@@ -125,7 +119,7 @@ compExpr e = case ast e of
           (callables c Map.!? ast name)
     unless (length args == length formalArgs)
       $  return
-      $  (spanE (ann e))
+      $  spanE (ann e)
       $  "Wrong number of arguments for "
       ++ show name
     let callState = empty { callables = callables c
