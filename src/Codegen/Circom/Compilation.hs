@@ -100,11 +100,7 @@ compExpr e = case ast e of
     condT <- compExpr c
     caseT <- compExpr l
     caseF <- compExpr r
-    return $ case condT of
-      Const 0 -> caseF
-      Const _ -> caseT
-      -- TODO: allow: Base  _ -> Base HighDegree
-      t       -> spanE (ann c) $ "Cannot condition on term " ++ show t
+    return $ ite condT caseT caseF
   LValue loc -> do
     lt <- compLoc loc
     load (ann loc) lt

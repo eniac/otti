@@ -88,6 +88,9 @@ instance KnownNat k => BaseTerm (LowDeg (Prime k)) (Prime k) where
     (Mul, Quadratic q, Scalar c   ) -> Quadratic $ qeqScale c q
     (Mul, l          , r          ) -> binOp Mul r l
     _                               -> HighDegree
+  ite c t f = case c of
+    Scalar n -> if n /= 0 then t else f
+    _        -> HighDegree
 
 instance KnownNat k => BaseCtx (LowDegCtx (Prime k)) (LowDeg (Prime k)) (Prime k) where
   assert t (LowDegCtx cs) = case t of

@@ -19,6 +19,7 @@ module Codegen.Circom.CompTypes
   , ctxOrderedSignals
   , primeUnOp
   , primeBinOp
+  , primeIte
   , CompState(..)
   , load
   , store
@@ -86,6 +87,7 @@ class Show b => BaseTerm b k | b -> k where
   fromSignal :: Sig.Signal -> b
   binOp :: BinOp -> b -> b -> b
   unOp :: UnOp -> b -> b
+  ite :: b -> b -> b -> b
 
 class (Show c, BaseTerm b k) => BaseCtx c b k | c -> b where
   assert :: b -> c -> c
@@ -102,6 +104,12 @@ data Term b n = Base b
               | Component (TemplateInvocation n)
               | Const n
               deriving (Show,Eq,Ord)
+
+termAsBase :: (BaseTerm b k) => Term b k -> Maybe b
+termAsBase t = case t of
+  Base  b -> Just b
+  Const n -> Just $ fromConst n
+  _       -> Nothing
 
 termAsNum :: (Show b, Num n, PrimeField k) => Span -> Term b k -> n
 termAsNum s t = case t of
@@ -126,17 +134,31 @@ instance (BaseTerm b (Prime k), KnownNat k) => BaseTerm (Term b (Prime k)) (Prim
 
   binOp o s t = case (s, t) of
     (Const a, Const b) -> Const $ primeBinOp o a b
-    (Const a, Base b ) -> Base $ binOp o (fromConst a) b
-    (Base  a, Const b) -> Base $ binOp o a (fromConst b)
-    (Base  a, Base b ) -> Base $ binOp o a b
-    _ ->
-      error
-        $  "Cannot perform "
-        ++ show o
-        ++ " on "
-        ++ show s
-        ++ " and "
-        ++ show t
+    _                  -> case (termAsBase s, termAsBase t) of
+      (Just a, Just b) -> Base $ binOp o a b
+      _ ->
+        error
+          $  "Cannot perform "
+          ++ show o
+          ++ " on "
+          ++ show s
+          ++ " and "
+          ++ show t
+  ite c t f = case c of
+    Const c' -> if c' /= 0 then t else f
+    Base  c' -> case (termAsBase t, termAsBase f) of
+      (Just t', Just f') -> Base $ ite c' t' f'
+      -- TODO: base-conditioned, array-branched ITEs
+      _ ->
+        error
+          $  "Cannot evaluate ITE("
+          ++ show c
+          ++ ", "
+          ++ show t
+          ++ ", "
+          ++ show f
+          ++ ")"
+    _ -> error $ "Cannot condition on " ++ show c
 
 type TemplateInvocation n = (String, [Term (Void n) n])
 
@@ -175,6 +197,7 @@ instance BaseTerm (Void k) k where
   fromSignal _ = error "Void"
   binOp _ = error "Void"
   unOp _ = error "Void"
+  ite _ = error "Void"
 
 primeBinOp :: (KnownNat k) => BinOp -> Prime k -> Prime k -> Prime k
 primeBinOp o = case o of
@@ -213,6 +236,9 @@ primeUnOp o = case o of
     error "Bitwise negation has unclear semantics for prime field elements"
   Not   -> \a -> if a == 0 then 1 else 0
   UnPos -> id
+
+primeIte :: (KnownNat k) => Prime k -> Prime k -> Prime k -> Prime k
+primeIte a b c = if a /= 0 then b else c
 
 empty :: (BaseCtx c b n) => CompCtx c b n
 empty = CompCtx { env       = Map.empty

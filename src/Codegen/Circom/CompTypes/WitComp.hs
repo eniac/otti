@@ -106,6 +106,9 @@ instance KnownNat n => BaseTerm (WitBaseTerm n) (Prime n) where
       where z = Smt.IntToPf $ Smt.IntLit 0
     UnPos -> id
     UnNeg -> WitBaseTerm . Smt.PfUnExpr Smt.PfNeg . coerce
+  ite c t f = WitBaseTerm
+    $ Smt.Ite (Smt.PfBinPred Smt.PfNe (coerce c) z) (coerce t) (coerce f)
+    where z = Smt.IntToPf $ Smt.IntLit 0
 
 data WitBaseCtx n = WitBaseCtx { signalTerms :: Map.Map LTerm (WitBaseTerm n)
                                -- The order in which signals and components are written to
