@@ -11,6 +11,9 @@ module Codegen.Circom.CompTypes.LowDeg
   )
 where
 
+import           AST.Circom                     ( BinOp(..)
+                                                , UnOp(..)
+                                                )
 import           Codegen.Circom.CompTypes       ( BaseTerm(..)
                                                 , BaseCtx(..)
                                                 , Term
@@ -34,7 +37,6 @@ data LowDeg n = Scalar n
               | Quadratic (QEQ Sig.Signal n)
               | HighDegree
               deriving (Show,Eq,Ord)
-
 
 lcZero :: GaloisField k => LC s k
 lcZero = (Map.empty, 0)
@@ -60,47 +62,32 @@ qeqScale k (a2, b2, c2) = (lcScale k a2, lcScale k b2, lcScale k c2)
 qeqShift :: GaloisField k => k -> QEQ s k -> QEQ s k
 qeqShift k (a2, b2, c2) = (lcShift k a2, lcShift k b2, lcShift k c2)
 
-instance GaloisField n => Num (LowDeg n) where
-  s + t = case (s, t) of
-    (HighDegree  , _          ) -> HighDegree
-    (Linear a    , Linear b   ) -> Linear $ lcAdd a b
-    (Linear l    , Quadratic q) -> Quadratic $ qeqLcAdd q l
-    (Linear l    , Scalar c   ) -> Linear $ lcShift c l
-    (Quadratic{} , Quadratic{}) -> HighDegree
-    (Quadratic q , Scalar k   ) -> Quadratic $ qeqShift k q
-    (Scalar    c1, Scalar c2  ) -> Scalar $ c1 + c2
-    (l           , r          ) -> r + l
-  s * t = case (s, t) of
-    (HighDegree  , _          ) -> HighDegree
-    (Linear l1   , Linear l2  ) -> Quadratic (l1, l2, lcZero)
-    (Linear _    , Quadratic{}) -> HighDegree
-    (Linear l    , Scalar c   ) -> Linear $ lcScale c l
-    (Quadratic{} , Quadratic{}) -> HighDegree
-    (Quadratic q , Scalar c   ) -> Quadratic $ qeqScale c q
-    (Scalar    c1, Scalar c2  ) -> Scalar $ c1 * c2
-    (l           , r          ) -> r * l
-  fromInteger n = Scalar $ fromInteger n
-  signum _ = Scalar 1
-  abs = id
-  negate s = fromInteger (-1) * s
-
-instance GaloisField n => Fractional (LowDeg n) where
-  fromRational = Scalar . fromRational
-  recip t = case t of
-    Scalar c1 -> Scalar (recip c1)
-    _         -> HighDegree
-
 newtype LowDegCtx k = LowDegCtx { constraints :: [QEQ Sig.Signal k] } deriving (Show)
 
 instance KnownNat k => BaseTerm (LowDeg (Prime k)) (Prime k) where
   fromConst  = Scalar
   fromSignal = Linear . lcSig
-  nonNegUnOp o t = case t of
-    Scalar f -> Scalar $ primeUnOp o f
-    _        -> HighDegree
-  nonArithBinOp o s t = case (s, t) of
-    (Scalar a, Scalar b) -> Scalar $ primeBinOp o a b
-    _                    -> HighDegree
+  unOp o t = case (o, t) of
+    (_    , Scalar f) -> Scalar $ primeUnOp o f
+    (UnPos, _       ) -> t
+    (UnNeg, _       ) -> binOp Mul (fromConst (-1)) t
+    _                 -> HighDegree
+  binOp o s t = case (o, s, t) of
+    (_  , Scalar a   , Scalar b   ) -> Scalar $ primeBinOp o a b
+    (Add, Linear a   , Linear b   ) -> Linear $ lcAdd a b
+    (Add, Linear l   , Quadratic q) -> Quadratic $ qeqLcAdd q l
+    (Add, Linear l   , Scalar c   ) -> Linear $ lcShift c l
+    (Add, Quadratic{}, Quadratic{}) -> HighDegree
+    (Add, Quadratic q, Scalar k   ) -> Quadratic $ qeqShift k q
+    (Add, l          , r          ) -> binOp Add r l
+    (Sub, l          , r          ) -> binOp Add l $ unOp UnNeg r
+    (Mul, Linear l1  , Linear l2  ) -> Quadratic (l1, l2, lcZero)
+    (Mul, Linear _   , Quadratic{}) -> HighDegree
+    (Mul, Linear l   , Scalar c   ) -> Linear $ lcScale c l
+    (Mul, Quadratic{}, Quadratic{}) -> HighDegree
+    (Mul, Quadratic q, Scalar c   ) -> Quadratic $ qeqScale c q
+    (Mul, l          , r          ) -> binOp Mul r l
+    _                               -> HighDegree
 
 instance KnownNat k => BaseCtx (LowDegCtx (Prime k)) (LowDeg (Prime k)) (Prime k) where
   assert t (LowDegCtx cs) = case t of

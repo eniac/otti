@@ -30,6 +30,7 @@ import           Codegen.Circom.Utils           ( spanE
                                                 , mapGetE
                                                 )
 import qualified IR.TySmt                      as Smt
+import           Data.Coerce                    ( coerce )
 import qualified Data.Either                   as Either
 import           Data.Field.Galois              ( Prime
                                                 , fromP
@@ -56,54 +57,45 @@ instance KnownNat x => KnownNat1 $(nameToSymbol ''Log2) x where
 
 newtype WitBaseTerm n = WitBaseTerm (Smt.Term (Smt.PfSort n)) deriving (Show)
 
-instance KnownNat n => Num (WitBaseTerm n) where
-  (WitBaseTerm s) + (WitBaseTerm t) =
-    WitBaseTerm $ Smt.PfNaryExpr Smt.PfAdd [s, t]
-  (WitBaseTerm s) * (WitBaseTerm t) =
-    WitBaseTerm $ Smt.PfNaryExpr Smt.PfMul [s, t]
-  negate (WitBaseTerm s) = WitBaseTerm $ Smt.PfUnExpr Smt.PfNeg s
-  abs _ = error "ndef"
-  signum _ = error "ndef"
-  fromInteger = WitBaseTerm . Smt.IntToPf . Smt.IntLit
-
-instance KnownNat n => Fractional (WitBaseTerm n) where
-  recip (WitBaseTerm s) = WitBaseTerm $ Smt.PfUnExpr Smt.PfRecip s
-  fromRational _ = error "NYI"
-
 instance KnownNat n => BaseTerm (WitBaseTerm n) (Prime n) where
-  fromConst  = fromInteger . fromP
+  fromConst  = WitBaseTerm . Smt.IntToPf . Smt.IntLit . fromP
   fromSignal = WitBaseTerm . Smt.Var . show
-  nonArithBinOp o = case o of
-    IntDiv -> liftIntToPf (Smt.IntBinExpr Smt.IntDiv)
-    Mod    -> liftIntToPf (Smt.IntBinExpr Smt.IntMod)
-    Lt     -> liftIntPredToPf (Smt.IntBinPred Smt.IntLt)
-    Gt     -> liftIntPredToPf (Smt.IntBinPred Smt.IntGt)
-    Le     -> liftIntPredToPf (Smt.IntBinPred Smt.IntLe)
-    Ge     -> liftIntPredToPf (Smt.IntBinPred Smt.IntGe)
-    Eq     -> liftIntPredToPf (Smt.IntBinPred Smt.IntEq)
-    Ne     -> liftIntPredToPf (Smt.IntBinPred Smt.IntNe)
-    And    -> liftBoolToPf (\a b -> Smt.BoolNaryExpr Smt.And [a, b])
-    Or     -> liftBoolToPf (\a b -> Smt.BoolNaryExpr Smt.Or [a, b])
-    BitAnd -> liftBvToPf (Smt.BvBinExpr Smt.BvAnd)
-    BitOr  -> liftBvToPf (Smt.BvBinExpr Smt.BvOr)
-    BitXor -> liftBvToPf (Smt.BvBinExpr Smt.BvXor)
-    Pow    -> liftIntToPf (Smt.IntBinExpr Smt.IntPow)
-    Shl    -> liftBvToPf (Smt.BvBinExpr Smt.BvShl)
-    Shr    -> liftBvToPf (Smt.BvBinExpr Smt.BvLshr)
-    _      -> error "Unreachable"
+  binOp o = case o of
+    Add    -> liftPf (\a b -> Smt.PfNaryExpr Smt.PfAdd [a, b])
+    Sub    -> \a b -> binOp Add a $ unOp UnNeg b
+    Mul    -> liftPf (\a b -> Smt.PfNaryExpr Smt.PfMul [a, b])
+    Div    -> \a b -> binOp Mul a $ liftPfUn (Smt.PfUnExpr Smt.PfRecip) b
+    IntDiv -> liftInt (Smt.IntBinExpr Smt.IntDiv)
+    Mod    -> liftInt (Smt.IntBinExpr Smt.IntMod)
+    Lt     -> liftIntPred (Smt.IntBinPred Smt.IntLt)
+    Gt     -> liftIntPred (Smt.IntBinPred Smt.IntGt)
+    Le     -> liftIntPred (Smt.IntBinPred Smt.IntLe)
+    Ge     -> liftIntPred (Smt.IntBinPred Smt.IntGe)
+    Eq     -> liftIntPred (Smt.IntBinPred Smt.IntEq)
+    Ne     -> liftIntPred (Smt.IntBinPred Smt.IntNe)
+    And    -> liftBool (\a b -> Smt.BoolNaryExpr Smt.And [a, b])
+    Or     -> liftBool (\a b -> Smt.BoolNaryExpr Smt.Or [a, b])
+    BitAnd -> liftBv (Smt.BvBinExpr Smt.BvAnd)
+    BitOr  -> liftBv (Smt.BvBinExpr Smt.BvOr)
+    BitXor -> liftBv (Smt.BvBinExpr Smt.BvXor)
+    Pow    -> liftInt (Smt.IntBinExpr Smt.IntPow)
+    Shl    -> liftBv (Smt.BvBinExpr Smt.BvShl)
+    Shr    -> liftBv (Smt.BvBinExpr Smt.BvLshr)
    where
-    liftIntToPf f (WitBaseTerm a) (WitBaseTerm b) =
+    liftPfUn f = WitBaseTerm . f . coerce
+    liftPf f (WitBaseTerm a) (WitBaseTerm b) = WitBaseTerm (f a b)
+    liftInt f (WitBaseTerm a) (WitBaseTerm b) =
       WitBaseTerm $ Smt.IntToPf $ f (Smt.PfToInt a) (Smt.PfToInt b)
-    liftBvToPf f = liftIntToPf
+    liftBv f = liftInt
       (\a b -> Smt.BvToInt @(Log2 n + 1)
         (f (Smt.IntToBv @(Log2 n + 1) a) (Smt.IntToBv @(Log2 n + 1) b))
       )
-    liftIntPredToPf f = liftIntToPf (\a b -> Smt.BoolToInt $ f a b)
-    liftBoolToPf f = liftIntPredToPf
+    liftIntPred f = liftInt (\a b -> Smt.BoolToInt $ f a b)
+    liftBool f = liftIntPred
       (\a b -> f (Smt.IntBinPred Smt.IntNe (Smt.IntLit 0) a)
                  (Smt.IntBinPred Smt.IntNe (Smt.IntLit 0) b)
       )
-  nonNegUnOp o = case o of
+  unOp o = case o of
     BitNot ->
       error "Bitwise negation has unclear semantics for prime field elements"
     Not -> \(WitBaseTerm a) ->
@@ -113,7 +105,7 @@ instance KnownNat n => BaseTerm (WitBaseTerm n) (Prime n) where
         a
       where z = Smt.IntToPf $ Smt.IntLit 0
     UnPos -> id
-    UnNeg -> error "Unreachable"
+    UnNeg -> WitBaseTerm . Smt.PfUnExpr Smt.PfNeg . coerce
 
 data WitBaseCtx n = WitBaseCtx { signalTerms :: Map.Map LTerm (WitBaseTerm n)
                                -- The order in which signals and components are written to
@@ -190,4 +182,3 @@ instance KnownNat n => BaseCtx (WitBaseCtx n) (WitBaseTerm n) (Prime n) where
 nSmtNodes :: WitBaseCtx n -> Int
 nSmtNodes =
   Map.foldr ((+) . (\(WitBaseTerm a) -> Smt.nNodes a)) 0 . signalTerms
-

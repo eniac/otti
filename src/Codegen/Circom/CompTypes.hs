@@ -55,7 +55,6 @@ import qualified Data.Array                    as Arr
 import qualified Data.Bits                     as Bits
 import           Data.Field.Galois              ( Prime
                                                 , PrimeField
-                                                , GaloisField
                                                 , fromP
                                                 , toP
                                                 )
@@ -81,26 +80,11 @@ sigToLterm l = case l of
 
 
 -- A base term type `b` over constant type `k`
-class (Show b, Num b, Fractional b) => BaseTerm b k | b -> k where
+class Show b => BaseTerm b k | b -> k where
   fromConst :: k -> b
   fromSignal :: Sig.Signal -> b
-  -- will not be called with arithmetic operations
-  nonArithBinOp :: BinOp -> b -> b -> b
-  -- will not be called with negation
-  nonNegUnOp :: UnOp -> b -> b
-
   binOp :: BinOp -> b -> b -> b
-  binOp o = case o of
-    Add -> (+)
-    Sub -> (-)
-    Div -> (/)
-    Mul -> (*)
-    _ -> nonArithBinOp o
-
   unOp :: UnOp -> b -> b
-  unOp o = case o of
-    UnNeg -> negate
-    _ -> nonNegUnOp o
 
 class (Show c, BaseTerm b k) => BaseCtx c b k | c -> b where
   assert :: b -> c -> c
@@ -113,10 +97,10 @@ class (Show c, BaseTerm b k) => BaseCtx c b k | c -> b where
   finalize :: c -> c
 
 data Term b n = Base b
-                 | Array (Arr.Array Int (Term b n))
-                 | Component (TemplateInvocation n)
-                 | Const n
-                 deriving (Show,Eq,Ord)
+              | Array (Arr.Array Int (Term b n))
+              | Component (TemplateInvocation n)
+              | Const n
+              deriving (Show,Eq,Ord)
 
 termAsNum :: (Show b, Num n, PrimeField k) => Span -> Term b k -> n
 termAsNum s t = case t of
@@ -130,62 +114,23 @@ termAsConst s t = case t of
   Component _ -> spanE s "don't pass function calls as arguments"
   Base{} -> spanE s $ "term " ++ show t ++ " should be constant, but is not"
 
-instance (BaseTerm b k, GaloisField k) => Num (Term b k) where
-  s + t = case (s, t) of
-    (a@Array{}, _) ->
-      error $ "Cannot add array term " ++ show a ++ " to anything"
-    (a@Component{}, _) ->
-      error $ "Cannot add component term " ++ show a ++ " to anything"
-    (Base  a, Base b ) -> Base $ a + b
-    (Const a, Const b) -> Const $ a + b
-    (Const a, Base b ) -> Base (b + fromConst a)
-    (l      , r      ) -> r + l
-  s * t = case (s, t) of
-    (a@Array{}, _) ->
-      error $ "Cannot multiply array term " ++ show a ++ " with anything"
-    (a@Component{}, _) ->
-      error $ "Cannot multiply component term " ++ show a ++ " with anything"
-    (Base  a, Base b ) -> Base $ a * b
-    (Const a, Const b) -> Const $ a * b
-    (Const a, Base b ) -> Base (b * fromConst a)
-    (l      , r      ) -> r * l
-  fromInteger = Const . fromInteger
-  signum s = case s of
-    Array{}     -> error $ "Cannot get sign of array term " ++ show s
-    Component{} -> error $ "Cannot get sign of component term " ++ show s
-    Base  a     -> Base $ signum a
-    Const k     -> Const $ signum k
-  abs s = case s of
-    Array a     -> Base $ fromIntegral $ length a
-    Component{} -> error $ "Cannot get size of component term " ++ show s
-    Base  a     -> Base $ abs a
-    Const k     -> Const $ abs k
-  negate s = fromInteger (-1) * s
-
-instance (BaseTerm b k, GaloisField k) => Fractional (Term b k) where
-  fromRational = Const . fromRational
-  recip t = case t of
-    a@Array{}     -> error $ "Cannot invert array term " ++ show a
-    a@Component{} -> error $ "Cannot invert component term " ++ show a
-    Base  a       -> Base $ recip a
-    Const a       -> Const $ recip a
-
 instance (BaseTerm b (Prime k), KnownNat k) => BaseTerm (Term b (Prime k)) (Prime k) where
   fromConst  = Const
   fromSignal = Base . fromSignal
-  nonNegUnOp o t = case t of
-    Const f              -> Const $ primeUnOp o f
-    Base  b              -> Base $ nonNegUnOp o b
-    Array a | o == UnPos -> Const $ fromInteger $ fromIntegral $ length a
-    _ -> error $ "Cannot perform operation " ++ show o ++ " on " ++ show t
-  nonArithBinOp o s t = case (s, t) of
+  unOp o t = case (o, t) of
+    (_    , Base b ) -> Base $ unOp o b
+    (_    , Const f) -> Const $ primeUnOp o f
+    (UnPos, Array a) -> Const $ fromInteger $ fromIntegral $ length a
+    _                -> error $ "Cannot perform " ++ show o ++ " on " ++ show t
+
+  binOp o s t = case (s, t) of
     (Const a, Const b) -> Const $ primeBinOp o a b
     (Const a, Base b ) -> Base $ binOp o (fromConst a) b
     (Base  a, Const b) -> Base $ binOp o a (fromConst b)
     (Base  a, Base b ) -> Base $ binOp o a b
     _ ->
       error
-        $  "Cannot perform operation "
+        $  "Cannot perform "
         ++ show o
         ++ " on "
         ++ show s
@@ -224,8 +169,6 @@ ctxOrderedSignals =
 
 data Void k deriving (Show,Eq,Ord)
 
-instance Num (Void k) where
-instance Fractional (Void k) where
 instance BaseTerm (Void k) k where
 
 primeBinOp :: (KnownNat k) => BinOp -> Prime k -> Prime k -> Prime k

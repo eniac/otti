@@ -93,7 +93,7 @@ compExpr e = case ast e of
   UnMutExpr op loc -> do
     lval <- compLoc loc
     term <- load (ann loc) lval
-    let term' = term + Const (toP $ opToOffset op)
+    let term' = binOp Add (fromConst $ toP $ opToOffset op) term
     modify (store (ann e) lval term')
     case unMutOpTime op of
       Post -> return term
@@ -201,13 +201,13 @@ compStatementNoReturn s = case ast s of
   Constrain l r -> do
     lt <- compExpr l
     rt <- compExpr r
-    assert' $ lt - rt
+    assert' $ binOp Sub lt rt
   AssignConstrain loc e -> do
     l  <- compLoc loc
     t1 <- compExpr e
     modify (store (ann s) l t1)
     t0 <- load (ann loc) l
-    assert' $ t0 - t1
+    assert' $ binOp Sub t0 t1
   VarDeclaration name dims ini -> do
     ts <- compExprs dims
     modify (alloc name IKVar $ termMultiDimArray (ann s) (Const 0) ts)
@@ -316,7 +316,8 @@ getMainInvocation
 getMainInvocation _order m = case ast (main m) of
   SubDeclaration _ [] (Just (Annotated (Call name args) _)) ->
     ( ast name
-    , map (termAsNum nullSpan) $ fst $ runLowDegCompState @k (compExprs args)
-                                                             empty
+    , map (termAsConst nullSpan) $ fst $ runLowDegCompState @k
+      (compExprs args)
+      empty
     )
   expr -> spanE (ann $ main m) $ "Invalid main expression " ++ show expr
