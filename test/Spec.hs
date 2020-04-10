@@ -23,6 +23,7 @@ allTests :: [BenchTest]
 allTests = [ parserTests
            , irTests
            , tySmtTests
+           , generatorTests
            ]
 
 main :: IO ()

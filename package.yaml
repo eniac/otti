@@ -72,6 +72,9 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - compiler
+    - directory
+    - temporary
+    - filepath
     - tasty
     - tasty-golden
     - tasty-hunit
