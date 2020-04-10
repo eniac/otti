@@ -201,3 +201,4 @@ template Poseidon(nInputs, t, nRoundsF, nRoundsP) {
     out <== mix[nRoundsF + nRoundsP -1].out[0];
 }
 
+component main = Poseidon(2, 6, 8, 57);

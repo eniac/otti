@@ -82,11 +82,14 @@ circomGenTests = benchTestGroup
     , checkR1cs "test/Code/Circom/bitify4-wrapper.circom" (Just 10)
     , checkR1cs "test/Code/Circom/multidim.circom"        Nothing
     , checkR1cs "test/Code/Circom/bitify-main.circom"     (Just 17)
+    , checkR1cs "test/Code/Circom/poseidon.circom"        Nothing
     ]
   , benchTestGroup
     "Witness computation"
     [ checkWitComp "test/Code/Circom/bitify4.circom" (Map.fromList [("in", 13)])
     , checkWitComp "test/Code/Circom/bitify-main.circom"
                    (Map.fromList [("in", 34)])
+    , checkWitComp "test/Code/Circom/poseidon.circom"
+                   (Map.fromList [("inputs[0]", 0), ("inputs[1]", 1)])
     ]
   ]
