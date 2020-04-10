@@ -66,8 +66,8 @@ import qualified Data.List                     as List
 import qualified Data.Map.Strict               as Map
 import           GHC.TypeNats
 
-data LTerm = LTermLocal Sig.IndexedIdent
-           | LTermForeign Sig.IndexedIdent Sig.IndexedIdent
+data LTerm = LTermLocal !Sig.IndexedIdent
+           | LTermForeign !Sig.IndexedIdent !Sig.IndexedIdent
            deriving (Show,Eq,Ord,Read)
 
 ltermToSig :: LTerm -> Sig.Signal
@@ -99,10 +99,10 @@ class (Show c, BaseTerm b k) => BaseCtx c b k | c -> b where
   -- Called after function exit.
   finalize :: c -> c
 
-data Term b n = Base b
-              | Array (Arr.Array Int (Term b n))
-              | Component (TemplateInvocation n)
-              | Const n
+data Term b n = Base !b
+              | Array !(Arr.Array Int (Term b n))
+              | Component !(TemplateInvocation n)
+              | Const !n
               deriving (Show,Eq,Ord)
 
 termAsBase :: (BaseTerm b k) => Term b k -> Maybe b
@@ -165,15 +165,15 @@ type TemplateInvocation n = (String, [Term (Void n) n])
 data IdKind = IKVar | IKSig | IKComp deriving (Show,Eq,Ord)
 
 
-data CompCtx c b n = CompCtx { env :: Map.Map String (Term b n)
-                             , baseCtx :: c
-                             , signals :: Map.Map String (SignalKind, [Int])
-                             , type_ :: Typing.InstanceType
-                             , ids :: Map.Map String IdKind
-                             , returning :: Maybe (Term b n)
+data CompCtx c b n = CompCtx { env :: !(Map.Map String (Term b n))
+                             , baseCtx :: !c
+                             , signals :: !(Map.Map String (SignalKind, [Int]))
+                             , type_ :: !Typing.InstanceType
+                             , ids :: !(Map.Map String IdKind)
+                             , returning :: !(Maybe (Term b n))
                              --                             isFn, frmlArgs, code
-                             , callables :: Map.Map String (Bool, [String], SBlock)
-                             , cache :: Map.Map (TemplateInvocation n) (CompCtx c b n)
+                             , callables :: !(Map.Map String (Bool, [String], SBlock))
+                             , cache :: !(Map.Map (TemplateInvocation n) (CompCtx c b n))
                              } deriving (Show)
 
 ctxOrderedSignals :: CompCtx c b n -> [Sig.IndexedIdent]

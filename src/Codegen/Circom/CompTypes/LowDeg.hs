@@ -32,9 +32,9 @@ import           GHC.TypeNats
 type LC s n = (Map.Map s n, n) -- A linear combination of signals and gen-time constants
 type QEQ s n = (LC s n, LC s n, LC s n)
 
-data LowDeg n = Scalar n
-              | Linear (LC Sig.Signal n)
-              | Quadratic (QEQ Sig.Signal n)
+data LowDeg n = Scalar !n
+              | Linear !(LC Sig.Signal n)
+              | Quadratic !(QEQ Sig.Signal n)
               | HighDegree
               deriving (Show,Eq,Ord)
 

@@ -18,7 +18,6 @@ where
 
 import           AST.Circom                     ( UnOp(..)
                                                 , BinOp(..)
-                                                , SignalKind(..)
                                                 )
 import           Codegen.Circom.CompTypes       ( BaseTerm(..)
                                                 , BaseCtx(..)
@@ -110,30 +109,34 @@ instance KnownNat n => BaseTerm (WitBaseTerm n) (Prime n) where
     $ Smt.Ite (Smt.PfBinPred Smt.PfNe (coerce c) z) (coerce t) (coerce f)
     where z = Smt.IntToPf $ Smt.IntLit 0
 
-data WitBaseCtx n = WitBaseCtx { signalTerms :: Map.Map LTerm (WitBaseTerm n)
-                               -- The order in which signals and components are written to
+data WitBaseCtx n = WitBaseCtx { signalTerms :: !(Map.Map LTerm (WitBaseTerm n))
+                               -- The signals and components are written to
                                -- lefts are signals, rights are components
-                               -- Initialize unordered, then ordered in finalize.
-                               , assignmentOrder :: [Either LTerm Sig.IndexedIdent]
+                               , assignmentSet :: !(Set.Set (Either LTerm Sig.IndexedIdent))
+                               -- Initiallly empty, then finalize puts them in order...
+                               , assignmentOrder :: ![Either LTerm Sig.IndexedIdent]
                                } deriving (Show)
+
+storeInstantiation :: LTerm -> WitBaseCtx n -> WitBaseCtx n
+storeInstantiation sig c = case sig of
+  LTermLocal{} -> c
+  LTermForeign cLoc _ ->
+    c { assignmentSet = Set.insert (Right cLoc) $ assignmentSet c }
+
 instance KnownNat n => BaseCtx (WitBaseCtx n) (WitBaseTerm n) (Prime n) where
   assert _ = id
-  emptyCtx = WitBaseCtx Map.empty []
+  emptyCtx = WitBaseCtx Map.empty Set.empty []
   storeCtx span_ _kind sig term ctx = if Map.member sig (signalTerms ctx)
     then spanE span_ $ "Signal " ++ show sig ++ " has already been assigned to"
-    else ctx { signalTerms     = Map.insert sig term $ signalTerms ctx
-             , assignmentOrder = Left sig : assignmentOrder ctx
-             }
-  getCtx kind sig c = if kind == Out
-    then case sig of
-      LTermLocal{} -> c
-      LTermForeign cLoc _ ->
-        c { assignmentOrder = Right cLoc : assignmentOrder c }
-    else c
+    else storeInstantiation sig $ ctx
+      { signalTerms   = Map.insert sig term $ signalTerms ctx
+      , assignmentSet = Set.insert (Left sig) $ assignmentSet ctx
+      }
+  getCtx _kind = storeInstantiation
   ignoreCompBlock = const False
   finalize c =
     let
-      keys = assignmentOrder c
+      keys = Fold.toList $ assignmentSet c
 
       collectSigs :: Smt.Term s -> Set.Set Sig.Signal
       collectSigs = Smt.reduceTerm visit Set.empty Set.union
@@ -180,6 +183,7 @@ instance KnownNat n => BaseCtx (WitBaseCtx n) (WitBaseTerm n) (Prime n) where
       c
         { assignmentOrder = map Digraph.node_payload
                               $ Digraph.topologicalSortG graph
+        , assignmentSet   = Set.empty
         }
 
 nSmtNodes :: WitBaseCtx n -> Int

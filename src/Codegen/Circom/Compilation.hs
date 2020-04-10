@@ -41,7 +41,7 @@ import           Data.Functor
 import qualified Data.Map.Strict               as Map
 import qualified Data.Maybe                    as Maybe
 import           Data.Proxy                     ( Proxy )
-import           Debug.Trace                    ( trace )
+import           Debug.Trace
 import           GHC.TypeNats
 
 

@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -Wall #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
@@ -17,7 +18,7 @@ import qualified AST.Circom                    as AST
 import qualified IR.TySmt                      as Smt
 import           Data.Bifunctor
 import           Control.Monad.State.Strict
-import           Control.Monad.Writer.Lazy
+import           Control.Monad.Writer.Strict
 import qualified Codegen.Circom.Compilation    as Comp
 import qualified Codegen.Circom.CompTypes      as CompT
 import qualified Codegen.Circom.CompTypes.LowDeg
@@ -41,11 +42,11 @@ import           Data.Dynamic                   ( Dynamic
                                                 )
 import           Data.Proxy                     ( Proxy(Proxy) )
 
-data R1CS n = R1CS { sigNums :: Map.Map GlobalSignal Int
-                   , numSigs :: Map.Map Int GlobalSignal
-                   , constraints :: Seq.Seq (LD.QEQ Int (Prime n))
-                   , nextSigNum :: Int
-                   , nPublicInputs :: Int
+data R1CS n = R1CS { sigNums :: !(Map.Map GlobalSignal Int)
+                   , numSigs :: !(Map.Map Int GlobalSignal)
+                   , constraints :: !(Seq.Seq (LD.QEQ Int (Prime n)))
+                   , nextSigNum :: !Int
+                   , nPublicInputs :: !Int
                    } deriving (Show)
 
 sigNumLookup :: R1CS n -> GlobalSignal -> Int
@@ -185,8 +186,8 @@ writeToR1csFile r1cs path =
   writeFile path $ unlines $ map (unwords . map show) $ r1csAsLines r1cs
 
 type GlobalValues = Map.Map GlobalSignal Integer
-data LocalValues = LocalValues { stringValues :: Map.Map String Dynamic
-                               , values :: Map.Map Signal Dynamic
+data LocalValues = LocalValues { stringValues :: !(Map.Map String Dynamic)
+                               , values :: !(Map.Map Signal Dynamic)
                                }
 localValuesFromValues :: Map.Map Signal Dynamic -> LocalValues
 localValuesFromValues m =
@@ -253,37 +254,37 @@ computeWitnessesIn ctx namespace invocation inputs =
     folder localCtx step = case step of
       Left lterm -> do
         let sig = Comp.ltermToSig lterm
-        let Wit.WitBaseTerm smt =
+            Wit.WitBaseTerm smt =
               Maybe.fromMaybe (error $ "No term for " ++ show lterm)
                 $      evalExprs
                 Map.!? lterm
-        let value  = Smt.eval (stringValues localCtx) smt
-        let dValue = toDyn value
-        tell $ Map.singleton (joinName namespace sig) (Smt.valAsPf value)
+            value  = Smt.eval (stringValues localCtx) smt
+            dValue = toDyn value
+            name  = joinName namespace sig
+        tell $ Map.singleton name (Smt.valAsPf value)
         return $ localCtx
           { stringValues = Map.insert (show sig) dValue $ stringValues localCtx
           , values       = Map.insert sig dValue $ values localCtx
           }
       Right loc ->
-        let callCtx       = emmigrateInputs loc localCtx
-            callNamespace = loc : namespace
-            call =
-                case
-                    fst $ CompT.runCompState
-                      (CompT.load AST.nullSpan (CompT.LTermLocal loc))
-                      c
-                  of
-                    CompT.Component i -> i
-                    t ->
-                      error $ "Non-component " ++ show t ++ " at " ++ show loc
-        in  do
-              retCtx <- computeWitnessesIn ctx callNamespace call callCtx
-              let retLocal = immigrateOuputs loc retCtx
-              return $ LocalValues
-                { values       = Map.union (values localCtx) (values retLocal)
-                , stringValues = Map.union (stringValues localCtx)
-                                           (stringValues retLocal)
-                }
+        let
+          callCtx       = emmigrateInputs loc localCtx
+          callNamespace = loc : namespace
+          term          = CompT.LTermLocal loc
+          instr         = CompT.load AST.nullSpan term
+          result        = fst $ CompT.runCompState instr c
+          call          = case result of
+            CompT.Component i -> i
+            t -> error $ "Non-component " ++ show t ++ " at " ++ show loc
+        in
+          do
+            retCtx <- computeWitnessesIn ctx callNamespace call callCtx
+            let
+              retLocal  = immigrateOuputs loc retCtx
+              newValues = Map.union (values localCtx) (values retLocal)
+              newStringValues =
+                Map.union (stringValues localCtx) (stringValues retLocal)
+            return $ LocalValues newStringValues newValues
   in
     do
       postC <- foldM folder (expandInputs inputs) instantiations

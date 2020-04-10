@@ -16,7 +16,8 @@ import qualified Codegen.Circom.CompTypes.WitComp
                                             as Wit
 import qualified Codegen.Circom.CompTypes   as CompT
 import qualified Codegen.Circom.Linking     as Link
-import qualified Data.Map       as Map
+import qualified Data.Map                   as Map
+import qualified Data.Maybe                 as Maybe
 import           Data.Proxy                 (Proxy(..))
 import           Parser.Circom              (loadMain)
 import           System.Environment         (getArgs)
@@ -118,12 +119,7 @@ cmdCountTerms circomPath = do
 
 cmdSetup :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdSetup libsnarkPath circomPath r1csPath pkPath vkPath = do
-    print "Loading circuit"
-    m <- loadMain circomPath
-    print "Generating main"
-    let r1cs = Link.linkMain @Order m
-    print $ "Constraints: " ++ show (length $ Link.constraints r1cs)
-    Link.writeToR1csFile r1cs r1csPath
+    cmdEmitR1cs circomPath r1csPath
     print "Running libsnark"
     runSetup libsnarkPath r1csPath pkPath vkPath
 
@@ -133,7 +129,8 @@ cmdProve libsnarkPath pkPath vkPath inPath xPath wPath pfPath circomPath = do
     inputsSignals <- Link.parseSignalsFromFile (Proxy @Order) inPath
     let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
     let r1cs = Link.linkMain @Order m
-    let lookupSignalVal :: Int -> Integer = (allSignals Map.!) . (Link.numSigs r1cs Map.!)
+    let getOr m_ k = Maybe.fromMaybe (error $ "Missing key: " ++ show k) $ m_ Map.!? k
+    let lookupSignalVal :: Int -> Integer = getOr allSignals . getOr (Link.numSigs r1cs)
     emitAssignment (map lookupSignalVal [2..(1 + Link.nPublicInputs r1cs)]) xPath
     emitAssignment (map lookupSignalVal [(2 + Link.nPublicInputs r1cs)..(Link.nextSigNum r1cs - 1)]) wPath
     runProve libsnarkPath pkPath vkPath xPath wPath pfPath

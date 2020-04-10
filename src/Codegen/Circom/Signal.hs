@@ -6,8 +6,8 @@ module Codegen.Circom.Signal ( IndexedIdent
 
 type IndexedIdent = (String, [Int])
 
-data Signal = SigLocal IndexedIdent
-            | SigForeign IndexedIdent IndexedIdent
+data Signal = SigLocal !IndexedIdent
+            | SigForeign !IndexedIdent !IndexedIdent
             deriving (Show,Eq,Ord,Read)
 
 type GlobalSignal = [IndexedIdent]

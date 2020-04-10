@@ -57,8 +57,8 @@ import           Data.Maybe                     ( mapMaybe )
 import qualified Data.Map.Strict               as Map
 
 -- An annotated AST
-data Annotated a s = Annotated { ast :: a
-                               , ann :: s
+data Annotated a s = Annotated { ast :: !a
+                               , ann :: !s
                                } deriving (Eq)
 instance Show a => Show (Annotated a s) where
   show = show . ast
@@ -164,10 +164,10 @@ data BinOp = Add
            | Pow
            deriving (Show,Eq)
 
-data Item s = Function (AnString s) [AnString s] (AnBlock s)
-            | Template (AnString s) [AnString s] (AnBlock s)
-            | Include (AnString s)
-            | Main (AnStatement s)
+data Item s = Function !(AnString s) ![AnString s] !(AnBlock s)
+            | Template !(AnString s) ![AnString s] !(AnBlock s)
+            | Include !(AnString s)
+            | Main !(AnStatement s)
             deriving (Show,Eq)
 
 instance Functor Item where
@@ -203,9 +203,9 @@ collectIncludes = mapMaybe (itemAsInclude . ast)
 
 type File s = [AnItem s]
 
-data MainCircuit s = MainCircuit { main :: AnStatement s
-                                 , functions :: Map.Map String ([String], AnBlock s)
-                                 , templates :: Map.Map String ([String], AnBlock s)
+data MainCircuit s = MainCircuit { main :: !(AnStatement s)
+                                 , functions :: !(Map.Map String ([String], AnBlock s))
+                                 , templates :: !(Map.Map String ([String], AnBlock s))
                                  }
 
 instance Functor MainCircuit where
@@ -217,21 +217,21 @@ instance Functor MainCircuit where
 
 type Block s = [AnStatement s]
 
-data Statement s = Assign (AnLocation s) (AnExpr s)
-                 | OpAssign BinOp (AnLocation s) (AnExpr s)
-                 | AssignConstrain (AnLocation s) (AnExpr s)
-                 | Constrain (AnExpr s) (AnExpr s)
-                 | VarDeclaration (AnString s) [AnExpr s] (Maybe (AnExpr s))
-                 | SigDeclaration (AnString s) SignalKind [AnExpr s]
-                 | SubDeclaration (AnString s) [AnExpr s] (Maybe (AnExpr s))
-                 | If (AnExpr s) (AnBlock s) (Maybe (AnBlock s))
-                 | For (AnStatement s) (AnExpr s) (AnStatement s) (AnBlock s)
-                 | While (AnExpr s) (AnBlock s)
-                 | DoWhile (AnBlock s) (AnExpr s)
-                 | Compute (AnBlock s)
-                 | Return (AnExpr s)
-                 | Log (AnExpr s)
-                 | Ignore (AnExpr s) -- Expression statements
+data Statement s = Assign !(AnLocation s) !(AnExpr s)
+                 | OpAssign BinOp !(AnLocation s) !(AnExpr s)
+                 | AssignConstrain !(AnLocation s) !(AnExpr s)
+                 | Constrain !(AnExpr s) !(AnExpr s)
+                 | VarDeclaration !(AnString s) ![AnExpr s] !(Maybe (AnExpr s))
+                 | SigDeclaration !(AnString s) !SignalKind ![AnExpr s]
+                 | SubDeclaration !(AnString s) ![AnExpr s] !(Maybe (AnExpr s))
+                 | If !(AnExpr s) !(AnBlock s) !(Maybe (AnBlock s))
+                 | For !(AnStatement s) !(AnExpr s) !(AnStatement s) !(AnBlock s)
+                 | While !(AnExpr s) !(AnBlock s)
+                 | DoWhile !(AnBlock s) !(AnExpr s)
+                 | Compute !(AnBlock s)
+                 | Return !(AnExpr s)
+                 | Log !(AnExpr s)
+                 | Ignore !(AnExpr s) -- Expression statements
                  deriving (Show,Eq)
 
 instance Functor Statement where
@@ -284,8 +284,8 @@ isVisible s = case s of
 
 type IndexedIdent s = (AnString s, [AnExpr s])
 
-data Location s = LocalLocation (AnIndexedIdent s)
-                | ForeignLocation (AnIndexedIdent s) (AnIndexedIdent s)
+data Location s = LocalLocation !(AnIndexedIdent s)
+                | ForeignLocation !(AnIndexedIdent s) !(AnIndexedIdent s)
                 deriving (Show,Eq)
 
 instance Functor Location where
@@ -324,14 +324,14 @@ data UnOp = UnNeg
           | UnPos
           deriving (Show,Eq)
 
-data Expr s = BinExpr BinOp (AnExpr s) (AnExpr s)
-            | UnExpr UnOp (AnExpr s)
-            | UnMutExpr UnMutOp (AnLocation s)
-            | Ite (AnExpr s) (AnExpr s) (AnExpr s)
-            | LValue (AnLocation s)
-            | Call (AnString s) [AnExpr s]
-            | ArrayLit [AnExpr s]
-            | NumLit Int
+data Expr s = BinExpr !BinOp !(AnExpr s) !(AnExpr s)
+            | UnExpr !UnOp !(AnExpr s)
+            | UnMutExpr !UnMutOp !(AnLocation s)
+            | Ite !(AnExpr s) !(AnExpr s) !(AnExpr s)
+            | LValue !(AnLocation s)
+            | Call !(AnString s) ![AnExpr s]
+            | ArrayLit ![AnExpr s]
+            | NumLit !Int
             deriving (Show,Eq)
 
 instance Functor Expr where
