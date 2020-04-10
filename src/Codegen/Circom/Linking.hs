@@ -10,6 +10,7 @@ module Codegen.Circom.Linking
   , writeToR1csFile
   , computeWitnesses
   , parseSignalsFromFile
+  , r1csStats
   )
 where
 
@@ -37,17 +38,27 @@ import qualified Data.List.Split               as Split
 import qualified Data.Maybe                    as Maybe
 import qualified Data.Tuple                    as Tuple
 import qualified Data.Map.Strict               as Map
+import qualified Data.IntMap.Strict            as IntMap
+import qualified Data.IntSet                   as IntSet
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
 import           Data.Proxy                     ( Proxy(Proxy) )
 
 data R1CS n = R1CS { sigNums :: !(Map.Map GlobalSignal Int)
-                   , numSigs :: !(Map.Map Int GlobalSignal)
+                   , numSigs :: !(IntMap.IntMap GlobalSignal)
+                   , nums :: !IntSet.IntSet
                    , constraints :: !(Seq.Seq (LD.QEQ Int (Prime n)))
                    , nextSigNum :: !Int
                    , nPublicInputs :: !Int
                    } deriving (Show)
+
+r1csStats :: R1CS n -> String
+r1csStats r = unlines
+  [ "Signals: " ++ show (IntSet.size $ nums r)
+  , "Constraints: " ++ show (length $ constraints r)
+  ]
+
 
 sigNumLookup :: R1CS n -> GlobalSignal -> Int
 sigNumLookup r1cs s = Map.findWithDefault
@@ -66,13 +77,18 @@ r1csAddSignals sigs r1cs =
   let zipped = zip sigs [(nextSigNum r1cs) ..]
   in  r1cs
         { sigNums    = Map.union (Map.fromList zipped) (sigNums r1cs)
-        , numSigs    = Map.union (Map.fromList $ map Tuple.swap zipped)
-                                 (numSigs r1cs)
+        , numSigs    = IntMap.union (IntMap.fromAscList $ map Tuple.swap zipped)
+                                    (numSigs r1cs)
+        , nums       = IntSet.union
+                         ( IntSet.fromAscList
+                         $ take (length zipped) [nextSigNum r1cs ..]
+                         )
+                         (nums r1cs)
         , nextSigNum = length zipped + nextSigNum r1cs
         }
 
 emptyR1cs :: R1CS n
-emptyR1cs = R1CS Map.empty Map.empty Seq.empty 2 0
+emptyR1cs = R1CS Map.empty IntMap.empty IntSet.empty Seq.empty 2 0
 
 newtype LinkState n a = LinkState (State (R1CS n) a)
     deriving (Functor, Applicative, Monad, MonadState (R1CS n))
@@ -260,7 +276,7 @@ computeWitnessesIn ctx namespace invocation inputs =
                 Map.!? lterm
             value  = Smt.eval (stringValues localCtx) smt
             dValue = toDyn value
-            name  = joinName namespace sig
+            name   = joinName namespace sig
         tell $ Map.singleton name (Smt.valAsPf value)
         return $ localCtx
           { stringValues = Map.insert (show sig) dValue $ stringValues localCtx

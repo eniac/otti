@@ -8,6 +8,9 @@ module Codegen.Circom.CompTypes.LowDeg
   , LC
   , QEQ
   , LowDegCompCtx
+  , lcZero
+  , lcScale
+  , lcAdd
   )
 where
 

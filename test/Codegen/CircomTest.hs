@@ -6,6 +6,7 @@ import           BenchUtils
 import           Test.Tasty.HUnit
 import qualified Codegen.Circom.Linking        as Link
 import qualified Data.Map                      as Map
+import qualified Data.IntMap                   as IntMap
 import qualified Data.Maybe                    as Maybe
 import           Data.Proxy                     ( Proxy(..) )
 import           System.Directory
@@ -59,7 +60,11 @@ checkWitComp circuitPath inputs = benchTestCase circuitPath $ do
           let
             getOr m_ k =
               Maybe.fromMaybe (error $ "Missing key: " ++ show k) $ m_ Map.!? k
-          let lookupSignalVal = getOr allSignals . getOr (Link.numSigs r1cs)
+          let getOrI m_ k =
+                Maybe.fromMaybe (error $ "Missing sig num: " ++ show k)
+                  $         m_
+                  IntMap.!? k
+          let lookupSignalVal = getOr allSignals . getOrI (Link.numSigs r1cs)
           emitAssignment
             (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
             xPath

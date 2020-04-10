@@ -16,7 +16,9 @@ import qualified Codegen.Circom.CompTypes.WitComp
                                             as Wit
 import qualified Codegen.Circom.CompTypes   as CompT
 import qualified Codegen.Circom.Linking     as Link
+import qualified Codegen.Circom.Opt     as Opt
 import qualified Data.Map                   as Map
+import qualified Data.IntMap                as IntMap
 import qualified Data.Maybe                 as Maybe
 import           Data.Proxy                 (Proxy(..))
 import           Parser.Circom              (loadMain)
@@ -30,6 +32,7 @@ patterns :: Docopt
 patterns = [docopt|
 Usage:
   compiler emit-r1cs [options]
+  compiler reduce-r1cs [options]
   compiler count-terms [options]
   compiler setup [options]
   compiler prove [options]
@@ -53,6 +56,7 @@ Commands:
   verify           Run the verifier
   setup            Run the setup
   emit-r1cs        Emit R1CS
+  reduce-r1cs        Emit R1CS
   count-terms      Compile at the fn-level only
 |]
 
@@ -102,10 +106,17 @@ cmdEmitR1cs :: FilePath -> FilePath -> IO ()
 cmdEmitR1cs circomPath r1csPath = do
     print "Loading circuit"
     m <- loadMain circomPath
-    print "Generating main"
     let r1cs = Link.linkMain @Order m
-    print $ "Constraints: " ++ show (length $ Link.constraints r1cs)
+    putStrLn $ Link.r1csStats r1cs
     Link.writeToR1csFile r1cs r1csPath
+
+cmdReduceR1cs :: FilePath -> FilePath -> IO ()
+cmdReduceR1cs circomPath r1csPath = do
+    m <- loadMain circomPath
+    let r1cs = Link.linkMain @Order m
+    let r1cs' = Opt.reduceConstants r1cs
+    putStrLn $ Link.r1csStats r1cs'
+    Link.writeToR1csFile r1cs' r1csPath
 
 cmdCountTerms :: FilePath -> IO ()
 cmdCountTerms circomPath = do
@@ -129,8 +140,9 @@ cmdProve libsnarkPath pkPath vkPath inPath xPath wPath pfPath circomPath = do
     inputsSignals <- Link.parseSignalsFromFile (Proxy @Order) inPath
     let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
     let r1cs = Link.linkMain @Order m
-    let getOr m_ k = Maybe.fromMaybe (error $ "Missing key: " ++ show k) $ m_ Map.!? k
-    let lookupSignalVal :: Int -> Integer = getOr allSignals . getOr (Link.numSigs r1cs)
+    let getOr m_ k = Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
+    let getOrI m_ k = Maybe.fromMaybe (error $ "Missing sig num: " ++ show k) $ m_ IntMap.!? k
+    let lookupSignalVal :: Int -> Integer = getOr allSignals . getOrI (Link.numSigs r1cs)
     emitAssignment (map lookupSignalVal [2..(1 + Link.nPublicInputs r1cs)]) xPath
     emitAssignment (map lookupSignalVal [(2 + Link.nPublicInputs r1cs)..(Link.nextSigNum r1cs - 1)]) wPath
     runProve libsnarkPath pkPath vkPath xPath wPath pfPath
@@ -148,6 +160,10 @@ main = do
         circomPath <- args `getArgOrExit` longOption "circom"
         r1csPath <- args `getArgOrExit` shortOption 'C'
         cmdEmitR1cs circomPath r1csPath
+    else if args `isPresent` command "reduce-r1cs" then do
+        circomPath <- args `getArgOrExit` longOption "circom"
+        r1csPath <- args `getArgOrExit` shortOption 'C'
+        cmdReduceR1cs circomPath r1csPath
     else if args `isPresent` command "count-terms" then do
         circomPath <- args `getArgOrExit` longOption "circom"
         cmdCountTerms circomPath
