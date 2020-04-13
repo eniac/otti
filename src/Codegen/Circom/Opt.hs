@@ -1,6 +1,7 @@
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Codegen.Circom.Opt
-  ( reduceConstants
+  ( reduceLinearities
   )
 where
 
@@ -74,45 +75,44 @@ findLinearSub r1cs = (constants, r1cs { constraints = Seq.fromList newConstraint
     Nothing -> let (a, b) = f cs in (a, c: b)
   (constants, newConstraints) = f $ Fold.toList $ constraints r1cs
 
-extractLinearSubs :: KnownNat n => R1CS n -> ([(Int, LC Int (Prime n))], R1CS n)
+extractLinearSubs :: KnownNat n => R1CS n -> (Map.Map Int (LC Int (Prime n)), R1CS n)
 extractLinearSubs r1cs = (constants, r1cs { constraints = newConstraints })
  where
-  partition = Fold.foldl' (\(consts, constraints') c -> case asLinearSub c of
-          Just x  -> (x : consts, constraints')
-          Nothing -> (consts, c Seq.<| constraints')) ([], Seq.empty)
+  partition = Fold.foldl' (\(subs, constraints') c -> case asLinearSub c of
+          Just (x, lc)  -> (Map.insert x (subLcsInLc subs lc) subs , constraints')
+          Nothing -> (subs, c Seq.<| constraints')) (Map.empty, Seq.empty)
   (constants, newConstraints) = partition $ constraints r1cs
 
 lcRemove :: (Ord s) => s -> LC s k -> LC s k
 lcRemove sig (m, c) = (Map.delete sig m, c)
 
-subLcInLc :: (Ord s, GaloisField k) => s -> LC s k -> LC s k -> LC s k
-subLcInLc sig val lc = case fst lc Map.!? sig of
-  Just coeff -> lcAdd (lcRemove sig lc) (lcScale coeff val)
-  Nothing    -> lc
+subLcsInLc :: forall s k. (Ord s, GaloisField k) => Map.Map s (LC s k) -> LC s k -> LC s k
+subLcsInLc subs (m, c) =
+  let additional :: [LC s k] = Fold.toList $ Map.intersectionWith lcScale m subs
+      unmodified = (m Map.\\ subs, c)
+  in Fold.foldl' lcAdd unmodified additional
 
-subLcInQeq :: (Ord s, GaloisField k) => s -> LC s k -> QEQ s k -> QEQ s k
-subLcInQeq sig lc (a, b, c) =
-  (subLcInLc sig lc a, subLcInLc sig lc b, subLcInLc sig lc c)
+subLcsInQeq :: (Ord s, GaloisField k) => Map.Map s (LC s k) -> QEQ s k -> QEQ s k
+subLcsInQeq subs (a, b, c) =
+  (subLcsInLc subs a, subLcsInLc subs b, subLcsInLc subs c)
 
-applyLinearSubs :: KnownNat n => [(Int, LC Int (Prime n))] -> R1CS n -> R1CS n
+applyLinearSubs :: KnownNat n => Map.Map Int (LC Int (Prime n)) -> R1CS n -> R1CS n
 applyLinearSubs subs r1cs =
-  let cset = IntSet.fromAscList $ List.sort $ map fst subs
-      subAll qeq = Fold.foldl' (\q (sig, lc) -> subLcInQeq sig lc q) qeq subs
+  let cset = IntSet.fromAscList $ List.sort $ Map.keys subs
   in  r1cs
         { nums        = nums r1cs IntSet.\\ cset
-        , constraints = fmap subAll $ constraints r1cs
+        , constraints = fmap (subLcsInQeq subs) $ constraints r1cs
         , numSigs     = numSigs r1cs IntMap.\\ IntMap.fromAscList
                           (map (, SigLocal ("", [])) $ IntSet.toAscList cset)
         , sigNums     = Map.filter (not . (`IntSet.member` cset)) $ sigNums r1cs
         }
 
-reduceConstants :: KnownNat n => R1CS n -> R1CS n
-reduceConstants r1cs =
-  let (sub, r1cs') = findLinearSub r1cs
+reduceLinearities :: KnownNat n => R1CS n -> R1CS n
+reduceLinearities r1cs =
+  let (subs, r1cs') = extractLinearSubs r1cs
   in
-    if trace ("Found sub: " ++ show sub ++ "\n" ++ r1csStats r1cs)
-             (Maybe.isJust sub)
+    if not $ Map.null subs
     then
-      reduceConstants $! applyLinearSubs (Maybe.maybeToList sub) r1cs'
+      reduceLinearities $! applyLinearSubs subs r1cs'
     else
       r1cs

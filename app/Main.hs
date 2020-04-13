@@ -114,7 +114,7 @@ cmdReduceR1cs :: FilePath -> FilePath -> IO ()
 cmdReduceR1cs circomPath r1csPath = do
     m <- loadMain circomPath
     let r1cs = Link.linkMain @Order m
-    let r1cs' = Opt.reduceConstants r1cs
+    let r1cs' = Opt.reduceLinearities r1cs
     putStrLn $ Link.r1csStats r1cs'
     Link.writeToR1csFile r1cs' r1csPath
 
