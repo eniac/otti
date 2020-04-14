@@ -30,6 +30,7 @@ import           Data.Field.Galois              ( Prime
                                                 , GaloisField
                                                 )
 import qualified Data.Map.Strict               as Map
+import qualified Data.Map.Merge.Strict         as MapMerge
 import           GHC.TypeNats
 
 type LC s n = (Map.Map s n, n) -- A linear combination of signals and gen-time constants
@@ -44,14 +45,26 @@ data LowDeg n = Scalar !n
 lcZero :: GaloisField k => LC s k
 lcZero = (Map.empty, 0)
 
+-- For each pair of matching coefficients, add them, dropping the coefficient if 0
 lcAdd :: (Ord s, GaloisField k) => LC s k -> LC s k -> LC s k
-lcAdd (sm, sc) (tm, tc) = (Map.unionWith (+) sm tm, sc + tc)
+lcAdd (sm, sc) (tm, tc) =
+  ( MapMerge.merge
+    MapMerge.preserveMissing
+    MapMerge.preserveMissing
+    (MapMerge.zipWithMaybeMatched
+      (\_ a b -> let s = a + b in if s == 0 then Nothing else Just s)
+    )
+    sm
+    tm
+  , sc + tc
+  )
 
 lcSig :: (Ord s, GaloisField k) => s -> LC s k
 lcSig s = (Map.fromList [(s, 1)], 0)
 
 lcScale :: GaloisField k => k -> LC s k -> LC s k
-lcScale c (sm, sc) = (Map.map (* c) sm, c * sc)
+lcScale c (sm, sc) =
+  if c == 0 then (Map.empty, 0) else (Map.map (* c) sm, c * sc)
 
 lcShift :: GaloisField k => k -> LC s k -> LC s k
 lcShift c (sm, sc) = (sm, c + sc)
