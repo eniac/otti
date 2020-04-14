@@ -80,6 +80,7 @@ addSub sig lc subs
   -- This variable is not subbed out
     IntSet.notMember sig (used subs) = Just
   $ addSubUnsafe sig (subLcsInLc (fwd subs) lc) subs
+  |
   -- This is machinery for accepting the substitution when its new values are
   -- not subbed out. It might accelerate the optimization by allowing us to
   -- take a substitution that would otherwise be defered. However because of
@@ -91,7 +92,7 @@ addSub sig lc subs
   --  { fwd  = Map.map (subLcsInLc (fwd $ singletonSubs sig lc)) $ fwd subs
   --  , used = IntSet.delete sig $ IntSet.union (lcSigs lc) (used subs)
   --  }
-  | otherwise = Nothing
+    otherwise = Nothing
 
 -- check that the domain and range are disjoint
 checkSubs :: Subs n -> ()
@@ -151,7 +152,7 @@ applyLinearSubs :: KnownNat n => Subs n -> R1CS n -> R1CS n
 applyLinearSubs subs r1cs =
   let removed = IntSet.fromAscList $ Map.keys (fwd subs)
   in  r1cs
-        { constraints = fmap (subLcsInQeq (fwd subs)) $ constraints r1cs
+        { constraints = subLcsInQeq (fwd subs) <$> constraints r1cs
         , numSigs = numSigs r1cs IntMap.\\ IntMap.fromDistinctAscList
                       (map (, SigLocal ("", [])) $ IntSet.toAscList removed)
         , sigNums = Map.filter (not . (`IntSet.member` removed)) $ sigNums r1cs
@@ -189,8 +190,7 @@ compactifySigNums r1cs =
   in  R1CS
         { sigNums      = Map.map (remap "sigNums") $ sigNums r1cs
         , numSigs = IntMap.mapKeysMonotonic (remap "numSigs") $ numSigs r1cs
-        , constraints  = fmap (sigMapQeq (remap "constraints"))
-                           $ constraints r1cs
+        , constraints  = sigMapQeq (remap "constraints") <$> constraints r1cs
         , publicInputs = IntSet.map (remap "publicInputs") $ publicInputs r1cs
         , nextSigNum   = 2 + IntMap.size numMap
         }
