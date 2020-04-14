@@ -11,6 +11,7 @@ module Codegen.Circom.Linking
   , computeWitnesses
   , parseSignalsFromFile
   , r1csStats
+  , nPublicInputs
   )
 where
 
@@ -50,7 +51,7 @@ data R1CS n = R1CS { sigNums :: !(Map.Map GlobalSignal Int)
                    , nums :: !IntSet.IntSet
                    , constraints :: !(Seq.Seq (LD.QEQ Int (Prime n)))
                    , nextSigNum :: !Int
-                   , nPublicInputs :: !Int
+                   , publicInputs :: !IntSet.IntSet
                    } deriving (Show)
 
 r1csStats :: R1CS n -> String
@@ -88,7 +89,10 @@ r1csAddSignals sigs r1cs =
         }
 
 emptyR1cs :: R1CS n
-emptyR1cs = R1CS Map.empty IntMap.empty IntSet.empty Seq.empty 2 0
+emptyR1cs = R1CS Map.empty IntMap.empty IntSet.empty Seq.empty 2 IntSet.empty
+
+nPublicInputs :: R1CS n -> Int
+nPublicInputs = IntSet.size . publicInputs
 
 newtype LinkState n a = LinkState (State (R1CS n) a)
     deriving (Functor, Applicative, Monad, MonadState (R1CS n))
@@ -175,8 +179,9 @@ linkMain m =
               (error $ "Missing invocation " ++ show invocation ++ " from cache")
             $      CompT.cache c
             Map.!? invocation
+      n = CompT.nPublicInputs mainCtx
   in  (execLink @k (link [("main", [])] invocation c) emptyR1cs)
-        { nPublicInputs = CompT.nPublicInputs mainCtx
+        { publicInputs = IntSet.fromAscList [2..(2+n)]
         }
 
 lcToR1csLine :: PrimeField n => LD.LC Int n -> [Integer]
@@ -191,7 +196,7 @@ qeqToR1csLines (a, b, c) = [] : map lcToR1csLine [a, b, c]
 
 r1csAsLines :: KnownNat n => R1CS n -> [[Integer]]
 r1csAsLines r1cs =
-  let nPubIns         = fromIntegral $ nPublicInputs r1cs
+  let nPubIns         = fromIntegral $ IntSet.size $ publicInputs r1cs
       nWit            = fromIntegral (Map.size $ sigNums r1cs) - nPubIns
       nConstraints    = fromIntegral $ Seq.length $ constraints r1cs
       constraintLines = concatMap qeqToR1csLines $ constraints r1cs
