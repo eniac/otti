@@ -12,6 +12,7 @@ module Codegen.Circom.Linking
   , parseSignalsFromFile
   , r1csStats
   , nPublicInputs
+  , sigMapQeq
   )
 where
 
@@ -48,7 +49,6 @@ import           Data.Proxy                     ( Proxy(Proxy) )
 
 data R1CS n = R1CS { sigNums :: !(Map.Map GlobalSignal Int)
                    , numSigs :: !(IntMap.IntMap GlobalSignal)
-                   , nums :: !IntSet.IntSet
                    , constraints :: !(Seq.Seq (LD.QEQ Int (Prime n)))
                    , nextSigNum :: !Int
                    , publicInputs :: !IntSet.IntSet
@@ -56,7 +56,7 @@ data R1CS n = R1CS { sigNums :: !(Map.Map GlobalSignal Int)
 
 r1csStats :: R1CS n -> String
 r1csStats r = unlines
-  [ "Signals: " ++ show (IntSet.size $ nums r)
+  [ "Signals: " ++ show (IntMap.size $ numSigs r)
   , "Constraints: " ++ show (length $ constraints r)
   ]
 
@@ -80,16 +80,11 @@ r1csAddSignals sigs r1cs =
         { sigNums    = Map.union (Map.fromList zipped) (sigNums r1cs)
         , numSigs    = IntMap.union (IntMap.fromAscList $ map Tuple.swap zipped)
                                     (numSigs r1cs)
-        , nums       = IntSet.union
-                         ( IntSet.fromAscList
-                         $ take (length zipped) [nextSigNum r1cs ..]
-                         )
-                         (nums r1cs)
         , nextSigNum = length zipped + nextSigNum r1cs
         }
 
 emptyR1cs :: R1CS n
-emptyR1cs = R1CS Map.empty IntMap.empty IntSet.empty Seq.empty 2 IntSet.empty
+emptyR1cs = R1CS Map.empty IntMap.empty Seq.empty 2 IntSet.empty
 
 nPublicInputs :: R1CS n -> Int
 nPublicInputs = IntSet.size . publicInputs
@@ -181,7 +176,7 @@ linkMain m =
             Map.!? invocation
       n = CompT.nPublicInputs mainCtx
   in  (execLink @k (link [("main", [])] invocation c) emptyR1cs)
-        { publicInputs = IntSet.fromAscList [2..(2+n)]
+        { publicInputs = IntSet.fromAscList $ take n [2..]
         }
 
 lcToR1csLine :: PrimeField n => LD.LC Int n -> [Integer]
