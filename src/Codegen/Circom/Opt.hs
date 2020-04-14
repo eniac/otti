@@ -75,13 +75,23 @@ addSubUnsafe sig lc subs = Subs { fwd  = Map.insert sig lc $ fwd subs
 
 
 addSub :: KnownNat n => Int -> LC Int (Prime n) -> Subs n -> Maybe (Subs n)
-addSub sig lc subs = if IntSet.notMember sig (used subs)
-                       -- This variable does not occur in the subs...
-  then Just $ addSubUnsafe sig (subLcsInLc (fwd subs) lc) subs
-  else Nothing
-    -- TODO: opposite?
-    --else if Map.null (Map.intersection (fst lc) (fwd subs))
-        --then Just $ addSubUnsafe
+addSub sig lc subs
+  |
+  -- This variable is not subbed out
+    IntSet.notMember sig (used subs) = Just
+  $ addSubUnsafe sig (subLcsInLc (fwd subs) lc) subs
+  -- This is machinery for accepting the substitution when its new values are
+  -- not subbed out. It might accelerate the optimization by allowing us to
+  -- take a substitution that would otherwise be defered. However because of
+  -- the Map.map call, it ends up being slower.
+  --
+  -- We'll need to do some data structure work to make it fast.
+  -- |
+  --  Map.null (Map.intersection (fst lc) (fwd subs)) = Just $ Subs
+  --  { fwd  = Map.map (subLcsInLc (fwd $ singletonSubs sig lc)) $ fwd subs
+  --  , used = IntSet.delete sig $ IntSet.union (lcSigs lc) (used subs)
+  --  }
+  | otherwise = Nothing
 
 -- check that the domain and range are disjoint
 checkSubs :: Subs n -> ()
