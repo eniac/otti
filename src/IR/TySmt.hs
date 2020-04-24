@@ -49,10 +49,11 @@ module IR.TySmt ( IntSort(..)
                 , eval
                 , nNodes
                 , nChars
+                , toZ3
                 ) where
 
 import           GHC.TypeLits
-import           Control.Monad  (liftM2)
+import           Control.Monad  (liftM2, foldM)
 import           Data.Dynamic   (Typeable, Dynamic, fromDyn, toDyn)
 import qualified Data.BitVector as Bv
 import qualified Data.Map       as Map
@@ -62,6 +63,13 @@ import           Data.Bits      as Bits
 import           Data.Proxy     (Proxy(..))
 import           Data.Fixed     (mod')
 import qualified Data.Binary.IEEE754 as IEEE754
+import           Z3.Monad       ( MonadZ3 )
+import qualified Z3.Monad       as Z
+import qualified Targets.SMT.Z3Wrapper as ZWrap -- zmap, but weirder ;^)
+
+--class (Show s, Ord s, Eq s, Typeable s) => Sort s where
+--  toZ3 :: Z.Sort 
+--  --TODO
 
 data IntSort = IntSort deriving (Show,Ord,Eq,Typeable)
 data BoolSort = BoolSort deriving (Show,Ord,Eq,Typeable)
@@ -544,10 +552,6 @@ modulus _ = natVal (Proxy :: Proxy n)
 size :: forall n. KnownNat n => Term (BvSort n) -> Int
 size _ = fromIntegral $ natVal $ Proxy @n
 
-bvExtract :: forall n i. (KnownNat n, KnownNat i, i <= n) => Env -> Int -> Term (BvSort n) -> Value (BvSort i)
-bvExtract env start term = ValBv $ Bv.extract start (min (oldSize - 1) (start + newSize - 1)) (valAsBv $ eval env term)
-    where oldSize = fromInteger $ natVal (Proxy :: Proxy n)
-          newSize = fromInteger $ natVal (Proxy :: Proxy i)
 
 newArray :: forall k v. (Typeable k, Typeable v) => Term (ArraySort k v) -> Value (ArraySort k v)
 newArray t = case t of
@@ -572,7 +576,12 @@ eval e t = case t of
               e' = Map.insert x (toDyn v) e
 
     BvConcat a b -> ValBv $ valAsBv (eval e a) `mappend` valAsBv (eval e b)
-    BvExtract start t' -> bvExtract e start t'
+    BvExtract start' t' -> bvExtract e start' t'
+     where
+      bvExtract :: forall n i. (KnownNat n, KnownNat i, i <= n) => Env -> Int -> Term (BvSort n) -> Value (BvSort i)
+      bvExtract env start term = ValBv $ Bv.extract start (min (oldSize - 1) (start + newSize - 1)) (valAsBv $ eval env term)
+       where oldSize = fromInteger $ natVal (Proxy :: Proxy n)
+             newSize = fromInteger $ natVal (Proxy :: Proxy i)
     BvBinExpr o l r -> ValBv $ bvBinFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
     BvBinPred o l r -> ValBool $ bvBinPredFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
     IntToBv i -> ValBv $ Bv.bitVec (size t) $ valAsInt $ eval e i
@@ -612,4 +621,160 @@ eval e t = case t of
     Store a k v -> ValArray $ Map.insert (eval e k) (eval e v) (valAsArray $ eval e a)
     NewArray -> newArray t
 
+
+toZ3 :: forall s z. MonadZ3 z => Term s -> z Z.AST
+toZ3 t = case t of
+    BoolLit b -> Z.mkBool b
+    BoolBinExpr Implies l r -> tyBinZ3Bin Z.mkImplies l r
+    BoolNaryExpr o a ->
+      case o of
+        Xor -> tyNaryZ3Bin Z.mkXor a
+        And -> tyNaryZ3Nary Z.mkAnd a
+        Or -> tyNaryZ3Nary Z.mkOr a
+    Not s -> toZ3 s >>= Z.mkNot
+
+    Ite c tt ff -> tyTernZ3Tern Z.mkIte c tt ff
+    Var _s -> error "NYI"
+    Exists {} -> error "NYI"
+    Let _x _s _t' -> error "NYI"
+
+    BvConcat a b -> tyBinZ3Bin Z.mkConcat a b
+    BvExtract start' t' -> bvExtract start' t t'
+     where
+      -- We pass the original term in to get its width, encoded in its type.
+      bvExtract :: forall n i. (KnownNat n, KnownNat i, i <= n) => Int -> Term (BvSort i) -> Term (BvSort n) -> z Z.AST
+      bvExtract start _term innerTerm = toZ3 innerTerm >>= Z.mkExtract start end
+       where end = start + newSize - 1
+             newSize = fromInteger $ natVal (Proxy :: Proxy i)
+    BvBinExpr o l r ->
+      let f = case o of
+             BvShl -> Z.mkBvshl
+             BvLshr -> Z.mkBvlshr
+             BvAshr -> Z.mkBvashr
+             BvUrem -> Z.mkBvurem
+             BvUdiv -> Z.mkBvudiv
+             BvAdd -> Z.mkBvadd
+             BvMul -> Z.mkBvmul
+             BvSub -> Z.mkBvsub
+             BvOr -> Z.mkBvor
+             BvAnd -> Z.mkBvand
+             BvXor -> Z.mkBvxor
+      in tyBinZ3Bin f l r
+    BvBinPred o l r ->
+      let f = case o of
+               BvEq -> Z.mkEq
+               BvNe -> \a b -> Z.mkNot =<< Z.mkEq a b
+               BvUgt -> Z.mkBvugt
+               BvUlt -> Z.mkBvult
+               BvUge -> Z.mkBvuge
+               BvUle -> Z.mkBvule
+               BvSgt -> Z.mkBvsgt
+               BvSlt -> Z.mkBvslt
+               BvSge -> Z.mkBvsge
+               BvSle -> Z.mkBvsle
+      in tyBinZ3Bin f l r
+    IntToBv i -> toZ3 i >>= Z.mkInt2bv (width t)
+      where width :: forall n. KnownNat n => Term (BvSort n) -> Int
+            width _ = fromInteger $ natVal (Proxy @n)
+    FpToBv tt -> toZ3 tt >>= Z.mkFpIEEEBv
+
+    IntLit i -> Z.mkInteger i
+    IntUnExpr o t' -> case o of
+      IntNeg -> toZ3 t' >>= Z.mkUnaryMinus
+      IntAbs -> nyi o
+    IntBinExpr o l r -> case o of
+      IntDiv -> tyBinZ3Bin Z.mkDiv l r
+      IntMod -> tyBinZ3Bin Z.mkMod l r
+      IntSub -> tyBinZ3Nary Z.mkSub l r
+      _ -> nyi o
+    IntNaryExpr o as -> tyNaryZ3Nary (case o of { IntAdd -> Z.mkAdd; IntMul -> Z.mkMul }) as
+    IntBinPred o l r ->
+      let f = case o of
+                IntLt -> Z.mkLt
+                IntLe -> Z.mkLe
+                IntGt -> Z.mkGt
+                IntGe -> Z.mkGe
+                IntEq -> Z.mkEq
+                IntNe -> \a b -> Z.mkNot =<< Z.mkEq a b
+      in tyBinZ3Bin f l r
+    BvToInt tt -> toZ3 tt >>= flip Z.mkBv2int False
+    SignedBvToInt tt -> toZ3 tt >>= flip Z.mkBv2int True
+    BoolToInt t' -> toZ3 $ Ite t' (IntLit 1) (IntLit 0)
+    PfToInt {} -> nyi "Prime fields"
+
+    Fp64Lit d -> Z.mkDoubleSort >>= Z.mkFpFromDouble d
+    Fp32Lit {} -> nyi "floats"
+    FpBinExpr o l r ->
+      let f = case o of
+                FpAdd -> ZWrap.fpAdd
+                FpSub -> ZWrap.fpSub
+                FpMul -> ZWrap.fpMul
+                FpDiv -> ZWrap.fpDiv
+                FpRem -> ZWrap.fpRem
+                FpMax -> ZWrap.fpMax
+                FpMin -> ZWrap.fpMin
+      in tyBinZ3Bin f l r
+    FpUnExpr o l ->
+      let f = case o of
+                FpNeg -> Z.mkFpNeg
+                FpAbs -> Z.mkFpAbs
+                FpSqrt -> nyi o
+                FpRound -> nyi "Fp rounding"
+      in toZ3 l >>= f
+    FpBinPred o l r ->
+      let f = case o of
+                FpLe -> Z.mkFpLeq
+                FpLt -> Z.mkFpLt
+                FpGe -> Z.mkFpGeq
+                FpGt -> Z.mkFpGt
+                FpEq -> Z.mkFpEq
+                FpNe -> \a b -> Z.mkNot =<< Z.mkFpEq a b
+      in tyBinZ3Bin f l r
+
+    FpUnPred o l ->
+      let f = case o of
+                FpIsNormal -> nyi o
+                FpIsSubnormal -> nyi o
+                FpIsZero -> Z.mkFpIsZero
+                FpIsInfinite -> Z.mkFpIsInf
+                FpIsNaN -> Z.mkFpIsNan
+                FpIsNegative -> Z.mkFpIsNeg
+                FpIsPositive -> Z.mkFpIsPos
+      in toZ3 l >>= f
+
+    FpFma {} -> nyi "fused multiply-add"
+    IntToFp {} -> nyi "IntToFp"
+    FpToFp {} -> nyi "FpToFp"
+    BvToFp {} -> nyi "BvToFp"
+
+    PfUnExpr {} -> nyi "Prime fields"
+    PfNaryExpr {} -> nyi "Prime fields"
+    PfBinPred {} -> nyi "Prime fields"
+    IntToPf {} -> nyi "Prime fields"
+
+    Select a k -> tyBinZ3Bin Z.mkSelect a k
+    Store a k v -> tyTernZ3Tern Z.mkStore a k v
+    NewArray -> nyi "Need to define default values..."
+ where
+  tyNaryZ3Nary :: MonadZ3 z => ([Z.AST] -> z Z.AST) -> [Term s'] -> z Z.AST
+  tyNaryZ3Nary f a = mapM toZ3 a >>= f
+  tyBinZ3Nary :: MonadZ3 z => ([Z.AST] -> z Z.AST) -> Term s' -> Term s' -> z Z.AST
+  tyBinZ3Nary f a b = do
+    a' <- toZ3 a
+    b' <- toZ3 b
+    f [a', b']
+  tyNaryZ3Bin :: MonadZ3 z => (Z.AST -> Z.AST -> z Z.AST) -> [Term s'] -> z Z.AST
+  tyNaryZ3Bin f a = do
+    a' <- mapM toZ3 a
+    foldM f (head a') (tail a')
+  tyBinZ3Bin :: MonadZ3 z => (Z.AST -> Z.AST -> z Z.AST) -> Term s' -> Term s'' -> z Z.AST
+  tyBinZ3Bin f a b = do
+    a' <- toZ3 a
+    b' <- toZ3 b
+    f a' b'
+  tyTernZ3Tern :: MonadZ3 z => (Z.AST -> Z.AST -> Z.AST -> z Z.AST) -> Term s' -> Term s'' -> Term s''' -> z Z.AST
+  tyTernZ3Tern f a b c = do
+    a' <- toZ3 a
+    tyBinZ3Bin (f a') b c
+  nyi x = error $ unwords ["Not yet implemented in toZ3:", show x]
 
