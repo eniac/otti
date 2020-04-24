@@ -445,7 +445,7 @@ cppShiftLeft left right
       undef <- SMT.or opUndef parentsUndef
 
       result <- SMT.sll (n left) (n right)
-      return $ mkNode result (t left) result
+      return $ mkNode result (t left) undef
 
 -- | Also make this more general (only supports 32)
 cppShiftRight :: SMTNode -> SMTNode -> IR SMTNode
