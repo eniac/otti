@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE AllowAmbiguousTypes           #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE StandaloneDeriving  #-}
@@ -18,54 +17,63 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 
-module IR.TySmt ( IntSort(..)
-                , BoolSort(..)
-                , BvSort(..)
-                , PfSort(..)
-                , FpSort(..)
-                , ArraySort(..)
-                , F32
-                , F64
-                , Sort(..)
-                , BoolBinOp(..)
-                , BoolNaryOp(..)
-                , BvBinOp(..)
-                , BvBinPred(..)
-                , IntBinOp(..)
-                , IntUnOp(..)
-                , IntBinPred(..)
-                , PfNaryOp(..)
-                , PfUnOp(..)
-                , PfBinPred(..)
-                , FpBinOp(..)
-                , FpUnOp(..)
-                , FpBinPred(..)
-                , FpUnPred(..)
-                , Term(..)
-                , Value(..)
-                , mapTerm
-                , reduceTerm
-                , depth
-                , eval
-                , nNodes
-                , nChars
-                , toZ3
-                ) where
+module IR.TySmt
+  ( IntSort(..)
+  , BoolSort(..)
+  , BvSort(..)
+  , PfSort(..)
+  , FpSort(..)
+  , ArraySort(..)
+  , F32
+  , F64
+  , Sort(..)
+  , BoolBinOp(..)
+  , BoolNaryOp(..)
+  , BvBinOp(..)
+  , BvBinPred(..)
+  , IntBinOp(..)
+  , IntUnOp(..)
+  , IntBinPred(..)
+  , PfNaryOp(..)
+  , PfUnOp(..)
+  , PfBinPred(..)
+  , FpBinOp(..)
+  , FpUnOp(..)
+  , FpBinPred(..)
+  , FpUnPred(..)
+  , Term(..)
+  , Value(..)
+  , mapTerm
+  , reduceTerm
+  , depth
+  , eval
+  , nNodes
+  , nChars
+  , toZ3
+  , bvDynExtract
+  )
+where
 
 import           GHC.TypeLits
-import           Control.Monad  (liftM2, foldM)
-import           Data.Dynamic   (Typeable, Dynamic, fromDyn, toDyn)
-import qualified Data.BitVector as Bv
-import qualified Data.Map       as Map
-import           Data.Map       (Map)
-import qualified Data.Maybe     as Maybe
-import           Data.Bits      as Bits
-import           Data.Proxy     (Proxy(..))
-import           Data.Fixed     (mod')
-import qualified Data.Binary.IEEE754 as IEEE754
-import           Z3.Monad       ( MonadZ3 )
-import qualified Z3.Monad       as Z
-import qualified Targets.SMT.Z3Wrapper as ZWrap -- zmap, but weirder ;^)
+import           Control.Monad                  ( liftM2
+                                                , foldM
+                                                )
+import           Data.Dynamic                   ( Typeable
+                                                , Dynamic
+                                                , fromDyn
+                                                , toDyn
+                                                )
+import qualified Data.BitVector                as Bv
+import qualified Data.Map                      as Map
+import           Data.Map                       ( Map )
+import qualified Data.Maybe                    as Maybe
+import           Data.Bits                     as Bits
+import           Data.Proxy                     ( Proxy(..) )
+import           Data.Fixed                     ( mod' )
+import qualified Data.Binary.IEEE754           as IEEE754
+import           Z3.Monad                       ( MonadZ3 )
+import qualified Z3.Monad                      as Z
+import qualified Targets.SMT.Z3Wrapper         as ZWrap -- zmap, but weirder ;^)
 
 --class (Show s, Ord s, Eq s, Typeable s) => Sort s where
 --  toZ3 :: Z.Sort 
@@ -73,6 +81,7 @@ import qualified Targets.SMT.Z3Wrapper as ZWrap -- zmap, but weirder ;^)
 
 data IntSort = IntSort deriving (Show,Ord,Eq,Typeable)
 data BoolSort = BoolSort deriving (Show,Ord,Eq,Typeable)
+data DynBvSort = DynBvSort Int deriving (Show,Ord,Eq,Typeable)
 data BvSort (n :: Nat) = BvSort Int deriving (Show,Ord,Eq,Typeable)
 data PfSort (n :: Nat) = PfSort Integer deriving (Show,Ord,Eq,Typeable)
 data RealFloat f => FpSort f = FpSort Int Int deriving (Show,Ord,Eq,Typeable)
@@ -140,27 +149,27 @@ class (RealFloat fp, Typeable fp, KnownNat (Size fp)) => ComputableFp fp where
     evalFromInt = fromRepr . fromIntegral . valAsInt
 
 instance ComputableFp Double where
-    type Size Double = 64
-    asRepr (ValDouble x) = x
-    fromRepr = ValDouble
-    asBits = Bv.bitVec 64 . IEEE754.doubleToWord
-    fromBits = IEEE754.wordToDouble . fromIntegral . Bv.nat
+  type Size Double = 64
+  asRepr (ValDouble x) = x
+  fromRepr = ValDouble
+  asBits   = Bv.bitVec 64 . IEEE754.doubleToWord
+  fromBits = IEEE754.wordToDouble . fromIntegral . Bv.nat
 
 instance ComputableFp Float where
-    type Size Float = 32
-    asRepr (ValFloat x) = x
-    fromRepr = ValFloat
-    asBits = Bv.bitVec 32 . IEEE754.floatToWord
-    fromBits = IEEE754.wordToFloat . fromIntegral . Bv.nat
+  type Size Float = 32
+  asRepr (ValFloat x) = x
+  fromRepr = ValFloat
+  asBits   = Bv.bitVec 32 . IEEE754.floatToWord
+  fromBits = IEEE754.wordToFloat . fromIntegral . Bv.nat
 
 data Value s where
-    ValBool :: Bool -> Value BoolSort
-    ValInt :: Integer -> Value IntSort
-    ValBv :: KnownNat n => Bv.BV -> Value (BvSort n)
-    ValPf :: KnownNat n => Integer -> Value (PfSort n)
-    ValFloat :: Float -> Value F32
-    ValDouble :: Double -> Value F64
-    ValArray :: Map (Value a) (Value b) -> Value (ArraySort a b)
+    ValBool ::Bool -> Value BoolSort
+    ValInt ::Integer -> Value IntSort
+    ValBv ::KnownNat n => Bv.BV -> Value (BvSort n)
+    ValPf ::KnownNat n => Integer -> Value (PfSort n)
+    ValFloat ::Float -> Value F32
+    ValDouble ::Double -> Value F64
+    ValArray ::Map (Value a) (Value b) -> Value (ArraySort a b)
 
 deriving instance Typeable (Value s)
 deriving instance Show (Value s)
@@ -251,176 +260,213 @@ data FpUnPred = FpIsNormal
 
 data Term s where
     -- Boolean terms
-    BoolLit     :: Bool -> Term BoolSort
-    BoolBinExpr :: BoolBinOp -> Term BoolSort -> Term BoolSort -> Term BoolSort
-    BoolNaryExpr :: BoolNaryOp -> [Term BoolSort] -> Term BoolSort
-    Not         :: Term BoolSort -> Term BoolSort
+    BoolLit     ::Bool -> Term BoolSort
+    BoolBinExpr ::BoolBinOp -> Term BoolSort -> Term BoolSort -> Term BoolSort
+    BoolNaryExpr ::BoolNaryOp -> [Term BoolSort] -> Term BoolSort
+    Not         ::Term BoolSort -> Term BoolSort
 
     -- Core terms
-    Ite    :: Term BoolSort -> Term s -> Term s -> Term s
-    Var    :: String -> Term s
-    Let    :: (Typeable s) => String -> Term s -> Term t -> Term t
-    Exists :: String -> Sort -> Term t -> Term t
+    Ite    ::Term BoolSort -> Term s -> Term s -> Term s
+    Var    ::String -> Term s
+    Let    ::(Typeable s) => String -> Term s -> Term t -> Term t
+    Exists ::String -> Sort -> Term t -> Term t
 
     -- Bit-vector terms
-    BvConcat  :: (KnownNat n, KnownNat m) => Term (BvSort n) -> Term (BvSort m) -> Term (BvSort (n + m))
-    BvExtract :: (KnownNat n, KnownNat i, i <= n) => Int -> Term (BvSort n) -> Term (BvSort i)
-    BvBinExpr :: KnownNat n => BvBinOp -> Term (BvSort n) -> Term (BvSort n) -> Term (BvSort n)
-    BvBinPred :: KnownNat n => BvBinPred -> Term (BvSort n) -> Term (BvSort n) -> Term BoolSort
-    IntToBv   :: KnownNat n => Term IntSort -> Term (BvSort n)
-    FpToBv    :: (ComputableFp f) => Term (FpSort f) -> Term (BvSort (Size f))
+    BvConcat  ::(KnownNat n, KnownNat m) => Term (BvSort n) -> Term (BvSort m) -> Term (BvSort (n + m))
+    BvExtract :: forall n i. (KnownNat n, KnownNat i, i <= n) => Int -> Term (BvSort n) -> Term (BvSort i)
+    BvBinExpr ::KnownNat n => BvBinOp -> Term (BvSort n) -> Term (BvSort n) -> Term (BvSort n)
+    BvBinPred ::KnownNat n => BvBinPred -> Term (BvSort n) -> Term (BvSort n) -> Term BoolSort
+    IntToBv   ::KnownNat n => Term IntSort -> Term (BvSort n)
+    FpToBv    ::(ComputableFp f) => Term (FpSort f) -> Term (BvSort (Size f))
+
+    BvDyn     :: forall n. KnownNat n => Term (BvSort n) -> Int -> Term DynBvSort
+    BvFixed   :: forall n. KnownNat n => Term DynBvSort -> Term (BvSort n)
 
     -- Integer terms
-    IntLit        :: Integer -> Term IntSort
-    IntUnExpr     :: IntUnOp -> Term IntSort -> Term IntSort
-    IntBinExpr    :: IntBinOp -> Term IntSort -> Term IntSort -> Term IntSort
-    IntNaryExpr   :: IntNaryOp -> [Term IntSort] -> Term IntSort
-    IntBinPred    :: IntBinPred -> Term IntSort -> Term IntSort -> Term BoolSort
-    PfToInt       :: (KnownNat n) => Term (PfSort n) -> Term IntSort
-    BvToInt       :: (KnownNat n) => Term (BvSort n) -> Term IntSort
-    SignedBvToInt :: (KnownNat n) => Term (BvSort n) -> Term IntSort
-    BoolToInt     :: Term BoolSort -> Term IntSort
+    IntLit        ::Integer -> Term IntSort
+    IntUnExpr     ::IntUnOp -> Term IntSort -> Term IntSort
+    IntBinExpr    ::IntBinOp -> Term IntSort -> Term IntSort -> Term IntSort
+    IntNaryExpr   ::IntNaryOp -> [Term IntSort] -> Term IntSort
+    IntBinPred    ::IntBinPred -> Term IntSort -> Term IntSort -> Term BoolSort
+    PfToInt       ::(KnownNat n) => Term (PfSort n) -> Term IntSort
+    BvToInt       ::(KnownNat n) => Term (BvSort n) -> Term IntSort
+    SignedBvToInt ::(KnownNat n) => Term (BvSort n) -> Term IntSort
+    BoolToInt     ::Term BoolSort -> Term IntSort
 
     -- Floating point terms
-    Fp64Lit   :: Double -> Term F64
-    Fp32Lit   :: Float -> Term F32
-    FpUnExpr  :: (ComputableFp f) => FpUnOp -> Term (FpSort f) -> Term (FpSort f)
-    FpBinExpr :: (ComputableFp f) => FpBinOp -> Term (FpSort f) -> Term (FpSort f) -> Term (FpSort f)
-    FpFma     :: (ComputableFp f) => Term (FpSort f) -> Term (FpSort f) -> Term (FpSort f) -> Term (FpSort f)
-    FpBinPred :: (ComputableFp f) => FpBinPred -> Term (FpSort f) -> Term (FpSort f) -> Term BoolSort
-    FpUnPred  :: (ComputableFp f) => FpUnPred -> Term (FpSort f) -> Term BoolSort
-    IntToFp   :: (ComputableFp f) => Term IntSort -> Term (FpSort f)
-    BvToFp    :: (ComputableFp f) => Term (BvSort (Size f)) -> Term (FpSort f)
-    FpToFp    :: (ComputableFp f1, ComputableFp f2) => Term (FpSort f1) -> Term (FpSort f2)
+    Fp64Lit   ::Double -> Term F64
+    Fp32Lit   ::Float -> Term F32
+    FpUnExpr  ::(ComputableFp f) => FpUnOp -> Term (FpSort f) -> Term (FpSort f)
+    FpBinExpr ::(ComputableFp f) => FpBinOp -> Term (FpSort f) -> Term (FpSort f) -> Term (FpSort f)
+    FpFma     ::(ComputableFp f) => Term (FpSort f) -> Term (FpSort f) -> Term (FpSort f) -> Term (FpSort f)
+    FpBinPred ::(ComputableFp f) => FpBinPred -> Term (FpSort f) -> Term (FpSort f) -> Term BoolSort
+    FpUnPred  ::(ComputableFp f) => FpUnPred -> Term (FpSort f) -> Term BoolSort
+    IntToFp   ::(ComputableFp f) => Term IntSort -> Term (FpSort f)
+    BvToFp    ::(ComputableFp f) => Term (BvSort (Size f)) -> Term (FpSort f)
+    FpToFp    ::(ComputableFp f1, ComputableFp f2) => Term (FpSort f1) -> Term (FpSort f2)
 
     -- Prime field terms
-    PfUnExpr   :: KnownNat n => PfUnOp -> Term (PfSort n) -> Term (PfSort n)
-    PfNaryExpr :: KnownNat n => PfNaryOp -> [Term (PfSort n)] -> Term (PfSort n)
-    PfBinPred  :: KnownNat n => PfBinPred -> Term (PfSort n) -> Term (PfSort n) -> Term BoolSort
-    IntToPf    :: KnownNat n => Term IntSort -> Term (PfSort n)
+    PfUnExpr   ::KnownNat n => PfUnOp -> Term (PfSort n) -> Term (PfSort n)
+    PfNaryExpr ::KnownNat n => PfNaryOp -> [Term (PfSort n)] -> Term (PfSort n)
+    PfBinPred  ::KnownNat n => PfBinPred -> Term (PfSort n) -> Term (PfSort n) -> Term BoolSort
+    IntToPf    ::KnownNat n => Term IntSort -> Term (PfSort n)
 
     -- Array terms
-    Select   :: (Typeable k, Typeable v) => Term (ArraySort k v) -> Term k -> Term v
-    Store    :: (Typeable k, Typeable v) => Term (ArraySort k v) -> Term k -> Term v -> Term (ArraySort k v)
-    NewArray :: (Typeable k, Typeable v) => Term (ArraySort k v)
+    Select   ::(Typeable k, Typeable v) => Term (ArraySort k v) -> Term k -> Term v
+    Store    ::(Typeable k, Typeable v) => Term (ArraySort k v) -> Term k -> Term v -> Term (ArraySort k v)
+    NewArray ::(Typeable k, Typeable v) => Term (ArraySort k v)
 
 
 deriving instance Show (Term s)
 deriving instance Typeable (Term s)
 
+bvFixed :: forall n. KnownNat n => Term DynBvSort -> Term (BvSort n)
+bvFixed t = case t of
+  BvDyn t' w -> case someNatVal (fromIntegral w) of
+    Just (SomeNat p) -> case sameNat (Proxy @n) p of
+      Just _ -> BvFixed t
+      Nothing -> error "Wrong length"
+    Nothing -> error "Negative extract"
+
+bvGetWidth :: forall n. Term (BvSort n) -> Int
+bvGetWidth t = case t of
+  BvDyn t' width -> width
+  BvBinExpr {} -> fromIntegral $ natVal (Proxy @n)
+  BvExtract {} -> fromIntegral $ natVal (Proxy @n)
+  IntToBv {} -> fromIntegral $ natVal (Proxy @n)
+  FpToBv {} -> fromIntegral $ natVal (Proxy @n)
+  (BvConcat (a :: (Term (BvSort an))) (b :: (Term (BvSort bn)))) -> fromIntegral $ natVal (Proxy @an) + natVal (Proxy @bn)
+
+
+bvDynExtract :: forall n i. (KnownNat n, KnownNat i, i <= n) => Term (BvSort n) -> Int -> Int -> Term (BvSort i)
+bvDynExtract t s e = case someNatVal (fromIntegral $ e - s + 1) of
+  Just (SomeNat (p :: Proxy j)) -> case sameNat (Proxy @i) p of
+    Just _ -> BvExtract s t
+    Nothing -> error "Wrong length"
+  Nothing -> error "Negative extract"
 
 -- Given a function that optionally transforms a term, traverses the term
 -- applying that function at every stage. When the function returns something,
 -- this is the transformation. When the function does not, the transformation
 -- recurses.
-mapTerm :: (forall t. Term t -> Maybe (Term t)) -> Term s -> Term s
+mapTerm :: (forall t . Term t -> Maybe (Term t)) -> Term s -> Term s
 mapTerm f t = case f t of
   Nothing -> case t of
-    BoolLit {} -> t
+    BoolLit{}         -> t
     BoolBinExpr o l r -> BoolBinExpr o (mapTerm f l) (mapTerm f r)
     BoolNaryExpr o as -> BoolNaryExpr o (map (mapTerm f) as)
-    Not s -> Not (mapTerm f s)
+    Not s             -> Not (mapTerm f s)
 
-    Ite c tt ff -> Ite (mapTerm f c) (mapTerm f tt) (mapTerm f ff)
-    Var {} -> t
-    Exists v s tt -> Exists v s (mapTerm f tt)
-    Let v s e -> Let v (mapTerm f s) (mapTerm f e)
+    Ite c tt ff       -> Ite (mapTerm f c) (mapTerm f tt) (mapTerm f ff)
+    Var{}             -> t
+    Exists v s tt     -> Exists v s (mapTerm f tt)
+    Let    v s e      -> Let v (mapTerm f s) (mapTerm f e)
 
-    BvConcat a b -> BvConcat (mapTerm f a) (mapTerm f b)
-    BvExtract i s -> BvExtract i (mapTerm f s)
-    BvBinExpr o l r -> BvBinExpr o (mapTerm f l) (mapTerm f r)
-    BvBinPred o l r -> BvBinPred o (mapTerm f l) (mapTerm f r)
-    IntToBv tt -> IntToBv (mapTerm f tt)
-    FpToBv tt -> FpToBv (mapTerm f tt)
+    BvConcat  a b     -> BvConcat (mapTerm f a) (mapTerm f b)
+    BvExtract i s     -> BvExtract i (mapTerm f s)
+    BvBinExpr o l r   -> BvBinExpr o (mapTerm f l) (mapTerm f r)
+    BvBinPred o l r   -> BvBinPred o (mapTerm f l) (mapTerm f r)
+    IntToBv tt        -> IntToBv (mapTerm f tt)
+    FpToBv  tt        -> FpToBv (mapTerm f tt)
 
 
-    IntLit {} -> t
-    IntBinExpr o l r -> IntBinExpr o (mapTerm f l) (mapTerm f r)
-    IntNaryExpr o as -> IntNaryExpr o (map (mapTerm f) as)
-    IntUnExpr o l -> IntUnExpr o (mapTerm f l)
-    IntBinPred o l r -> IntBinPred o (mapTerm f l) (mapTerm f r)
-    BvToInt tt -> BvToInt (mapTerm f tt)
-    SignedBvToInt tt -> SignedBvToInt (mapTerm f tt)
-    BoolToInt tt -> BoolToInt (mapTerm f tt)
-    PfToInt tt -> PfToInt (mapTerm f tt)
+    IntLit{}          -> t
+    IntBinExpr o l r  -> IntBinExpr o (mapTerm f l) (mapTerm f r)
+    IntNaryExpr o as  -> IntNaryExpr o (map (mapTerm f) as)
+    IntUnExpr   o l   -> IntUnExpr o (mapTerm f l)
+    IntBinPred o l r  -> IntBinPred o (mapTerm f l) (mapTerm f r)
+    BvToInt       tt  -> BvToInt (mapTerm f tt)
+    SignedBvToInt tt  -> SignedBvToInt (mapTerm f tt)
+    BoolToInt     tt  -> BoolToInt (mapTerm f tt)
+    PfToInt       tt  -> PfToInt (mapTerm f tt)
 
-    Fp64Lit {} -> t
-    Fp32Lit {} -> t
-    FpBinExpr o l r -> FpBinExpr o (mapTerm f l) (mapTerm f r)
-    FpUnExpr o l -> FpUnExpr o (mapTerm f l)
-    FpBinPred o l r -> FpBinPred o (mapTerm f l) (mapTerm f r)
-    FpUnPred o l -> FpUnPred o (mapTerm f l)
-    FpFma a b c -> FpFma (mapTerm f a) (mapTerm f b) (mapTerm f c)
-    IntToFp tt -> IntToFp (mapTerm f tt)
-    FpToFp tt -> FpToFp (mapTerm f tt)
-    BvToFp tt -> BvToFp (mapTerm f tt)
+    Fp64Lit{}         -> t
+    Fp32Lit{}         -> t
+    FpBinExpr o l r   -> FpBinExpr o (mapTerm f l) (mapTerm f r)
+    FpUnExpr o l      -> FpUnExpr o (mapTerm f l)
+    FpBinPred o l r   -> FpBinPred o (mapTerm f l) (mapTerm f r)
+    FpUnPred o l      -> FpUnPred o (mapTerm f l)
+    FpFma a b c       -> FpFma (mapTerm f a) (mapTerm f b) (mapTerm f c)
+    IntToFp tt        -> IntToFp (mapTerm f tt)
+    FpToFp  tt        -> FpToFp (mapTerm f tt)
+    BvToFp  tt        -> BvToFp (mapTerm f tt)
 
-    PfNaryExpr o as -> PfNaryExpr o (map (mapTerm f) as)
-    PfUnExpr o l -> PfUnExpr o (mapTerm f l)
-    PfBinPred o l r -> PfBinPred o (mapTerm f l) (mapTerm f r)
-    IntToPf tt -> IntToPf (mapTerm f tt)
+    PfNaryExpr o as   -> PfNaryExpr o (map (mapTerm f) as)
+    PfUnExpr   o l    -> PfUnExpr o (mapTerm f l)
+    PfBinPred o l r   -> PfBinPred o (mapTerm f l) (mapTerm f r)
+    IntToPf tt        -> IntToPf (mapTerm f tt)
 
-    Select a k -> Select (mapTerm f a) (mapTerm f k)
-    Store a k v -> Store (mapTerm f a) (mapTerm f k) (mapTerm f v)
-    NewArray -> t
+    Select a k        -> Select (mapTerm f a) (mapTerm f k)
+    Store a k v       -> Store (mapTerm f a) (mapTerm f k) (mapTerm f v)
+    NewArray          -> t
   Just s -> s
 
 
-reduceTerm :: (forall t. Term t -> Maybe k) -> k-> (k -> k -> k) -> Term s -> k
+reduceTerm
+  :: (forall t . Term t -> Maybe k) -> k -> (k -> k -> k) -> Term s -> k
 reduceTerm mapF i foldF t = case mapF t of
   Nothing -> case t of
-    BoolLit {} -> i
-    BoolBinExpr _ l r -> foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
+    BoolLit{} -> i
+    BoolBinExpr _ l r ->
+      foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
     BoolNaryExpr _ as -> foldr foldF i (map (reduceTerm mapF i foldF) as)
-    Not s -> reduceTerm mapF i foldF s
+    Not s             -> reduceTerm mapF i foldF s
 
-    Ite c tt ff -> foldF (foldF (reduceTerm mapF i foldF c)
-                                (reduceTerm mapF i foldF tt))
-                         (reduceTerm mapF i foldF ff)
-    Var {} -> i
+    Ite c tt ff       -> foldF
+      (foldF (reduceTerm mapF i foldF c) (reduceTerm mapF i foldF tt))
+      (reduceTerm mapF i foldF ff)
+    Var{} -> i
     Exists _ _ tt -> reduceTerm mapF i foldF tt
     Let _ s e -> foldF (reduceTerm mapF i foldF s) (reduceTerm mapF i foldF e)
 
-    BvConcat a b -> foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF b)
+    BvConcat a b ->
+      foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF b)
     BvExtract _ s -> reduceTerm mapF i foldF s
-    BvBinExpr _ l r -> foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
-    BvBinPred _ l r -> foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
+    BvBinExpr _ l r ->
+      foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
+    BvBinPred _ l r ->
+      foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
     IntToBv tt -> reduceTerm mapF i foldF tt
-    FpToBv tt -> reduceTerm mapF i foldF tt
+    FpToBv  tt -> reduceTerm mapF i foldF tt
 
 
-    IntLit {} -> i
-    IntBinExpr _ l r -> foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
+    IntLit{}   -> i
+    IntBinExpr _ l r ->
+      foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
     IntNaryExpr _ as -> foldr foldF i (map (reduceTerm mapF i foldF) as)
-    IntUnExpr _ l -> reduceTerm mapF i foldF l
-    IntBinPred _ l r -> foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
-    BvToInt tt -> reduceTerm mapF i foldF tt
+    IntUnExpr   _ l  -> reduceTerm mapF i foldF l
+    IntBinPred _ l r ->
+      foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
+    BvToInt       tt -> reduceTerm mapF i foldF tt
     SignedBvToInt tt -> reduceTerm mapF i foldF tt
-    BoolToInt tt -> reduceTerm mapF i foldF tt
-    PfToInt tt -> reduceTerm mapF i foldF tt
+    BoolToInt     tt -> reduceTerm mapF i foldF tt
+    PfToInt       tt -> reduceTerm mapF i foldF tt
 
-    Fp64Lit {} -> i
-    Fp32Lit {} -> i
-    FpBinExpr _ l r -> foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
+    Fp64Lit{}        -> i
+    Fp32Lit{}        -> i
+    FpBinExpr _ l r ->
+      foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
     FpUnExpr _ l -> reduceTerm mapF i foldF l
-    FpBinPred _ l r -> foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
+    FpBinPred _ l r ->
+      foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
     FpUnPred _ l -> reduceTerm mapF i foldF l
-    FpFma a b c -> foldF (foldF (reduceTerm mapF i foldF a)
-                                (reduceTerm mapF i foldF b))
-                         (reduceTerm mapF i foldF c)
-    IntToFp tt -> reduceTerm mapF i foldF tt
-    FpToFp tt -> reduceTerm mapF i foldF tt
-    BvToFp tt -> reduceTerm mapF i foldF tt
+    FpFma a b c  -> foldF
+      (foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF b))
+      (reduceTerm mapF i foldF c)
+    IntToFp tt      -> reduceTerm mapF i foldF tt
+    FpToFp  tt      -> reduceTerm mapF i foldF tt
+    BvToFp  tt      -> reduceTerm mapF i foldF tt
 
     PfNaryExpr _ as -> foldr foldF i (map (reduceTerm mapF i foldF) as)
-    PfUnExpr _ l -> reduceTerm mapF i foldF l
-    PfBinPred _ l r -> foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
-    IntToPf tt -> reduceTerm mapF i foldF tt
+    PfUnExpr   _ l  -> reduceTerm mapF i foldF l
+    PfBinPred _ l r ->
+      foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
+    IntToPf tt  -> reduceTerm mapF i foldF tt
 
-    Select a k -> foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF k)
-    Store a k v -> foldF (foldF (reduceTerm mapF i foldF a)
-                                (reduceTerm mapF i foldF k))
-                         (reduceTerm mapF i foldF v)
+    Select a k  -> foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF k)
+    Store a k v -> foldF
+      (foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF k))
+      (reduceTerm mapF i foldF v)
     NewArray -> i
   Just s -> s
 
@@ -428,108 +474,108 @@ depth :: Term s -> Int
 depth = reduceTerm (const Nothing) 0 (\a b -> 1 + max a b)
 
 nNodes :: Term s -> Int
-nNodes = reduceTerm (const Nothing) 1 ((+) . (1+))
+nNodes = reduceTerm (const Nothing) 1 ((+) . (1 +))
 
 nChars :: Term s -> Int
 nChars = reduceTerm visit 0 (+)
-  where
-    visit t = case t of
-      Var s -> Just $ length s
-      _ -> Nothing
+ where
+  visit t = case t of
+    Var s -> Just $ length s
+    _     -> Nothing
 
 type Env = Map String Dynamic
 
 boolBinFn :: BoolBinOp -> Bool -> Bool -> Bool
 boolBinFn op = case op of
-    Implies -> \a b -> not a || b
+  Implies -> \a b -> not a || b
 
 boolNaryFn :: BoolNaryOp -> [Bool] -> Bool
 boolNaryFn op = case op of
-    And -> and
-    Or -> or
-    Xor -> foldr Bits.xor False
+  And -> and
+  Or  -> or
+  Xor -> foldr Bits.xor False
 
 intUnFn :: IntUnOp -> Integer -> Integer
 intUnFn op = case op of
-    IntNeg -> (0 -)
-    IntAbs -> abs
+  IntNeg -> (0 -)
+  IntAbs -> abs
 
 intBinFn :: IntBinOp -> Integer -> Integer -> Integer
 intBinFn op = case op of
-    IntSub -> (-)
-    IntDiv -> div
-    IntMod -> rem
-    IntShl -> \a b -> Bits.shiftL a (fromIntegral b)
-    IntShr -> \a b -> Bits.shiftR a (fromIntegral b)
-    IntPow -> (^)
+  IntSub -> (-)
+  IntDiv -> div
+  IntMod -> rem
+  IntShl -> \a b -> Bits.shiftL a (fromIntegral b)
+  IntShr -> \a b -> Bits.shiftR a (fromIntegral b)
+  IntPow -> (^)
 
 intBinPredFn :: IntBinPred -> Integer -> Integer -> Bool
 intBinPredFn op = case op of
-    IntNe -> (/=)
-    IntEq -> (==)
-    IntGe -> (>=)
-    IntLe -> (<=)
-    IntGt -> (>)
-    IntLt -> (<)
+  IntNe -> (/=)
+  IntEq -> (==)
+  IntGe -> (>=)
+  IntLe -> (<=)
+  IntGt -> (>)
+  IntLt -> (<)
 
 intNaryFn :: IntNaryOp -> [Integer] -> Integer
 intNaryFn op = case op of
-    IntAdd -> sum
-    IntMul -> product
+  IntAdd -> sum
+  IntMul -> product
 
-extGCD :: Integer -> Integer -> (Integer,Integer,Integer)
-extGCD a 0 = (1,0,a)     -- Base case
-extGCD a b = (x, c - q*x, y)
-           where q = a `div` b
-                 r = a `rem` b
-                 (c,x,y) = extGCD b r
+extGCD :: Integer -> Integer -> (Integer, Integer, Integer)
+extGCD a 0 = (1, 0, a)     -- Base case
+extGCD a b = (x, c - q * x, y)
+ where
+  q         = a `div` b
+  r         = a `rem` b
+  (c, x, y) = extGCD b r
 
 invMod :: Integer -> Integer -> Integer
-invMod x m = x'
-    where (x', _, _) = extGCD x m
+invMod x m = x' where (x', _, _) = extGCD x m
 
 pfUnFn :: PfUnOp -> Integer -> Integer -> Integer
 pfUnFn op m = case op of
-    PfNeg -> (m -)
-    PfRecip -> flip invMod m
+  PfNeg   -> (m -)
+  PfRecip -> flip invMod m
 
 
 pfBinPredFn :: PfBinPred -> Integer -> Integer -> Bool
 pfBinPredFn op = case op of
-    PfNe -> (/=)
-    PfEq -> (==)
+  PfNe -> (/=)
+  PfEq -> (==)
 
 pfNaryFn :: PfNaryOp -> Integer -> [Integer] -> Integer
 pfNaryFn op m = case op of
-    PfAdd -> foldr (\a b -> (a + b) `rem` m) 0
-    PfMul -> foldr (\a b -> (a * b) `rem` m) 1
+  PfAdd -> foldr (\a b -> (a + b) `rem` m) 0
+  PfMul -> foldr (\a b -> (a * b) `rem` m) 1
 
 bvBinFn :: BvBinOp -> Bv.BV -> Bv.BV -> Bv.BV
 bvBinFn op = case op of
-    BvShl -> Bv.shl
-    BvLshr -> Bv.shr
-    BvAshr -> Bv.ashr
-    BvUrem -> rem
-    BvUdiv -> div
-    BvAdd -> (+)
-    BvMul -> (*)
-    BvSub -> (-)
-    BvOr -> (Bv..|.)
-    BvAnd -> (Bv..&.)
-    BvXor -> Bv.xor
+  BvShl  -> Bv.shl
+  BvLshr -> Bv.shr
+  BvAshr -> Bv.ashr
+  BvUrem -> rem
+  BvUdiv -> div
+  BvAdd  -> (+)
+  BvMul  -> (*)
+  BvSub  -> (-)
+  BvOr   -> (Bv..|.)
+  BvAnd  -> (Bv..&.)
+  BvXor  -> Bv.xor
 
 bvBinPredFn :: BvBinPred -> Bv.BV -> Bv.BV -> Bool
 bvBinPredFn op = case op of
-    BvEq -> (==)
-    BvNe -> (/=)
-    BvUgt -> (Bv.>.)
-    BvUge -> (Bv.>=.)
-    BvUlt -> (Bv.<.)
-    BvUle -> (Bv.<=.)
-    BvSgt -> Bv.sgt
-    BvSge -> Bv.sge
-    BvSlt -> Bv.slt
-    BvSle -> Bv.sle
+  BvEq  -> (==)
+  BvNe  -> (/=)
+  BvUgt -> (Bv.>.)
+  BvUge -> (Bv.>=.)
+  BvUlt -> (Bv.<.)
+  BvUle -> (Bv.<=.)
+  BvSgt -> Bv.sgt
+  BvSge -> Bv.sge
+  BvSlt -> Bv.slt
+  BvSle -> Bv.sle
 
 valAsBool :: Value BoolSort -> Bool
 valAsBool (ValBool b) = b
@@ -546,235 +592,291 @@ valAsBv (ValBv b) = b
 valAsArray :: Value (ArraySort k v) -> Map (Value k) (Value v)
 valAsArray (ValArray b) = b
 
-modulus :: forall n. KnownNat n => Term (PfSort n) -> Integer
+modulus :: forall n . KnownNat n => Term (PfSort n) -> Integer
 modulus _ = natVal (Proxy :: Proxy n)
 
-size :: forall n. KnownNat n => Term (BvSort n) -> Int
+size :: forall n . KnownNat n => Term (BvSort n) -> Int
 size _ = fromIntegral $ natVal $ Proxy @n
 
 
-newArray :: forall k v. (Typeable k, Typeable v) => Term (ArraySort k v) -> Value (ArraySort k v)
+newArray
+  :: forall k v
+   . (Typeable k, Typeable v)
+  => Term (ArraySort k v)
+  -> Value (ArraySort k v)
 newArray t = case t of
-    NewArray -> ValArray $ (Map.empty :: (Map.Map (Value k) (Value v)))
-    _ -> error "should be unreachable"
+  NewArray -> ValArray $ (Map.empty :: (Map.Map (Value k) (Value v)))
+  _        -> error "should be unreachable"
 
-eval :: forall s. Typeable s => Env -> Term s -> Value s
+eval :: forall s . Typeable s => Env -> Term s -> Value s
 eval e t = case t of
-    BoolLit b -> ValBool b
-    BoolBinExpr o l r -> ValBool $ boolBinFn o (valAsBool $ eval e l) (valAsBool $ eval e r)
-    BoolNaryExpr o as -> ValBool $ boolNaryFn o (map (valAsBool . eval e) as)
-    Not s -> (ValBool . not . valAsBool . eval e) s
+  BoolLit b -> ValBool b
+  BoolBinExpr o l r ->
+    ValBool $ boolBinFn o (valAsBool $ eval e l) (valAsBool $ eval e r)
+  BoolNaryExpr o as -> ValBool $ boolNaryFn o (map (valAsBool . eval e) as)
+  Not s             -> (ValBool . not . valAsBool . eval e) s
 
-    Ite c tt ff -> if valAsBool $ eval e c then eval e tt else eval e ff
-    Var s -> typed
-      where
-        entry = Map.findWithDefault (error $ "Unknown identifier '" ++ show s ++ "'") s e
-        typed = fromDyn entry (error $ "Indentifier '" ++ show s ++ "' of wrong sort.\nValue: " ++ show entry)
-    Exists {} -> error "Cannot evaluate existential quantifiers!"
-    Let x s t' -> eval e' t'
-        where v  = eval e s
-              e' = Map.insert x (toDyn v) e
+  Ite c tt ff       -> if valAsBool $ eval e c then eval e tt else eval e ff
+  Var s             -> typed
+   where
+    entry =
+      Map.findWithDefault (error $ "Unknown identifier '" ++ show s ++ "'") s e
+    typed = fromDyn
+      entry
+      (  error
+      $  "Indentifier '"
+      ++ show s
+      ++ "' of wrong sort.\nValue: "
+      ++ show entry
+      )
+  Exists{}   -> error "Cannot evaluate existential quantifiers!"
+  Let x s t' -> eval e' t'
+   where
+    v  = eval e s
+    e' = Map.insert x (toDyn v) e
 
-    BvConcat a b -> ValBv $ valAsBv (eval e a) `mappend` valAsBv (eval e b)
-    BvExtract start' t' -> bvExtract e start' t'
+  BvConcat  a      b  -> ValBv $ valAsBv (eval e a) `mappend` valAsBv (eval e b)
+  BvExtract start' t' -> bvExtract e start' t'
+   where
+    bvExtract
+      :: forall n i
+       . (KnownNat n, KnownNat i, i <= n)
+      => Env
+      -> Int
+      -> Term (BvSort n)
+      -> Value (BvSort i)
+    bvExtract env start term = ValBv $ Bv.extract
+      start
+      (min (oldSize - 1) (start + newSize - 1))
+      (valAsBv $ eval env term)
      where
-      bvExtract :: forall n i. (KnownNat n, KnownNat i, i <= n) => Env -> Int -> Term (BvSort n) -> Value (BvSort i)
-      bvExtract env start term = ValBv $ Bv.extract start (min (oldSize - 1) (start + newSize - 1)) (valAsBv $ eval env term)
-       where oldSize = fromInteger $ natVal (Proxy :: Proxy n)
-             newSize = fromInteger $ natVal (Proxy :: Proxy i)
-    BvBinExpr o l r -> ValBv $ bvBinFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
-    BvBinPred o l r -> ValBool $ bvBinPredFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
-    IntToBv i -> ValBv $ Bv.bitVec (size t) $ valAsInt $ eval e i
-    FpToBv tt -> ValBv $ asBits $ asRepr (eval e tt)
+      oldSize = fromInteger $ natVal (Proxy :: Proxy n)
+      newSize = fromInteger $ natVal (Proxy :: Proxy i)
+  BvBinExpr o l r ->
+    ValBv $ bvBinFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
+  BvBinPred o l r ->
+    ValBool $ bvBinPredFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
+  IntToBv i      -> ValBv $ Bv.bitVec (size t) $ valAsInt $ eval e i
+  FpToBv  tt     -> ValBv $ asBits $ asRepr (eval e tt)
 
-    IntLit i -> ValInt i
-    IntUnExpr o t' -> ValInt $ intUnFn o (valAsInt $ eval e t')
-    IntBinExpr o l r -> ValInt $ intBinFn o (valAsInt $ eval e l) (valAsInt $ eval e r)
-    IntNaryExpr o as -> ValInt $ intNaryFn o (map (valAsInt . eval e) as)
-    IntBinPred o l r -> ValBool $ intBinPredFn o (valAsInt $ eval e l) (valAsInt $ eval e r)
-    BvToInt tt -> ValInt $ Bv.nat $ valAsBv $ eval e tt
-    SignedBvToInt tt -> ValInt $ Bv.nat $ valAsBv $ eval e tt
-    BoolToInt t' -> ValInt $ if valAsBool (eval e t') then 1 else 0
-    PfToInt t' -> ValInt $ valAsPf $ eval e t'
+  IntLit  i      -> ValInt i
+  IntUnExpr o t' -> ValInt $ intUnFn o (valAsInt $ eval e t')
+  IntBinExpr o l r ->
+    ValInt $ intBinFn o (valAsInt $ eval e l) (valAsInt $ eval e r)
+  IntNaryExpr o as -> ValInt $ intNaryFn o (map (valAsInt . eval e) as)
+  IntBinPred o l r ->
+    ValBool $ intBinPredFn o (valAsInt $ eval e l) (valAsInt $ eval e r)
+  BvToInt       tt -> ValInt $ Bv.nat $ valAsBv $ eval e tt
+  SignedBvToInt tt -> ValInt $ Bv.nat $ valAsBv $ eval e tt
+  BoolToInt     t' -> ValInt $ if valAsBool (eval e t') then 1 else 0
+  PfToInt       t' -> ValInt $ valAsPf $ eval e t'
 
-    Fp64Lit d -> ValDouble d
-    Fp32Lit f -> ValFloat f
-    FpBinExpr o l r -> evalBin o (eval e l) (eval e r)
-    FpUnExpr o l -> evalUn o (eval e l)
-    FpBinPred o l r -> evalBinPred o (eval e l) (eval e r)
-    FpUnPred o l -> evalUnPred o (eval e l)
-    FpFma a b c -> eval e (FpBinExpr FpAdd (FpBinExpr FpMul a b) c)
-    IntToFp tt -> evalFromInt (eval e tt)
-    FpToFp tt -> (fromRepr . asOther . asRepr) (eval e tt)
-    BvToFp tt -> fromRepr $ fromBits $ valAsBv (eval e tt)
+  Fp64Lit       d  -> ValDouble d
+  Fp32Lit       f  -> ValFloat f
+  FpBinExpr o l r  -> evalBin o (eval e l) (eval e r)
+  FpUnExpr o l     -> evalUn o (eval e l)
+  FpBinPred o l r  -> evalBinPred o (eval e l) (eval e r)
+  FpUnPred o l     -> evalUnPred o (eval e l)
+  FpFma a b c      -> eval e (FpBinExpr FpAdd (FpBinExpr FpMul a b) c)
+  IntToFp tt       -> evalFromInt (eval e tt)
+  FpToFp  tt       -> (fromRepr . asOther . asRepr) (eval e tt)
+  BvToFp  tt       -> fromRepr $ fromBits $ valAsBv (eval e tt)
 
-    PfUnExpr o t' -> ValPf $ pfUnFn o (modulus t') (valAsPf $ eval e t')
-    PfNaryExpr o as -> ValPf $ pfNaryFn o m (map (valAsPf . eval e) as)
-        where m = modulus (PfNaryExpr o as)
-    PfBinPred o l r -> ValBool $ pfBinPredFn o (valAsPf $ eval e l) (valAsPf $ eval e r)
-    IntToPf t' -> ValPf $ valAsInt $ eval e t'
+  PfUnExpr   o t'  -> ValPf $ pfUnFn o (modulus t') (valAsPf $ eval e t')
+  PfNaryExpr o as  -> ValPf $ pfNaryFn o m (map (valAsPf . eval e) as)
+    where m = modulus (PfNaryExpr o as)
+  PfBinPred o l r ->
+    ValBool $ pfBinPredFn o (valAsPf $ eval e l) (valAsPf $ eval e r)
+  IntToPf t' -> ValPf $ valAsInt $ eval e t'
 
-    Select a k -> Maybe.fromMaybe (error $ "Array has no entry for " ++ show k') (a' Map.!? k')
-        where
-            a' = valAsArray $ eval e a
-            k' = eval e k
-    Store a k v -> ValArray $ Map.insert (eval e k) (eval e v) (valAsArray $ eval e a)
-    NewArray -> newArray t
+  Select a k -> Maybe.fromMaybe
+    (error $ "Array has no entry for " ++ show k')
+    (a' Map.!? k')
+   where
+    a' = valAsArray $ eval e a
+    k' = eval e k
+  Store a k v ->
+    ValArray $ Map.insert (eval e k) (eval e v) (valAsArray $ eval e a)
+  NewArray -> newArray t
 
 
-toZ3 :: forall s z. MonadZ3 z => Term s -> z Z.AST
+toZ3 :: forall s z . MonadZ3 z => Term s -> z Z.AST
 toZ3 t = case t of
-    BoolLit b -> Z.mkBool b
-    BoolBinExpr Implies l r -> tyBinZ3Bin Z.mkImplies l r
-    BoolNaryExpr o a ->
-      case o of
-        Xor -> tyNaryZ3Bin Z.mkXor a
-        And -> tyNaryZ3Nary Z.mkAnd a
-        Or -> tyNaryZ3Nary Z.mkOr a
-    Not s -> toZ3 s >>= Z.mkNot
+  BoolLit b               -> Z.mkBool b
+  BoolBinExpr Implies l r -> tyBinZ3Bin Z.mkImplies l r
+  BoolNaryExpr o a        -> case o of
+    Xor -> tyNaryZ3Bin Z.mkXor a
+    And -> tyNaryZ3Nary Z.mkAnd a
+    Or  -> tyNaryZ3Nary Z.mkOr a
+  Not s               -> toZ3 s >>= Z.mkNot
 
-    Ite c tt ff -> tyTernZ3Tern Z.mkIte c tt ff
-    Var _s -> error "NYI"
-    Exists {} -> error "NYI"
-    Let _x _s _t' -> error "NYI"
+  Ite c tt ff         -> tyTernZ3Tern Z.mkIte c tt ff
+  Var _s              -> error "NYI"
+  Exists{}            -> error "NYI"
+  Let _x _s _t'       -> error "NYI"
 
-    BvConcat a b -> tyBinZ3Bin Z.mkConcat a b
-    BvExtract start' t' -> bvExtract start' t t'
+  BvConcat  a      b  -> tyBinZ3Bin Z.mkConcat a b
+  BvExtract start' t' -> bvExtract start' t t'
+   where
+    -- We pass the original term in to get its width, encoded in its type.
+    bvExtract
+      :: forall n i
+       . (KnownNat n, KnownNat i, i <= n)
+      => Int
+      -> Term (BvSort i)
+      -> Term (BvSort n)
+      -> z Z.AST
+    bvExtract start _term innerTerm = toZ3 innerTerm >>= Z.mkExtract start end
      where
-      -- We pass the original term in to get its width, encoded in its type.
-      bvExtract :: forall n i. (KnownNat n, KnownNat i, i <= n) => Int -> Term (BvSort i) -> Term (BvSort n) -> z Z.AST
-      bvExtract start _term innerTerm = toZ3 innerTerm >>= Z.mkExtract start end
-       where end = start + newSize - 1
-             newSize = fromInteger $ natVal (Proxy :: Proxy i)
-    BvBinExpr o l r ->
-      let f = case o of
-             BvShl -> Z.mkBvshl
-             BvLshr -> Z.mkBvlshr
-             BvAshr -> Z.mkBvashr
-             BvUrem -> Z.mkBvurem
-             BvUdiv -> Z.mkBvudiv
-             BvAdd -> Z.mkBvadd
-             BvMul -> Z.mkBvmul
-             BvSub -> Z.mkBvsub
-             BvOr -> Z.mkBvor
-             BvAnd -> Z.mkBvand
-             BvXor -> Z.mkBvxor
-      in tyBinZ3Bin f l r
-    BvBinPred o l r ->
-      let f = case o of
-               BvEq -> Z.mkEq
-               BvNe -> \a b -> Z.mkNot =<< Z.mkEq a b
-               BvUgt -> Z.mkBvugt
-               BvUlt -> Z.mkBvult
-               BvUge -> Z.mkBvuge
-               BvUle -> Z.mkBvule
-               BvSgt -> Z.mkBvsgt
-               BvSlt -> Z.mkBvslt
-               BvSge -> Z.mkBvsge
-               BvSle -> Z.mkBvsle
-      in tyBinZ3Bin f l r
-    IntToBv i -> toZ3 i >>= Z.mkInt2bv (width t)
-      where width :: forall n. KnownNat n => Term (BvSort n) -> Int
-            width _ = fromInteger $ natVal (Proxy @n)
-    FpToBv tt -> toZ3 tt >>= Z.mkFpIEEEBv
+      end     = start + newSize - 1
+      newSize = fromInteger $ natVal (Proxy :: Proxy i)
+  BvBinExpr o l r ->
+    let f = case o of
+          BvShl  -> Z.mkBvshl
+          BvLshr -> Z.mkBvlshr
+          BvAshr -> Z.mkBvashr
+          BvUrem -> Z.mkBvurem
+          BvUdiv -> Z.mkBvudiv
+          BvAdd  -> Z.mkBvadd
+          BvMul  -> Z.mkBvmul
+          BvSub  -> Z.mkBvsub
+          BvOr   -> Z.mkBvor
+          BvAnd  -> Z.mkBvand
+          BvXor  -> Z.mkBvxor
+    in  tyBinZ3Bin f l r
+  BvBinPred o l r ->
+    let f = case o of
+          BvEq  -> Z.mkEq
+          BvNe  -> \a b -> Z.mkNot =<< Z.mkEq a b
+          BvUgt -> Z.mkBvugt
+          BvUlt -> Z.mkBvult
+          BvUge -> Z.mkBvuge
+          BvUle -> Z.mkBvule
+          BvSgt -> Z.mkBvsgt
+          BvSlt -> Z.mkBvslt
+          BvSge -> Z.mkBvsge
+          BvSle -> Z.mkBvsle
+    in  tyBinZ3Bin f l r
+  IntToBv i -> toZ3 i >>= Z.mkInt2bv (width t)
+   where
+    width :: forall n . KnownNat n => Term (BvSort n) -> Int
+    width _ = fromInteger $ natVal (Proxy @n)
+  FpToBv tt      -> toZ3 tt >>= Z.mkFpIEEEBv
 
-    IntLit i -> Z.mkInteger i
-    IntUnExpr o t' -> case o of
-      IntNeg -> toZ3 t' >>= Z.mkUnaryMinus
-      IntAbs -> nyi o
-    IntBinExpr o l r -> case o of
-      IntDiv -> tyBinZ3Bin Z.mkDiv l r
-      IntMod -> tyBinZ3Bin Z.mkMod l r
-      IntSub -> tyBinZ3Nary Z.mkSub l r
-      _ -> nyi o
-    IntNaryExpr o as -> tyNaryZ3Nary (case o of { IntAdd -> Z.mkAdd; IntMul -> Z.mkMul }) as
-    IntBinPred o l r ->
-      let f = case o of
-                IntLt -> Z.mkLt
-                IntLe -> Z.mkLe
-                IntGt -> Z.mkGt
-                IntGe -> Z.mkGe
-                IntEq -> Z.mkEq
-                IntNe -> \a b -> Z.mkNot =<< Z.mkEq a b
-      in tyBinZ3Bin f l r
-    BvToInt tt -> toZ3 tt >>= flip Z.mkBv2int False
-    SignedBvToInt tt -> toZ3 tt >>= flip Z.mkBv2int True
-    BoolToInt t' -> toZ3 $ Ite t' (IntLit 1) (IntLit 0)
-    PfToInt {} -> nyi "Prime fields"
+  IntLit i       -> Z.mkInteger i
+  IntUnExpr o t' -> case o of
+    IntNeg -> toZ3 t' >>= Z.mkUnaryMinus
+    IntAbs -> nyi o
+  IntBinExpr o l r -> case o of
+    IntDiv -> tyBinZ3Bin Z.mkDiv l r
+    IntMod -> tyBinZ3Bin Z.mkMod l r
+    IntSub -> tyBinZ3Nary Z.mkSub l r
+    _      -> nyi o
+  IntNaryExpr o as -> tyNaryZ3Nary
+    (case o of
+      IntAdd -> Z.mkAdd
+      IntMul -> Z.mkMul
+    )
+    as
+  IntBinPred o l r ->
+    let f = case o of
+          IntLt -> Z.mkLt
+          IntLe -> Z.mkLe
+          IntGt -> Z.mkGt
+          IntGe -> Z.mkGe
+          IntEq -> Z.mkEq
+          IntNe -> \a b -> Z.mkNot =<< Z.mkEq a b
+    in  tyBinZ3Bin f l r
+  BvToInt       tt -> toZ3 tt >>= flip Z.mkBv2int False
+  SignedBvToInt tt -> toZ3 tt >>= flip Z.mkBv2int True
+  BoolToInt     t' -> toZ3 $ Ite t' (IntLit 1) (IntLit 0)
+  PfToInt{}        -> nyi "Prime fields"
 
-    Fp64Lit d -> Z.mkDoubleSort >>= Z.mkFpFromDouble d
-    Fp32Lit {} -> nyi "floats"
-    FpBinExpr o l r ->
-      let f = case o of
-                FpAdd -> ZWrap.fpAdd
-                FpSub -> ZWrap.fpSub
-                FpMul -> ZWrap.fpMul
-                FpDiv -> ZWrap.fpDiv
-                FpRem -> ZWrap.fpRem
-                FpMax -> ZWrap.fpMax
-                FpMin -> ZWrap.fpMin
-      in tyBinZ3Bin f l r
-    FpUnExpr o l ->
-      let f = case o of
-                FpNeg -> Z.mkFpNeg
-                FpAbs -> Z.mkFpAbs
-                FpSqrt -> nyi o
-                FpRound -> nyi "Fp rounding"
-      in toZ3 l >>= f
-    FpBinPred o l r ->
-      let f = case o of
-                FpLe -> Z.mkFpLeq
-                FpLt -> Z.mkFpLt
-                FpGe -> Z.mkFpGeq
-                FpGt -> Z.mkFpGt
-                FpEq -> Z.mkFpEq
-                FpNe -> \a b -> Z.mkNot =<< Z.mkFpEq a b
-      in tyBinZ3Bin f l r
+  Fp64Lit d        -> Z.mkDoubleSort >>= Z.mkFpFromDouble d
+  Fp32Lit{}        -> nyi "floats"
+  FpBinExpr o l r ->
+    let f = case o of
+          FpAdd -> ZWrap.fpAdd
+          FpSub -> ZWrap.fpSub
+          FpMul -> ZWrap.fpMul
+          FpDiv -> ZWrap.fpDiv
+          FpRem -> ZWrap.fpRem
+          FpMax -> ZWrap.fpMax
+          FpMin -> ZWrap.fpMin
+    in  tyBinZ3Bin f l r
+  FpUnExpr o l ->
+    let f = case o of
+          FpNeg   -> Z.mkFpNeg
+          FpAbs   -> Z.mkFpAbs
+          FpSqrt  -> nyi o
+          FpRound -> nyi "Fp rounding"
+    in  toZ3 l >>= f
+  FpBinPred o l r ->
+    let f = case o of
+          FpLe -> Z.mkFpLeq
+          FpLt -> Z.mkFpLt
+          FpGe -> Z.mkFpGeq
+          FpGt -> Z.mkFpGt
+          FpEq -> Z.mkFpEq
+          FpNe -> \a b -> Z.mkNot =<< Z.mkFpEq a b
+    in  tyBinZ3Bin f l r
 
-    FpUnPred o l ->
-      let f = case o of
-                FpIsNormal -> nyi o
-                FpIsSubnormal -> nyi o
-                FpIsZero -> Z.mkFpIsZero
-                FpIsInfinite -> Z.mkFpIsInf
-                FpIsNaN -> Z.mkFpIsNan
-                FpIsNegative -> Z.mkFpIsNeg
-                FpIsPositive -> Z.mkFpIsPos
-      in toZ3 l >>= f
+  FpUnPred o l ->
+    let f = case o of
+          FpIsNormal    -> nyi o
+          FpIsSubnormal -> nyi o
+          FpIsZero      -> Z.mkFpIsZero
+          FpIsInfinite  -> Z.mkFpIsInf
+          FpIsNaN       -> Z.mkFpIsNan
+          FpIsNegative  -> Z.mkFpIsNeg
+          FpIsPositive  -> Z.mkFpIsPos
+    in  toZ3 l >>= f
 
-    FpFma {} -> nyi "fused multiply-add"
-    IntToFp {} -> nyi "IntToFp"
-    FpToFp {} -> nyi "FpToFp"
-    BvToFp {} -> nyi "BvToFp"
+  FpFma{}      -> nyi "fused multiply-add"
+  IntToFp{}    -> nyi "IntToFp"
+  FpToFp{}     -> nyi "FpToFp"
+  BvToFp{}     -> nyi "BvToFp"
 
-    PfUnExpr {} -> nyi "Prime fields"
-    PfNaryExpr {} -> nyi "Prime fields"
-    PfBinPred {} -> nyi "Prime fields"
-    IntToPf {} -> nyi "Prime fields"
+  PfUnExpr{}   -> nyi "Prime fields"
+  PfNaryExpr{} -> nyi "Prime fields"
+  PfBinPred{}  -> nyi "Prime fields"
+  IntToPf{}    -> nyi "Prime fields"
 
-    Select a k -> tyBinZ3Bin Z.mkSelect a k
-    Store a k v -> tyTernZ3Tern Z.mkStore a k v
-    NewArray -> nyi "Need to define default values..."
+  Select a k   -> tyBinZ3Bin Z.mkSelect a k
+  Store a k v  -> tyTernZ3Tern Z.mkStore a k v
+  NewArray     -> nyi "Need to define default values..."
  where
   tyNaryZ3Nary :: MonadZ3 z => ([Z.AST] -> z Z.AST) -> [Term s'] -> z Z.AST
   tyNaryZ3Nary f a = mapM toZ3 a >>= f
-  tyBinZ3Nary :: MonadZ3 z => ([Z.AST] -> z Z.AST) -> Term s' -> Term s' -> z Z.AST
+  tyBinZ3Nary
+    :: MonadZ3 z => ([Z.AST] -> z Z.AST) -> Term s' -> Term s' -> z Z.AST
   tyBinZ3Nary f a b = do
     a' <- toZ3 a
     b' <- toZ3 b
     f [a', b']
-  tyNaryZ3Bin :: MonadZ3 z => (Z.AST -> Z.AST -> z Z.AST) -> [Term s'] -> z Z.AST
+  tyNaryZ3Bin
+    :: MonadZ3 z => (Z.AST -> Z.AST -> z Z.AST) -> [Term s'] -> z Z.AST
   tyNaryZ3Bin f a = do
     a' <- mapM toZ3 a
     foldM f (head a') (tail a')
-  tyBinZ3Bin :: MonadZ3 z => (Z.AST -> Z.AST -> z Z.AST) -> Term s' -> Term s'' -> z Z.AST
+  tyBinZ3Bin
+    :: MonadZ3 z
+    => (Z.AST -> Z.AST -> z Z.AST)
+    -> Term s'
+    -> Term s''
+    -> z Z.AST
   tyBinZ3Bin f a b = do
     a' <- toZ3 a
     b' <- toZ3 b
     f a' b'
-  tyTernZ3Tern :: MonadZ3 z => (Z.AST -> Z.AST -> Z.AST -> z Z.AST) -> Term s' -> Term s'' -> Term s''' -> z Z.AST
+  tyTernZ3Tern
+    :: MonadZ3 z
+    => (Z.AST -> Z.AST -> Z.AST -> z Z.AST)
+    -> Term s'
+    -> Term s''
+    -> Term s'''
+    -> z Z.AST
   tyTernZ3Tern f a b c = do
     a' <- toZ3 a
     tyBinZ3Bin (f a') b c
   nyi x = error $ unwords ["Not yet implemented in toZ3:", show x]
-
