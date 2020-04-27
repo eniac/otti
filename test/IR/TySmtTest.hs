@@ -41,7 +41,7 @@ tySmtTests = benchTestGroup
   , genEvalTest
     "dyanmic width bv expression"
     (Map.empty)
-    (Smt.bvDynExtract (Smt.IntToBv @6 (Smt.IntLit 0)) 1 5)
+    (Smt.mkStatifyBv @4 (Smt.mkBvDynExtract 1 4 (Smt.mkDynamizeBv (Smt.IntToBv @6 (Smt.IntLit 0)))))
     (Smt.ValBv @4 (Bv.bitVec 4 (0 :: Int)))
   , genEvalTest
     "field -> int -> bv -> shift -> int -> field"

@@ -2,6 +2,7 @@
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE StandaloneDeriving  #-}
+{-# LANGUAGE AllowAmbiguousTypes  #-}
 {-# LANGUAGE TypeOperators       #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeApplications    #-}
@@ -50,7 +51,11 @@ module IR.TySmt
   , nNodes
   , nChars
   , toZ3
-  , bvDynExtract
+  , mkBvDynExtract
+  , mkBvDynBinExpr
+  , mkBvDynBinPred
+  , mkDynamizeBv
+  , mkStatifyBv
   )
 where
 
@@ -74,6 +79,7 @@ import qualified Data.Binary.IEEE754           as IEEE754
 import           Z3.Monad                       ( MonadZ3 )
 import qualified Z3.Monad                      as Z
 import qualified Targets.SMT.Z3Wrapper         as ZWrap -- zmap, but weirder ;^)
+import           Debug.Trace
 
 --class (Show s, Ord s, Eq s, Typeable s) => Sort s where
 --  toZ3 :: Z.Sort 
@@ -81,17 +87,47 @@ import qualified Targets.SMT.Z3Wrapper         as ZWrap -- zmap, but weirder ;^)
 
 data IntSort = IntSort deriving (Show,Ord,Eq,Typeable)
 data BoolSort = BoolSort deriving (Show,Ord,Eq,Typeable)
-data DynBvSort = DynBvSort Int deriving (Show,Ord,Eq,Typeable)
+data BvDynSort = BvDynSort Int deriving (Show,Ord,Eq,Typeable)
 data BvSort (n :: Nat) = BvSort Int deriving (Show,Ord,Eq,Typeable)
 data PfSort (n :: Nat) = PfSort Integer deriving (Show,Ord,Eq,Typeable)
-data RealFloat f => FpSort f = FpSort Int Int deriving (Show,Ord,Eq,Typeable)
+data ComputableFp f => FpSort f = FpSort Int Int deriving (Show,Ord,Eq,Typeable)
 data ArraySort k v = ArraySort deriving (Show,Ord,Eq,Typeable)
+
+class SortClass n where
+  sorted :: Maybe Sort
+
+instance SortClass IntSort where
+  sorted = Just SortInt
+
+instance SortClass BoolSort where
+  sorted = Just SortBool
+
+instance SortClass BvDynSort where
+  sorted = Nothing
+
+instance forall n. KnownNat n => SortClass (BvSort n) where
+  sorted = Just $ SortBv $ fromIntegral $ natVal $ Proxy @n
+
+instance forall n. KnownNat n => SortClass (PfSort n) where
+  sorted = Just $ SortPf $ natVal $ Proxy @n
+
+instance ComputableFp f => SortClass (FpSort f) where
+  sorted = Just $ SortFp (fromIntegral $ natVal $ Proxy @(ExpSize f))
+                         (fromIntegral $ natVal $ Proxy @(SigSize f))
+
+instance forall k v. (SortClass k, SortClass v) => SortClass (ArraySort k v) where
+  sorted = do
+    k' <- sorted @k
+    v' <- sorted @v
+    return $ SortArray k' v'
 
 type F32 = FpSort Float
 type F64 = FpSort Double
 
-class (RealFloat fp, Typeable fp, KnownNat (Size fp)) => ComputableFp fp where
+class (RealFloat fp, Typeable fp, KnownNat (Size fp), KnownNat (SigSize fp), KnownNat (ExpSize fp)) => ComputableFp fp where
     type Size fp :: Nat
+    type SigSize fp :: Nat
+    type ExpSize fp :: Nat
     asRepr :: Value (FpSort fp) -> fp
     fromRepr :: fp -> Value (FpSort fp)
     asBits :: fp -> Bv.BV
@@ -150,6 +186,8 @@ class (RealFloat fp, Typeable fp, KnownNat (Size fp)) => ComputableFp fp where
 
 instance ComputableFp Double where
   type Size Double = 64
+  type SigSize Double = 53
+  type ExpSize Double = 11
   asRepr (ValDouble x) = x
   fromRepr = ValDouble
   asBits   = Bv.bitVec 64 . IEEE754.doubleToWord
@@ -157,6 +195,8 @@ instance ComputableFp Double where
 
 instance ComputableFp Float where
   type Size Float = 32
+  type SigSize Float = 24
+  type ExpSize Float = 8
   asRepr (ValFloat x) = x
   fromRepr = ValFloat
   asBits   = Bv.bitVec 32 . IEEE754.floatToWord
@@ -166,6 +206,7 @@ data Value s where
     ValBool ::Bool -> Value BoolSort
     ValInt ::Integer -> Value IntSort
     ValBv ::KnownNat n => Bv.BV -> Value (BvSort n)
+    ValDynBv ::Bv.BV -> Value BvDynSort
     ValPf ::KnownNat n => Integer -> Value (PfSort n)
     ValFloat ::Float -> Value F32
     ValDouble ::Double -> Value F64
@@ -279,8 +320,11 @@ data Term s where
     IntToBv   ::KnownNat n => Term IntSort -> Term (BvSort n)
     FpToBv    ::(ComputableFp f) => Term (FpSort f) -> Term (BvSort (Size f))
 
-    BvDyn     :: forall n. KnownNat n => Term (BvSort n) -> Int -> Term DynBvSort
-    BvFixed   :: forall n. KnownNat n => Term DynBvSort -> Term (BvSort n)
+    DynamizeBv ::KnownNat n => Int -> Term (BvSort n) -> Term BvDynSort
+    BvDynExtract ::Int -> Int -> Term BvDynSort -> Term BvDynSort
+    BvDynBinExpr ::BvBinOp -> Int -> Term BvDynSort -> Term BvDynSort -> Term BvDynSort
+    BvDynBinPred ::BvBinPred -> Int -> Term BvDynSort -> Term BvDynSort -> Term BoolSort
+    StatifyBv ::KnownNat n => Term BvDynSort -> Term (BvSort n)
 
     -- Integer terms
     IntLit        ::Integer -> Term IntSort
@@ -320,30 +364,50 @@ data Term s where
 deriving instance Show (Term s)
 deriving instance Typeable (Term s)
 
-bvFixed :: forall n. KnownNat n => Term DynBvSort -> Term (BvSort n)
-bvFixed t = case t of
-  BvDyn t' w -> case someNatVal (fromIntegral w) of
-    Just (SomeNat p) -> case sameNat (Proxy @n) p of
-      Just _ -> BvFixed t
-      Nothing -> error "Wrong length"
-    Nothing -> error "Negative extract"
+widthErr :: Term s -> Maybe String -> Int -> Int -> a
+widthErr term width expected actual =
+  error $ unwords [ "In", show term, "a width", Maybe.maybe "" (\s -> "(" ++ s ++ ")") width, "should have been", show expected, "but was", show actual]
 
-bvGetWidth :: forall n. Term (BvSort n) -> Int
-bvGetWidth t = case t of
-  BvDyn t' width -> width
-  BvBinExpr {} -> fromIntegral $ natVal (Proxy @n)
-  BvExtract {} -> fromIntegral $ natVal (Proxy @n)
-  IntToBv {} -> fromIntegral $ natVal (Proxy @n)
-  FpToBv {} -> fromIntegral $ natVal (Proxy @n)
-  (BvConcat (a :: (Term (BvSort an))) (b :: (Term (BvSort bn)))) -> fromIntegral $ natVal (Proxy @an) + natVal (Proxy @bn)
+mkDynamizeBv :: forall n. KnownNat n => Term (BvSort n) -> Term BvDynSort
+mkDynamizeBv t = DynamizeBv (fromIntegral $ natVal $ Proxy @n) t
 
+mkStatifyBv :: forall n. KnownNat n => Term BvDynSort -> Term (BvSort n)
+mkStatifyBv t =
+  let SortBv width = sort t
+      w = fromIntegral $ natVal $ Proxy @n
+  in  if width == w then StatifyBv t else widthErr (StatifyBv @n t) Nothing width w
 
-bvDynExtract :: forall n i. (KnownNat n, KnownNat i, i <= n) => Term (BvSort n) -> Int -> Int -> Term (BvSort i)
-bvDynExtract t s e = case someNatVal (fromIntegral $ e - s + 1) of
-  Just (SomeNat (p :: Proxy j)) -> case sameNat (Proxy @i) p of
-    Just _ -> BvExtract s t
-    Nothing -> error "Wrong length"
-  Nothing -> error "Negative extract"
+mkBvDynExtract :: Int -> Int -> Term BvDynSort -> Term BvDynSort
+mkBvDynExtract start width t =
+  let SortBv w = sort t
+  in  if start + width <= w then BvDynExtract start width t else error $ unwords ["BvDynExtract too long!", "start =", show start, "width =", show width, "acutal width =", show w]
+
+mkBvDynBinExpr :: BvBinOp -> Term BvDynSort -> Term BvDynSort -> Term BvDynSort
+mkBvDynBinExpr o a b =
+  let SortBv aw = sort a
+      SortBv bw = sort b
+  in  if aw == bw then BvDynBinExpr o aw a b else widthErr (BvDynBinExpr o aw a b) (Just "the second width") aw bw
+
+mkBvDynBinPred :: BvBinPred -> Term BvDynSort -> Term BvDynSort -> Term BoolSort
+mkBvDynBinPred o a b =
+  let SortBv aw = sort a
+      SortBv bw = sort b
+  in  if aw == bw then BvDynBinPred o aw a b else widthErr (BvDynBinPred o aw a b) (Just "the second width") aw bw
+
+sort :: forall s . SortClass s => Term s -> Sort
+sort t = case sorted @s of
+  Just s' -> s'
+  Nothing -> case t of
+    Ite _ tt _           -> sort tt
+    Var{}                -> error "Can't deduce var sorts"
+    Exists _ _ tt        -> sort tt
+    Let    _ _ e         -> sort e
+
+    BvDynBinExpr _ w _ _ -> SortBv w
+    BvDynExtract _ w _   -> SortBv w
+    DynamizeBv w _       -> SortBv w
+
+    _ -> error $ "Unreachable: " ++ show t ++ " should have static sort"
 
 -- Given a function that optionally transforms a term, traverses the term
 -- applying that function at every stage. When the function returns something,
@@ -352,53 +416,59 @@ bvDynExtract t s e = case someNatVal (fromIntegral $ e - s + 1) of
 mapTerm :: (forall t . Term t -> Maybe (Term t)) -> Term s -> Term s
 mapTerm f t = case f t of
   Nothing -> case t of
-    BoolLit{}         -> t
-    BoolBinExpr o l r -> BoolBinExpr o (mapTerm f l) (mapTerm f r)
-    BoolNaryExpr o as -> BoolNaryExpr o (map (mapTerm f) as)
-    Not s             -> Not (mapTerm f s)
+    BoolLit{}            -> t
+    BoolBinExpr o l r    -> BoolBinExpr o (mapTerm f l) (mapTerm f r)
+    BoolNaryExpr o as    -> BoolNaryExpr o (map (mapTerm f) as)
+    Not s                -> Not (mapTerm f s)
 
-    Ite c tt ff       -> Ite (mapTerm f c) (mapTerm f tt) (mapTerm f ff)
-    Var{}             -> t
-    Exists v s tt     -> Exists v s (mapTerm f tt)
-    Let    v s e      -> Let v (mapTerm f s) (mapTerm f e)
+    Ite c tt ff          -> Ite (mapTerm f c) (mapTerm f tt) (mapTerm f ff)
+    Var{}                -> t
+    Exists v s tt        -> Exists v s (mapTerm f tt)
+    Let    v s e         -> Let v (mapTerm f s) (mapTerm f e)
 
-    BvConcat  a b     -> BvConcat (mapTerm f a) (mapTerm f b)
-    BvExtract i s     -> BvExtract i (mapTerm f s)
-    BvBinExpr o l r   -> BvBinExpr o (mapTerm f l) (mapTerm f r)
-    BvBinPred o l r   -> BvBinPred o (mapTerm f l) (mapTerm f r)
-    IntToBv tt        -> IntToBv (mapTerm f tt)
-    FpToBv  tt        -> FpToBv (mapTerm f tt)
+    BvConcat  a b        -> BvConcat (mapTerm f a) (mapTerm f b)
+    BvExtract i s        -> BvExtract i (mapTerm f s)
+    BvBinExpr o l r      -> BvBinExpr o (mapTerm f l) (mapTerm f r)
+    BvBinPred o l r      -> BvBinPred o (mapTerm f l) (mapTerm f r)
+    IntToBv   tt         -> IntToBv (mapTerm f tt)
+    FpToBv    tt         -> FpToBv (mapTerm f tt)
+
+    StatifyBv t'         -> StatifyBv (mapTerm f t')
+    BvDynBinExpr o w a b -> BvDynBinExpr o w (mapTerm f a) (mapTerm f b)
+    BvDynBinPred o w a b -> BvDynBinPred o w (mapTerm f a) (mapTerm f b)
+    BvDynExtract s l b   -> BvDynExtract s l (mapTerm f b)
+    DynamizeBv w b       -> DynamizeBv w (mapTerm f b)
 
 
-    IntLit{}          -> t
-    IntBinExpr o l r  -> IntBinExpr o (mapTerm f l) (mapTerm f r)
-    IntNaryExpr o as  -> IntNaryExpr o (map (mapTerm f) as)
-    IntUnExpr   o l   -> IntUnExpr o (mapTerm f l)
-    IntBinPred o l r  -> IntBinPred o (mapTerm f l) (mapTerm f r)
-    BvToInt       tt  -> BvToInt (mapTerm f tt)
-    SignedBvToInt tt  -> SignedBvToInt (mapTerm f tt)
-    BoolToInt     tt  -> BoolToInt (mapTerm f tt)
-    PfToInt       tt  -> PfToInt (mapTerm f tt)
+    IntLit{}             -> t
+    IntBinExpr o l r     -> IntBinExpr o (mapTerm f l) (mapTerm f r)
+    IntNaryExpr o as     -> IntNaryExpr o (map (mapTerm f) as)
+    IntUnExpr   o l      -> IntUnExpr o (mapTerm f l)
+    IntBinPred o l r     -> IntBinPred o (mapTerm f l) (mapTerm f r)
+    BvToInt       tt     -> BvToInt (mapTerm f tt)
+    SignedBvToInt tt     -> SignedBvToInt (mapTerm f tt)
+    BoolToInt     tt     -> BoolToInt (mapTerm f tt)
+    PfToInt       tt     -> PfToInt (mapTerm f tt)
 
-    Fp64Lit{}         -> t
-    Fp32Lit{}         -> t
-    FpBinExpr o l r   -> FpBinExpr o (mapTerm f l) (mapTerm f r)
-    FpUnExpr o l      -> FpUnExpr o (mapTerm f l)
-    FpBinPred o l r   -> FpBinPred o (mapTerm f l) (mapTerm f r)
-    FpUnPred o l      -> FpUnPred o (mapTerm f l)
-    FpFma a b c       -> FpFma (mapTerm f a) (mapTerm f b) (mapTerm f c)
-    IntToFp tt        -> IntToFp (mapTerm f tt)
-    FpToFp  tt        -> FpToFp (mapTerm f tt)
-    BvToFp  tt        -> BvToFp (mapTerm f tt)
+    Fp64Lit{}            -> t
+    Fp32Lit{}            -> t
+    FpBinExpr o l r      -> FpBinExpr o (mapTerm f l) (mapTerm f r)
+    FpUnExpr o l         -> FpUnExpr o (mapTerm f l)
+    FpBinPred o l r      -> FpBinPred o (mapTerm f l) (mapTerm f r)
+    FpUnPred o l         -> FpUnPred o (mapTerm f l)
+    FpFma a b c          -> FpFma (mapTerm f a) (mapTerm f b) (mapTerm f c)
+    IntToFp tt           -> IntToFp (mapTerm f tt)
+    FpToFp  tt           -> FpToFp (mapTerm f tt)
+    BvToFp  tt           -> BvToFp (mapTerm f tt)
 
-    PfNaryExpr o as   -> PfNaryExpr o (map (mapTerm f) as)
-    PfUnExpr   o l    -> PfUnExpr o (mapTerm f l)
-    PfBinPred o l r   -> PfBinPred o (mapTerm f l) (mapTerm f r)
-    IntToPf tt        -> IntToPf (mapTerm f tt)
+    PfNaryExpr o as      -> PfNaryExpr o (map (mapTerm f) as)
+    PfUnExpr   o l       -> PfUnExpr o (mapTerm f l)
+    PfBinPred o l r      -> PfBinPred o (mapTerm f l) (mapTerm f r)
+    IntToPf tt           -> IntToPf (mapTerm f tt)
 
-    Select a k        -> Select (mapTerm f a) (mapTerm f k)
-    Store a k v       -> Store (mapTerm f a) (mapTerm f k) (mapTerm f v)
-    NewArray          -> t
+    Select a k           -> Select (mapTerm f a) (mapTerm f k)
+    Store a k v          -> Store (mapTerm f a) (mapTerm f k) (mapTerm f v)
+    NewArray             -> t
   Just s -> s
 
 
@@ -426,11 +496,19 @@ reduceTerm mapF i foldF t = case mapF t of
       foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
     BvBinPred _ l r ->
       foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
-    IntToBv tt -> reduceTerm mapF i foldF tt
-    FpToBv  tt -> reduceTerm mapF i foldF tt
+    IntToBv   tt -> reduceTerm mapF i foldF tt
+    FpToBv    tt -> reduceTerm mapF i foldF tt
+
+    StatifyBv t' -> reduceTerm mapF i foldF t'
+    BvDynBinExpr _ _ a b ->
+      foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF b)
+    BvDynBinPred _ _ a b ->
+      foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF b)
+    BvDynExtract _ _ b -> reduceTerm mapF i foldF b
+    DynamizeBv _ b     -> reduceTerm mapF i foldF b
 
 
-    IntLit{}   -> i
+    IntLit{}           -> i
     IntBinExpr _ l r ->
       foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
     IntNaryExpr _ as -> foldr foldF i (map (reduceTerm mapF i foldF) as)
@@ -589,6 +667,9 @@ valAsPf (ValPf b) = b
 valAsBv :: KnownNat n => Value (BvSort n) -> Bv.BV
 valAsBv (ValBv b) = b
 
+valAsDynBv :: Value BvDynSort -> Bv.BV
+valAsDynBv (ValDynBv b) = b
+
 valAsArray :: Value (ArraySort k v) -> Map (Value k) (Value v)
 valAsArray (ValArray b) = b
 
@@ -646,8 +727,8 @@ eval e t = case t of
       -> Term (BvSort n)
       -> Value (BvSort i)
     bvExtract env start term = ValBv $ Bv.extract
-      start
       (min (oldSize - 1) (start + newSize - 1))
+      start
       (valAsBv $ eval env term)
      where
       oldSize = fromInteger $ natVal (Proxy :: Proxy n)
@@ -656,10 +737,39 @@ eval e t = case t of
     ValBv $ bvBinFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
   BvBinPred o l r ->
     ValBool $ bvBinPredFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
-  IntToBv i      -> ValBv $ Bv.bitVec (size t) $ valAsInt $ eval e i
-  FpToBv  tt     -> ValBv $ asBits $ asRepr (eval e tt)
+  IntToBv i  -> ValBv $ Bv.bitVec (size t) $ valAsInt $ eval e i
+  FpToBv  tt -> ValBv $ asBits $ asRepr (eval e tt)
 
-  IntLit  i      -> ValInt i
+  StatifyBv t' ->
+    let inner = valAsDynBv $ eval e t'
+        SortBv width = sort t
+    in  if Bv.width inner == width
+          then ValBv inner
+          else error $ "bitwidth mis-match while evaluating " ++ show t
+  BvDynExtract s w a ->
+    let a' = valAsDynBv $ eval e a
+    in  if s + w <= Bv.width a'
+          then ValDynBv $ traceShow s $ traceShow w $ traceShow a' $ Bv.extract (s + w - 1) s a'
+          else error $ "bitwidth mis-match while evaluating " ++ show t
+  BvDynBinExpr o w a b ->
+    let a' = valAsDynBv $ eval e a
+        b' = valAsDynBv $ eval e b
+    in  if w == Bv.width a' && w == Bv.width b'
+          then ValDynBv $ bvBinFn o a' b'
+          else error $ "bitwidth mis-match while evaluating " ++ show t
+  BvDynBinPred o w a b ->
+    let a' = valAsDynBv $ eval e a
+        b' = valAsDynBv $ eval e b
+    in  if w == Bv.width a' && w == Bv.width b'
+          then ValBool $ bvBinPredFn o a' b'
+          else error $ "bitwidth mis-match while evaluating " ++ show t
+  DynamizeBv w a ->
+    let a' = valAsBv $ eval e a
+    in  if w == Bv.width a'
+          then ValDynBv a'
+          else error $ "bitwidth mis-match while evaluating " ++ show t
+
+  IntLit i       -> ValInt i
   IntUnExpr o t' -> ValInt $ intUnFn o (valAsInt $ eval e t')
   IntBinExpr o l r ->
     ValInt $ intBinFn o (valAsInt $ eval e l) (valAsInt $ eval e r)
@@ -730,38 +840,19 @@ toZ3 t = case t of
      where
       end     = start + newSize - 1
       newSize = fromInteger $ natVal (Proxy :: Proxy i)
-  BvBinExpr o l r ->
-    let f = case o of
-          BvShl  -> Z.mkBvshl
-          BvLshr -> Z.mkBvlshr
-          BvAshr -> Z.mkBvashr
-          BvUrem -> Z.mkBvurem
-          BvUdiv -> Z.mkBvudiv
-          BvAdd  -> Z.mkBvadd
-          BvMul  -> Z.mkBvmul
-          BvSub  -> Z.mkBvsub
-          BvOr   -> Z.mkBvor
-          BvAnd  -> Z.mkBvand
-          BvXor  -> Z.mkBvxor
-    in  tyBinZ3Bin f l r
-  BvBinPred o l r ->
-    let f = case o of
-          BvEq  -> Z.mkEq
-          BvNe  -> \a b -> Z.mkNot =<< Z.mkEq a b
-          BvUgt -> Z.mkBvugt
-          BvUlt -> Z.mkBvult
-          BvUge -> Z.mkBvuge
-          BvUle -> Z.mkBvule
-          BvSgt -> Z.mkBvsgt
-          BvSlt -> Z.mkBvslt
-          BvSge -> Z.mkBvsge
-          BvSle -> Z.mkBvsle
-    in  tyBinZ3Bin f l r
+  BvBinExpr o l r -> tyBinZ3Bin (bvBinOpToZ3 o) l r
+  BvBinPred o l r -> tyBinZ3Bin (bvBinPredToZ3 o) l r
   IntToBv i -> toZ3 i >>= Z.mkInt2bv (width t)
    where
     width :: forall n . KnownNat n => Term (BvSort n) -> Int
     width _ = fromInteger $ natVal (Proxy @n)
   FpToBv tt      -> toZ3 tt >>= Z.mkFpIEEEBv
+
+  DynamizeBv _ i -> toZ3 i
+  StatifyBv i -> toZ3 i
+  BvDynBinExpr o _ l r -> tyBinZ3Bin (bvBinOpToZ3 o) l r
+  BvDynBinPred o _ l r -> tyBinZ3Bin (bvBinPredToZ3 o) l r
+  BvDynExtract s w i -> (toZ3 i) >>= Z.mkExtract (w + s - 1) s
 
   IntLit i       -> Z.mkInteger i
   IntUnExpr o t' -> case o of
@@ -880,3 +971,26 @@ toZ3 t = case t of
     a' <- toZ3 a
     tyBinZ3Bin (f a') b c
   nyi x = error $ unwords ["Not yet implemented in toZ3:", show x]
+  bvBinOpToZ3 o = case o of
+          BvShl  -> Z.mkBvshl
+          BvLshr -> Z.mkBvlshr
+          BvAshr -> Z.mkBvashr
+          BvUrem -> Z.mkBvurem
+          BvUdiv -> Z.mkBvudiv
+          BvAdd  -> Z.mkBvadd
+          BvMul  -> Z.mkBvmul
+          BvSub  -> Z.mkBvsub
+          BvOr   -> Z.mkBvor
+          BvAnd  -> Z.mkBvand
+          BvXor  -> Z.mkBvxor
+  bvBinPredToZ3 o = case o of
+          BvEq  -> Z.mkEq
+          BvNe  -> \a b -> Z.mkNot =<< Z.mkEq a b
+          BvUgt -> Z.mkBvugt
+          BvUlt -> Z.mkBvult
+          BvUge -> Z.mkBvuge
+          BvUle -> Z.mkBvule
+          BvSgt -> Z.mkBvsgt
+          BvSlt -> Z.mkBvslt
+          BvSge -> Z.mkBvsge
+          BvSle -> Z.mkBvsle
