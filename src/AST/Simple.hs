@@ -34,16 +34,7 @@ data Type = U8 | S8
           deriving (Eq, Ord, Show)
 
 isIntegerType :: Type -> Bool
-isIntegerType ty = case ty of
-                     U8  -> True
-                     S8  -> True
-                     U16 -> True
-                     S16 -> True
-                     U32 -> True
-                     S32 -> True
-                     U64 -> True
-                     S64 -> True
-                     _   -> True
+isIntegerType ty = isSignedInt ty || isUnsignedInt ty
 
 makeType :: Int -> Bool -> Type
 makeType numBits isSigned =
