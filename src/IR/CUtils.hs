@@ -29,6 +29,9 @@ module IR.CUtils
   , cppAnd
   , cppOr
   , cppNot
+  -- Other
+  , cppCond
+  , cppAssign
   )
 where
 
@@ -38,7 +41,6 @@ import qualified Targets.SMT.Assert            as Assert
 import           Targets.SMT.Assert             ( Assert )
 import qualified IR.Memory                     as Mem
 import           IR.Memory                      ( Mem )
-import           Data.BitVector                as BitVector
 import           Data.Foldable                 as Fold
 
 -- data CInt = CInt { _cintSigned :: Bool
@@ -60,6 +62,21 @@ data CTermData = CInt Bool Int Bv
                | CPtr AST.Type Bv
                deriving (Show)
 
+ctermDataTy :: CTermData -> AST.Type
+ctermDataTy t = case t of
+  CInt True 8 _ -> AST.S8
+  CInt False 8 _ -> AST.U8
+  CInt True 16 _ -> AST.S16
+  CInt False 16 _ -> AST.U16
+  CInt True 32 _ -> AST.S32
+  CInt False 32 _ -> AST.U32
+  CInt True 64 _ -> AST.S64
+  CInt False 64 _ -> AST.U64
+  CInt _ w _ -> error $ unwords ["Invalid int width:", show w]
+  CBool {} -> AST.Bool
+  CDouble {} -> AST.Double
+  CPtr ty _ -> ty
+
 asDouble :: CTermData -> Ty.TermDouble
 asDouble (CDouble d) = d
 asDouble t           = error $ unwords [show t, "is not a double"]
@@ -68,15 +85,16 @@ asInt :: CTermData -> (Bool, Int, Bv)
 asInt (CInt s w i) = (s, w, i)
 asInt t            = error $ unwords [show t, "is not an integer"]
 
+asBool :: CTermData -> Ty.TermBool
+asBool (CBool b) = b
+asBool t            = error $ unwords [show t, "is not a boolean"]
+
 data CTerm = CTerm { term :: CTermData
                    , udef :: Ty.TermBool
                    }
                    deriving (Show)
 
 instance Bitable CTermData where
-
-assign :: CTerm -> CTerm -> Assert ()
-assign a b = undefined
 
 
 nyi :: String -> a
@@ -94,7 +112,7 @@ newVar ty name = do
       CInt (AST.isSignedInt ty) (AST.numBits ty)
         <$> Assert.newVar name (Ty.SortBv $ AST.numBits ty)
     AST.Double    -> CDouble <$> Assert.newVar name Ty.sortDouble
-    AST.Ptr32 iTy -> CPtr ty <$> Assert.newVar name (Ty.SortBv 32)
+    AST.Ptr32 _   -> CPtr ty <$> Assert.newVar name (Ty.SortBv 32)
     _             -> nyi $ "newVar for type " ++ show ty
   return $ CTerm t u
 
@@ -106,8 +124,6 @@ cppLoad ty addr udef' =
 -- TODO: shadow memory
 cppStore :: Bv -> CTerm -> Ty.TermBool -> Mem ()
 cppStore addr val guard = Mem.memStore addr (serialize $ term val) (Just guard)
-
--- intOp :: (Bv -> Bv -> Bv) -> 
 
 intResize :: Bool -> Int -> Bv -> Bv
 intResize fromSign toWidth from =
@@ -314,16 +330,49 @@ cppCast toTy node = case term node of
       (udef node)
     else if toTy == AST.Bool
       then CTerm (CBool $ Ty.FpBinPred Ty.FpEq (Ty.Fp64Lit 0.0) t) (udef node)
-      else error $ unwords ["Bad cast from", show t, "to", show toTy]
+      else if AST.isDouble toTy
+        then node
+        else error $ unwords ["Bad cast from", show t, "to", show toTy]
   CPtr _ t -> if AST.isIntegerType toTy
     then cppCast toTy $ CTerm (CInt False (Ty.dynBvWidth t) t) (udef node)
     else if AST.isPointer toTy
+      -- TODO: Not quite right: widths
       then node
       else error $ unwords ["Bad cast from", show t, "to", show toTy]
  where
   boolToBv :: Ty.TermBool -> Int -> Bv
   boolToBv b w = Ty.Ite b (Mem.bvNum False w 1) (Mem.bvNum False w 0)
 
+cppCond :: CTerm
+        -> CTerm
+        -> CTerm
+        -> CTerm
+cppCond cond t f = let
+  condB = asBool $ term $ cppCast AST.Bool cond
+  result = case (term t, term f) of
+    (CBool tB, CBool fB) -> CBool $ Ty.Ite condB tB fB
+    (CDouble tB, CDouble fB) -> CDouble $ Ty.Ite condB tB fB
+    (CPtr tTy tB, CPtr fTy fB) | tTy == fTy -> CPtr tTy $ Ty.Ite condB tB fB
+    (CInt s w i, CInt s' w' i') ->
+      let sign = s && s'
+          width = max w w'
+      in  CInt sign width $ Ty.Ite condB (intResize s width i) (intResize s' width i')
+    _ -> error $ unwords ["Cannot construct conditional with", show t, "and", show f]
+  in CTerm result (Ty.BoolNaryExpr Ty.Or [udef cond, udef t, udef f])
+
+
+cppAssign :: CTerm
+          -> CTerm
+          -> Assert CTerm
+cppAssign l r = let
+  r' = cppCast (ctermDataTy $ term l) r
+  op = case (term l, term r') of
+    (CBool lB, CBool rB) -> Assert.assign lB rB
+    (CDouble lB, CDouble rB) -> Assert.assign lB rB
+    (CInt _ _ lB, CInt _ _ rB) -> Assert.assign lB rB
+    (CPtr lTy lB, CPtr rTy rB) | lTy == rTy -> Assert.assign lB rB
+    _ -> error "Invalid cppAssign terms, post-cast"
+  in op *> pure r'
 
 doubleton :: a -> a -> [a]
 doubleton x y = [x, y]

@@ -107,4 +107,3 @@ genEvalTest name ctx t v' = benchTestCase ("eval test: " ++ name) $ do
     ++ "\nbut it evaluated to\n\t"
     ++ show v
     ++ "\n"
-  return ()
