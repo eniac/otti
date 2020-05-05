@@ -134,14 +134,14 @@ cppWrapBinArith
   -> (Ty.TermDouble -> Ty.TermDouble -> Ty.TermDouble)
   -- Undef function, takes sign and Bv term for each argument
   -> Maybe (Bool -> Bv -> Bool -> Bv -> Maybe Ty.TermBool)
-  -> Bool -- ^ allow pointer on the left
-  -> Bool -- ^ allow pointer on the right
+  -> Bool -- ^ is plus
+  -> Bool -- ^ is minus
   -> Bool -- ^ allow double
   -> Bool -- ^ make width the max of the two (alternative: the left)
   -> CTerm
   -> CTerm
   -> CTerm
-cppWrapBinArith name bvF doubleF ubF allowPleft allowPright allowDouble mergeWidths a b = convert
+cppWrapBinArith name bvF doubleF ubF isAdd isSub allowDouble mergeWidths a b = convert
   (integralPromotion a)
   (integralPromotion b)
  where
@@ -170,10 +170,13 @@ cppWrapBinArith name bvF doubleF ubF allowPleft allowPright allowDouble mergeWid
           if allowDouble
           then (CDouble $ doubleF d $ asDouble $ term $ cppCast AST.Double b, Nothing)
           else cannot "a double"
-        (CPtr ty addr, CInt s _ i) -> if allowPleft
+        (CPtr ty addr, CInt s _ i) -> if isAdd || isSub
           then (CPtr ty $ cppPtrPlusInt ty addr s i, Nothing)
           else cannot "a pointer on the left"
-        (CInt s _ i, CPtr ty addr) -> if allowPright
+        (CPtr ty addr, CPtr ty' addr') -> if isSub && ty == ty'
+          then (CPtr ty (bvF addr addr'), ubF >>= (\f -> f True addr True addr'))
+          else cannot "two pointers, or two pointers of different types"
+        (CInt s _ i, CPtr ty addr) -> if isAdd
           then (CPtr ty $ cppPtrPlusInt ty addr s i, Nothing)
           else cannot "a pointer on the right"
         -- Ptr diff
@@ -188,9 +191,9 @@ cppWrapBinArith name bvF doubleF ubF allowPleft allowPright allowDouble mergeWid
     in  CTerm t pUdef
 
 cppBitOr, cppBitXor, cppBitAnd, cppSub, cppMul, cppAdd, cppMin, cppMax, cppDiv, cppRem, cppShl, cppShr:: CTerm -> CTerm -> CTerm
-cppAdd = cppWrapBinArith "+" (Ty.mkDynBvBinExpr Ty.BvAdd) (Ty.FpBinExpr Ty.FpAdd) (Just overflow) True True True True
+cppAdd = cppWrapBinArith "+" (Ty.mkDynBvBinExpr Ty.BvAdd) (Ty.FpBinExpr Ty.FpAdd) (Just overflow) True False True True
  where overflow s i s' i' = if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSaddo i i' else Nothing
-cppSub = cppWrapBinArith "-" (Ty.mkDynBvBinExpr Ty.BvSub) (Ty.FpBinExpr Ty.FpSub) (Just overflow) True False True True
+cppSub = cppWrapBinArith "-" (Ty.mkDynBvBinExpr Ty.BvSub) (Ty.FpBinExpr Ty.FpSub) (Just overflow) False True True True
  where overflow s i s' i' = if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSsubo i i' else Nothing
 cppMul = cppWrapBinArith "*" (Ty.mkDynBvBinExpr Ty.BvMul) (Ty.FpBinExpr Ty.FpMul) (Just overflow) False False True True
  where overflow s i s' i' = if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSmulo i i' else Nothing
