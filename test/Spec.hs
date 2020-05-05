@@ -3,6 +3,7 @@ import           Codegen.CTest
 import           Codegen.SMTGenTest
 import           IR.SMTTest
 import           IR.TySmtTest
+import           IR.MemoryTest
 import           Parser.CTest
 import           Targets.SMT
 import           Targets.SMTTest
@@ -18,6 +19,7 @@ allTests = [ -- parserTests
             cTests
            -- , codegenTests
            , tySmtTests
+           , memoryTest
            ]
 
 main :: IO ()

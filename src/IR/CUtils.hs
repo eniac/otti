@@ -6,8 +6,29 @@ module IR.CUtils
   , CTermData(..)
   , Bitable(..)
   , newVar
+  -- Memory Operations
   , cppLoad
   , cppStore
+  -- Arith Operations
+  , cppBitOr
+  , cppBitXor
+  , cppBitNot
+  , cppBitAnd
+  , cppSub
+  , cppMul
+  , cppAdd
+  , cppMin
+  , cppMax
+  , cppDiv
+  , cppRem
+  , cppPos
+  , cppNeg
+  , cppShl
+  , cppShr
+  -- Logical Operations
+  , cppAnd
+  , cppOr
+  , cppNot
   )
 where
 
@@ -88,9 +109,6 @@ cppStore addr val guard = Mem.memStore addr (serialize $ term val) (Just guard)
 
 -- intOp :: (Bv -> Bv -> Bv) -> 
 
-boolToBv :: Ty.TermBool -> Int -> Bv
-boolToBv b w = Ty.Ite b (Mem.bvNum False w 1) (Mem.bvNum False w 0)
-
 intResize :: Bool -> Int -> Bv -> Bv
 intResize fromSign toWidth from =
   let fromWidth = Ty.dynBvWidth from
@@ -99,30 +117,6 @@ intResize fromSign toWidth from =
           (if fromSign then Ty.mkDynBvSext else Ty.mkDynBvUext) toWidth from
         EQ -> from
         GT -> Ty.mkDynBvExtract 0 toWidth from
-
--- | C++ unary negation---meaning 5 becomes -5. This is not a bitwise negation
-cppNeg :: CTerm -> CTerm
-cppNeg node =
-  let t' = case term node of
-        CDouble d  -> CDouble (Ty.FpUnExpr Ty.FpNeg d)
-        -- bools cast to 32b under arith.
-        CBool   _  -> term $ cppNeg $ cppCast node AST.S32
-        CInt s w t -> CInt s w (Ty.mkDynBvUnExpr Ty.BvNeg t)
-        CPtr ty t  -> CPtr ty (Ty.mkDynBvUnExpr Ty.BvNeg t)
-  in  CTerm t' (udef node)
-
--- Returns the address
-cppPtrPlusInt :: AST.Type -> Bv -> Bool -> Bv -> Bv
-cppPtrPlusInt pTy ptr signed int =
-  Ty.mkDynBvBinExpr Ty.BvAdd ptr
-    $ intResize signed (AST.numBits pTy)
-    $ Ty.mkDynBvBinExpr
-        Ty.BvMul
-        (Mem.bvNum False
-                   (Ty.dynBvWidth int)
-                   (fromIntegral $ AST.numBits $ AST.pointeeType pTy)
-        )
-        int
 
 
 -- This is not quite right, but it's a reasonable approximation of C++ arithmetic.
@@ -139,28 +133,42 @@ cppWrapBinArith
   -> (Bv -> Bv -> Bv)
   -> (Ty.TermDouble -> Ty.TermDouble -> Ty.TermDouble)
   -- Undef function, takes sign and Bv term for each argument
-  -> Maybe (Bool -> Bv -> Bv -> Maybe Ty.TermBool)
-  -> Bool
-  -> Bool
-  -> Bool
+  -> Maybe (Bool -> Bv -> Bool -> Bv -> Maybe Ty.TermBool)
+  -> Bool -- ^ allow pointer on the left
+  -> Bool -- ^ allow pointer on the right
+  -> Bool -- ^ allow double
+  -> Bool -- ^ make width the max of the two (alternative: the left)
   -> CTerm
   -> CTerm
   -> CTerm
-cppWrapBinArith name bvF doubleF ubF allowPleft allowPright allowDouble a b = convert
+cppWrapBinArith name bvF doubleF ubF allowPleft allowPright allowDouble mergeWidths a b = convert
   (integralPromotion a)
   (integralPromotion b)
  where
   convert a b =
     let
       cannot with = error $ unwords ["Cannot do", name, "with", with]
+
+      cppPtrPlusInt :: AST.Type -> Bv -> Bool -> Bv -> Bv
+      cppPtrPlusInt pTy ptr signed int =
+        Ty.mkDynBvBinExpr Ty.BvAdd ptr
+          $ intResize signed (AST.numBits pTy)
+          $ Ty.mkDynBvBinExpr
+              Ty.BvMul
+              (Mem.bvNum False
+                         (Ty.dynBvWidth int)
+                         (fromIntegral $ AST.numBits $ AST.pointeeType pTy)
+              )
+              int
+
       (t, u) = case (term a, term b) of
         (CDouble d, _) ->
           if allowDouble
-          then (CDouble $ doubleF d $ asDouble $ term $ cppCast b AST.Double, Nothing)
+          then (CDouble $ doubleF d $ asDouble $ term $ cppCast AST.Double b, Nothing)
           else cannot "a double"
         (_, CDouble d) ->
           if allowDouble
-          then (CDouble $ doubleF d $ asDouble $ term $ cppCast b AST.Double, Nothing)
+          then (CDouble $ doubleF d $ asDouble $ term $ cppCast AST.Double b, Nothing)
           else cannot "a double"
         (CPtr ty addr, CInt s _ i) -> if allowPleft
           then (CPtr ty $ cppPtrPlusInt ty addr s i, Nothing)
@@ -168,38 +176,101 @@ cppWrapBinArith name bvF doubleF ubF allowPleft allowPright allowDouble a b = co
         (CInt s _ i, CPtr ty addr) -> if allowPright
           then (CPtr ty $ cppPtrPlusInt ty addr s i, Nothing)
           else cannot "a pointer on the right"
+        -- Ptr diff
         (CInt s w i, CInt s' w' i') ->
-          let width = max w w'
+          let width = if mergeWidths then max w w' else w
               sign  = max s s'
           in  (CInt sign width
                 $ bvF (intResize s width i) (intResize s' width i')
-                , ubF >>= (\f -> f (s && s') i i'))
+                , ubF >>= (\f -> f s i s' i'))
         (_, _) -> cannot $ unwords [show a, "and", show b]
       pUdef = Ty.BoolNaryExpr Ty.Or (udef a : udef b : Fold.toList u)
     in  CTerm t pUdef
 
-cppBitOr, cppBitXor, cppBitAnd, cppSub, cppMul, cppAdd, cppMin, cppMax, cppDiv, cppRem :: CTerm -> CTerm -> CTerm
-cppAdd = cppWrapBinArith "+" (Ty.mkDynBvBinExpr Ty.BvAdd) (Ty.FpBinExpr Ty.FpAdd) Nothing True True True
-cppSub = cppWrapBinArith "-" (Ty.mkDynBvBinExpr Ty.BvSub) (Ty.FpBinExpr Ty.FpSub) Nothing True False True
-cppMul = cppWrapBinArith "*" (Ty.mkDynBvBinExpr Ty.BvMul) (Ty.FpBinExpr Ty.FpMul) Nothing False False True
-cppDiv = cppWrapBinArith "/" (Ty.mkDynBvBinExpr Ty.BvUdiv) (Ty.FpBinExpr Ty.FpDiv) Nothing False False True
--- CPP reference says that % requires integral arguments
-cppRem = cppWrapBinArith "%" (Ty.mkDynBvBinExpr Ty.BvUrem) (Ty.FpBinExpr Ty.FpRem) Nothing False False False
+cppBitOr, cppBitXor, cppBitAnd, cppSub, cppMul, cppAdd, cppMin, cppMax, cppDiv, cppRem, cppShl, cppShr:: CTerm -> CTerm -> CTerm
+cppAdd = cppWrapBinArith "+" (Ty.mkDynBvBinExpr Ty.BvAdd) (Ty.FpBinExpr Ty.FpAdd) (Just overflow) True True True True
+ where overflow s i s' i' = if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSaddo i i' else Nothing
+cppSub = cppWrapBinArith "-" (Ty.mkDynBvBinExpr Ty.BvSub) (Ty.FpBinExpr Ty.FpSub) (Just overflow) True False True True
+ where overflow s i s' i' = if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSsubo i i' else Nothing
+cppMul = cppWrapBinArith "*" (Ty.mkDynBvBinExpr Ty.BvMul) (Ty.FpBinExpr Ty.FpMul) (Just overflow) False False True True
+ where overflow s i s' i' = if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSmulo i i' else Nothing
+-- TODO: div overflow
+cppDiv = cppWrapBinArith "/" (Ty.mkDynBvBinExpr Ty.BvUdiv) (Ty.FpBinExpr Ty.FpDiv) Nothing False False True True
+-- TODO: CPP reference says that % requires integral arguments
+cppRem = cppWrapBinArith "%" (Ty.mkDynBvBinExpr Ty.BvUrem) (Ty.FpBinExpr Ty.FpRem) Nothing False False False True
 cppMin = undefined
 cppMax = undefined
-cppBitOr = cppWrapBinArith "|" (Ty.mkDynBvBinExpr Ty.BvOr) (const $ const $ error "no fp |") Nothing False False False
-cppBitAnd = cppWrapBinArith "&" (Ty.mkDynBvBinExpr Ty.BvAnd) (const $ const $ error "no fp &") Nothing False False False
-cppBitXor = cppWrapBinArith "^" (Ty.mkDynBvBinExpr Ty.BvXor) (const $ const $ error "no fp ^") Nothing False False False
+cppBitOr = cppWrapBinArith "|" (Ty.mkDynBvBinExpr Ty.BvOr) (const $ const $ error "no fp |") Nothing False False False True
+cppBitAnd = cppWrapBinArith "&" (Ty.mkDynBvBinExpr Ty.BvAnd) (const $ const $ error "no fp &") Nothing False False False True
+cppBitXor = cppWrapBinArith "^" (Ty.mkDynBvBinExpr Ty.BvXor) (const $ const $ error "no fp ^") Nothing False False False True
+-- Not quite right, since we're gonna force these to be equal in size
+cppShl = cppWrapBinArith "<<" (Ty.mkDynBvBinExpr Ty.BvShl) (Ty.FpBinExpr Ty.FpAdd) (Just overflow) True True True True
+ where
+   overflow s i s' i' =
+     let baseNonNeg = [Ty.mkDynBvBinPred Ty.BvSlt (Mem.bvNum True (Ty.dynBvWidth i) 0) i | s]
+         shftNonNeg = [Ty.mkDynBvBinPred Ty.BvSlt (Mem.bvNum True (Ty.dynBvWidth i') 0) i' | s']
+         shftSmall = [Ty.mkDynBvBinPred Ty.BvSge (Mem.bvNum True (Ty.dynBvWidth i') (fromIntegral $ Ty.dynBvWidth i)) i']
+     in  Just $ Ty.BoolNaryExpr Ty.Or $ baseNonNeg ++ shftNonNeg ++ shftSmall
+-- Not quite right, since we're gonna force these to be equal in size
+cppShr = cppWrapBinArith ">>" (Ty.mkDynBvBinExpr Ty.BvAshr) (Ty.FpBinExpr Ty.FpAdd) (Just overflow) True True True True
+ where
+   overflow _s i s' i' =
+     let shftNonNeg = [Ty.mkDynBvBinPred Ty.BvSlt (Mem.bvNum True (Ty.dynBvWidth i') 0) i' | s']
+         shftSmall = [Ty.mkDynBvBinPred Ty.BvSge (Mem.bvNum True (Ty.dynBvWidth i') (fromIntegral $ Ty.dynBvWidth i)) i']
+     in  Just $ Ty.BoolNaryExpr Ty.Or $ shftNonNeg ++ shftSmall
+
+cppWrapUnArith
+  :: String
+  -> (Bv -> Bv)
+  -> (Ty.TermDouble -> Ty.TermDouble)
+  -> CTerm
+  -> CTerm
+cppWrapUnArith name bvF doubleF a =
+  let t = case term $ integralPromotion a of
+             CDouble d -> CDouble $ doubleF d
+             CInt _ w i -> CInt True w $ bvF i
+             _ -> error $ unwords ["Cannot do", name, "on", show a]
+  in  CTerm t (udef a)
+
+cppPos, cppNeg, cppBitNot :: CTerm -> CTerm
+cppPos = cppWrapUnArith "unary +" id id
+cppNeg = cppWrapUnArith "unary -" (Ty.mkDynBvUnExpr Ty.BvNeg) (Ty.FpUnExpr Ty.FpNeg)
+cppBitNot = cppWrapUnArith "~" (Ty.mkDynBvUnExpr Ty.BvNot) (Ty.FpUnExpr Ty.FpNeg)
+
+cppWrapBinLogical
+  :: String
+  -> (Ty.TermBool -> Ty.TermBool -> Ty.TermBool)
+  -> CTerm
+  -> CTerm
+  -> CTerm
+cppWrapBinLogical name f a b = case (term $ cppCast AST.Bool a, term $ cppCast AST.Bool b) of
+  (CBool a', CBool b') -> CTerm (CBool $ f a' b') (Ty.BoolNaryExpr Ty.Or [udef a , udef b ])
+  _ -> error $ unwords ["Cannot do", name, "on", show a, "and", show b]
+cppOr, cppAnd :: CTerm -> CTerm -> CTerm
+cppOr = cppWrapBinLogical "||" (((.) . (.)) (Ty.BoolNaryExpr Ty.Or) doubleton)
+cppAnd = cppWrapBinLogical "&&" (((.) . (.)) (Ty.BoolNaryExpr Ty.And) doubleton)
+
+cppWrapUnLogical
+  :: String
+  -> (Ty.TermBool -> Ty.TermBool)
+  -> CTerm
+  -> CTerm
+cppWrapUnLogical name f a = case term $ cppCast AST.Bool a of
+  CBool a' -> CTerm (CBool $ f a') (udef a)
+  _ -> error $ unwords ["Cannot do", name, "on", show a]
+
+cppNot :: CTerm -> CTerm
+cppNot = cppWrapUnLogical "!" Ty.Not
 
 -- Promote integral types
 -- Do not mess with pointers
 integralPromotion :: CTerm -> CTerm
 integralPromotion n = case term n of
-  CBool{} -> cppCast n AST.S32
+  CBool{} -> cppCast AST.S32 n
   _       -> n
 
-cppCast :: CTerm -> AST.Type -> CTerm
-cppCast node toTy = case term node of
+cppCast :: AST.Type -> CTerm -> CTerm
+cppCast toTy node = case term node of
   CBool t -> if AST.isIntegerType toTy
     then
       let width = AST.numBits toTy
@@ -211,7 +282,7 @@ cppCast node toTy = case term node of
             cptr  = CPtr (AST.pointeeType toTy) (boolToBv t width)
         in  CTerm cptr (udef node)
       else if AST.isDouble toTy
-        then CTerm (CDouble $ (Ty.DynUbvToFp (boolToBv t 1))) (udef node)
+        then CTerm (CDouble $ Ty.DynUbvToFp $ boolToBv t 1) (udef node)
         else if toTy == AST.Bool
           then node
           else error $ unwords ["Bad cast from", show t, "to", show toTy]
@@ -242,7 +313,14 @@ cppCast node toTy = case term node of
       then CTerm (CBool $ Ty.FpBinPred Ty.FpEq (Ty.Fp64Lit 0.0) t) (udef node)
       else error $ unwords ["Bad cast from", show t, "to", show toTy]
   CPtr _ t -> if AST.isIntegerType toTy
-    then cppCast (CTerm (CInt False (Ty.dynBvWidth t) t) (udef node)) toTy
+    then cppCast toTy $ CTerm (CInt False (Ty.dynBvWidth t) t) (udef node)
     else if AST.isPointer toTy
       then node
       else error $ unwords ["Bad cast from", show t, "to", show toTy]
+ where
+  boolToBv :: Ty.TermBool -> Int -> Bv
+  boolToBv b w = Ty.Ite b (Mem.bvNum False w 1) (Mem.bvNum False w 0)
+
+
+doubleton :: a -> a -> [a]
+doubleton x y = [x, y]

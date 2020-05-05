@@ -276,6 +276,9 @@ data BvBinPred = BvUgt
                | BvSlt
                | BvSge
                | BvSle
+               | BvSaddo
+               | BvSsubo
+               | BvSmulo
                deriving (Show, Ord, Eq, Typeable)
 
 data PfNaryOp = PfAdd | PfMul deriving (Show, Ord, Eq, Typeable)
@@ -751,6 +754,18 @@ bvBinPredFn op = case op of
   BvSge -> Bv.sge
   BvSlt -> Bv.slt
   BvSle -> Bv.sle
+  BvSaddo -> \a b -> let
+    s = Bv.size a
+    v = Bv.int a + Bv.int b
+    in v < -2 ^ (s - 1) || 2 ^ (s - 1) - 1 < v
+  BvSsubo -> \a b -> let
+    s = Bv.size a
+    v = Bv.int a - Bv.int b
+    in v < -2 ^ (s - 1) || 2 ^ (s - 1) - 1 < v
+  BvSmulo -> \a b -> let
+    s = Bv.size a
+    v = Bv.int a * Bv.int b
+    in v < -2 ^ (s - 1) || 2 ^ (s - 1) - 1 < v
 
 valAsBool :: Value BoolSort -> Bool
 valAsBool (ValBool b) = b
@@ -1134,3 +1149,16 @@ toZ3 t = case t of
           BvSlt -> Z.mkBvslt
           BvSge -> Z.mkBvsge
           BvSle -> Z.mkBvsle
+          -- TODO: underflow?
+          BvSaddo -> \a b -> do
+            x <- Z.mkBvaddNoOverflow a b True
+            y <- Z.mkBvaddNoUnderflow a b
+            Z.mkAnd [x, y] >>= Z.mkNot
+          BvSsubo -> \a b -> do
+            x <- Z.mkBvsubNoOverflow a b
+            y <- Z.mkBvsubNoUnderflow a b
+            Z.mkAnd [x, y] >>= Z.mkNot
+          BvSmulo -> \a b -> do
+            x <- Z.mkBvmulNoOverflow a b True
+            y <- Z.mkBvmulNoUnderflow a b
+            Z.mkAnd [x, y] >>= Z.mkNot
