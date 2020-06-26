@@ -4,6 +4,7 @@ import           Codegen.SMTGenTest
 import           IR.SMTTest
 import           IR.TySmtTest
 import           IR.MemoryTest
+import           IR.CUtilsTest
 import           Parser.CTest
 import           Targets.SMT
 import           Targets.SMTTest
@@ -13,10 +14,11 @@ parserTests :: BenchTest
 parserTests = benchTestGroup "Parser tests" [ cParserTests ]
 
 allTests :: [BenchTest]
-allTests = [ -- parserTests
+allTests = [ cutilsTest
+           -- , parserTests
            -- , smtTests
            -- , irTests
-            cTests
+           -- , cTests
            -- , codegenTests
            , tySmtTests
            , memoryTest

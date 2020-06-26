@@ -566,7 +566,7 @@ cppCond cond t f =
       (CDouble tB, CDouble fB)                -> CDouble $ Ty.Ite condB tB fB
       (CPtr tTy tB, CPtr fTy fB) | tTy == fTy -> CPtr tTy $ Ty.Ite condB tB fB
       (CInt s w i, CInt s' w' i') ->
-        let sign  = s && s'
+        let sign  = s && s' -- Not really sure is this is correct b/c of ranks.
             width = max w w'
         in  CInt sign width
               $ Ty.Ite condB (intResize s width i) (intResize s' width i')

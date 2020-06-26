@@ -17,6 +17,7 @@ import qualified IR.TySmt                      as Ty
 data AssertState = AssertState { vars         :: M.Map String Dyn.Dynamic
                          , asserted     :: [Ty.Term Ty.BoolSort]
                          }
+                         deriving (Show)
 
 newtype Assert a = Assert (StateT AssertState IO a)
     deriving (Functor, Applicative, Monad, MonadState AssertState, MonadIO)
