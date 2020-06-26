@@ -69,7 +69,7 @@ evalLVal location = case location of
 genLValueSMT :: (Show a) => CExpression a -> Compiler CLVal
 genLValueSMT expr = case expr of
   CVar (Ident name _ _) _ -> return $ CLVar name
-  CUnary CIndOp addr _    -> fmap CLAddr $ genExprSMT addr
+  CUnary CIndOp addr _    -> CLAddr <$> genExprSMT addr
   CIndex base   idx  _    -> do
     base' <- genExprSMT base
     idx'  <- genExprSMT idx
@@ -137,23 +137,23 @@ getUnaryOp op arg = case op of
     lval <- genLValueSMT arg
     rval <- evalLVal lval
     genAssign lval (cppSub (cppIntLit (cppType rval) 1) rval)
-    return $ rval
+    return rval
   CPostDecOp -> do
     lval <- genLValueSMT arg
     rval <- evalLVal lval
     genAssign lval (cppSub (cppIntLit (cppType rval) 1) rval)
-    return $ rval
+    return rval
   -- CAdrOp ->
   -- The '*' operation
   CIndOp -> do
     arg <- genExprSMT arg
     liftMem $ cppLoad arg
-  CPlusOp -> error $ unwords $ ["Do not understand:", show op]
-  CMinOp  -> cppNeg `fmap` genExprSMT arg
+  CPlusOp -> error $ unwords ["Do not understand:", show op]
+  CMinOp  -> cppNeg <$> genExprSMT arg
   -- One's complement: NOT CORRECT
-  CCompOp -> cppBitNot `fmap` genExprSMT arg
+  CCompOp -> cppBitNot <$> genExprSMT arg
   -- Logical negation: NOT CORRECT
-  CNegOp  -> cppNot `fmap` genExprSMT arg
+  CNegOp  -> cppNot <$> genExprSMT arg
   _       -> error $ unwords [show op, "not supported"]
 
 getBinOp :: CBinaryOp -> CTerm -> CTerm -> Compiler CTerm
