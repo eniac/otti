@@ -57,6 +57,7 @@ module IR.TySmt
   , mkDynBvBinExpr
   , mkDynBvConcat
   , mkDynBvBinPred
+  , mkDynBvEq
   , mkDynamizeBv
   , mkStatifyBv
   , mkDynBvUnExpr
@@ -446,6 +447,12 @@ mkDynBvSext w a = if w >= (dynBvWidth a) then DynBvSext w a else error "sext shr
 
 mkDynBvUext :: Int -> TermDynBv -> TermDynBv
 mkDynBvUext w a = if w >= (dynBvWidth a) then DynBvUext w a else error "uext shrink!"
+
+mkDynBvEq :: TermDynBv -> TermDynBv -> TermBool
+mkDynBvEq a b =
+  let aw = dynBvWidth a
+      bw = dynBvWidth b
+  in  if aw == bw then Eq a b else widthErr (Eq a b) (Just "the second width") aw bw
 
 dynBvWidth :: TermDynBv -> Int
 dynBvWidth t = case t of

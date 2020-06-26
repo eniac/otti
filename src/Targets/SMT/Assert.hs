@@ -43,6 +43,9 @@ assert a = modify (\s -> s { asserted = a : asserted s })
 assign :: Ty.SortClass s => Ty.Term s -> Ty.Term s -> Assert ()
 assign a b = assert $ Ty.Eq a b
 
+implies :: Ty.Term Ty.BoolSort -> Ty.Term Ty.BoolSort -> Assert ()
+implies a b = assert $ Ty.BoolBinExpr Ty.Implies a b
+
 -- REMOVE
 -- getVars :: Assert (M.Map String Dyn.Dynamic)
 -- getVars = vars `liftM` get
