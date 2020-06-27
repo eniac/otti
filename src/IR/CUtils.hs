@@ -67,7 +67,6 @@ import qualified Targets.SMT.Assert            as Assert
 import           Targets.SMT.Assert             ( Assert )
 import qualified IR.Memory                     as Mem
 import           IR.Memory                      ( Mem )
-import qualified Data.BitVector                as Bv
 import           Data.Foldable                 as Fold
 import           Control.Monad
 
@@ -140,6 +139,8 @@ instance Bitable CTermData where
   deserialize ty bv = case ty of
     t | AST.isIntegerType t -> CInt (AST.isSignedInt t) (AST.numBits t) bv
     AST.Double              -> CDouble $ Ty.BvToFp $ Ty.mkStatifyBv @64 bv
+    AST.Bool                -> CBool $ Ty.mkDynBvEq bv (Mem.bvNum False 1 1)
+    AST.Ptr32 _             -> CPtr ty bv
     _                       -> error $ unwords ["Cannot deserialize", show ty]
 
 

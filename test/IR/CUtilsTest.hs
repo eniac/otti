@@ -51,7 +51,7 @@ cutilsTest = benchTestGroup
       b <- Mem.liftAssert $ newVar AST.Bool "my_bool"
       return $ cppCond b u i
     AST.U8 @=? cppType a
-  , benchTestCase "cppStore + cppLoad preserves type and size" $ do
+  , benchTestCase "cppStore + cppLoad preserves type and size of u8" $ do
     a <- Assert.evalAssert $ Mem.evalMem $ do
       Mem.initMem
       u <- Mem.liftAssert $ newVar AST.U8 "my_u8"
@@ -62,4 +62,15 @@ cutilsTest = benchTestGroup
     let (_, w, bv) = asInt $ term a
     Ty.SortBv w @=? Ty.sort bv
     AST.U8 @=? cppType a
+  , benchTestCase "cppStore + cppLoad preserves type and size of *u8" $ do
+    a <- Assert.evalAssert $ Mem.evalMem $ do
+      Mem.initMem
+      u <- Mem.liftAssert $ newVar (AST.Ptr32 AST.U8) "my_u8_ptr"
+      p <- Mem.liftAssert $ newVar (AST.Ptr32 (AST.Ptr32 AST.U8)) "my_u8_ptr_ptr"
+      _ <- Mem.liftAssert $ cppAssign p (cppIntLit AST.U32 0)
+      _ <- cppStore p u (Ty.BoolLit True)
+      cppLoad p
+    print a
+    Ty.SortBv 32 @=? Ty.sort (snd $ asPtr $ term a)
+    (AST.Ptr32 AST.U8) @=? cppType a
   ]
