@@ -1,5 +1,7 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE DataKinds #-}
 
 module IR.CUtils
   ( CTerm(..)
@@ -41,6 +43,7 @@ module IR.CUtils
   , cppAssign
   , cppAssignment
   , cppCast
+  , cppBool
   -- Consts
   , cppTrue
   , cppFalse
@@ -51,7 +54,10 @@ module IR.CUtils
   -- Reflection
   , cppType
   -- Utilities
-  , cppBool
+  , asBool
+  , asInt
+  , asPtr
+  , asDouble
   )
 where
 
@@ -61,6 +67,7 @@ import qualified Targets.SMT.Assert            as Assert
 import           Targets.SMT.Assert             ( Assert )
 import qualified IR.Memory                     as Mem
 import           IR.Memory                      ( Mem )
+import qualified Data.BitVector                as Bv
 import           Data.Foldable                 as Fold
 import           Control.Monad
 
@@ -120,6 +127,22 @@ data CTerm = CTerm { term :: CTermData
                    deriving (Show)
 
 instance Bitable CTermData where
+  nbits c = case c of
+    CBool{}    -> 1
+    CInt _ w _ -> w
+    CDouble{}  -> 64
+    CPtr ty _  -> AST.numBits ty
+  serialize c = case c of
+    CBool b     -> Ty.Ite b (Mem.bvNum False 1 1) (Mem.bvNum False 1 0)
+    CInt _ _ bv -> bv
+    CDouble d   -> Ty.mkDynamizeBv $ Ty.FpToBv d
+    CPtr _ bv   -> bv
+  deserialize ty bv = case ty of
+    t | AST.isIntegerType t -> CInt (AST.isSignedInt t) (AST.numBits t) bv
+    AST.Double              -> CDouble $ Ty.BvToFp $ Ty.mkStatifyBv @64 bv
+    _                       -> error $ unwords ["Cannot deserialize", show ty]
+
+
 
 cppType :: CTerm -> AST.Type
 cppType = ctermDataTy . term
@@ -156,8 +179,9 @@ cppIntLit t v =
 cppLoad :: CTerm -> Mem CTerm
 cppLoad ptr =
   let (ty, addr) = asPtr (term ptr)
-  in  flip CTerm (udef ptr) . deserialize ty <$> Mem.memLoad addr
-                                                             (AST.numBits ty)
+  in  flip CTerm (udef ptr) . deserialize (AST.pointeeType ty) <$> Mem.memLoad
+        addr
+        (AST.numBits $ AST.pointeeType ty)
 
 -- TODO: shadow memory
 cppStore :: CTerm -> CTerm -> Ty.TermBool -> Mem ()
