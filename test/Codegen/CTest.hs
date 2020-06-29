@@ -21,7 +21,7 @@ basicTest = benchTestCase "basic" $ do
     Right tu -> do
       assertions <- execAssert $ evalCodegen Nothing $ codegenC tu
       print ""
-      print assertions
+      print $ asserted assertions
 --
 --featuresTest :: BenchTest
 --featuresTest = benchTestCase "features" $ do

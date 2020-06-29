@@ -6,8 +6,8 @@
 # 1 "<built-in>" 2
 # 1 "add.c" 2
 
-
-int add (int x, int y) {
+int add (char x, int y) {
   int z = x + y;
   int w = 3 + 4;
+  z = z + x;
 }

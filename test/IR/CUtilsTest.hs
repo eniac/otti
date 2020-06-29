@@ -31,6 +31,15 @@ cutilsTest = benchTestGroup
       i <- Mem.liftAssert $ newVar AST.S8 "my_i8"
       return $ cppAdd u i
     AST.S8 @=? cppType a
+  , benchTestCase "cppAdd: i32 + i8 = i32" $ do
+    a <- Assert.evalAssert $ Mem.evalMem $ do
+      Mem.initMem
+      u <- Mem.liftAssert $ newVar AST.S32 "my_i32"
+      i <- Mem.liftAssert $ newVar AST.S8 "my_i8"
+      return $ cppAdd u i
+    AST.S32 @=? cppType a
+    let (_, w, bv) = asInt $ term a
+    Ty.SortBv w @=? Ty.sort bv
   , benchTestCase "cppNeg: -u8 = i8" $ do
     a <- Assert.evalAssert $ Mem.evalMem $ do
       Mem.initMem
