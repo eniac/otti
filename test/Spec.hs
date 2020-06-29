@@ -18,7 +18,7 @@ allTests = [ cutilsTest
            -- , parserTests
            -- , smtTests
            -- , irTests
-           -- , cTests
+           , cTests
            -- , codegenTests
            , tySmtTests
            , memoryTest

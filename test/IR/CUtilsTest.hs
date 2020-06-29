@@ -70,7 +70,6 @@ cutilsTest = benchTestGroup
       _ <- Mem.liftAssert $ cppAssign p (cppIntLit AST.U32 0)
       _ <- cppStore p u (Ty.BoolLit True)
       cppLoad p
-    print a
     Ty.SortBv 32 @=? Ty.sort (snd $ asPtr $ term a)
     (AST.Ptr32 AST.U8) @=? cppType a
   ]
