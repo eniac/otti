@@ -15,7 +15,7 @@ import qualified Data.Map                      as M
 import           Data.Maybe                     ( catMaybes
                                                 , fromMaybe
                                                 )
-import           Language.C.Syntax.AST         ( CFunDef )
+import           Language.C.Syntax.AST          ( CFunDef )
 import           IR.CUtils                     as CUtils
 import qualified IR.TySmt                      as Ty
 import qualified IR.Memory                     as Mem
@@ -43,35 +43,33 @@ data CodegenVar = CodegenVar VarName Version
                 deriving (Eq, Ord, Show)
 
 -- TODO rename
-data LexicalScopeState = LexicalScopeState { tys :: M.Map VarName Type
+data LexScope = LexScope { tys :: M.Map VarName Type
                                  , vers :: M.Map VarName Version
                                  , terms :: M.Map CodegenVar CTerm
                                  , lsPrefix :: String
                                  } deriving (Show)
-printLs :: LexicalScopeState -> IO ()
-printLs s = putStr $ unlines $
-  [ "   LexicalScope:"
-  , "    prefix: " ++ lsPrefix s
-  , "    versions:"
-  ] ++
-  [ "     " ++ show var ++ ": " ++ show ver | (var, ver) <- M.toList (vers s) ]
+printLs :: LexScope -> IO ()
+printLs s =
+  putStr
+    $  unlines
+    $  ["   LexicalScope:", "    prefix: " ++ lsPrefix s, "    versions:"]
+    ++ [ "     " ++ show var ++ ": " ++ show ver
+       | (var, ver) <- M.toList (vers s)
+       ]
 
 -- Lexical scope functions
 
 initialVersion :: Int
 initialVersion = 0
 
-lsWithPrefix :: String -> LexicalScopeState
-lsWithPrefix s = LexicalScopeState { tys      = M.empty
-                                   , vers     = M.empty
-                                   , terms    = M.empty
-                                   , lsPrefix = s
-                                   }
+lsWithPrefix :: String -> LexScope
+lsWithPrefix s =
+  LexScope { tys = M.empty, vers = M.empty, terms = M.empty, lsPrefix = s }
 
 unknownVar :: VarName -> a
 unknownVar var = error $ unwords ["Variable", var, "is unknown"]
 
-lsDeclareVar :: VarName -> Type -> LexicalScopeState -> LexicalScopeState
+lsDeclareVar :: VarName -> Type -> LexScope -> LexScope
 lsDeclareVar var ty scope = case M.lookup var (tys scope) of
   Nothing -> scope { vers = M.insert var initialVersion $ vers scope
                    , tys  = M.insert var ty $ tys scope
@@ -79,25 +77,25 @@ lsDeclareVar var ty scope = case M.lookup var (tys scope) of
   Just actualTy ->
     error $ unwords ["Already declared", var, "to have type", show actualTy]
 
-lsNextVer :: VarName -> LexicalScopeState -> LexicalScopeState
+lsNextVer :: VarName -> LexScope -> LexScope
 lsNextVer var scope =
   scope { vers = M.insert var (lsGetVer var scope + 1) $ vers scope }
 
 -- | Get the current version of the variable
-lsGetVer :: VarName -> LexicalScopeState -> Version
+lsGetVer :: VarName -> LexScope -> Version
 lsGetVer var scope = fromMaybe (unknownVar var) (M.lookup var (vers scope))
 
 -- | Get current CodegenVar
-lsGetCodegenVar :: VarName -> LexicalScopeState -> CodegenVar
+lsGetCodegenVar :: VarName -> LexScope -> CodegenVar
 lsGetCodegenVar var scope =
   CodegenVar (lsPrefix scope ++ "__" ++ var) (lsGetVer var scope)
 
 -- | Get the C++ type of the variable
-lsGetType :: VarName -> LexicalScopeState -> Type
+lsGetType :: VarName -> LexScope -> Type
 lsGetType var scope = fromMaybe (unknownVar var) (M.lookup var (tys scope))
 
 -- | Get a CTerm for the given var
-lsEnsureTerm :: VarName -> LexicalScopeState -> Assert LexicalScopeState
+lsEnsureTerm :: VarName -> LexScope -> Assert LexScope
 lsEnsureTerm varName scope =
   let var = lsGetCodegenVar varName scope
   in  case M.lookup var (terms scope) of
@@ -108,7 +106,7 @@ lsEnsureTerm varName scope =
                 node <- newVar ty $ codegenToName var
                 return scope { terms = M.insert var node $ terms scope }
 
-lsGetTerm :: VarName -> LexicalScopeState -> CTerm
+lsGetTerm :: VarName -> LexScope -> CTerm
 lsGetTerm var scope = fromMaybe
   (error $ unwords ["No term for", var])
   (M.lookup (lsGetCodegenVar var scope) (terms scope))
@@ -118,7 +116,7 @@ data FunctionScope = FunctionScope { -- Condition for current path
                                      -- Conditions for each previous return
                                    , returnValueGuards :: [[Ty.TermBool]]
                                      -- Stack of lexical scopes. Innermost first.
-                                   , lexicalScopes     :: [LexicalScopeState]
+                                   , lexicalScopes     :: [LexScope]
                                      -- number of next ls
                                    , lsCtr             :: Int
                                    , fsPrefix          :: String
@@ -138,7 +136,7 @@ fsFindLexScope var scope =
 fsModifyLexScope
   :: Monad m
   => VarName
-  -> (LexicalScopeState -> m LexicalScopeState)
+  -> (LexScope -> m LexScope)
   -> FunctionScope
   -> m FunctionScope
 fsModifyLexScope var f scope = do
@@ -146,7 +144,7 @@ fsModifyLexScope var f scope = do
   return $ scope { lexicalScopes = n }
 
 -- | Apply a modification function to the first scope containing the variable.
-fsGetFromLexScope :: VarName -> (LexicalScopeState -> a) -> FunctionScope -> a
+fsGetFromLexScope :: VarName -> (LexScope -> a) -> FunctionScope -> a
 fsGetFromLexScope var f scope =
   let i  = fsFindLexScope var scope
       ls = lexicalScopes scope !! i
@@ -380,7 +378,8 @@ pushFunction name ty = do
   c <- gets fnCtr
   let p' = name : p
   -- TODO update a fn counter to disambiguate repeat calls.
-  fs <- liftAssert $ fsWithPrefix ("f" ++ show c ++ "_" ++ intercalate "_" (reverse p')) ty
+  fs <- liftAssert
+    $ fsWithPrefix ("f" ++ show c ++ "_" ++ intercalate "_" (reverse p')) ty
   modify (\s -> s { prefix = p', callStack = fs : callStack s, fnCtr = c + 1 })
 
 -- Pop a function, returning the return term
