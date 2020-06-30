@@ -16,7 +16,7 @@ import           Test.Tasty.HUnit
 import           Utils
 
 cTests :: BenchTest
-cTests = benchTestGroup "C codegen test" [basicTest, loopTest, ifTest]
+cTests = benchTestGroup "C codegen test" [basicTest, loopTest, ifTest, initRetTest, fnCallTest]
 
 basicTest :: BenchTest
 basicTest = benchTestCase "basic" $ do
@@ -53,7 +53,16 @@ initRetTest = benchTestCase "initialize and return" $ do
     Right tu    -> do
       assertions <- execAssert $ evalCodegen Nothing $ codegenC tu
       2 @=? length (asserted assertions)
-      2 @=? length (vars assertions)
+
+fnCallTest :: BenchTest
+fnCallTest = benchTestCase "function call" $ do
+  result <- parseC "test/Code/C/fn_call.c"
+  case result of
+    Left  error -> assertFailure $ unwords ["Should not see", show error]
+    Right tu    -> do
+      assertions <- execAssert $ evalCodegen Nothing $ codegenC tu
+      -- TODO check
+      5 @=? length (asserted assertions)
 
 --
 --featuresTest :: BenchTest

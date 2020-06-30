@@ -15,6 +15,7 @@ import qualified Data.Map                      as M
 import           Data.Maybe                     ( catMaybes
                                                 , fromMaybe
                                                 )
+import           Language.C.Syntax.AST         ( CFunDef )
 import           IR.CUtils                     as CUtils
 import qualified IR.TySmt                      as Ty
 import qualified IR.Memory                     as Mem
@@ -228,10 +229,11 @@ fsWithPrefix prefix ty = do
 
 -- | Internal state of the compiler for code generation
 data CompilerState = CompilerState { callStack         :: [FunctionScope]
-                                   , funs              :: M.Map FunctionName Function
+                                   , funs              :: M.Map FunctionName CFunDef
                                    , typedefs          :: M.Map VarName Type
                                    , loopBound         :: Int
                                    , prefix            :: [String]
+                                   , fnCtr             :: Int
                                    }
 
 newtype Compiler a = Compiler (StateT CompilerState Mem a)
@@ -254,6 +256,7 @@ emptyCompilerState = CompilerState { callStack = []
                                    , typedefs  = M.empty
                                    , loopBound = 4
                                    , prefix    = []
+                                   , fnCtr     = 0
                                    }
 
 compilerRunOnTop :: (FunctionScope -> (a, FunctionScope)) -> Compiler a
@@ -310,6 +313,9 @@ doReturn value = do
   s       <- get
   newHead <- liftAssert $ fsReturn value (head $ callStack s)
   put s { callStack = newHead : tail (callStack s) }
+
+getReturn :: Compiler CTerm
+getReturn = compilerGetsTop retTerm
 
 liftMem :: Mem a -> Compiler a
 liftMem = Compiler . lift
@@ -371,28 +377,29 @@ ssaAssign var val = do
 pushFunction :: FunctionName -> Type -> Compiler ()
 pushFunction name ty = do
   p <- gets prefix
+  c <- gets fnCtr
   let p' = name : p
-  fs <- liftAssert $ fsWithPrefix (intercalate "_" $ reverse p') ty
-  modify (\s -> s { prefix = p', callStack = fs : callStack s })
+  -- TODO update a fn counter to disambiguate repeat calls.
+  fs <- liftAssert $ fsWithPrefix ("f" ++ show c ++ "_" ++ intercalate "_" (reverse p')) ty
+  modify (\s -> s { prefix = p', callStack = fs : callStack s, fnCtr = c + 1 })
 
+-- Pop a function, returning the return term
 popFunction :: Compiler ()
 popFunction = modify (\s -> s { callStack = tail (callStack s) })
 
-getFunction :: FunctionName -> Compiler Function
+registerFunction :: FunctionName -> CFunDef -> Compiler ()
+registerFunction name function = do
+  s0 <- get
+  case M.lookup name $ funs s0 of
+    Nothing -> put $ s0 { funs = M.insert name function $ funs s0 }
+    _       -> error $ unwords ["Already declared", name]
+
+getFunction :: FunctionName -> Compiler CFunDef
 getFunction funName = do
   functions <- gets funs
   case M.lookup funName functions of
     Just function -> return function
     Nothing       -> error $ unwords ["Called undeclared function", funName]
-
--- registerFunction :: Function -> Compiler ()
--- registerFunction function = do
---   forM_ (fArgs function) $ uncurry $ declareVar
---   s0 <- get
---   let funName = fName function
---   case M.lookup funName $ funs s0 of
---     Nothing -> put $ s0 { funs = M.insert funName function $ funs s0 }
---     _       -> error $ unwords ["Already declared", fName function]
 
 ---
 --- Typedefs

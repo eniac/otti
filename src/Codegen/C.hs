@@ -28,20 +28,18 @@ fieldToInt :: Ident -> Int
 fieldToInt = undefined
 
 typedefSMT
-  :: (Show a)
-  => Ident
-  -> [CDeclarationSpecifier a]
-  -> [CDerivedDeclarator a]
+  :: Ident
+  -> [CDeclSpec]
+  -> [CDerivedDeclr]
   -> Compiler ()
 typedefSMT (Ident name _ _) tys ptrs = do
   ty <- ctype tys ptrs
   typedef name ty
 
 declareVarSMT
-  :: (Show a)
-  => Ident
-  -> [CDeclarationSpecifier a]
-  -> [CDerivedDeclarator a]
+  :: Ident
+  -> [CDeclSpec]
+  -> [CDerivedDeclr]
   -> Compiler ()
 declareVarSMT (Ident name _ _) tys ptrs = do
   ty <- ctype tys ptrs
@@ -67,7 +65,7 @@ evalLVal location = case location of
   CLVar  v -> getTerm v
   CLAddr a -> liftMem $ cppLoad a
 
-genLValueSMT :: (Show a) => CExpression a -> Compiler CLVal
+genLValueSMT :: CExpr -> Compiler CLVal
 genLValueSMT expr = case expr of
   CVar (Ident name _ _) _ -> return $ CLVar name
   CUnary CIndOp addr _    -> CLAddr <$> genExprSMT addr
@@ -86,7 +84,7 @@ genAssign location value = case location of
     liftMem $ cppStore addr value guard
     return value
 
-genExprSMT :: (Show a) => CExpression a -> Compiler CTerm
+genExprSMT :: CExpr -> Compiler CTerm
 --genExprSMT expr = case trace ("genExprSMT " ++ show expr) expr of
 genExprSMT expr = case expr of
   CVar id _            -> genVarSMT id
@@ -123,9 +121,35 @@ genExprSMT expr = case expr of
       expr' <- genExprSMT expr
       return $ cppCast ty expr'
     _ -> error "Expected type in cast"
+  CCall fn args _ -> case fn of
+    CVar fnIdent _ -> do
+      let fnName = identToVarName fnIdent
+      actualArgs <- traverse genExprSMT args
+      f <- getFunction fnName
+      retTy <- ctype (baseTypeFromFunc f) (ptrsFromFunc f)
+      pushFunction fnName retTy
+      forM_ (argsFromFunc f) genDeclSMT
+      let formalArgs = map identToVarName $ concatMap (\decl -> case decl of
+                          CDecl _ decls _ -> do
+                            map (\(Just dec, mInit, _) ->
+                              let mName = identFromDeclr dec
+                              in  if isJust mName
+                                    then fromJust mName
+                                    else error "Expected identifier in decl") decls
+                        ) $ argsFromFunc f
+      unless (length formalArgs == length actualArgs) $ error $ "Wrong arg count: " ++ show expr
+      forM_ (zip formalArgs actualArgs) (uncurry ssaAssign)
+      let body = bodyFromFunc f
+      case body of
+        CCompound{} -> genStmtSMT body
+        _           -> error "Expected C statement block in function definition"
+      returnValue <- getReturn
+      popFunction
+      return $ returnValue
+    _ -> error $ unwords ["Fn call of", show fn, "is unsupported"]
   _ -> error $ unwords ["We do not support", show expr, "right now"]
 
-getUnaryOp :: Show a => CUnaryOp -> CExpression a -> Compiler CTerm
+getUnaryOp :: CUnaryOp -> CExpr -> Compiler CTerm
 getUnaryOp op arg = case op of
   CPreIncOp -> do
     lval <- genLValueSMT arg
@@ -206,7 +230,7 @@ getAssignOp op l r = case op of
 --- Statements
 ---
 
-genStmtSMT :: (Show a) => CStatement a -> Compiler ()
+genStmtSMT :: CStat -> Compiler ()
 genStmtSMT stmt = case stmt of
 --genStmtSMT stmt = case trace ("genStmtSMT " ++ show stmt) stmt of
   CCompound ids items _ -> forM_ items $ \item -> do
@@ -261,7 +285,7 @@ genStmtSMT stmt = case stmt of
     doReturn toReturn
   _ -> liftIO $ print $ unwords ["other", show stmt]
 
-genDeclSMT :: (Show a) => CDeclaration a -> Compiler ()
+genDeclSMT :: CDecl -> Compiler ()
 genDeclSMT (CDecl specs decls _) = do
   when (null specs) $ error "Expected specifier in declaration"
   let firstSpec = head specs
@@ -292,7 +316,7 @@ genDeclSMT (CDecl specs decls _) = do
 --- High level codegen (translation unit, etc)
 ---
 
-genFunDef :: (Show a) => CFunctionDef a -> Compiler ()
+genFunDef :: CFunDef -> Compiler ()
 genFunDef f = do
   -- Declare the function and setup the return value
   let name = nameFromFunc f
@@ -306,12 +330,18 @@ genFunDef f = do
   case body of
     CCompound{} -> genStmtSMT body
     _           -> error "Expected C statement block in function definition"
+  popFunction
 
 genAsm :: CStringLiteral a -> Compiler ()
 genAsm = undefined
 
 codegenC :: CTranslUnit -> Compiler ()
-codegenC (CTranslUnit decls _) =
+codegenC (CTranslUnit decls _) = do
+  -- First, register functions
+  forM_ decls $ \decl -> case decl of
+    CFDefExt f -> registerFunction (nameFromFunc f) f
+    _ -> return ()
+  -- Then analyze
   forM_ decls $ \decl -> case decl of
     CDeclExt decl -> genDeclSMT decl
     CFDefExt fun  -> genFunDef fun
