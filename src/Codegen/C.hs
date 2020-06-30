@@ -27,20 +27,12 @@ import           Language.C.Syntax.Constants
 fieldToInt :: Ident -> Int
 fieldToInt = undefined
 
-typedefSMT
-  :: Ident
-  -> [CDeclSpec]
-  -> [CDerivedDeclr]
-  -> Compiler ()
+typedefSMT :: Ident -> [CDeclSpec] -> [CDerivedDeclr] -> Compiler ()
 typedefSMT (Ident name _ _) tys ptrs = do
   ty <- ctype tys ptrs
   typedef name ty
 
-declareVarSMT
-  :: Ident
-  -> [CDeclSpec]
-  -> [CDerivedDeclr]
-  -> Compiler ()
+declareVarSMT :: Ident -> [CDeclSpec] -> [CDerivedDeclr] -> Compiler ()
 declareVarSMT (Ident name _ _) tys ptrs = do
   ty <- ctype tys ptrs
   declareVar name ty
@@ -125,19 +117,30 @@ genExprSMT expr = case expr of
     CVar fnIdent _ -> do
       let fnName = identToVarName fnIdent
       actualArgs <- traverse genExprSMT args
-      f <- getFunction fnName
-      retTy <- ctype (baseTypeFromFunc f) (ptrsFromFunc f)
+      f          <- getFunction fnName
+      retTy      <- ctype (baseTypeFromFunc f) (ptrsFromFunc f)
       pushFunction fnName retTy
       forM_ (argsFromFunc f) genDeclSMT
-      let formalArgs = map identToVarName $ concatMap (\decl -> case decl of
-                          CDecl _ decls _ -> do
-                            map (\(Just dec, mInit, _) ->
-                              let mName = identFromDeclr dec
-                              in  if isJust mName
-                                    then fromJust mName
-                                    else error "Expected identifier in decl") decls
-                        ) $ argsFromFunc f
-      unless (length formalArgs == length actualArgs) $ error $ "Wrong arg count: " ++ show expr
+      let
+        formalArgs =
+          map identToVarName
+            $ concatMap
+                (\decl -> case decl of
+                  CDecl _ decls _ -> do
+                    map
+                      (\(Just dec, mInit, _) ->
+                        let mName = identFromDeclr dec
+                        in  if isJust mName
+                              then fromJust mName
+                              else error "Expected identifier in decl"
+                      )
+                      decls
+                )
+            $ argsFromFunc f
+      unless (length formalArgs == length actualArgs)
+        $  error
+        $  "Wrong arg count: "
+        ++ show expr
       forM_ (zip formalArgs actualArgs) (uncurry ssaAssign)
       let body = bodyFromFunc f
       case body of
@@ -281,7 +284,7 @@ genStmtSMT stmt = case stmt of
       popGuard
     -- TODO: assert end
   CReturn expr _ -> when (isJust expr) $ do
-    toReturn    <- genExprSMT $ fromJust expr
+    toReturn <- genExprSMT $ fromJust expr
     doReturn toReturn
   _ -> liftIO $ print $ unwords ["other", show stmt]
 
@@ -322,7 +325,7 @@ genFunDef f = do
   let name = nameFromFunc f
       ptrs = ptrsFromFunc f
       tys  = baseTypeFromFunc f
-  retTy         <- ctype tys ptrs
+  retTy <- ctype tys ptrs
   pushFunction name retTy
   -- Declare the arguments and execute the body
   forM_ (argsFromFunc f) genDeclSMT
@@ -340,7 +343,7 @@ codegenC (CTranslUnit decls _) = do
   -- First, register functions
   forM_ decls $ \decl -> case decl of
     CFDefExt f -> registerFunction (nameFromFunc f) f
-    _ -> return ()
+    _          -> return ()
   -- Then analyze
   forM_ decls $ \decl -> case decl of
     CDeclExt decl -> genDeclSMT decl
