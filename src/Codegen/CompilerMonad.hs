@@ -7,9 +7,14 @@ import           Control.Monad.Reader
 import           Control.Monad.State.Strict
 import           Data.List                      ( intercalate
                                                 , isInfixOf
+                                                , findIndex
                                                 )
+import           Data.Functor.Identity
+import           Data.Foldable
 import qualified Data.Map                      as M
-import           Data.Maybe                     ( catMaybes )
+import           Data.Maybe                     ( catMaybes
+                                                , fromMaybe
+                                                )
 import           IR.CUtils                     as CUtils
 import qualified IR.TySmt                      as Ty
 import qualified IR.Memory                     as Mem
@@ -36,28 +41,197 @@ type Version = Int
 data CodegenVar = CodegenVar VarName Version
                 deriving (Eq, Ord, Show)
 
--- | Internal state of the compiler for code generation
-data CompilerState = CompilerState { -- Mapping AST variables etc to information
-                                     vers              :: [M.Map VarName Version]
-                                   , tys               :: M.Map VarName Type
-                                   , funs              :: M.Map FunctionName Function
-                                     -- Codegen context information
-                                   , typedefs          :: M.Map VarName Type
-                                   , callStack         :: [FunctionName]
-                                     -- The conditional guards encode a
-                                     -- conjunction of conditions required to
-                                     -- reach the current path
-                                   , conditionalGuards :: [Ty.TermBool]
-                                     -- The return guards are a list of
-                                     -- conjunctions representing the
-                                     -- conditions under which a particular
-                                     -- return happens.
+-- TODO rename
+data LexicalScopeState = LexicalScopeState { tys :: M.Map VarName Type
+                                 , vers :: M.Map VarName Version
+                                 , terms :: M.Map CodegenVar CTerm
+                                 , lsPrefix :: String
+                                 } deriving (Show)
+printLs :: LexicalScopeState -> IO ()
+printLs s = putStr $ unlines $
+  [ "   LexicalScope:"
+  , "    prefix: " ++ lsPrefix s
+  , "    versions:"
+  ] ++
+  [ "     " ++ show var ++ ": " ++ show ver | (var, ver) <- M.toList (vers s) ]
+
+-- Lexical scope functions
+
+initialVersion :: Int
+initialVersion = 0
+
+lsWithPrefix :: String -> LexicalScopeState
+lsWithPrefix s = LexicalScopeState { tys      = M.empty
+                                   , vers     = M.empty
+                                   , terms    = M.empty
+                                   , lsPrefix = s
+                                   }
+
+unknownVar :: VarName -> a
+unknownVar var = error $ unwords ["Variable", var, "is unknown"]
+
+lsDeclareVar :: VarName -> Type -> LexicalScopeState -> LexicalScopeState
+lsDeclareVar var ty scope = case M.lookup var (tys scope) of
+  Nothing -> scope { vers = M.insert var initialVersion $ vers scope
+                   , tys  = M.insert var ty $ tys scope
+                   }
+  Just actualTy ->
+    error $ unwords ["Already declared", var, "to have type", show actualTy]
+
+lsNextVer :: VarName -> LexicalScopeState -> LexicalScopeState
+lsNextVer var scope =
+  scope { vers = M.insert var (lsGetVer var scope + 1) $ vers scope }
+
+-- | Get the current version of the variable
+lsGetVer :: VarName -> LexicalScopeState -> Version
+lsGetVer var scope = fromMaybe (unknownVar var) (M.lookup var (vers scope))
+
+-- | Get current CodegenVar
+lsGetCodegenVar :: VarName -> LexicalScopeState -> CodegenVar
+lsGetCodegenVar var scope =
+  CodegenVar (lsPrefix scope ++ "__" ++ var) (lsGetVer var scope)
+
+-- | Get the C++ type of the variable
+lsGetType :: VarName -> LexicalScopeState -> Type
+lsGetType var scope = fromMaybe (unknownVar var) (M.lookup var (tys scope))
+
+-- | Get a CTerm for the given var
+lsEnsureTerm :: VarName -> LexicalScopeState -> Assert LexicalScopeState
+lsEnsureTerm varName scope =
+  let var = lsGetCodegenVar varName scope
+  in  case M.lookup var (terms scope) of
+        Just node -> return scope
+        Nothing ->
+          let ty = lsGetType varName scope
+          in  do
+                node <- newVar ty $ codegenToName var
+                return scope { terms = M.insert var node $ terms scope }
+
+lsGetTerm :: VarName -> LexicalScopeState -> CTerm
+lsGetTerm var scope = fromMaybe
+  (error $ unwords ["No term for", var])
+  (M.lookup (lsGetCodegenVar var scope) (terms scope))
+
+data FunctionScope = FunctionScope { -- Condition for current path
+                                     conditionalGuards :: [Ty.TermBool]
+                                     -- Conditions for each previous return
                                    , returnValueGuards :: [[Ty.TermBool]]
-                                   , returnValues      :: [CTerm]
-                                   , ctr               :: Int -- To disambiguate retVals
+                                     -- Stack of lexical scopes. Innermost first.
+                                   , lexicalScopes     :: [LexicalScopeState]
+                                     -- number of next ls
+                                   , lsCtr             :: Int
+                                   , fsPrefix          :: String
+                                   , retTerm           :: CTerm
+                                   }
+
+listModify :: Functor m => Int -> (a -> m a) -> [a] -> m [a]
+listModify 0 f (x : xs) = (: xs) `fmap` f x
+listModify n f (x : xs) = (x :) `fmap` listModify (n - 1) f xs
+
+fsFindLexScope :: VarName -> FunctionScope -> Int
+fsFindLexScope var scope =
+  fromMaybe (error $ unwords ["Cannot find", var, "in current scope"])
+    $ findIndex (M.member var . tys) (lexicalScopes scope)
+
+-- | Apply a modification function to the first scope containing the variable.
+fsModifyLexScope
+  :: Monad m
+  => VarName
+  -> (LexicalScopeState -> m LexicalScopeState)
+  -> FunctionScope
+  -> m FunctionScope
+fsModifyLexScope var f scope = do
+  n <- listModify (fsFindLexScope var scope) f $ lexicalScopes scope
+  return $ scope { lexicalScopes = n }
+
+-- | Apply a modification function to the first scope containing the variable.
+fsGetFromLexScope :: VarName -> (LexicalScopeState -> a) -> FunctionScope -> a
+fsGetFromLexScope var f scope =
+  let i  = fsFindLexScope var scope
+      ls = lexicalScopes scope !! i
+  in  f ls
+
+fsDeclareVar :: VarName -> Type -> FunctionScope -> FunctionScope
+fsDeclareVar var ty scope = scope
+  { lexicalScopes = lsDeclareVar var ty (head $ lexicalScopes scope)
+                      : tail (lexicalScopes scope)
+  }
+
+fsNextVer :: VarName -> FunctionScope -> FunctionScope
+fsNextVer var = runIdentity . fsModifyLexScope var (Identity . lsNextVer var)
+
+fsGetVer :: VarName -> FunctionScope -> Version
+fsGetVer var = fsGetFromLexScope var (lsGetVer var)
+
+fsGetTerm :: VarName -> FunctionScope -> Assert (CTerm, FunctionScope)
+fsGetTerm var scope = do
+  scope' <- fsModifyLexScope var (lsEnsureTerm var) scope
+  return (fsGetFromLexScope var (lsGetTerm var) scope', scope')
+
+fsEnterLexScope :: FunctionScope -> FunctionScope
+fsEnterLexScope scope =
+  let newLs = lsWithPrefix (fsPrefix scope ++ "_lex" ++ show (lsCtr scope))
+  in  scope { lsCtr         = 1 + lsCtr scope
+            , lexicalScopes = newLs : lexicalScopes scope
+            }
+
+printFs :: FunctionScope -> IO ()
+printFs s = do
+  putStrLn " FunctionScope:"
+  putStrLn $ "  Lex counter: " ++ show (lsCtr s)
+  putStrLn "  LexicalScopes:"
+  traverse_ printLs (lexicalScopes s)
+
+fsExitLexScope :: FunctionScope -> FunctionScope
+fsExitLexScope scope = scope { lexicalScopes = tail $ lexicalScopes scope }
+
+fsPushGuard :: Ty.TermBool -> FunctionScope -> FunctionScope
+fsPushGuard guard scope =
+  scope { conditionalGuards = guard : conditionalGuards scope }
+
+fsPopGuard :: FunctionScope -> FunctionScope
+fsPopGuard scope = scope { conditionalGuards = tail $ conditionalGuards scope }
+
+fsCurrentGuard :: FunctionScope -> Ty.TermBool
+fsCurrentGuard = safeNary (Ty.BoolLit True) Ty.And . conditionalGuards
+
+-- | Set the return value if we have not returned, and block future returns
+fsReturn :: CTerm -> FunctionScope -> Assert FunctionScope
+fsReturn value scope =
+  let returnCondition =
+          Ty.BoolNaryExpr Ty.And [fsCurrentGuard scope, fsHasNotReturned scope]
+      newScope = scope
+        { returnValueGuards = conditionalGuards scope : returnValueGuards scope
+        }
+  in  do
+        Assert.implies returnCondition (cppAssignment value (retTerm scope))
+        return newScope
+
+fsHasNotReturned :: FunctionScope -> Ty.TermBool
+fsHasNotReturned =
+  Ty.Not
+    . safeNary (Ty.BoolLit False) Ty.Or
+    . map (safeNary (Ty.BoolLit True) Ty.And)
+    . returnValueGuards
+
+fsWithPrefix :: String -> Type -> Assert FunctionScope
+fsWithPrefix prefix ty = do
+  retTerm <- newVar ty $ codegenToName $ CodegenVar (prefix ++ "__return") 0
+  let fs = FunctionScope { conditionalGuards = []
+                         , returnValueGuards = []
+                         , retTerm           = retTerm
+                         , lexicalScopes     = []
+                         , lsCtr             = 0
+                         , fsPrefix          = prefix
+                         }
+  return $ fsEnterLexScope fs
+
+-- | Internal state of the compiler for code generation
+data CompilerState = CompilerState { callStack         :: [FunctionScope]
+                                   , funs              :: M.Map FunctionName Function
+                                   , typedefs          :: M.Map VarName Type
                                    , loopBound         :: Int
-                                     -- SMT variables: SSA'd versions of AST variables
-                                   , vars              :: M.Map CodegenVar CTerm
+                                   , prefix            :: [String]
                                    }
 
 newtype Compiler a = Compiler (StateT CompilerState Mem a)
@@ -70,36 +244,72 @@ newtype Compiler a = Compiler (StateT CompilerState Mem a)
 instance MonadFail Compiler where
   fail = error "FAILED"
 
-prettyState :: Compiler ()
-prettyState = do
-  s0 <- get
-  liftIO $ putStrLn $ unlines
-    [ "----Versions----"
-    , show $ vers s0
-    , "----Types----"
-    , show $ tys s0
-    , "----Call stack---"
-    , unlines $ map show $ callStack s0
-    , "----Conditional guards----"
-    , show $ length $ conditionalGuards s0
-    , "----Return value guards----"
-    , show $ length $ returnValueGuards s0
-    , "----Return values----"
-    , show $ length $ returnValues s0
-    , show $ returnValues s0
-    , "----Ctr----"
-    , show $ ctr s0
-    , "----Variables----"
-    , show $ vars s0
-    ]
-
 ---
 --- Setup, monad functions, etc
 ---
 
 emptyCompilerState :: CompilerState
-emptyCompilerState =
-  CompilerState [M.empty] M.empty M.empty M.empty [] [] [[]] [] 1 4 M.empty
+emptyCompilerState = CompilerState { callStack = []
+                                   , funs      = M.empty
+                                   , typedefs  = M.empty
+                                   , loopBound = 4
+                                   , prefix    = []
+                                   }
+
+compilerRunOnTop :: (FunctionScope -> (a, FunctionScope)) -> Compiler a
+compilerRunOnTop f = do
+  s <- get
+  let (r, s') = f $ head $ callStack s
+  put $ s { callStack = s' : tail (callStack s) }
+  return r
+
+compilerModifyTop :: (FunctionScope -> FunctionScope) -> Compiler ()
+compilerModifyTop f = compilerRunOnTop (\s -> ((), f s))
+
+compilerGetsTop :: (FunctionScope -> a) -> Compiler a
+compilerGetsTop f = compilerRunOnTop (\s -> (f s, s))
+
+declareVar :: VarName -> Type -> Compiler ()
+declareVar var ty = compilerModifyTop (fsDeclareVar var ty)
+
+nextVer :: VarName -> Compiler ()
+nextVer = compilerModifyTop . fsNextVer
+
+getVer :: VarName -> Compiler Version
+getVer = compilerGetsTop . fsGetVer
+
+getTerm :: VarName -> Compiler CTerm
+getTerm var = do
+  s          <- get
+  (t, newFs) <- liftAssert $ fsGetTerm var $ head $ callStack s
+  put $ s { callStack = newFs : tail (callStack s) }
+  return t
+
+printComp :: Compiler ()
+printComp = do
+  s <- get
+  liftIO $ traverse_ printFs (callStack s)
+
+enterLexScope :: Compiler ()
+enterLexScope = compilerModifyTop fsEnterLexScope
+
+exitLexScope :: Compiler ()
+exitLexScope = compilerModifyTop fsExitLexScope
+
+pushGuard :: Ty.TermBool -> Compiler ()
+pushGuard = compilerModifyTop . fsPushGuard
+
+popGuard :: Compiler ()
+popGuard = compilerModifyTop fsPopGuard
+
+getGuard :: Compiler Ty.TermBool
+getGuard = compilerGetsTop fsCurrentGuard
+
+doReturn :: CTerm -> Compiler ()
+doReturn value = do
+  s       <- get
+  newHead <- liftAssert $ fsReturn value (head $ callStack s)
+  put s { callStack = newHead : tail (callStack s) }
 
 liftMem :: Mem a -> Compiler a
 liftMem = Compiler . lift
@@ -140,86 +350,15 @@ codegenVar var = do
 -- We probably want to replace this with something faster (eg hash) someday, but
 -- this is great for debugging
 codegenToName :: CodegenVar -> String
-codegenToName (CodegenVar varName ver) = varName ++ "_" ++ show ver
-
----
----
----
-
-pushContext :: Compiler ()
-pushContext = do
-  s0 <- get
-  put $ s0 { vers = M.empty : vers s0 }
-
-popContext :: Compiler ()
-popContext = do
-  s0 <- get
-  case vers s0 of
-    [] -> error "Context stack should never be empty"
-    ctxts | length ctxts > 1 -> put $ s0 { vers = tail ctxts }
-    _ -> error "Cannot pop final context off context stack"
-
--- | Declare a new variable, or error if the variable is already declared.
--- This adds the variable's version information (for SSA-ing) and type information
--- to the compiler state.
-declareVar :: VarName -> Type -> Compiler ()
-declareVar var ty = do
-  s0 <- get
-  let allVers = head $ vers s0
-      allTys  = tys s0
-  case M.lookup var allVers of
-    Nothing -> put $ s0 { vers = (M.insert var 0 allVers) : vers s0
-                        , tys  = M.insert var ty allTys
-                        }
-    _ -> error $ unwords ["Already declared", var, "in current scope"]
-
--- | Bump the given variable up in version (for SSA)
-nextVer :: VarName -> Compiler ()
-nextVer var = do
-  s0 <- get
-  let allVers = head $ vers s0
-  case M.lookup var allVers of
-    Just ver -> put $ s0 { vers = (M.insert var (ver + 1) allVers) : vers s0 }
-    _        -> error $ unwords ["Cannot increment version of undeclared", var]
-
--- | Get the current version of the variable
-getVer :: VarName -> Compiler Version
-getVer var = do
-  allVers <- vers `liftM` get
-  let vars = map (\verCtxt -> M.lookup var verCtxt) allVers
-  case catMaybes vars of
-    []        -> error $ unwords ["Cannot get version of undeclared", var]
-    (ver : _) -> return ver
-
--- | Get the C++ type of the variable
-getType :: VarName -> Compiler Type
-getType var = do
-  allTys <- tys `liftM` get
-  case M.lookup var allTys of
-    Just ty -> return ty
-    _       -> error $ unwords ["Cannot get type of undeclared", var]
-
--- | Get an SMT node representing the given var
-getNodeFor :: VarName -> Compiler CTerm
-getNodeFor varName = do
-  var <- codegenVar varName
-  s0  <- get
-  let allVars = vars s0
-  case M.lookup var allVars of
-    Just node -> return node
-    Nothing   -> do
-      ty   <- getType varName
-      node <- liftAssert $ newVar ty $ codegenToName var
-      put $ s0 { vars = M.insert var node allVars }
-      return node
+codegenToName (CodegenVar varName ver) = varName ++ "_v" ++ show ver
 
 -- Bump the version of `var` and assign `value` to it.
 ssaAssign :: VarName -> CTerm -> Compiler CTerm
 ssaAssign var val = do
-  oldNode <- getNodeFor var
+  oldNode <- getTerm var
   nextVer var
-  newNode <- getNodeFor var
-  guard   <- getCurrentGuardNode
+  newNode <- getTerm var
+  guard   <- getGuard
   liftAssert $ Assert.assert $ Ty.Ite guard
                                       (cppAssignment newNode val)
                                       (cppAssignment newNode oldNode)
@@ -229,63 +368,31 @@ ssaAssign var val = do
 --- Functions
 ---
 
-clearBetweenAnalyzingFunctions :: Compiler ()
-clearBetweenAnalyzingFunctions = do
-  s0 <- get
-  put $ s0 { callStack         = []
-           , conditionalGuards = []
-           , returnValueGuards = []
-           , returnValues      = []
-           }
-
-pushFunction :: FunctionName -> CTerm -> Compiler ()
-pushFunction funName returnVal = do
-  s0 <- get
-  put $ s0 { callStack         = funName : callStack s0
-           , returnValues      = returnVal : returnValues s0
-           , returnValueGuards = [] : returnValueGuards s0
-           }
+pushFunction :: FunctionName -> Type -> Compiler ()
+pushFunction name ty = do
+  p <- gets prefix
+  let p' = name : p
+  fs <- liftAssert $ fsWithPrefix (intercalate "_" $ reverse p') ty
+  modify (\s -> s { prefix = p', callStack = fs : callStack s })
 
 popFunction :: Compiler ()
-popFunction = do
-  s0 <- get
-  when (null $ callStack s0) $ error "Tried to pop context off empty call stack"
-  when (null $ returnValues s0)
-    $ error "Tried to pop return val off empty stack"
-  put $ s0 { callStack         = tail $ callStack s0
-           , returnValues      = tail $ returnValues s0
-           , returnValueGuards = tail $ returnValueGuards s0
-           }
-
-getReturnValName :: FunctionName -> Compiler VarName
-getReturnValName funName = do
-  s0 <- get
-  let num = ctr s0
-  put $ s0 { ctr = num + 1 }
-  return $ funName ++ "_retVal_" ++ show num
-
-getReturnVal :: Compiler CTerm
-getReturnVal = do
-  retVals <- returnValues `liftM` get
-  case retVals of
-    [] -> error "Empty return value list"
-    _  -> return $ head retVals
+popFunction = modify (\s -> s { callStack = tail (callStack s) })
 
 getFunction :: FunctionName -> Compiler Function
 getFunction funName = do
-  functions <- funs `liftM` get
+  functions <- gets funs
   case M.lookup funName functions of
     Just function -> return function
-    Nothing       -> error $ unwords $ ["Called undeclared function", funName]
+    Nothing       -> error $ unwords ["Called undeclared function", funName]
 
-registerFunction :: Function -> Compiler ()
-registerFunction function = do
-  forM_ (fArgs function) $ uncurry $ declareVar
-  s0 <- get
-  let funName = fName function
-  case M.lookup funName $ funs s0 of
-    Nothing -> put $ s0 { funs = M.insert funName function $ funs s0 }
-    _       -> error $ unwords ["Already declared", fName function]
+-- registerFunction :: Function -> Compiler ()
+-- registerFunction function = do
+--   forM_ (fArgs function) $ uncurry $ declareVar
+--   s0 <- get
+--   let funName = fName function
+--   case M.lookup funName $ funs s0 of
+--     Nothing -> put $ s0 { funs = M.insert funName function $ funs s0 }
+--     _       -> error $ unwords ["Already declared", fName function]
 
 ---
 --- Typedefs
@@ -297,11 +404,11 @@ typedef name ty = do
   let tds = typedefs s0
   case M.lookup name tds of
     Nothing -> put $ s0 { typedefs = M.insert name ty tds }
-    Just t  -> error $ unwords $ ["Already td'd", name, "to", show t]
+    Just t  -> error $ unwords ["Already td'd", name, "to", show t]
 
 untypedef :: VarName -> Compiler Type
 untypedef name = do
-  tds <- typedefs `liftM` get
+  tds <- gets typedefs
   case M.lookup name tds of
     Nothing -> error $ unwords ["No type defined for", name]
     Just ty -> return ty
@@ -311,65 +418,16 @@ untypedef name = do
 --- If-statements
 ---
 
-pushCondGuard :: Ty.TermBool -> Compiler ()
-pushCondGuard guard = do
-  s0 <- get
-  put $ s0 { conditionalGuards = guard : conditionalGuards s0 }
-
-popCondGuard :: Compiler ()
-popCondGuard = do
-  s0 <- get
-  when (null $ conditionalGuards s0)
-    $ error "Tried to pop from empty guard stack"
-  put $ s0 { conditionalGuards = tail $ conditionalGuards s0 }
-
 safeNary :: Ty.TermBool -> Ty.BoolNaryOp -> [Ty.TermBool] -> Ty.TermBool
 safeNary id op xs = case xs of
   []  -> id
   [s] -> s
   _   -> Ty.BoolNaryExpr op xs
 
-getCurrentGuardNode :: Compiler Ty.TermBool
-getCurrentGuardNode =
-  gets (safeNary (Ty.BoolLit True) Ty.And . conditionalGuards)
-
----
---- Return values
---- We need to keep track of which return values we've already guarded with in order to
--- handle cases like this:
--- if (x) {
---   if (y) return 3;
---   return 4;
--- }
--- return 5;
---
--- This should become:
--- x && y => rv = 3
--- x && !(x && y) => rv = 4
--- !x && !(x && y) => rv = 5
-
-addReturnGuard :: Ty.TermBool -> Compiler ()
-addReturnGuard guard = do
-  s0 <- get
-  let notGuard = Ty.Not guard
-  let allGuards     = returnValueGuards s0
-      updatedGuards = notGuard : head allGuards
-  put $ s0 { returnValueGuards = updatedGuards : tail allGuards }
-
-hasNotReturned :: Compiler Ty.TermBool
-hasNotReturned = gets
-  ( Ty.Not
-  . safeNary (Ty.BoolLit False) Ty.Or
-  . map (safeNary (Ty.BoolLit True) Ty.And)
-  . returnValueGuards
-  )
-
 -- Loops
 
 getLoopBound :: Compiler Int
-getLoopBound = loopBound `liftM` get
+getLoopBound = gets loopBound
 
 setLoopBound :: Int -> Compiler ()
-setLoopBound bound = do
-  s0 <- get
-  put $ s0 { loopBound = bound }
+setLoopBound bound = modify (\s -> s { loopBound = bound })

@@ -22,6 +22,7 @@ import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
+--import Debug.Trace
 
 fieldToInt :: Ident -> Int
 fieldToInt = undefined
@@ -47,7 +48,7 @@ declareVarSMT (Ident name _ _) tys ptrs = do
   declareVar name ty
 
 genVarSMT :: Ident -> Compiler CTerm
-genVarSMT (Ident name _ _) = getNodeFor name
+genVarSMT (Ident name _ _) = getTerm name
 
 genNumSMT :: CConstant a -> Compiler CTerm
 genNumSMT c = case c of
@@ -63,7 +64,7 @@ data CLVal = CLVar VarName
 
 evalLVal :: CLVal -> Compiler CTerm
 evalLVal location = case location of
-  CLVar  v -> getNodeFor v
+  CLVar  v -> getTerm v
   CLAddr a -> liftMem $ cppLoad a
 
 genLValueSMT :: (Show a) => CExpression a -> Compiler CLVal
@@ -81,11 +82,12 @@ genAssign :: CLVal -> CTerm -> Compiler CTerm
 genAssign location value = case location of
   CLVar  varName -> ssaAssign varName value
   CLAddr addr    -> do
-    guard <- getCurrentGuardNode
+    guard <- getGuard
     liftMem $ cppStore addr value guard
     return value
 
 genExprSMT :: (Show a) => CExpression a -> Compiler CTerm
+--genExprSMT expr = case trace ("genExprSMT " ++ show expr) expr of
 genExprSMT expr = case expr of
   CVar id _            -> genVarSMT id
   CConst c             -> genNumSMT c
@@ -95,7 +97,7 @@ genExprSMT expr = case expr of
     case lval of
       CLVar  varName -> ssaAssign varName rval
       CLAddr addr    -> do
-        guard <- getCurrentGuardNode
+        guard <- getGuard
         liftMem $ cppStore addr rval guard
         return rval
   CBinary op left right _ -> do
@@ -206,6 +208,7 @@ getAssignOp op l r = case op of
 
 genStmtSMT :: (Show a) => CStatement a -> Compiler ()
 genStmtSMT stmt = case stmt of
+--genStmtSMT stmt = case trace ("genStmtSMT " ++ show stmt) stmt of
   CCompound ids items _ -> forM_ items $ \item -> do
     case item of
       CBlockStmt stmt -> genStmtSMT stmt
@@ -216,53 +219,46 @@ genStmtSMT stmt = case stmt of
     trueCond <- genExprSMT cond
     let falseCond = cppBitNot trueCond
     -- Guard the true branch with the true condition
-    pushCondGuard (cppBool trueCond)
-    pushContext
+    pushGuard (cppBool trueCond)
+    enterLexScope
     genStmtSMT trueBr
-    popContext
-    popCondGuard
+    exitLexScope
+    popGuard
     -- Guard the false branch with the false condition
     when (isJust falseBr) $ do
-      pushCondGuard (cppBool falseCond)
-      pushContext
+      pushGuard (cppBool falseCond)
+      enterLexScope
       genStmtSMT $ fromJust falseBr
-      popContext
-      popCondGuard
+      exitLexScope
+      popGuard
   CWhile{}                    -> liftIO $ print "while"
-  CFor init bound incr body _ -> do
+  CFor init check incr body _ -> do
     case init of
       Left  (Just expr) -> void $ genExprSMT expr
       Right decl        -> genDeclSMT decl
       _                 -> return ()
     -- Make a guard on the bound to guard execution of the loop
-    guard <- case bound of
-      Just b -> genExprSMT b
-      _      -> error "NYI"
     -- Execute up to the loop bound
     bound <- getLoopBound
     forM_ [0 .. bound] $ \_ -> do
-      pushCondGuard (cppBool guard)
-      pushContext
+      guard <- case check of
+        Just b -> genExprSMT b
+        _      -> error "NYI"
+      pushGuard (cppBool guard)
+      enterLexScope
       genStmtSMT body
+      -- printComp
       -- increment the variable
       case incr of
         Just inc -> void $ genExprSMT inc
         _        -> error "Not yet supported"
-      popContext
-      popCondGuard
+      exitLexScope
+    forM_ [0 .. bound] $ \_ -> do
+      popGuard
+    -- TODO: assert end
   CReturn expr _ -> when (isJust expr) $ do
     toReturn    <- genExprSMT $ fromJust expr
-    retVal      <- getReturnVal
-      -- Get guards for current path
-    guard       <- getCurrentGuardNode
-      -- Have we not returned already?
-    notReturned <- hasNotReturned
-    let returnOccurs = Ty.BoolNaryExpr Ty.And [guard, notReturned]
-    addReturnGuard guard
-    -- This is the equality if the return occurs
-    let returnConstraint = cppAssignment retVal toReturn
-    -- Only set the return value equal to e if the guard is true
-    liftAssert $ Assert.implies returnOccurs returnConstraint
+    doReturn toReturn
   _ -> liftIO $ print $ unwords ["other", show stmt]
 
 genDeclSMT :: (Show a) => CDeclaration a -> Compiler ()
@@ -303,9 +299,7 @@ genFunDef f = do
       ptrs = ptrsFromFunc f
       tys  = baseTypeFromFunc f
   retTy         <- ctype tys ptrs
-  returnValName <- getReturnValName name
-  returnVal     <- liftAssert $ newVar retTy returnValName
-  pushFunction name returnVal
+  pushFunction name retTy
   -- Declare the arguments and execute the body
   forM_ (argsFromFunc f) genDeclSMT
   let body = bodyFromFunc f
@@ -317,7 +311,7 @@ genAsm :: CStringLiteral a -> Compiler ()
 genAsm = undefined
 
 codegenC :: CTranslUnit -> Compiler ()
-codegenC (CTranslUnit decls _) = do
+codegenC (CTranslUnit decls _) =
   forM_ decls $ \decl -> case decl of
     CDeclExt decl -> genDeclSMT decl
     CFDefExt fun  -> genFunDef fun

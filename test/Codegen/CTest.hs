@@ -3,25 +3,58 @@ import           AST.Simple
 import           BenchUtils
 import           Codegen.C
 import           Codegen.CompilerMonad
-import qualified Data.Map              as M
-import           IR.SMT                (initMem, smtPop, smtPush)
-import           Targets.SMT.Assert (execAssert, AssertState(..))
+import qualified Data.Map                      as M
+import           IR.SMT                         ( initMem
+                                                , smtPop
+                                                , smtPush
+                                                )
+import           Targets.SMT.Assert             ( execAssert
+                                                , AssertState(..)
+                                                )
 import           Parser.C
 import           Test.Tasty.HUnit
 import           Utils
 
 cTests :: BenchTest
-cTests = benchTestGroup "C codegen test" [basicTest ]
+cTests = benchTestGroup "C codegen test" [basicTest, loopTest, ifTest]
 
 basicTest :: BenchTest
 basicTest = benchTestCase "basic" $ do
   result <- parseC "test/Code/C/add.c"
   case result of
-    Left error -> assertFailure $ unwords ["Should not see", show error]
-    Right tu -> do
+    Left  error -> assertFailure $ unwords ["Should not see", show error]
+    Right tu    -> do
       assertions <- execAssert $ evalCodegen Nothing $ codegenC tu
-      print ""
-      print $ asserted assertions
+      3 @=? length (asserted assertions)
+
+loopTest :: BenchTest
+loopTest = benchTestCase "loop" $ do
+  result <- parseC "test/Code/C/loop.c"
+  case result of
+    Left  error -> assertFailure $ unwords ["Should not see", show error]
+    Right tu    -> do
+      assertions <- execAssert $ evalCodegen Nothing $ codegenC tu
+      (2 + 4 * 4) @=? length (asserted assertions)
+
+ifTest :: BenchTest
+ifTest = benchTestCase "if" $ do
+  result <- parseC "test/Code/C/if.c"
+  case result of
+    Left  error -> assertFailure $ unwords ["Should not see", show error]
+    Right tu    -> do
+      assertions <- execAssert $ evalCodegen Nothing $ codegenC tu
+      2 @=? length (asserted assertions)
+
+initRetTest :: BenchTest
+initRetTest = benchTestCase "initialize and return" $ do
+  result <- parseC "test/Code/C/init.c"
+  case result of
+    Left  error -> assertFailure $ unwords ["Should not see", show error]
+    Right tu    -> do
+      assertions <- execAssert $ evalCodegen Nothing $ codegenC tu
+      2 @=? length (asserted assertions)
+      2 @=? length (vars assertions)
+
 --
 --featuresTest :: BenchTest
 --featuresTest = benchTestCase "features" $ do
