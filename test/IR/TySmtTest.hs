@@ -5,12 +5,16 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module IR.TySmtTest where
 import           BenchUtils
-import           Control.Monad                  ( unless )
+import           Test.Tasty.HUnit
+import           Control.Monad                  ( unless
+                                                , forM_
+                                                )
 import qualified Data.BitVector                as Bv
 import           Data.Dynamic
 import qualified Data.Map.Strict               as Map
 import qualified IR.TySmt                      as Smt
 import           GHC.TypeLits
+import           Z3.Monad
 
 tySmtTests :: BenchTest
 tySmtTests = benchTestGroup
@@ -72,6 +76,28 @@ tySmtTests = benchTestGroup
   , genOverflowTest @4 Smt.BvSsubo True "high" 0 (-8)
   , genOverflowTest @4 Smt.BvSsubo False "low" (-3) 5
   , genOverflowTest @4 Smt.BvSsubo True "low" (-3) 6
+  , genZ3Test "bool sat" (Smt.Eq (Smt.BoolLit True) (Smt.Var "a" Smt.SortBool)) Sat
+  , genZ3Test "bool unsat"
+    (Smt.Eq (Smt.Not (Smt.Var "a" Smt.SortBool)) (Smt.Var "a" Smt.SortBool))
+    Unsat
+  , genZ3Test "bv unsat"
+    (Smt.Eq
+      (Smt.BvBinExpr @4 Smt.BvAdd
+                        (Smt.Var "a" (Smt.SortBv 4))
+                        (Smt.IntToBv (Smt.IntLit 1))
+      )
+      (Smt.Var "a" (Smt.SortBv 4))
+    )
+    Unsat
+  , genZ3Test "bv sat"
+    (Smt.Eq
+      (Smt.BvBinExpr @3 Smt.BvOr
+                        (Smt.Var "a" (Smt.SortBv 3))
+                        (Smt.IntToBv (Smt.IntLit 7))
+      )
+      (Smt.Var "a" (Smt.SortBv 3))
+    )
+    Sat
   ]
 
 genOverflowTest
@@ -98,12 +124,18 @@ genEvalTest
   :: (Typeable s) => String -> Env -> Smt.Term s -> Smt.Value s -> BenchTest
 genEvalTest name ctx t v' = benchTestCase ("eval test: " ++ name) $ do
   let v = Smt.eval ctx t
-  unless (v == v')
-    $  error
-    $  "Expected\n\t"
-    ++ show t
-    ++ "\nto evaluate to\n\t"
-    ++ show v'
-    ++ "\nbut it evaluated to\n\t"
-    ++ show v
-    ++ "\n"
+  v' @=? v
+
+genZ3Test :: String -> Smt.TermBool -> Result -> BenchTest
+genZ3Test name term result = benchTestCase ("eval " ++ name) $ do
+  (actResult, _) <- evalZ3 $ do
+    z3t <- Smt.toZ3 term
+    Z3.Monad.assert z3t
+    (r, model) <- getModel
+    case model of
+      Just m -> do
+        m' <- modelToString m
+        return (r, Just m')
+      Nothing -> return (r, Nothing)
+  result @=? actResult
+  --forM_ model putStrLn

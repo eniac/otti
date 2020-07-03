@@ -96,7 +96,6 @@ import           Data.Fixed                     ( mod' )
 import qualified Data.Binary.IEEE754           as IEEE754
 import           Z3.Monad                       ( MonadZ3 )
 import qualified Z3.Monad                      as Z
-import           Debug.Trace
 
 data IntSort = IntSort deriving (Show,Ord,Eq,Typeable)
 data BoolSort = BoolSort deriving (Show,Ord,Eq,Typeable)
@@ -881,7 +880,7 @@ eval e t = case t of
   DynBvExtract s w a ->
     let a' = valAsDynBv $ eval e a
     in  if s + w <= Bv.width a'
-          then ValDynBv $ traceShow s $ traceShow w $ traceShow a' $ Bv.extract (s + w - 1) s a'
+          then ValDynBv $ Bv.extract (s + w - 1) s a'
           else error $ "bitwidth mis-match while evaluating " ++ show t
   DynBvBinExpr o w a b ->
     let a' = valAsDynBv $ eval e a
