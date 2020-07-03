@@ -112,7 +112,7 @@ newIntStruct ty vals = do
   resultElems <- case ty of
     Struct tys -> do
       unless (length tys == length vals) $ error "Wrong number of element args to struct"
-      forM (zip tys vals) $ uncurry newInt
+      forM (zip (map snd tys) vals) $ uncurry newInt
     _ -> error "Wrong type to newIntStruct"
   result <- SMT.concatMany $ map n $ resultElems
   undef <- SMT.bvNum 1 0

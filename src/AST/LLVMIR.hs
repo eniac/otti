@@ -37,6 +37,9 @@ instance Typed LLVMType where
   structFieldTypes llvmty = case ty llvmty of
                               StructureType{} -> getFieldTypes llvmty
                               _ -> error "Must call structFieldTypes on struct"
+  structFieldList s =
+      error $ unwords ["Cannot call structFieldList on LLVM type", show s]
+
   isArray llvmty = case ty llvmty of
                      ArrayType{} -> True
                      _           -> False
@@ -46,7 +49,7 @@ instance Typed LLVMType where
   arrayNumElems llvmty = case ty llvmty of
                            ArrayType n _ -> fromIntegral n
                            _ -> error "Must call arrayNumElems on array"
-  newStructType tys = makeLLVMType $ StructureType False $ map ty tys
+  newStructType tys = makeLLVMType $ StructureType False $ map (ty . snd) tys
   newArrayType n e = makeLLVMType $ ArrayType (fromIntegral n) $ ty e
 
 

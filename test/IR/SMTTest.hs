@@ -217,7 +217,7 @@ structTest :: BenchTest
 structTest = benchTestCase "structs" $ do
 
   r <- evalIR Nothing $ do
-    let structTy = Struct [U8, S8]
+    let structTy = Struct [("a", U8), ("b", S8)]
     -- 00000011 | 00100100
     struct <- newIntStruct structTy [3, 36]
     newVar structTy "resultVar" >>= smtAssign struct

@@ -9,8 +9,9 @@ class Typed a where
   pointeeType :: a -> a
   isStruct :: a -> Bool
   structFieldTypes :: a -> [a]
+  structFieldList :: a -> [(String, a)]
   isArray :: a -> Bool
   arrayBaseType :: a -> a
   arrayNumElems :: a -> Int
-  newStructType :: [a] -> a
+  newStructType :: [(String, a)] -> a
   newArrayType :: Int -> a -> a

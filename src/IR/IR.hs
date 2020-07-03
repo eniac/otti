@@ -118,7 +118,7 @@ irGetField :: (IRNode a b)
          -> IR Node -- ^ Element
 irGetField struct idx' = do
   let structType = t struct
-      fieldTypes = structFieldTypes structType
+      fieldTypes = structFieldList structType
       -- Reverse index not from [0..n] but from [n..0] to make SMT.slice happy
       -- I guess its a little endian slice and we have big endian structs
       -- because they're easier to think about
@@ -127,7 +127,7 @@ irGetField struct idx' = do
   -- [ elems ] [ target elem] [ elems]
   --          ^ start        ^ end
   let startIdx = numBits $ newStructType $ take idx fieldTypes
-      endIdx = (numBits $ newStructType $ take (idx + 1) fieldTypes) - 1
+      endIdx = numBits (newStructType $ take (idx + 1) fieldTypes) - 1
   -- High index to low index to make SMT.slice happy
   SMT.slice (n struct) endIdx startIdx
 
@@ -140,9 +140,9 @@ irSetField :: (IRNode a b)
            -> IR Node -- ^ Result struct
 irSetField struct idx elem = do
   let structType = t struct
-      fieldTypes = structFieldTypes structType
+      fieldTypes = structFieldList structType
   unless (idx < length fieldTypes) $ error "Out of bounds index for getField"
-  unless (fieldTypes !! idx == t elem) $ error "Mismatch between element type and index"
+  unless (snd (fieldTypes !! idx) == t elem) $ error "Mismatch between element type and index"
   -- Too much of a pain to do the slicing thing here
   idxBits <- SMT.bvNum 64 (fromIntegral $ numBits $ newStructType $ take idx fieldTypes)
   liftSMT $ SMT.setBitsTo (n elem) (n struct) idxBits

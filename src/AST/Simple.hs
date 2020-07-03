@@ -26,7 +26,7 @@ data Type = U8 | S8
           | Double
           | Ptr64 Type
           | Ptr32 Type
-          | Struct [Type]
+          | Struct [(String, Type)]
           | Array Int Type
           | Void
           | Char
@@ -62,7 +62,7 @@ instance Typed Type where
   numBits Double         = 64
   numBits Ptr64{}        = 64
   numBits Ptr32{}        = 32
-  numBits (Struct tys)   = sum $ map numBits tys
+  numBits (Struct tys)   = sum $ map (numBits . snd) tys
   numBits (Array num ty) = num * numBits ty
 
   isSignedInt S8  = True
@@ -89,19 +89,23 @@ instance Typed Type where
 
   pointeeType (Ptr64 ty) = ty
   pointeeType (Ptr32 ty) = ty
-  pointeeType v          = error $ unwords $ ["Can't get pointee type of non-pointer", show v]
+  pointeeType v          = error $ unwords ["Can't get pointee type of non-pointer", show v]
 
   arrayBaseType (Array _ ty) = ty
   arrayBaseType a            =
-      error $ unwords $ ["Cannot call arrayBaseType on non-array", show a]
+      error $ unwords ["Cannot call arrayBaseType on non-array", show a]
 
   arrayNumElems (Array n _) = n
   arrayNumElems n           =
-      error $ unwords $ ["Cannot call array num elems on non-array type", show n]
+      error $ unwords ["Cannot call array num elems on non-array type", show n]
 
-  structFieldTypes (Struct tys) = tys
+  structFieldTypes (Struct tys) = map snd tys
   structFieldTypes s =
-      error $ unwords $ ["Cannot call structFieldTypes on non-struct", show s]
+      error $ unwords ["Cannot call structFieldTypes on non-struct", show s]
+
+  structFieldList (Struct tys) = tys
+  structFieldList s =
+      error $ unwords ["Cannot call structFieldList on non-struct", show s]
 
   newStructType = Struct
   newArrayType = Array
