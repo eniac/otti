@@ -96,7 +96,7 @@ addSub sig lc subs
     otherwise = Nothing
 
 -- check that the domain and range are disjoint
-checkSubs :: Subs n -> ()
+checkSubs :: KnownNat n => Subs n -> ()
 checkSubs subs =
   let d = IntSet.fromAscList $ Map.keys (fwd subs)
       r = Map.foldr' (IntSet.union . (IntSet.fromAscList . Map.keys . fst))

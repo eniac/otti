@@ -7,7 +7,6 @@ import           IR.TySmtTest
 import           IR.MemoryTest
 import           IR.CUtilsTest
 import           Parser.CTest
-import           Parser.WASMTest
 import           Parser.CircomTest
 import           Targets.SMT
 import           Targets.SMTTest

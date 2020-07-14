@@ -74,6 +74,7 @@ module IR.TySmt
   , dynBvWidth
   , mkVar
   , sortDouble
+  , valAsPf
   )
 where
 
@@ -283,6 +284,7 @@ data BvBinPred = BvUgt
 
 data PfNaryOp = PfAdd | PfMul deriving (Show, Ord, Eq, Typeable)
 data PfUnOp = PfNeg | PfRecip deriving (Show, Ord, Eq, Typeable)
+data PfBinPred = PfEq | PfNe deriving (Show, Ord, Eq, Typeable)
 
 data FpBinOp = FpAdd
              | FpSub

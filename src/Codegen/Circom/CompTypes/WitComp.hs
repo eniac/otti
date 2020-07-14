@@ -58,7 +58,7 @@ newtype WitBaseTerm n = WitBaseTerm (Smt.Term (Smt.PfSort n)) deriving (Show)
 
 instance KnownNat n => BaseTerm (WitBaseTerm n) (Prime n) where
   fromConst  = WitBaseTerm . Smt.IntToPf . Smt.IntLit . fromP
-  fromSignal = WitBaseTerm . Smt.Var . show
+  fromSignal = WitBaseTerm . flip Smt.Var (Smt.SortPf $ fromIntegral $ natVal $ Proxy @n) . show
   binOp o = case o of
     Add    -> liftPf (\a b -> Smt.PfNaryExpr Smt.PfAdd [a, b])
     Sub    -> \a b -> binOp Add a $ unOp UnNeg b
@@ -70,8 +70,8 @@ instance KnownNat n => BaseTerm (WitBaseTerm n) (Prime n) where
     Gt     -> liftIntPred (Smt.IntBinPred Smt.IntGt)
     Le     -> liftIntPred (Smt.IntBinPred Smt.IntLe)
     Ge     -> liftIntPred (Smt.IntBinPred Smt.IntGe)
-    Eq     -> liftIntPred (Smt.IntBinPred Smt.IntEq)
-    Ne     -> liftIntPred (Smt.IntBinPred Smt.IntNe)
+    Eq     -> liftIntPred Smt.Eq
+    Ne     -> liftIntPred (\a b -> Smt.Not $ Smt.Eq a b)
     And    -> liftBool (\a b -> Smt.BoolNaryExpr Smt.And [a, b])
     Or     -> liftBool (\a b -> Smt.BoolNaryExpr Smt.Or [a, b])
     BitAnd -> liftBv (Smt.BvBinExpr Smt.BvAnd)
@@ -91,22 +91,21 @@ instance KnownNat n => BaseTerm (WitBaseTerm n) (Prime n) where
       )
     liftIntPred f = liftInt (\a b -> Smt.BoolToInt $ f a b)
     liftBool f = liftIntPred
-      (\a b -> f (Smt.IntBinPred Smt.IntNe (Smt.IntLit 0) a)
-                 (Smt.IntBinPred Smt.IntNe (Smt.IntLit 0) b)
+      (\a b -> f (Smt.Not $ Smt.Eq (Smt.IntLit 0) a)
+                 (Smt.Not $ Smt.Eq (Smt.IntLit 0) b)
       )
   unOp o = case o of
     BitNot ->
       error "Bitwise negation has unclear semantics for prime field elements"
     Not -> \(WitBaseTerm a) ->
-      WitBaseTerm $ Smt.IntToPf $ Smt.BoolToInt $ Smt.Not $ Smt.PfBinPred
-        Smt.PfNe
+      WitBaseTerm $ Smt.IntToPf $ Smt.BoolToInt $ Smt.Eq
         z
         a
       where z = Smt.IntToPf $ Smt.IntLit 0
     UnPos -> id
     UnNeg -> WitBaseTerm . Smt.PfUnExpr Smt.PfNeg . coerce
   ite c t f = WitBaseTerm
-    $ Smt.Ite (Smt.PfBinPred Smt.PfNe (coerce c) z) (coerce t) (coerce f)
+    $ Smt.Ite (Smt.Not $ Smt.Eq (coerce c) z) (coerce t) (coerce f)
     where z = Smt.IntToPf $ Smt.IntLit 0
 
 data WitBaseCtx n = WitBaseCtx { signalTerms :: !(Map.Map LTerm (WitBaseTerm n))
@@ -143,8 +142,8 @@ instance KnownNat n => BaseCtx (WitBaseCtx n) (WitBaseTerm n) (Prime n) where
        where
         visit :: Smt.Term t -> Maybe (Set.Set Sig.Signal)
         visit t = case t of
-          Smt.Var v -> Just $ Set.singleton $ read v
-          _         -> Nothing
+          Smt.Var v _ -> Just $ Set.singleton $ read v
+          _           -> Nothing
 
       asLterm :: Either LTerm Sig.IndexedIdent -> LTerm
       asLterm = either id LTermLocal
