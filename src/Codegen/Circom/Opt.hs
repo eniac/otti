@@ -36,6 +36,7 @@ import qualified Data.Sequence                 as Seq
 import           Debug.Trace
 
 -- TODO: this would all be a lot fast if the constraints used IntMaps...
+-- TODO: optimize out things like x + y + z = 0
 
 -- If this QEQ implies that some signal is an affine function of another,
 -- return that.
