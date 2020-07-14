@@ -1,3 +1,9 @@
 *~
 #*
 casestudies*
+compiler.cabal
+.ccls-cache
+.stack-work
+old
+comp
+inputs

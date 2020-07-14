@@ -29,6 +29,53 @@ packages:
       sha256: f1a83aa959b69b72342997fc4fdc352086bc3b9f306cfb6a4c8bbc850d36b4fb
   original:
     hackage: llvm-hs-pure-9.0.0@sha256:134779f40086a366279f678e670b610d7a7618b28dd43f65894078fd20e04629,2945
+- completed:
+    size: 63109
+    url: https://github.com/adjoint-io/galois-field/archive/a1d0521c313b2a7ab1771846995452df80500810.tar.gz
+    name: galois-field
+    version: 1.0.1
+    sha256: b8c699f3039654a15413b2fcf670f517b575b88aceac9b0dafefd6cd120cdd09
+    pantry-tree:
+      size: 4578
+      sha256: 3da360f395cdc50bbc6c2e86219b2405e5ffda11e56647d478968dc8dd1d3933
+  original:
+    url: https://github.com/adjoint-io/galois-field/archive/a1d0521c313b2a7ab1771846995452df80500810.tar.gz
+- completed:
+    size: 23403
+    url: https://github.com/chessai/semirings/archive/b4334fe06635f106b1f08bac127c1ae259cddae6.tar.gz
+    name: semirings
+    version: 0.5.2
+    sha256: a6b5d1a9286379c93b5746b203d679fdebe044fdca4650acbe2cbcfb42788aef
+    pantry-tree:
+      size: 1042
+      sha256: 247122c81c37ed64c4d60794a845b5643a976ca878bd39b87af716b4c9eed194
+  original:
+    url: https://github.com/chessai/semirings/archive/b4334fe06635f106b1f08bac127c1ae259cddae6.tar.gz
+- completed:
+    size: 22608
+    url: https://github.com/Bodigrim/poly/archive/3cc4f30bdba2fe488b72ec84a1effb66766de477.tar.gz
+    name: poly
+    version: 0.3.3.0
+    sha256: f7413ce445ba3bd49944a5ba2c4719699f2b64ac22bd339f2020cd989da347ef
+    pantry-tree:
+      size: 1613
+      sha256: 229b3f595256b26f2ed29e6db254f09187d628bc32cdb025306f6d4bfbc11272
+  original:
+    url: https://github.com/Bodigrim/poly/archive/3cc4f30bdba2fe488b72ec84a1effb66766de477.tar.gz
+- completed:
+    hackage: mod-0.1.1.0@sha256:57f230d5664b1c311d1044c259ef880875e4b3bcbfc7c57eab3bf03fce87f445,1838
+    pantry-tree:
+      size: 464
+      sha256: ca61450dd1d84e6beefba010a7032dfb5a8bc2e8344a369430992c56ec083ad7
+  original:
+    hackage: mod-0.1.1.0@sha256:57f230d5664b1c311d1044c259ef880875e4b3bcbfc7c57eab3bf03fce87f445,1838
+- completed:
+    hackage: bitvec-1.0.2.0@sha256:492256514c4c7297d6b09f1dfdcb0fe579f1896b8ace89cb33842f797ac91544,4232
+    pantry-tree:
+      size: 2371
+      sha256: 9b2b82291d9a5480183e81c121801cc8401fa65b54edd027087e298c9b3b1880
+  original:
+    hackage: bitvec-1.0.2.0
 snapshots:
 - completed:
     size: 524786
