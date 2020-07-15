@@ -31,6 +31,7 @@ import           System.Environment         (getArgs)
 import           System.IO                  (openFile, hGetContents, hPutStr, IOMode(..), hClose)
 import           System.Console.Docopt
 import           System.Process
+import qualified IR.TySmt                   as Ty
 
 
 patterns :: Docopt
@@ -164,6 +165,7 @@ cmdC name path = do
       forM_ (asserted assertions) $ \v -> do
         putStr "  "
         print v
+      Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (asserted assertions)
     Left p -> do
       putStrLn "Parse error"
       print p

@@ -53,6 +53,7 @@ module IR.TySmt
   , nChars
   , toZ3
   , sortToZ3
+  , evalZ3
   , mkDynBvExtract
   , mkDynBvBinExpr
   , mkDynBvConcat
@@ -1170,3 +1171,17 @@ toZ3 t = case t of
             x <- Z.mkBvmulNoOverflow a b True
             y <- Z.mkBvmulNoUnderflow a b
             Z.mkAnd [x, y] >>= Z.mkNot
+
+evalZ3 :: TermBool -> IO ()
+evalZ3 term = do
+  result <- Z.evalZ3 $ do
+    assertion <- toZ3 term
+    Z.assert assertion
+    m <- Z.getModel
+    let mm :: Maybe Z.Model
+        mm = snd m
+    case mm of
+      Just model -> Z.modelToString model
+      Nothing -> return ""
+  putStrLn "Sol:"
+  putStrLn result
