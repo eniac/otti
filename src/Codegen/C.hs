@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 module Codegen.C where
 import           AST.C
 import           AST.Simple
@@ -9,10 +10,12 @@ import           Control.Monad.State.Strict     ( forM
                                                 , unless
                                                 , void
                                                 , when
+                                                , gets
                                                 )
 import           Data.Maybe                     ( fromJust
                                                 , isJust
                                                 , isNothing
+                                                , fromMaybe
                                                 )
 import           IR.CUtils
 import           IR.Memory                      ( bvNum )
@@ -298,9 +301,7 @@ genDeclSMT (CDecl specs decls _) = do
 
   forM_ decls $ \(Just dec, mInit, _) -> do
     let mName = identFromDeclr dec
-        name  = if isJust mName
-          then fromJust mName
-          else error "Expected identifier in decl"
+        name  = fromMaybe (error "Expected identifier in decl") mName
         ptrType = derivedFromDeclr dec
 
     if isTypedefDecl
@@ -338,14 +339,26 @@ genFunDef f = do
 genAsm :: CStringLiteral a -> Compiler ()
 genAsm = undefined
 
-codegenC :: CTranslUnit -> Compiler ()
-codegenC (CTranslUnit decls _) = do
-  -- First, register functions
-  forM_ decls $ \decl -> case decl of
-    CFDefExt f -> registerFunction (nameFromFunc f) f
-    _          -> return ()
-  -- Then analyze
-  forM_ decls $ \decl -> case decl of
+registerFns :: [CExtDecl] -> Compiler ()
+registerFns decls = forM_ decls $ \case
+  CFDefExt f -> registerFunction (nameFromFunc f) f
+  _          -> pure ()
+
+codegenAll :: CTranslUnit -> Compiler ()
+codegenAll (CTranslUnit decls _) = do
+  registerFns decls
+  forM_ decls $ \case
     CDeclExt decl -> genDeclSMT decl
     CFDefExt fun  -> genFunDef fun
     CAsmExt asm _ -> genAsm asm
+
+codegenFn :: CTranslUnit -> String -> Compiler ()
+codegenFn (CTranslUnit decls _) name = do
+  registerFns decls
+  let f = head $ fromJust $ traverse
+        (\case
+          CFDefExt f -> if nameFromFunc f == name then Just f else Nothing
+          _          -> Nothing
+        )
+        decls
+  genFunDef f

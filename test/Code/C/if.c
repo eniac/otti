@@ -4,4 +4,5 @@ int sum (int x) {
   if (x < 5) {
       y += 5;
   }
+  return y;
 }

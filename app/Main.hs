@@ -11,6 +11,9 @@
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 module Main where
 
+import           Codegen.C                  (codegenFn)
+import           Codegen.CompilerMonad      (evalCodegen)
+import           Targets.SMT.Assert         (execAssert)
 import qualified Codegen.Circom.Compilation as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
                                             as Wit
@@ -21,6 +24,7 @@ import qualified Data.Map                   as Map
 import qualified Data.IntMap                as IntMap
 import qualified Data.Maybe                 as Maybe
 import           Data.Proxy                 (Proxy(..))
+import           Parser.C                   (parseC)
 import           Parser.Circom              (loadMain)
 import           System.Environment         (getArgs)
 import           System.IO                  (openFile, hGetContents, hPutStr, IOMode(..), hClose)
@@ -37,6 +41,7 @@ Usage:
   compiler prove [options]
   compiler verify [options]
   compiler (-h | --help)
+  compiler c <fn-name> <path>
 
 Options:
   -h, --help         Display this message
@@ -57,6 +62,7 @@ Commands:
   setup            Run the setup
   emit-r1cs        Emit R1CS
   count-terms      Compile at the fn-level only
+  c                Generate a circuit for a c program
 |]
 
 getArgOrExit :: Arguments -> Option -> IO String
@@ -143,6 +149,18 @@ cmdProve opt libsnarkPath pkPath vkPath inPath xPath wPath pfPath circomPath = d
 cmdVerify :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdVerify = runVerify
 
+cmdC :: String -> FilePath -> IO ()
+cmdC name path = do
+  result <- parseC path
+  case result of
+    Right tu -> do
+      assertions <- execAssert $ evalCodegen Nothing $ codegenFn tu name
+      print assertions
+    Left p -> do
+      putStrLn "Parse error"
+      print p
+
+
 defaultR1cs :: String
 defaultR1cs = "C"
 
@@ -180,5 +198,9 @@ main = do
         xPath <- args `getArgOrExit` shortOption 'x'
         pfPath <- args `getArgOrExit` shortOption 'p'
         cmdVerify libsnarkPath vkPath xPath pfPath
+    else if args `isPresent` command "c" then do
+        fnName <- args `getArgOrExit` argument "fn-name"
+        path <- args `getArgOrExit` argument "path"
+        cmdC fnName path
     else
         exitWithUsageMessage patterns "Missing command!"

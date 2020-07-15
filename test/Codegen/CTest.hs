@@ -20,7 +20,7 @@ basicTest = benchTestCase "basic" $ do
   case result of
     Left  error -> assertFailure $ unwords ["Should not see", show error]
     Right tu    -> do
-      assertions <- execAssert $ evalCodegen Nothing $ codegenC tu
+      assertions <- execAssert $ evalCodegen Nothing $ codegenAll tu
       3 @=? length (asserted assertions)
 
 loopTest :: BenchTest
@@ -29,7 +29,7 @@ loopTest = benchTestCase "loop" $ do
   case result of
     Left  error -> assertFailure $ unwords ["Should not see", show error]
     Right tu    -> do
-      assertions <- execAssert $ evalCodegen Nothing $ codegenC tu
+      assertions <- execAssert $ evalCodegen Nothing $ codegenAll tu
       (2 + 4 * 4) @=? length (asserted assertions)
 
 ifTest :: BenchTest
@@ -38,7 +38,7 @@ ifTest = benchTestCase "if" $ do
   case result of
     Left  error -> assertFailure $ unwords ["Should not see", show error]
     Right tu    -> do
-      assertions <- execAssert $ evalCodegen Nothing $ codegenC tu
+      assertions <- execAssert $ evalCodegen Nothing $ codegenAll tu
       2 @=? length (asserted assertions)
 
 initRetTest :: BenchTest
@@ -47,7 +47,7 @@ initRetTest = benchTestCase "initialize and return" $ do
   case result of
     Left  error -> assertFailure $ unwords ["Should not see", show error]
     Right tu    -> do
-      assertions <- execAssert $ evalCodegen Nothing $ codegenC tu
+      assertions <- execAssert $ evalCodegen Nothing $ codegenAll tu
       2 @=? length (asserted assertions)
 
 fnCallTest :: BenchTest
@@ -56,7 +56,7 @@ fnCallTest = benchTestCase "function call" $ do
   case result of
     Left  error -> assertFailure $ unwords ["Should not see", show error]
     Right tu    -> do
-      assertions <- execAssert $ evalCodegen Nothing $ codegenC tu
+      assertions <- execAssert $ evalCodegen Nothing $ codegenAll tu
       -- TODO check
       5 @=? length (asserted assertions)
 
@@ -70,7 +70,7 @@ fnCallTest = benchTestCase "function call" $ do
 --
 --      r1 <- evalCodegen Nothing $ do
 --        liftIR initMem
---        codegenC tu
+--        codegenAll tu
 --        runSolverOnSMT
 --
 --      vtest r1 $ M.fromList [ ("w_0", 7) ]
@@ -84,7 +84,7 @@ fnCallTest = benchTestCase "function call" $ do
 --
 --      r1 <- evalCodegen Nothing $ do
 --        liftIR initMem
---        codegenC tu
+--        codegenAll tu
 --        runSolverOnSMT
 --
 --      vtest r1 $ M.fromList [ ("w_0", 7) ]
