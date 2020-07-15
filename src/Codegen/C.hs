@@ -16,6 +16,7 @@ import           Data.Maybe                     ( fromJust
                                                 , isJust
                                                 , isNothing
                                                 , fromMaybe
+                                                , listToMaybe
                                                 )
 import           IR.CUtils
 import           IR.Memory                      ( bvNum )
@@ -123,7 +124,7 @@ genExprSMT expr = case expr of
       f          <- getFunction fnName
       retTy      <- ctype (baseTypeFromFunc f) (ptrsFromFunc f)
       pushFunction fnName retTy
-      forM_ (argsFromFunc f) genDeclSMT
+      forM_ (argsFromFunc f) (genDeclSMT True)
       let
         formalArgs =
           map identToVarName
@@ -242,7 +243,7 @@ genStmtSMT stmt = case stmt of
   CCompound ids items _ -> forM_ items $ \item -> do
     case item of
       CBlockStmt stmt -> genStmtSMT stmt
-      CBlockDecl decl -> genDeclSMT decl
+      CBlockDecl decl -> genDeclSMT True decl
       CNestedFunDef{} -> error "Nested function definitions not supported"
   CExpr e _                 -> when (isJust e) $ void $ genExprSMT $ fromJust e
   CIf cond trueBr falseBr _ -> do
@@ -265,7 +266,7 @@ genStmtSMT stmt = case stmt of
   CFor init check incr body _ -> do
     case init of
       Left  (Just expr) -> void $ genExprSMT expr
-      Right decl        -> genDeclSMT decl
+      Right decl        -> genDeclSMT True decl
       _                 -> return ()
     -- Make a guard on the bound to guard execution of the loop
     -- Execute up to the loop bound
@@ -291,8 +292,8 @@ genStmtSMT stmt = case stmt of
     doReturn toReturn
   _ -> liftIO $ print $ unwords ["other", show stmt]
 
-genDeclSMT :: CDecl -> Compiler ()
-genDeclSMT (CDecl specs decls _) = do
+genDeclSMT :: Bool -> CDecl -> Compiler ()
+genDeclSMT undef (CDecl specs decls _) = do
   when (null specs) $ error "Expected specifier in declaration"
   let firstSpec = head specs
       isTypedefDecl =
@@ -308,6 +309,8 @@ genDeclSMT (CDecl specs decls _) = do
       then typedefSMT name baseType ptrType
       else do
         declareVarSMT name baseType ptrType
+        lhs <- genVarSMT name
+        liftAssert $ Assert.assert $ Ty.Eq (udef lhs) (Ty.BoolLit undef)
         case mInit of
           Just (CInitExpr e _) -> do
             lhs <- genVarSMT name
@@ -321,7 +324,7 @@ genDeclSMT (CDecl specs decls _) = do
 ---
 
 genFunDef :: CFunDef -> Bool -> Compiler ()
-genFunDef f assertRetUndef = do
+genFunDef f checkUndef = do
   -- Declare the function and setup the return value
   let name = nameFromFunc f
       ptrs = ptrsFromFunc f
@@ -329,12 +332,12 @@ genFunDef f assertRetUndef = do
   retTy <- ctype tys ptrs
   pushFunction name retTy
   -- Declare the arguments and execute the body
-  forM_ (argsFromFunc f) genDeclSMT
+  forM_ (argsFromFunc f) (genDeclSMT False)
   let body = bodyFromFunc f
   case body of
     CCompound{} -> genStmtSMT body
     _           -> error "Expected C statement block in function definition"
-  when assertRetUndef $ do
+  when checkUndef $ do
     returnValue <- getReturn
     liftAssert $ Assert.assert $ udef returnValue
   popFunction
@@ -344,24 +347,26 @@ genAsm = undefined
 
 registerFns :: [CExtDecl] -> Compiler ()
 registerFns decls = forM_ decls $ \case
-  CFDefExt f -> registerFunction (nameFromFunc f) f
+  CFDefExt f -> do
+    liftIO $ putStrLn $ nameFromFunc f
+    registerFunction (nameFromFunc f) f
   _          -> pure ()
 
 codegenAll :: CTranslUnit -> Compiler ()
 codegenAll (CTranslUnit decls _) = do
   registerFns decls
   forM_ decls $ \case
-    CDeclExt decl -> genDeclSMT decl
+    CDeclExt decl -> genDeclSMT True decl
     CFDefExt fun  -> genFunDef fun True
     CAsmExt asm _ -> genAsm asm
 
 codegenFn :: CTranslUnit -> String -> Compiler ()
 codegenFn (CTranslUnit decls _) name = do
   registerFns decls
-  let f = head $ fromJust $ traverse
+  let f = fromMaybe (error $ "No " ++ name) $ listToMaybe $ concatMap
         (\case
-          CFDefExt f -> if nameFromFunc f == name then Just f else Nothing
-          _          -> Nothing
+          CFDefExt f -> if nameFromFunc f == name then [f] else []
+          _          -> []
         )
         decls
   genFunDef f True
