@@ -615,12 +615,14 @@ cppCond cond t f =
 cppAssignment :: CTerm -> CTerm -> Ty.TermBool
 cppAssignment l r =
   let r' = cppCast (ctermDataTy $ term l) r
-  in  case (term l, term r') of
-        (CBool   lB , CBool rB   ) -> Ty.Eq lB rB
-        (CDouble lB , CDouble rB ) -> Ty.Eq lB rB
-        (CInt _ _ lB, CInt _ _ rB) -> Ty.Eq lB rB
-        (CPtr lTy lB, CPtr rTy rB) | lTy == rTy -> Ty.Eq lB rB
-        _                          -> error "Invalid cppAssign terms, post-cast"
+      valAss = case (term l, term r') of
+                   (CBool   lB , CBool rB   ) -> Ty.Eq lB rB
+                   (CDouble lB , CDouble rB ) -> Ty.Eq lB rB
+                   (CInt _ _ lB, CInt _ _ rB) -> Ty.Eq lB rB
+                   (CPtr lTy lB, CPtr rTy rB) | lTy == rTy -> Ty.Eq lB rB
+                   _                          -> error "Invalid cppAssign terms, post-cast"
+      udefAss = Ty.Eq (udef l) (udef r')
+  in Ty.BoolNaryExpr Ty.And [valAss, udefAss]
 
 cppAssign :: CTerm -> CTerm -> Assert CTerm
 cppAssign l r =

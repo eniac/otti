@@ -1182,6 +1182,6 @@ evalZ3 term = do
         mm = snd m
     case mm of
       Just model -> Z.modelToString model
-      Nothing -> return ""
+      Nothing -> return$ show $ fst m
   putStrLn "Sol:"
   putStrLn result
