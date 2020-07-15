@@ -1,8 +1,6 @@
 import           BenchUtils
 import           Codegen.CTest
 import           Codegen.CircomTest
-import           Codegen.SMTGenTest
-import           IR.SMTTest
 import           IR.TySmtTest
 import           IR.MemoryTest
 import           IR.CUtilsTest
@@ -13,25 +11,16 @@ import           Targets.SMTTest
 import           Test.Tasty
 
 parserTests :: BenchTest
-parserTests = benchTestGroup "Parser tests" [
-                                            cParserTests,
-                                            circomParserTests
-                                            ]
+parserTests = benchTestGroup "Parser tests" [cParserTests, circomParserTests]
 
 generatorTests :: BenchTest
-generatorTests = benchTestGroup "Generator tests" [ circomGenTests
-                                                  ]
+generatorTests = benchTestGroup "Generator tests" [circomGenTests, cTests]
+irTests :: BenchTest
+irTests = benchTestGroup "IR tests" [tySmtTests, memoryTest, cutilsTest]
+
 
 allTests :: [BenchTest]
-allTests = [ parserTests
-           -- , smtTests
-           -- , codegenTests
-           , irTests
-           , tySmtTests
-           , memoryTest
-           , cutilsTest
-           , generatorTests
-           ]
+allTests = [parserTests, irTests, generatorTests]
 
 main :: IO ()
 main = defaultMain $ testGroup "All tests" $ map getTest allTests

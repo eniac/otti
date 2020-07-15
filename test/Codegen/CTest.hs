@@ -4,10 +4,6 @@ import           BenchUtils
 import           Codegen.C
 import           Codegen.CompilerMonad
 import qualified Data.Map                      as M
-import           IR.SMT                         ( initMem
-                                                , smtPop
-                                                , smtPush
-                                                )
 import           Targets.SMT.Assert             ( execAssert
                                                 , AssertState(..)
                                                 )
