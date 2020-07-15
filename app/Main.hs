@@ -13,13 +13,14 @@ module Main where
 
 import           Codegen.C                  (codegenFn)
 import           Codegen.CompilerMonad      (evalCodegen)
-import           Targets.SMT.Assert         (execAssert)
+import           Targets.SMT.Assert         (execAssert, asserted, vars)
 import qualified Codegen.Circom.Compilation as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
                                             as Wit
 import qualified Codegen.Circom.CompTypes   as CompT
 import qualified Codegen.Circom.Linking     as Link
 import qualified Codegen.Circom.Opt     as Opt
+import           Control.Monad              (forM_)
 import qualified Data.Map                   as Map
 import qualified Data.IntMap                as IntMap
 import qualified Data.Maybe                 as Maybe
@@ -155,7 +156,14 @@ cmdC name path = do
   case result of
     Right tu -> do
       assertions <- execAssert $ evalCodegen Nothing $ codegenFn tu name
-      print assertions
+      putStrLn "Variables:"
+      forM_ (Map.toList $ vars assertions) $ \v -> do
+        putStr "  "
+        print v
+      putStrLn "Assertions:"
+      forM_ (asserted assertions) $ \v -> do
+        putStr "  "
+        print v
     Left p -> do
       putStrLn "Parse error"
       print p

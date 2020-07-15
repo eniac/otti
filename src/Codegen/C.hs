@@ -320,8 +320,8 @@ genDeclSMT (CDecl specs decls _) = do
 --- High level codegen (translation unit, etc)
 ---
 
-genFunDef :: CFunDef -> Compiler ()
-genFunDef f = do
+genFunDef :: CFunDef -> Bool -> Compiler ()
+genFunDef f assertRetUndef = do
   -- Declare the function and setup the return value
   let name = nameFromFunc f
       ptrs = ptrsFromFunc f
@@ -334,6 +334,9 @@ genFunDef f = do
   case body of
     CCompound{} -> genStmtSMT body
     _           -> error "Expected C statement block in function definition"
+  when assertRetUndef $ do
+    returnValue <- getReturn
+    liftAssert $ Assert.assert $ udef returnValue
   popFunction
 
 genAsm :: CStringLiteral a -> Compiler ()
@@ -349,7 +352,7 @@ codegenAll (CTranslUnit decls _) = do
   registerFns decls
   forM_ decls $ \case
     CDeclExt decl -> genDeclSMT decl
-    CFDefExt fun  -> genFunDef fun
+    CFDefExt fun  -> genFunDef fun True
     CAsmExt asm _ -> genAsm asm
 
 codegenFn :: CTranslUnit -> String -> Compiler ()
@@ -361,4 +364,4 @@ codegenFn (CTranslUnit decls _) name = do
           _          -> Nothing
         )
         decls
-  genFunDef f
+  genFunDef f True
