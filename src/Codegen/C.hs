@@ -347,9 +347,7 @@ genAsm = undefined
 
 registerFns :: [CExtDecl] -> Compiler ()
 registerFns decls = forM_ decls $ \case
-  CFDefExt f -> do
-    liftIO $ putStrLn $ nameFromFunc f
-    registerFunction (nameFromFunc f) f
+  CFDefExt f -> registerFunction (nameFromFunc f) f
   _          -> pure ()
 
 codegenAll :: CTranslUnit -> Compiler ()

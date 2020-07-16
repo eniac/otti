@@ -21,7 +21,7 @@ basicTest = benchTestCase "basic" $ do
     Left  error -> assertFailure $ unwords ["Should not see", show error]
     Right tu    -> do
       assertions <- execAssert $ evalCodegen Nothing $ codegenAll tu
-      3 @=? length (asserted assertions)
+      8 @=? length (asserted assertions)
 
 loopTest :: BenchTest
 loopTest = benchTestCase "loop" $ do
@@ -30,7 +30,7 @@ loopTest = benchTestCase "loop" $ do
     Left  error -> assertFailure $ unwords ["Should not see", show error]
     Right tu    -> do
       assertions <- execAssert $ evalCodegen Nothing $ codegenAll tu
-      (2 + 4 * 4) @=? length (asserted assertions)
+      26 @=? length (asserted assertions)
 
 ifTest :: BenchTest
 ifTest = benchTestCase "if" $ do
@@ -39,7 +39,7 @@ ifTest = benchTestCase "if" $ do
     Left  error -> assertFailure $ unwords ["Should not see", show error]
     Right tu    -> do
       assertions <- execAssert $ evalCodegen Nothing $ codegenAll tu
-      2 @=? length (asserted assertions)
+      6 @=? length (asserted assertions)
 
 initRetTest :: BenchTest
 initRetTest = benchTestCase "initialize and return" $ do
@@ -48,7 +48,7 @@ initRetTest = benchTestCase "initialize and return" $ do
     Left  error -> assertFailure $ unwords ["Should not see", show error]
     Right tu    -> do
       assertions <- execAssert $ evalCodegen Nothing $ codegenAll tu
-      2 @=? length (asserted assertions)
+      4 @=? length (asserted assertions)
 
 fnCallTest :: BenchTest
 fnCallTest = benchTestCase "function call" $ do
@@ -58,7 +58,7 @@ fnCallTest = benchTestCase "function call" $ do
     Right tu    -> do
       assertions <- execAssert $ evalCodegen Nothing $ codegenAll tu
       -- TODO check
-      5 @=? length (asserted assertions)
+      13 @=? length (asserted assertions)
 
 --
 --featuresTest :: BenchTest
