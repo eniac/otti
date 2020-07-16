@@ -16,8 +16,9 @@ import           Utils
 cTests :: BenchTest
 cTests = benchTestGroup "C codegen test" [toSmtTests, ubTests]
 
-toSmtTests = benchTestGroup "SMT conversion"
-                       [basicTest, loopTest, ifTest, initRetTest, fnCallTest]
+toSmtTests = benchTestGroup
+  "SMT conversion"
+  [basicTest, loopTest, ifTest, initRetTest, fnCallTest]
 
 constraintCountTest :: String -> FilePath -> Int -> BenchTest
 constraintCountTest name path constraints = benchTestCase name $ do
@@ -53,40 +54,11 @@ ubCheckTest name fnName path undef = benchTestCase name $ do
       r          <- Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (asserted assertions)
       undef @=? isJust r
 
-ubTests = benchTestGroup "UB Checks"
+ubTests = benchTestGroup
+  "UB Checks"
   [ ubCheckTest "signed overflow" "inner" "test/Code/C/fn_call.c" True
   , ubCheckTest "signed overflow in fn" "outer" "test/Code/C/fn_call.c" True
   , ubCheckTest "unsigned overflow" "add" "test/Code/C/add_unsigned.c" False
   , ubCheckTest "constant in if" "add" "test/Code/C/if.c" False
   , ubCheckTest "constant loop" "add" "test/Code/C/loop.c" False
   ]
-
---
---featuresTest :: BenchTest
---featuresTest = benchTestCase "features" $ do
---  result <- parseC "test/Code/C/test.c"
---  case result of
---    Left error -> assertFailure $ unwords ["Should not see", show error]
---    Right tu -> do
---
---      r1 <- evalCodegen Nothing $ do
---        liftIR initMem
---        codegenAll tu
---        runSolverOnSMT
---
---      vtest r1 $ M.fromList [ ("w_0", 7) ]
---
---memcpyTest :: BenchTest
---memcpyTest = benchTestCase "memcpy" $ do
---  result <- parseC "test/Code/C/memcpy_pp.c"
---  case result of
---    Left error -> assertFailure $ unwords ["Should not see", show error]
---    Right tu -> do
---
---      r1 <- evalCodegen Nothing $ do
---        liftIR initMem
---        codegenAll tu
---        runSolverOnSMT
---
---      vtest r1 $ M.fromList [ ("w_0", 7) ]
---
