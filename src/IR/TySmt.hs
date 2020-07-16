@@ -1172,16 +1172,15 @@ toZ3 t = case t of
             y <- Z.mkBvmulNoUnderflow a b
             Z.mkAnd [x, y] >>= Z.mkNot
 
-evalZ3 :: TermBool -> IO ()
-evalZ3 term = do
-  result <- Z.evalZ3 $ do
+-- Returns Nothing if UNSAT, or a string description of the model.
+evalZ3 :: TermBool -> IO (Maybe String)
+evalZ3 term =
+  Z.evalZ3 $ do
     assertion <- toZ3 term
     Z.assert assertion
     m <- Z.getModel
-    let mm :: Maybe Z.Model
-        mm = snd m
-    case mm of
-      Just model -> Z.modelToString model
-      Nothing -> return$ show $ fst m
-  putStrLn "Sol:"
-  putStrLn result
+    case snd m of
+      Just model -> do
+        s <- Z.modelToString model
+        return $ Just s
+      Nothing -> return Nothing

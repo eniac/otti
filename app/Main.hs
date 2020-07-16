@@ -165,7 +165,10 @@ cmdC name path = do
       forM_ (asserted assertions) $ \v -> do
         putStr "  "
         print v
-      Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (asserted assertions)
+      r <- Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (asserted assertions)
+      case r of
+        Just s -> putStrLn s
+        Nothing -> pure ()
     Left p -> do
       putStrLn "Parse error"
       print p

@@ -18,6 +18,7 @@ import           Data.Maybe                     ( fromJust
                                                 , fromMaybe
                                                 , listToMaybe
                                                 )
+import qualified Data.Map  as Map
 import           IR.CUtils
 import           IR.Memory                      ( bvNum )
 import qualified Targets.SMT.Assert            as Assert
@@ -363,8 +364,17 @@ codegenFn (CTranslUnit decls _) name = do
   registerFns decls
   let f = fromMaybe (error $ "No " ++ name) $ listToMaybe $ concatMap
         (\case
-          CFDefExt f -> if nameFromFunc f == name then [f] else []
+          CFDefExt f -> [f | nameFromFunc f == name]
           _          -> []
         )
         decls
   genFunDef f True
+
+
+-- Can a fn exhibit undefined behavior?
+-- Returns a string describing it, if so.
+checkFn :: CTranslUnit -> String -> IO (Maybe String)
+checkFn tu name = do
+  assertions <- Assert.execAssert $ evalCodegen Nothing $ codegenFn tu name
+  Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)
+
