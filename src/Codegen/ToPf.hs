@@ -108,17 +108,27 @@ asPf t = case t of
   -- TODO: There is a better implementation for binary (even ternary?) AND/OR.
   -- It is based on AND as multiplication
   naryAnd :: KnownNat n => [LSig n] -> ToPf n (LSig n)
-  naryAnd xs = lcNot <$> naryOr (map lcNot xs)
+  naryAnd xs = if length xs <= 3
+    then foldM binAnd (head xs) (tail xs)
+    else lcNot <$> naryOr (map lcNot xs)
+
+  binAnd :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
+  binAnd a b = do
+    v <- lcSig <$> nextVar
+    enforce (a, b, v)
+    return v
   naryOr :: KnownNat n => [LSig n] -> ToPf n (LSig n)
-  naryOr xs =
-    let s = foldl1 lcAdd xs
-    in  do
-          or' <- lcSig <$> nextVar
-          enforce (s, lcSub lcOne or', lcZero)
-          requireBit or'
-          inv <- lcSig <$> nextVar
-          enforce (lcSub (lcAdd lcOne s) or', inv, lcOne)
-          return or'
+  naryOr xs = if length xs <= 3
+    then lcNot <$> naryAnd (map lcNot xs)
+    else
+      let s = foldl1 lcAdd xs
+      in  do
+            or' <- lcSig <$> nextVar
+            enforce (s, lcSub lcOne or', lcZero)
+            requireBit or'
+            inv <- lcSig <$> nextVar
+            enforce (lcSub (lcAdd lcOne s) or', inv, lcOne)
+            return or'
   impl :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
   impl a b = do
     v <- lcSig <$> nextVar
