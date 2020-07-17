@@ -30,12 +30,11 @@ bvs i = map bv $ take i $ map (flip (:) []) ['a' ..]
 
 andOrScalingTest :: BoolNaryOp -> Int -> BenchTest
 andOrScalingTest op arity =
-  let nOpConstraints = case arity of
-        0 -> 0
-        1 -> 0
+  let nOpConstraints = if arity < 2
+        then 0
         -- arity - 1 is the cost of doing this with multiplication-ANDs
         -- 3 is the cost of doing this with addition/inverse-ORs
-        _ -> min (arity - 1) 3
+        else min (arity - 1) 3
       nC = nOpConstraints + arity + 1
   in  constraintCountTest (show op ++ show arity)
                           [BoolNaryExpr op (bvs arity)]
