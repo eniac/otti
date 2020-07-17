@@ -65,20 +65,20 @@ lcSub x y = lcAdd x $ lcNeg y
 lcNot :: KnownNat n => LSig n -> LSig n
 lcNot = lcSub lcOne
 
-asPf :: KnownNat n => TermBool -> ToPf n (LSig n)
-asPf t = case t of
+boolToPf :: KnownNat n => TermBool -> ToPf n (LSig n)
+boolToPf t = case t of
   Eq a b -> do
-    a' <- asPf $ fromMaybe (error "not bool") $ cast a
-    b' <- asPf $ fromMaybe (error "not bool") $ cast b
+    a' <- boolToPf $ fromMaybe (error "not bool") $ cast a
+    b' <- boolToPf $ fromMaybe (error "not bool") $ cast b
     binEq a' b'
   BoolLit b  -> return $ lcShift (toP $ fromIntegral $ fromEnum b) lcZero
-  Not     a  -> lcNot <$> asPf a
+  Not     a  -> lcNot <$> boolToPf a
   Var name _ -> do
     let v = lcSig name
     requireBit v
     return v
   BoolNaryExpr o xs -> do
-    xs' <- traverse asPf xs
+    xs' <- traverse boolToPf xs
     case xs' of
       []  -> pure $ lcShift (toP $ fromIntegral $ fromEnum $ opId o) lcZero
       [a] -> pure a
@@ -87,18 +87,18 @@ asPf t = case t of
         And -> naryAnd xs'
         Xor -> naryXor xs'
   BoolBinExpr Implies a b -> do
-    a' <- asPf a
-    b' <- asPf b
+    a' <- boolToPf a
+    b' <- boolToPf b
     impl a' b'
   Ite c t_ f -> do
-    c' <- asPf c
-    t' <- asPf t_
-    f' <- asPf f
+    c' <- boolToPf c
+    t' <- boolToPf t_
+    f' <- boolToPf f
     v  <- lcSig <$> nextVar
     enforce (c', lcSub v t', lcZero)
     enforce (lcNot c', lcSub v f', lcZero)
     return v
-  _ -> error $ unlines ["The term", show t, "is not supported in asPf"]
+  _ -> error $ unlines ["The term", show t, "is not supported in boolToPf"]
  where
   opId :: BoolNaryOp -> Bool
   opId o = case o of
@@ -148,7 +148,7 @@ asPf t = case t of
   naryXor xs = foldM binXor (head xs) (tail xs)
 
 enforceAsPf :: KnownNat n => TermBool -> ToPf n ()
-enforceAsPf b = asPf b >>= enforceTrue
+enforceAsPf b = boolToPf b >>= enforceTrue
 
 runToPf :: KnownNat n => ToPf n a -> ToPfState n -> IO (a, ToPfState n)
 runToPf (ToPf f) = runStateT f
