@@ -2,8 +2,10 @@ module Codegen.ShowMap
   ( ShowMap(..)
   , empty
   , insert
+  , insertWith
   , lookup
   , (!?)
+  , adjust
   )
 where
 
@@ -26,21 +28,37 @@ empty = ShowMap Map.empty
 inner :: ShowMap k v -> Map String [(k, v)]
 inner (ShowMap m) = m
 
-entryInsert :: Eq k => k -> v -> [(k, v)] -> [(k, v)]
-entryInsert k v e = if isJust (Prelude.lookup k e)
-  then modify k v e
-  else (k, v) : e
+entryInsertWith :: Eq k => (v -> v -> v) -> k -> v -> [(k, v)] -> [(k, v)]
+entryInsertWith f k newV e = case Prelude.lookup k e of
+  Just oldV -> modify k (f newV oldV) e
+  Nothing   -> (k, newV) : e
  where
   modify k v (h : t) = if fst h == k then (k, v) : t else h : modify k v t
 
-maybeEntryInsert :: Eq k => k -> v -> Maybe [(k, v)] -> [(k, v)]
-maybeEntryInsert k v = maybe [(k, v)] (entryInsert k v)
+entryAdjust :: (Show k, Eq k) => (v -> v) -> k -> [(k, v)] -> [(k, v)]
+entryAdjust f k e = case Prelude.lookup k e of
+  Just oldV -> modify e
+  Nothing   -> error $ "missing " ++ show k
+ where
+  modify (h : t) = if fst h == k then (k, f $ snd h) : t else h : modify t
+
+maybeEntryInsertWith
+  :: Eq k => (v -> v -> v) -> k -> v -> Maybe [(k, v)] -> [(k, v)]
+maybeEntryInsertWith f k v = maybe [(k, v)] (entryInsertWith f k v)
+
+insertWith
+  :: (Show k, Eq k) => (v -> v -> v) -> k -> v -> ShowMap k v -> ShowMap k v
+insertWith f k v =
+  ShowMap . Map.alter (Just . maybeEntryInsertWith f k v) (show k) . inner
 
 insert :: (Show k, Eq k) => k -> v -> ShowMap k v -> ShowMap k v
-insert k v = ShowMap . Map.alter (Just . maybeEntryInsert k v) (show k) . inner
+insert = insertWith const
 
 lookup :: (Show k, Eq k) => k -> ShowMap k v -> Maybe v
 lookup k (ShowMap m) = Map.lookup (show k) m >>= Prelude.lookup k
 
 (!?) :: (Show k, Eq k) => ShowMap k v -> k -> Maybe v
 (!?) = flip lookup
+
+adjust :: (Show k, Eq k) => (v -> v) -> k -> ShowMap k v -> ShowMap k v
+adjust f k = ShowMap . Map.adjust (entryAdjust f k) (show k) . inner

@@ -16,7 +16,6 @@ import           GHC.TypeNats
 import           Codegen.Circom.CompTypes.LowDeg
 import qualified Codegen.ShowMap               as SMap
 import           Codegen.ShowMap                ( ShowMap )
---import           Data.Proxy                     ( Proxy(..) )
 import           Data.Field.Galois              ( Prime
                                                 , toP
                                                 )
@@ -29,6 +28,7 @@ type LSig n = LC PfVar (Prime n)
 
 data ToPfState n = ToPfState { qeqs :: [QEQ PfVar (Prime n)]
                              , bools :: ShowMap TermBool (LSig n)
+                             , ints :: ShowMap TermDynBv (BvEntry n)
                              , next :: Int
                              }
 
@@ -36,13 +36,10 @@ newtype ToPf n a = ToPf (StateT (ToPfState n) IO a)
     deriving (Functor, Applicative, Monad, MonadState (ToPfState n), MonadIO)
 
 emptyState :: ToPfState n
-emptyState = ToPfState { qeqs = [], bools = SMap.empty, next = 0 }
+emptyState =
+  ToPfState { qeqs = [], bools = SMap.empty, ints = SMap.empty, next = 0 }
 
-saveBool :: KnownNat n => TermBool -> LSig n -> ToPf n ()
-saveBool b x = modify (\s -> s { bools = SMap.insert b x $ bools s })
-
-lookupBool :: KnownNat n => TermBool -> ToPf n (Maybe (LSig n))
-lookupBool b = gets (SMap.lookup b . bools)
+-- # Constraints
 
 enforce :: KnownNat n => QEQ PfVar (Prime n) -> ToPf n ()
 enforce qeq = modify (\s -> s { qeqs = qeq : qeqs s })
@@ -50,14 +47,24 @@ enforce qeq = modify (\s -> s { qeqs = qeq : qeqs s })
 enforceTrue :: KnownNat n => LSig n -> ToPf n ()
 enforceTrue s = enforce (lcZero, lcZero, lcSub s lcOne)
 
-requireBit :: KnownNat n => LSig n -> ToPf n ()
-requireBit v = enforce (v, lcShift (negate 1) v, lcZero)
+-- # Variables
 
 nextVar :: ToPf n PfVar
 nextVar = do
   i <- gets next
   modify (\s -> s { next = 1 + next s })
   return $ "v" ++ show i
+
+-- # Bit constraints and storage
+
+saveBool :: KnownNat n => TermBool -> LSig n -> ToPf n ()
+saveBool b x = modify (\s -> s { bools = SMap.insert b x $ bools s })
+
+lookupBool :: KnownNat n => TermBool -> ToPf n (Maybe (LSig n))
+lookupBool b = gets (SMap.lookup b . bools)
+
+requireBit :: KnownNat n => LSig n -> ToPf n ()
+requireBit v = enforce (v, lcShift (negate 1) v, lcZero)
 
 lcOne :: KnownNat n => LSig n
 lcOne = lcShift (toP 1) lcZero
@@ -162,6 +169,70 @@ boolToPf term = do
   binXor a b = lcNot <$> binEq a b
   naryXor :: KnownNat n => [LSig n] -> ToPf n (LSig n)
   naryXor xs = foldM binXor (head xs) (tail xs)
+
+-- # Arith constraints and storage
+
+-- The integer entry holds a (signal, width) pair
+data BvEntry n = BvEntry { int :: Maybe (LSig n, Int)
+                         , bits :: Maybe [LSig n]
+                         }
+
+bvEntryEmpty :: BvEntry n
+bvEntryEmpty = BvEntry { int = Nothing, bits = Nothing }
+
+
+-- Initialize an empty entry
+initIntEntry :: TermDynBv -> ToPf n ()
+initIntEntry t =
+  modify $ \s -> s { ints = SMap.insertWith (const id) t bvEntryEmpty $ ints s }
+
+
+saveInt :: TermDynBv -> (LSig n, Int) -> ToPf n ()
+saveInt term sig = initIntEntry term >> modify
+  (\s -> s { ints = SMap.adjust (\e -> e { int = Just sig }) term $ ints s })
+
+saveIntBits :: TermDynBv -> [LSig n] -> ToPf n ()
+saveIntBits term bits_ = initIntEntry term >> modify
+  (\s -> s { ints = SMap.adjust (\e -> e { bits = Just bits_ }) term $ ints s })
+
+getInt :: TermDynBv -> ToPf n (Maybe (LSig n, Int))
+getInt term = do
+  e <- gets (SMap.lookup term . ints)
+  case e >>= int of
+    Just i  -> return $ Just i
+    Nothing -> case e >>= bits of
+      Just bs -> do
+        i <- deBitify bs
+        saveInt term (i, length bs)
+        return $ Just (i, length bs)
+      Nothing -> return Nothing
+
+getIntBits :: KnownNat n => TermDynBv -> ToPf n (Maybe [LSig n])
+getIntBits term = do
+  e <- gets (SMap.lookup term . ints)
+  case e >>= bits of
+    Just bs -> return $ Just bs
+    Nothing -> case e >>= int of
+      Just (i, width) -> do
+        bs <- bitify i width
+        saveIntBits term bs
+        return $ Just bs
+      Nothing -> return Nothing
+
+bitify :: KnownNat n => LSig n -> Int -> ToPf n [LSig n]
+bitify i width = do
+  sigs <- replicateM width (lcSig <$> nextVar)
+  forM_ sigs requireBit
+  let sum' = foldr1 lcAdd $ zipWith lcScale
+        (map (toP . (2 ^)) [0 ..])
+        sigs
+  enforce (lcZero, lcZero, lcSub sum' i)
+  return sigs
+
+deBitify :: [LSig n] -> ToPf n (LSig n)
+deBitify = undefined
+
+-- # Top Level
 
 enforceAsPf :: KnownNat n => TermBool -> ToPf n ()
 enforceAsPf b = boolToPf b >>= enforceTrue
