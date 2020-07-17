@@ -1,0 +1,147 @@
+{-# OPTIONS_GHC -Wall #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE PolyKinds #-}
+module Codegen.ToPf
+  ( toPf
+  )
+where
+
+import           IR.TySmt
+import           Control.Monad.State.Strict
+import           Control.Monad                  ( )
+--import qualified Data.Map                      as Map
+--import           Data.Map                       ( Map )
+import           GHC.TypeNats
+import           Codegen.Circom.CompTypes.LowDeg
+--import           Data.Proxy                     ( Proxy(..) )
+import           Data.Field.Galois              ( Prime
+                                                , toP
+                                                )
+import           Data.Maybe                     ( fromMaybe )
+import           Data.Typeable                  ( cast )
+
+type PfVar = String
+
+data ToPfState n = ToPfState { qeqs :: [QEQ PfVar (Prime n)]
+                             --, bools :: [(TermBool, PfVar)]
+                             , next :: Int
+                             }
+
+newtype ToPf n a = ToPf (StateT (ToPfState n) IO a)
+    deriving (Functor, Applicative, Monad, MonadState (ToPfState n), MonadIO)
+
+type LSig n = LC PfVar (Prime n)
+
+emptyState :: ToPfState n
+emptyState = ToPfState { qeqs = [], next = 0 }
+
+enforce :: KnownNat n => QEQ PfVar (Prime n) -> ToPf n ()
+enforce qeq = modify (\s -> s { qeqs = qeq : qeqs s })
+
+enforceTrue :: KnownNat n => LSig n -> ToPf n ()
+enforceTrue s = enforce (lcZero, lcZero, lcSub s lcOne)
+
+requireBit :: KnownNat n => LSig n -> ToPf n ()
+requireBit v = enforce (v, lcShift (negate 1) v, lcZero)
+
+nextVar :: ToPf n PfVar
+nextVar = do
+  i <- gets next
+  modify (\s -> s { next = 1 + next s })
+  return $ "v" ++ show i
+
+lcOne :: KnownNat n => LSig n
+lcOne = lcShift (toP 1) lcZero
+
+lcNeg :: KnownNat n => LSig n -> LSig n
+lcNeg = lcScale (toP $ negate 1)
+
+lcSub :: KnownNat n => LSig n -> LSig n -> LSig n
+lcSub x y = lcAdd x $ lcNeg y
+
+lcNot :: KnownNat n => LSig n -> LSig n
+lcNot = lcSub lcOne
+
+asPf :: KnownNat n => TermBool -> ToPf n (LSig n)
+asPf t = case t of
+  Eq a b -> do
+    a' <- asPf $ fromMaybe (error "not bool") $ cast a
+    b' <- asPf $ fromMaybe (error "not bool") $ cast b
+    binEq a' b'
+  BoolLit b  -> return $ lcShift (toP $ fromIntegral $ fromEnum b) lcZero
+  Not     a  -> lcNot <$> asPf a
+  Var name _ -> do
+    let v = lcSig name
+    requireBit v
+    return v
+  BoolNaryExpr o xs -> do
+    xs' <- traverse asPf xs
+    case xs' of
+      []  -> pure $ lcShift (toP $ fromIntegral $ fromEnum $ opId o) lcZero
+      [a] -> pure a
+      _   -> case o of
+        Or  -> naryOr xs'
+        And -> naryAnd xs'
+        Xor -> naryXor xs'
+  BoolBinExpr Implies a b -> do
+    a' <- asPf a
+    b' <- asPf b
+    impl a' b'
+  Ite c t_ f -> do
+    c' <- asPf c
+    t' <- asPf t_
+    f' <- asPf f
+    v  <- lcSig <$> nextVar
+    enforce (c', lcSub v t', lcZero)
+    enforce (lcNot c', lcSub v f', lcZero)
+    return v
+  _ -> error $ unlines ["The term", show t, "is not supported in asPf"]
+ where
+  opId :: BoolNaryOp -> Bool
+  opId o = case o of
+    And -> True
+    Or  -> False
+    Xor -> False
+  -- TODO: There is a better implementation for binary (even ternary?) AND/OR.
+  -- It is based on AND as multiplication
+  naryAnd :: KnownNat n => [LSig n] -> ToPf n (LSig n)
+  naryAnd xs = lcNot <$> naryOr (map lcNot xs)
+  naryOr :: KnownNat n => [LSig n] -> ToPf n (LSig n)
+  naryOr xs =
+    let s = foldl1 lcAdd xs
+    in  do
+          or' <- lcSig <$> nextVar
+          enforce (s, lcSub lcOne or', lcZero)
+          requireBit or'
+          inv <- lcSig <$> nextVar
+          enforce (lcSub (lcAdd lcOne s) or', inv, lcOne)
+          return or'
+  impl :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
+  impl a b = do
+    v <- lcSig <$> nextVar
+    enforce (a, lcNot b, lcNot v)
+    return v
+  binEq :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
+  binEq a b = do
+    v <- lcSig <$> nextVar
+    requireBit v
+    enforce (lcSub a b, v, lcZero)
+    inv <- lcSig <$> nextVar
+    enforce (lcAdd (lcSub a b) v, inv, lcOne)
+    return v
+  binXor :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
+  binXor a b = lcNot <$> binEq a b
+  naryXor :: KnownNat n => [LSig n] -> ToPf n (LSig n)
+  naryXor xs = foldM binXor (head xs) (tail xs)
+
+enforceAsPf :: KnownNat n => TermBool -> ToPf n ()
+enforceAsPf b = asPf b >>= enforceTrue
+
+runToPf :: KnownNat n => ToPf n a -> ToPfState n -> IO (a, ToPfState n)
+runToPf (ToPf f) = runStateT f
+
+toPf :: KnownNat n => [TermBool] -> IO [QEQ PfVar (Prime n)]
+toPf bs = qeqs . snd <$> runToPf (forM_ bs enforceAsPf) emptyState

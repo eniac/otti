@@ -1,6 +1,7 @@
 import           BenchUtils
 import           Codegen.CTest
 import           Codegen.CircomTest
+import           Codegen.ToPfTest
 import           IR.TySmtTest
 import           IR.MemoryTest
 import           IR.CUtilsTest
@@ -14,7 +15,8 @@ parserTests :: BenchTest
 parserTests = benchTestGroup "Parser tests" [cParserTests, circomParserTests]
 
 generatorTests :: BenchTest
-generatorTests = benchTestGroup "Generator tests" [circomGenTests, cTests]
+generatorTests = benchTestGroup "Generator tests" [circomGenTests, cTests, toPfTests]
+
 irTests :: BenchTest
 irTests = benchTestGroup "IR tests" [tySmtTests, memoryTest, cutilsTest]
 

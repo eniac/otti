@@ -1,4 +1,7 @@
-module Codegen.CTest where
+module Codegen.CTest
+  ( cTests
+  )
+where
 import           AST.Simple
 import           BenchUtils
 import           Codegen.C

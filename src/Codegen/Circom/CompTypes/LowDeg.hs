@@ -11,6 +11,8 @@ module Codegen.Circom.CompTypes.LowDeg
   , lcZero
   , lcScale
   , lcAdd
+  , lcSig
+  , lcShift
   )
 where
 
@@ -25,7 +27,6 @@ import           Codegen.Circom.CompTypes       ( BaseTerm(..)
                                                 , primeBinOp
                                                 )
 import qualified Codegen.Circom.Signal         as Sig
-
 import           Data.Field.Galois              ( Prime
                                                 , GaloisField
                                                 )
