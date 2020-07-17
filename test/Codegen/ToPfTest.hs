@@ -54,6 +54,8 @@ toPfTests = benchTestGroup
   -- Two bit constraints, one const constraint, one for AND
   , benchTestGroup "and" (map (andOrScalingTest And) [0 .. 6])
   , benchTestGroup "or"  (map (andOrScalingTest And) [0 .. 6])
+  -- Three bit constraints, one const constraint, two for AND
+  , constraintCountTest "and4 3 repeats" [BoolNaryExpr And [bv "a", bv "b", bv "a", bv "a"]] 6
   , constraintCountTest "ite" [Ite (bv "a") (bv "b") (bv "c")] 6
   -- Thre bit constraints, one const constraint, two for Eq
   , constraintCountTest "eq"  [Eq (bv "a") (bv "b")]           6

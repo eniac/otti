@@ -12,10 +12,10 @@ where
 import           IR.TySmt
 import           Control.Monad.State.Strict
 import           Control.Monad                  ( )
---import qualified Data.Map                      as Map
---import           Data.Map                       ( Map )
 import           GHC.TypeNats
 import           Codegen.Circom.CompTypes.LowDeg
+import qualified Codegen.ShowMap               as SMap
+import           Codegen.ShowMap                ( ShowMap )
 --import           Data.Proxy                     ( Proxy(..) )
 import           Data.Field.Galois              ( Prime
                                                 , toP
@@ -25,18 +25,24 @@ import           Data.Typeable                  ( cast )
 
 type PfVar = String
 
+type LSig n = LC PfVar (Prime n)
+
 data ToPfState n = ToPfState { qeqs :: [QEQ PfVar (Prime n)]
-                             --, bools :: [(TermBool, PfVar)]
+                             , bools :: ShowMap TermBool (LSig n)
                              , next :: Int
                              }
 
 newtype ToPf n a = ToPf (StateT (ToPfState n) IO a)
     deriving (Functor, Applicative, Monad, MonadState (ToPfState n), MonadIO)
 
-type LSig n = LC PfVar (Prime n)
-
 emptyState :: ToPfState n
-emptyState = ToPfState { qeqs = [], next = 0 }
+emptyState = ToPfState { qeqs = [], bools = SMap.empty, next = 0 }
+
+saveBool :: KnownNat n => TermBool -> LSig n -> ToPf n ()
+saveBool b x = modify (\s -> s { bools = SMap.insert b x $ bools s })
+
+lookupBool :: KnownNat n => TermBool -> ToPf n (Maybe (LSig n))
+lookupBool b = gets (SMap.lookup b . bools)
 
 enforce :: KnownNat n => QEQ PfVar (Prime n) -> ToPf n ()
 enforce qeq = modify (\s -> s { qeqs = qeq : qeqs s })
@@ -66,40 +72,50 @@ lcNot :: KnownNat n => LSig n -> LSig n
 lcNot = lcSub lcOne
 
 boolToPf :: KnownNat n => TermBool -> ToPf n (LSig n)
-boolToPf t = case t of
-  Eq a b -> do
-    a' <- boolToPf $ fromMaybe (error "not bool") $ cast a
-    b' <- boolToPf $ fromMaybe (error "not bool") $ cast b
-    binEq a' b'
-  BoolLit b  -> return $ lcShift (toP $ fromIntegral $ fromEnum b) lcZero
-  Not     a  -> lcNot <$> boolToPf a
-  Var name _ -> do
-    let v = lcSig name
-    requireBit v
-    return v
-  BoolNaryExpr o xs -> do
-    xs' <- traverse boolToPf xs
-    case xs' of
-      []  -> pure $ lcShift (toP $ fromIntegral $ fromEnum $ opId o) lcZero
-      [a] -> pure a
-      _   -> case o of
-        Or  -> naryOr xs'
-        And -> naryAnd xs'
-        Xor -> naryXor xs'
-  BoolBinExpr Implies a b -> do
-    a' <- boolToPf a
-    b' <- boolToPf b
-    impl a' b'
-  Ite c t_ f -> do
-    c' <- boolToPf c
-    t' <- boolToPf t_
-    f' <- boolToPf f
-    v  <- lcSig <$> nextVar
-    enforce (c', lcSub v t', lcZero)
-    enforce (lcNot c', lcSub v f', lcZero)
-    return v
-  _ -> error $ unlines ["The term", show t, "is not supported in boolToPf"]
+boolToPf term = do
+  entry <- lookupBool term
+  case entry of
+    Just s  -> return s
+    Nothing -> do
+      s <- boolToPfUncached term
+      saveBool term s
+      return s
  where
+  -- Uncached
+  boolToPfUncached :: KnownNat n => TermBool -> ToPf n (LSig n)
+  boolToPfUncached t = case t of
+    Eq a b -> do
+      a' <- boolToPf $ fromMaybe (error "not bool") $ cast a
+      b' <- boolToPf $ fromMaybe (error "not bool") $ cast b
+      binEq a' b'
+    BoolLit b  -> return $ lcShift (toP $ fromIntegral $ fromEnum b) lcZero
+    Not     a  -> lcNot <$> boolToPf a
+    Var name _ -> do
+      let v = lcSig name
+      requireBit v
+      return v
+    BoolNaryExpr o xs -> do
+      xs' <- traverse boolToPf xs
+      case xs' of
+        []  -> pure $ lcShift (toP $ fromIntegral $ fromEnum $ opId o) lcZero
+        [a] -> pure a
+        _   -> case o of
+          Or  -> naryOr xs'
+          And -> naryAnd xs'
+          Xor -> naryXor xs'
+    BoolBinExpr Implies a b -> do
+      a' <- boolToPf a
+      b' <- boolToPf b
+      impl a' b'
+    Ite c t_ f -> do
+      c' <- boolToPf c
+      t' <- boolToPf t_
+      f' <- boolToPf f
+      v  <- lcSig <$> nextVar
+      enforce (c', lcSub v t', lcZero)
+      enforce (lcNot c', lcSub v f', lcZero)
+      return v
+    _ -> error $ unlines ["The term", show t, "is not supported in boolToPf"]
   opId :: BoolNaryOp -> Bool
   opId o = case o of
     And -> True
