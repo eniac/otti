@@ -19,7 +19,10 @@ import           Codegen.ShowMap                ( ShowMap )
 import           Data.Field.Galois              ( Prime
                                                 , toP
                                                 )
-import           Data.Maybe                     ( fromMaybe )
+import           Data.Maybe                     ( fromMaybe
+                                                , isNothing
+                                                , fromJust
+                                                )
 import           Data.Typeable                  ( cast )
 
 type PfVar = String
@@ -49,11 +52,11 @@ enforceTrue s = enforce (lcZero, lcZero, lcSub s lcOne)
 
 -- # Variables
 
-nextVar :: ToPf n PfVar
-nextVar = do
+nextVar :: String -> ToPf n PfVar
+nextVar name = do
   i <- gets next
   modify (\s -> s { next = 1 + next s })
-  return $ "v" ++ show i
+  return $ name ++ "_v" ++ show i
 
 -- # Bit constraints and storage
 
@@ -91,10 +94,19 @@ boolToPf term = do
   -- Uncached
   boolToPfUncached :: KnownNat n => TermBool -> ToPf n (LSig n)
   boolToPfUncached t = case t of
-    Eq a b -> do
-      a' <- boolToPf $ fromMaybe (error "not bool") $ cast a
-      b' <- boolToPf $ fromMaybe (error "not bool") $ cast b
-      binEq a' b'
+    Eq a b -> case cast a of
+      -- Bool
+      Just abool -> do
+        a' <- boolToPf abool
+        b' <- boolToPf $ fromJust $ cast b
+        binEq a' b'
+      -- Bv
+      Nothing -> do
+        let abv = fromJust $ cast a
+            bbv = fromJust $ cast b
+        a' <- bvToPf abv >> (fst . fromJust <$> getInt abv)
+        b' <- bvToPf bbv >> (fst . fromJust <$> getInt bbv)
+        binEq a' b'
     BoolLit b  -> return $ lcShift (toP $ fromIntegral $ fromEnum b) lcZero
     Not     a  -> lcNot <$> boolToPf a
     Var name _ -> do
@@ -118,57 +130,59 @@ boolToPf term = do
       c' <- boolToPf c
       t' <- boolToPf t_
       f' <- boolToPf f
-      v  <- lcSig <$> nextVar
+      v  <- lcSig <$> nextVar "ite"
       enforce (c', lcSub v t', lcZero)
       enforce (lcNot c', lcSub v f', lcZero)
       return v
     _ -> error $ unlines ["The term", show t, "is not supported in boolToPf"]
-  opId :: BoolNaryOp -> Bool
-  opId o = case o of
-    And -> True
-    Or  -> False
-    Xor -> False
-  -- TODO: There is a better implementation for binary (even ternary?) AND/OR.
-  -- It is based on AND as multiplication
-  naryAnd :: KnownNat n => [LSig n] -> ToPf n (LSig n)
-  naryAnd xs = if length xs <= 3
-    then foldM binAnd (head xs) (tail xs)
-    else lcNot <$> naryOr (map lcNot xs)
 
-  binAnd :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
-  binAnd a b = do
-    v <- lcSig <$> nextVar
-    enforce (a, b, v)
-    return v
-  naryOr :: KnownNat n => [LSig n] -> ToPf n (LSig n)
-  naryOr xs = if length xs <= 3
-    then lcNot <$> naryAnd (map lcNot xs)
-    else
-      let s = foldl1 lcAdd xs
-      in  do
-            or' <- lcSig <$> nextVar
-            enforce (s, lcSub lcOne or', lcZero)
-            requireBit or'
-            inv <- lcSig <$> nextVar
-            enforce (lcSub (lcAdd lcOne s) or', inv, lcOne)
-            return or'
-  impl :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
-  impl a b = do
-    v <- lcSig <$> nextVar
-    enforce (a, lcNot b, lcNot v)
-    return v
-  binEq :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
-  binEq a b = do
-    v <- lcSig <$> nextVar
-    requireBit v
-    enforce (lcSub a b, v, lcZero)
-    inv <- lcSig <$> nextVar
-    enforce (lcAdd (lcSub a b) v, inv, lcOne)
-    return v
-  binXor :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
-  binXor a b = lcNot <$> binEq a b
-  naryXor :: KnownNat n => [LSig n] -> ToPf n (LSig n)
-  naryXor xs = foldM binXor (head xs) (tail xs)
+opId :: BoolNaryOp -> Bool
+opId o = case o of
+  And -> True
+  Or  -> False
+  Xor -> False
+-- TODO: There is a better implementation for binary (even ternary?) AND/OR.
+-- It is based on AND as multiplication
+naryAnd :: KnownNat n => [LSig n] -> ToPf n (LSig n)
+naryAnd xs = if length xs <= 3
+  then foldM binAnd (head xs) (tail xs)
+  else lcNot <$> naryOr (map lcNot xs)
+
+binAnd :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
+binAnd a b = do
+  v <- lcSig <$> nextVar "and"
+  enforce (a, b, v)
+  return v
+
+naryOr :: KnownNat n => [LSig n] -> ToPf n (LSig n)
+naryOr xs = if length xs <= 3
+  then lcNot <$> naryAnd (map lcNot xs)
+  else
+    let s = foldl1 lcAdd xs
+    in  do
+          or' <- lcSig <$> nextVar "or"
+          enforce (s, lcSub lcOne or', lcZero)
+          requireBit or'
+          inv <- lcSig <$> nextVar "orinv"
+          enforce (lcSub (lcAdd lcOne s) or', inv, lcOne)
+          return or'
+impl :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
+impl a b = do
+  v <- lcSig <$> nextVar "impl"
+  enforce (a, lcNot b, lcNot v)
+  return v
+binEq :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
+binEq a b = do
+  v <- lcSig <$> nextVar "eq"
+  requireBit v
+  enforce (lcSub a b, v, lcZero)
+  inv <- lcSig <$> nextVar "eqinv"
+  enforce (lcAdd (lcSub a b) v, inv, lcOne)
+  return v
+binXor :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
+binXor a b = lcNot <$> binEq a b
+naryXor :: KnownNat n => [LSig n] -> ToPf n (LSig n)
+naryXor xs = foldM binXor (head xs) (tail xs)
 
 -- # Arith constraints and storage
 
@@ -195,7 +209,7 @@ saveIntBits :: TermDynBv -> [LSig n] -> ToPf n ()
 saveIntBits term bits_ = initIntEntry term >> modify
   (\s -> s { ints = SMap.adjust (\e -> e { bits = Just bits_ }) term $ ints s })
 
-getInt :: TermDynBv -> ToPf n (Maybe (LSig n, Int))
+getInt :: KnownNat n => TermDynBv -> ToPf n (Maybe (LSig n, Int))
 getInt term = do
   e <- gets (SMap.lookup term . ints)
   case e >>= int of
@@ -219,18 +233,75 @@ getIntBits term = do
         return $ Just bs
       Nothing -> return Nothing
 
+two :: Integer
+two = 2
+
 bitify :: KnownNat n => LSig n -> Int -> ToPf n [LSig n]
 bitify i width = do
-  sigs <- replicateM width (lcSig <$> nextVar)
+  sigs <- replicateM width (lcSig <$> nextVar "bitify")
   forM_ sigs requireBit
-  let sum' = foldr1 lcAdd $ zipWith lcScale
-        (map (toP . (2 ^)) [0 ..])
-        sigs
+  let sum' = foldr1 lcAdd $ zipWith lcScale (map (toP . (two ^)) [0 ..]) sigs
   enforce (lcZero, lcZero, lcSub sum' i)
   return sigs
 
-deBitify :: [LSig n] -> ToPf n (LSig n)
-deBitify = undefined
+deBitify :: KnownNat n => [LSig n] -> ToPf n (LSig n)
+deBitify sigs =
+  return $ foldr1 lcAdd $ zipWith lcScale (map (toP . (two ^)) [0 ..]) sigs
+
+bvToPf :: KnownNat n => TermDynBv -> ToPf n ()
+bvToPf term = do
+  entry <- getInt term
+  when (isNothing entry) $ bvToPfUncached term
+ where
+  unhandledOp :: BvBinOp -> a
+  unhandledOp o = error $ unwords ["Unhandled bv operator", show o]
+  isArithBvBinOp :: BvBinOp -> Bool
+  isArithBvBinOp o = case o of
+    BvAdd -> True
+    BvMul -> True
+    BvSub -> True
+    BvOr  -> False
+    BvAnd -> False
+    BvXor -> False
+    _     -> unhandledOp o
+
+  -- Uncached
+  bvToPfUncached :: KnownNat n => TermDynBv -> ToPf n ()
+  bvToPfUncached bv = case bv of
+    IntToDynBv w (IntLit i) -> saveInt bv (lcShift (toP i) lcZero, w)
+    Var name (SortBv w) -> do
+      bs <- bitify (lcSig name) w
+      saveIntBits bv bs
+    DynBvBinExpr op w l r   -> do
+      bvToPf l
+      bvToPf r
+      if isArithBvBinOp op
+        then do
+          l' <- fst . fromJust <$> getInt l
+          r' <- fst . fromJust <$> getInt r
+          (resSig, w') <- case op of
+            BvAdd -> return (lcAdd l' r', w + 1)
+            BvSub -> return (lcSub l' r', w + 1)
+            BvMul -> do
+              v <- lcSig <$> nextVar (show op)
+              enforce (l', r', v)
+              return (v, 2 * w)
+            _ -> unhandledOp op
+          bs <- bitify resSig w'
+          saveIntBits bv (take w bs)
+        else do
+          l' <- fromJust <$> getIntBits l
+          r' <- fromJust <$> getIntBits r
+          bs <- case op of
+            BvOr -> traverse id $ zipWith (\a b -> naryOr [a, b]) l' r'
+            BvAnd -> traverse id $ zipWith binAnd l' r'
+            BvXor -> traverse id $ zipWith binXor l' r'
+            _ -> unhandledOp op
+          saveIntBits bv bs
+    _ -> error $ unwords ["Cannot translate", show bv]
+
+
+
 
 -- # Top Level
 
