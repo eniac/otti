@@ -19,8 +19,7 @@ import           Codegen.ShowMap                ( ShowMap )
 import           Data.Field.Galois              ( Prime
                                                 , toP
                                                 )
-import           Data.Maybe                     ( fromMaybe
-                                                , isNothing
+import           Data.Maybe                     ( isNothing
                                                 , fromJust
                                                 )
 import           Data.Typeable                  ( cast )
@@ -47,6 +46,11 @@ emptyState =
 enforce :: KnownNat n => QEQ PfVar (Prime n) -> ToPf n ()
 enforce qeq = modify (\s -> s { qeqs = qeq : qeqs s })
 
+enforceNonzero :: KnownNat n => LC PfVar (Prime n) -> ToPf n ()
+enforceNonzero x = do
+  inv <- lcSig <$> nextVar "inv"
+  enforce (x, inv, lcOne)
+
 enforceTrue :: KnownNat n => LSig n -> ToPf n ()
 enforceTrue s = enforce (lcZero, lcZero, lcSub s lcOne)
 
@@ -60,14 +64,24 @@ nextVar name = do
 
 -- # Bit constraints and storage
 
+enforceBit :: KnownNat n => LSig n -> ToPf n ()
+enforceBit v = enforce (v, lcShift (negate 1) v, lcZero)
+
+asBit :: KnownNat n => PfVar -> ToPf n (LSig n)
+asBit pfVar = enforceBit (lcSig pfVar) >> return (lcSig pfVar)
+
+nextBit :: KnownNat n => String -> ToPf n (LSig n)
+nextBit name = nextVar name >>= asBit
+
+unhandled :: Show a => String -> a -> b
+unhandled description thing =
+  error $ unwords ["Unhandled", description, ":", show thing]
+
 saveBool :: KnownNat n => TermBool -> LSig n -> ToPf n ()
 saveBool b x = modify (\s -> s { bools = SMap.insert b x $ bools s })
 
 lookupBool :: KnownNat n => TermBool -> ToPf n (Maybe (LSig n))
 lookupBool b = gets (SMap.lookup b . bools)
-
-requireBit :: KnownNat n => LSig n -> ToPf n ()
-requireBit v = enforce (v, lcShift (negate 1) v, lcZero)
 
 lcOne :: KnownNat n => LSig n
 lcOne = lcShift (toP 1) lcZero
@@ -109,10 +123,7 @@ boolToPf term = do
         binEq a' b'
     BoolLit b  -> return $ lcShift (toP $ fromIntegral $ fromEnum b) lcZero
     Not     a  -> lcNot <$> boolToPf a
-    Var name _ -> do
-      let v = lcSig name
-      requireBit v
-      return v
+    Var name _ -> asBit name
     BoolNaryExpr o xs -> do
       xs' <- traverse boolToPf xs
       case xs' of
@@ -134,7 +145,8 @@ boolToPf term = do
       enforce (c', lcSub v t', lcZero)
       enforce (lcNot c', lcSub v f', lcZero)
       return v
-    _ -> error $ unlines ["The term", show t, "is not supported in boolToPf"]
+    DynBvBinPred p w l r -> bvPredToPf p w l r
+    _                    -> unhandled "in boolToPf" t
 
 opId :: BoolNaryOp -> Bool
 opId o = case o of
@@ -160,11 +172,9 @@ naryOr xs = if length xs <= 3
   else
     let s = foldl1 lcAdd xs
     in  do
-          or' <- lcSig <$> nextVar "or"
+          or' <- nextBit "or"
           enforce (s, lcSub lcOne or', lcZero)
-          requireBit or'
-          inv <- lcSig <$> nextVar "orinv"
-          enforce (lcSub (lcAdd lcOne s) or', inv, lcOne)
+          enforceNonzero $ lcSub (lcAdd lcOne s) or'
           return or'
 impl :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 impl a b = do
@@ -173,11 +183,9 @@ impl a b = do
   return v
 binEq :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 binEq a b = do
-  v <- lcSig <$> nextVar "eq"
-  requireBit v
+  v <- nextBit "eq"
   enforce (lcSub a b, v, lcZero)
-  inv <- lcSig <$> nextVar "eqinv"
-  enforce (lcAdd (lcSub a b) v, inv, lcOne)
+  enforceNonzero $ lcAdd (lcSub a b) v
   return v
 binXor :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 binXor a b = lcNot <$> binEq a b
@@ -216,7 +224,7 @@ getInt term = do
     Just i  -> return $ Just i
     Nothing -> case e >>= bits of
       Just bs -> do
-        i <- deBitify bs
+        let i = deBitify bs
         saveInt term (i, length bs)
         return $ Just (i, length bs)
       Nothing -> return Nothing
@@ -233,28 +241,35 @@ getIntBits term = do
         return $ Just bs
       Nothing -> return Nothing
 
-two :: Integer
-two = 2
+twoPow :: Integer -> Integer
+twoPow = (2 ^)
+
+nbits :: KnownNat n => Int -> ToPf n [LSig n]
+nbits w = replicateM w (nextBit "bits")
 
 bitify :: KnownNat n => LSig n -> Int -> ToPf n [LSig n]
 bitify i width = do
-  sigs <- replicateM width (lcSig <$> nextVar "bitify")
-  forM_ sigs requireBit
-  let sum' = foldr1 lcAdd $ zipWith lcScale (map (toP . (two ^)) [0 ..]) sigs
+  sigs <- nbits width
+  let sum' = foldr1 lcAdd $ zipWith lcScale (map (toP . twoPow) [0 ..]) sigs
   enforce (lcZero, lcZero, lcSub sum' i)
   return sigs
 
-deBitify :: KnownNat n => [LSig n] -> ToPf n (LSig n)
-deBitify sigs =
-  return $ foldr1 lcAdd $ zipWith lcScale (map (toP . (two ^)) [0 ..]) sigs
+deBitify :: KnownNat n => [LSig n] -> LSig n
+deBitify = foldr1 lcAdd . zipWith lcScale (map (toP . twoPow) [0 ..])
+
+deBitifySigned :: KnownNat n => [LSig n] -> LSig n
+deBitifySigned bs =
+  lcAdd
+      (lcScale (negate $ toP $ twoPow $ fromIntegral $ length bs - 1) (last bs))
+    $ foldr1 lcAdd
+    $ zipWith lcScale (map (toP . twoPow) [0 ..]) (init bs)
 
 bvToPf :: KnownNat n => TermDynBv -> ToPf n ()
 bvToPf term = do
   entry <- getInt term
   when (isNothing entry) $ bvToPfUncached term
  where
-  unhandledOp :: BvBinOp -> a
-  unhandledOp o = error $ unwords ["Unhandled bv operator", show o]
+  unhandledOp = unhandled "bv operator in bvToPf"
   isArithBvBinOp :: BvBinOp -> Bool
   isArithBvBinOp o = case o of
     BvAdd -> True
@@ -268,17 +283,18 @@ bvToPf term = do
   -- Uncached
   bvToPfUncached :: KnownNat n => TermDynBv -> ToPf n ()
   bvToPfUncached bv = case bv of
-    IntToDynBv w (IntLit i) -> saveInt bv (lcShift (toP i) lcZero, w)
-    Var name (SortBv w) -> do
+    IntToDynBv w    (IntLit i) -> saveInt bv (lcShift (toP i) lcZero, w)
+    Var        name (SortBv w) -> do
       bs <- bitify (lcSig name) w
       saveIntBits bv bs
-    DynBvBinExpr op w l r   -> do
+      saveInt bv (lcSig name, w)
+    DynBvBinExpr op w l r -> do
       bvToPf l
       bvToPf r
       if isArithBvBinOp op
         then do
-          l' <- fst . fromJust <$> getInt l
-          r' <- fst . fromJust <$> getInt r
+          l'           <- fst . fromJust <$> getInt l
+          r'           <- fst . fromJust <$> getInt r
           (resSig, w') <- case op of
             BvAdd -> return (lcAdd l' r', w + 1)
             BvSub -> return (lcSub l' r', w + 1)
@@ -293,14 +309,53 @@ bvToPf term = do
           l' <- fromJust <$> getIntBits l
           r' <- fromJust <$> getIntBits r
           bs <- case op of
-            BvOr -> traverse id $ zipWith (\a b -> naryOr [a, b]) l' r'
+            BvOr  -> traverse id $ zipWith (\a b -> naryOr [a, b]) l' r'
             BvAnd -> traverse id $ zipWith binAnd l' r'
             BvXor -> traverse id $ zipWith binXor l' r'
-            _ -> unhandledOp op
+            _     -> unhandledOp op
           saveIntBits bv bs
+
     _ -> error $ unwords ["Cannot translate", show bv]
 
 
+bvPredToPf
+  :: KnownNat n => BvBinPred -> Int -> TermDynBv -> TermDynBv -> ToPf n (LSig n)
+bvPredToPf predicate width l r = do
+  bvToPf l
+  bvToPf r
+  case predicate of
+    BvUgt -> unsignedGreater True l r
+    BvUlt -> unsignedGreater True r l
+    BvUge -> unsignedGreater False l r
+    BvUle -> unsignedGreater False r l
+    BvSgt -> signedGreater True l r
+    BvSlt -> signedGreater True r l
+    BvSge -> signedGreater False l r
+    BvSle -> signedGreater False r l
+    _     -> unhandled "bv predicate in boolToPf" predicate
+ where
+  signedGreater
+    :: KnownNat n => Bool -> TermDynBv -> TermDynBv -> ToPf n (LSig n)
+  signedGreater strict a b = do
+    aBits <- fromJust <$> getIntBits a
+    bBits <- fromJust <$> getIntBits b
+    let a' = deBitifySigned aBits
+    let b' = deBitifySigned bBits
+    lcGt (if strict then a' else lcAdd lcOne a') b'
+  unsignedGreater
+    :: KnownNat n => Bool -> TermDynBv -> TermDynBv -> ToPf n (LSig n)
+  unsignedGreater strict a b = do
+    a' <- fst . fromJust <$> getInt a
+    b' <- fst . fromJust <$> getInt b
+    lcGt (if strict then a' else lcAdd lcOne a') b'
+  lcGt :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
+  lcGt a b = do
+    diff   <- deBitify <$> nbits width
+    result <- nextBit "lcGt"
+    let zeroIffTrue = lcAdd (lcSub diff b) a
+    enforce (zeroIffTrue, result, lcZero)
+    enforceNonzero $ lcAdd zeroIffTrue result
+    return result
 
 
 -- # Top Level

@@ -80,5 +80,10 @@ toPfTests = benchTestGroup
     , constraintCountTest "5 = x + y"
                           [mkDynBvEq (mkDynBvBinExpr BvAdd (int "x" 4) (int "y" 4)) (IntToDynBv 4 $ IntLit 5)]
                           20
+    , constraintCountTest "x < y"
+                          [mkDynBvBinPred BvUlt (int "x" 4) (int "y" 4)]
+                          -- Two 5bvs + 4 bits in the comparison difference + 3
+                          -- bits in the comparison logic + 1 assertion bit
+                          (2 * 5 + 4 + 3 + 1)
     ]
   ]
