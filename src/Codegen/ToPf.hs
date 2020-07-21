@@ -350,6 +350,23 @@ bvPredToPf predicate width l r = do
     lcGt (if strict then a' else lcAdd lcOne a') b'
   lcGt :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
   lcGt a b = do
+    -- let d (diff) be a sum of n bits...
+    -- To enforce r <-> a > b, we reduce this constraint as follows...
+    --
+    -- 1. r(1-r) = 0    // done
+    --    r <-> a > b
+    --
+    -- 2. (d - a + b) = 0 -> r = 1
+    --    (d - a + b) /= 0 -> r = 0
+    --
+    -- 3. (d - a + b) /= 0 or r = 1
+    --    (d - a + b) = 0 or r = 0 // done, as (d - a + b)r = 0
+    --
+    -- 4. (d - a + b + r) /= 0 // done as exists i. (d - a + b + r)i = 1
+    --
+    -- There is some stuff going on with the last step that is a bit tricky.
+    -- It takes advantage of the fact that when r = 1, the second constraint
+    -- forces (d - a + b) to be 0
     diff   <- deBitify <$> nbits width
     result <- nextBit "lcGt"
     let zeroIffTrue = lcAdd (lcSub diff b) a
