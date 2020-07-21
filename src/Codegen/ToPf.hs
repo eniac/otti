@@ -83,8 +83,11 @@ saveBool b x = modify (\s -> s { bools = SMap.insert b x $ bools s })
 lookupBool :: KnownNat n => TermBool -> ToPf n (Maybe (LSig n))
 lookupBool b = gets (SMap.lookup b . bools)
 
+lcConst :: KnownNat n => Integer -> LSig n
+lcConst c = lcShift (toP c) lcZero
+
 lcOne :: KnownNat n => LSig n
-lcOne = lcShift (toP 1) lcZero
+lcOne = lcConst 1
 
 lcNeg :: KnownNat n => LSig n -> LSig n
 lcNeg = lcScale (toP $ negate 1)
@@ -176,6 +179,8 @@ naryOr xs = if length xs <= 3
           enforce (s, lcSub lcOne or', lcZero)
           enforceNonzero $ lcSub (lcAdd lcOne s) or'
           return or'
+binOr :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
+binOr a b = naryOr [a, b]
 impl :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 impl a b = do
   v <- lcSig <$> nextVar "impl"
@@ -309,7 +314,7 @@ bvToPf term = do
           l' <- fromJust <$> getIntBits l
           r' <- fromJust <$> getIntBits r
           bs <- case op of
-            BvOr  -> traverse id $ zipWith (\a b -> naryOr [a, b]) l' r'
+            BvOr  -> traverse id $ zipWith binOr l' r'
             BvAnd -> traverse id $ zipWith binAnd l' r'
             BvXor -> traverse id $ zipWith binXor l' r'
             _     -> unhandledOp op
@@ -324,55 +329,69 @@ bvPredToPf predicate width l r = do
   bvToPf l
   bvToPf r
   case predicate of
-    BvUgt -> unsignedGreater True l r
-    BvUlt -> unsignedGreater True r l
-    BvUge -> unsignedGreater False l r
-    BvUle -> unsignedGreater False r l
-    BvSgt -> signedGreater True l r
-    BvSlt -> signedGreater True r l
-    BvSge -> signedGreater False l r
-    BvSle -> signedGreater False r l
-    _     -> unhandled "bv predicate in boolToPf" predicate
+    BvUgt -> unsignedGreater width True l r
+    BvUlt -> unsignedGreater width True r l
+    BvUge -> unsignedGreater width False l r
+    BvUle -> unsignedGreater width False r l
+    BvSgt -> signedGreater width True l r
+    BvSlt -> signedGreater width True r l
+    BvSge -> signedGreater width False l r
+    BvSle -> signedGreater width False r l
+    BvSaddo -> do
+      l' <- fst . fromJust <$> getInt l
+      r' <- fst . fromJust <$> getInt r
+      lcNeg <$> inBits True width (lcAdd l' r')
+    BvSmulo -> do
+      l' <- fst . fromJust <$> getInt l
+      r' <- fst . fromJust <$> getInt r
+      lcNeg <$> inBits True width (lcAdd l' r')
+    BvSsubo -> do
+      l' <- fst . fromJust <$> getInt l
+      r' <- fst . fromJust <$> getInt r
+      lcNeg <$> inBits True width (lcSub l' r')
  where
   signedGreater
-    :: KnownNat n => Bool -> TermDynBv -> TermDynBv -> ToPf n (LSig n)
-  signedGreater strict a b = do
+    :: KnownNat n => Int -> Bool -> TermDynBv -> TermDynBv -> ToPf n (LSig n)
+  signedGreater w strict a b = do
     aBits <- fromJust <$> getIntBits a
     bBits <- fromJust <$> getIntBits b
     let a' = deBitifySigned aBits
     let b' = deBitifySigned bBits
-    lcGt (if strict then a' else lcAdd lcOne a') b'
+    lcGt w (if strict then a' else lcAdd lcOne a') b'
   unsignedGreater
-    :: KnownNat n => Bool -> TermDynBv -> TermDynBv -> ToPf n (LSig n)
-  unsignedGreater strict a b = do
+    :: KnownNat n => Int -> Bool -> TermDynBv -> TermDynBv -> ToPf n (LSig n)
+  unsignedGreater w strict a b = do
     a' <- fst . fromJust <$> getInt a
     b' <- fst . fromJust <$> getInt b
-    lcGt (if strict then a' else lcAdd lcOne a') b'
-  lcGt :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
-  lcGt a b = do
-    -- let d (diff) be a sum of n bits...
-    -- To enforce r <-> a > b, we reduce this constraint as follows...
+    lcGt w (if strict then a' else lcAdd lcOne a') b'
+  -- Does `number` fit in `w` `signed` bits?
+  inBits :: KnownNat n => Bool -> Int -> LSig n -> ToPf n (LSig n)
+  inBits signed w number = do
+    -- let s (bitSum) be a sum of n bits...
+    -- To enforce r <-> s = x, we reduce this constraint as follows...
     --
     -- 1. r(1-r) = 0    // done
-    --    r <-> a > b
+    --    r <-> s = x
     --
-    -- 2. (d - a + b) = 0 -> r = 1
-    --    (d - a + b) /= 0 -> r = 0
+    -- 2. (s - x) = 0 -> r = 1
+    --    (s - x) /= 0 -> r = 0
     --
-    -- 3. (d - a + b) /= 0 or r = 1
-    --    (d - a + b) = 0 or r = 0 // done, as (d - a + b)r = 0
+    -- 3. (s - x) /= 0 or r = 1
+    --    (s - x) = 0 or r = 0 // done, as (s - x)r = 0
     --
-    -- 4. (d - a + b + r) /= 0 // done as exists i. (d - a + b + r)i = 1
+    -- 4. (s - x + r) /= 0 // done as exists i. (s - x + r)i = 1
     --
     -- There is some stuff going on with the last step that is a bit tricky.
     -- It takes advantage of the fact that when r = 1, the second constraint
-    -- forces (d - a + b) to be 0
-    diff   <- deBitify <$> nbits width
-    result <- nextBit "lcGt"
-    let zeroIffTrue = lcAdd (lcSub diff b) a
+    -- forces (s - x) to be 0
+    bitSum <- (if signed then deBitifySigned else deBitify) <$> nbits w
+    result <- nextBit "inBits"
+    let zeroIffTrue = lcSub bitSum number
     enforce (zeroIffTrue, result, lcZero)
     enforceNonzero $ lcAdd zeroIffTrue result
     return result
+  lcGt :: KnownNat n => Int -> LSig n -> LSig n -> ToPf n (LSig n)
+  lcGt w a b = inBits False w (lcSub a b)
 
 
 -- # Top Level

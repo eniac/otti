@@ -11,8 +11,10 @@
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 module Main where
 
-import           Codegen.C                  (codegenFn)
+import           Codegen.C                  (codegenFn, checkFn)
 import           Codegen.CompilerMonad      (evalCodegen)
+import           Codegen.ToPf               (toPf)
+import qualified IR.TySmt                   as Smt
 import           Targets.SMT.Assert         (execAssert, asserted, vars)
 import qualified Codegen.Circom.Compilation as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
@@ -24,6 +26,7 @@ import           Control.Monad              (forM_)
 import qualified Data.Map                   as Map
 import qualified Data.IntMap                as IntMap
 import qualified Data.Maybe                 as Maybe
+import           Data.List                  (isInfixOf)
 import           Data.Proxy                 (Proxy(..))
 import           Parser.C                   (parseC)
 import           Parser.Circom              (loadMain)
@@ -31,7 +34,6 @@ import           System.Environment         (getArgs)
 import           System.IO                  (openFile, hGetContents, hPutStr, IOMode(..), hClose)
 import           System.Console.Docopt
 import           System.Process
-import qualified IR.TySmt                   as Ty
 
 
 patterns :: Docopt
@@ -43,7 +45,8 @@ Usage:
   compiler prove [options]
   compiler verify [options]
   compiler (-h | --help)
-  compiler c <fn-name> <path>
+  compiler c-check <fn-name> <path>
+  compiler c-r1cs <fn-name> <path>
 
 Options:
   -h, --help         Display this message
@@ -64,7 +67,8 @@ Commands:
   setup            Run the setup
   emit-r1cs        Emit R1CS
   count-terms      Compile at the fn-level only
-  c                Generate a circuit for a c program
+  c-check          Check a C function using an SMT solver
+  c-r1cs           Convert a C program to R1CS
 |]
 
 getArgOrExit :: Arguments -> Option -> IO String
@@ -151,27 +155,50 @@ cmdProve opt libsnarkPath pkPath vkPath inPath xPath wPath pfPath circomPath = d
 cmdVerify :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdVerify = runVerify
 
-cmdC :: String -> FilePath -> IO ()
-cmdC name path = do
+cmdCCheck :: String -> FilePath -> IO ()
+cmdCCheck name path = do
   result <- parseC path
   case result of
     Right tu -> do
-      assertions <- execAssert $ evalCodegen Nothing $ codegenFn tu name
-      putStrLn "Variables:"
-      forM_ (Map.toList $ vars assertions) $ \v -> do
-        putStr "  "
-        print v
-      putStrLn "Assertions:"
-      forM_ (asserted assertions) $ \v -> do
-        putStr "  "
-        print v
-      r <- Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (asserted assertions)
+      r <- checkFn tu name
       case r of
         Just s -> putStrLn s
         Nothing -> pure ()
     Left p -> do
       putStrLn "Parse error"
       print p
+
+
+
+cmdCR1cs :: String -> FilePath -> IO ()
+cmdCR1cs name path = do
+  result <- parseC path
+  case result of
+    Right tu -> do
+      gened <- execAssert $ evalCodegen Nothing $ codegenFn tu False name
+      let assertions = asserted gened
+      putStrLn "Variables:"
+      forM_ (Map.toList $ vars gened) $ \v -> do
+        putStr "  "
+        print v
+      putStrLn "Assertions:"
+      forM_ (asserted gened) $ \v -> do
+        putStr "  "
+        print v
+      r <- toPf @Order assertions
+      putStrLn "R1CS:"
+      forM_ r print
+    Left p -> do
+      putStrLn "Parse error"
+      print p
+ where
+  undefFree :: Smt.Term s -> Bool
+  undefFree = Smt.reduceTerm visit True (&&)
+   where
+    visit :: Smt.Term t -> Maybe Bool
+    visit t = case t of
+      Smt.Var v _ -> Just $ not $ isInfixOf "undef" v
+      _           -> Nothing
 
 
 defaultR1cs :: String
@@ -211,9 +238,13 @@ main = do
         xPath <- args `getArgOrExit` shortOption 'x'
         pfPath <- args `getArgOrExit` shortOption 'p'
         cmdVerify libsnarkPath vkPath xPath pfPath
-    else if args `isPresent` command "c" then do
+    else if args `isPresent` command "c-check" then do
         fnName <- args `getArgOrExit` argument "fn-name"
         path <- args `getArgOrExit` argument "path"
-        cmdC fnName path
+        cmdCCheck fnName path
+    else if args `isPresent` command "c-r1cs" then do
+        fnName <- args `getArgOrExit` argument "fn-name"
+        path <- args `getArgOrExit` argument "path"
+        cmdCR1cs fnName path
     else
         exitWithUsageMessage patterns "Missing command!"

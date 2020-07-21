@@ -359,8 +359,8 @@ codegenAll (CTranslUnit decls _) = do
     CFDefExt fun  -> genFunDef fun True
     CAsmExt asm _ -> genAsm asm
 
-codegenFn :: CTranslUnit -> String -> Compiler ()
-codegenFn (CTranslUnit decls _) name = do
+codegenFn :: CTranslUnit -> Bool -> String -> Compiler ()
+codegenFn (CTranslUnit decls _) requireUndef name = do
   registerFns decls
   let f = fromMaybe (error $ "No " ++ name) $ listToMaybe $ concatMap
         (\case
@@ -368,13 +368,13 @@ codegenFn (CTranslUnit decls _) name = do
           _          -> []
         )
         decls
-  genFunDef f True
+  genFunDef f requireUndef
 
 
 -- Can a fn exhibit undefined behavior?
 -- Returns a string describing it, if so.
 checkFn :: CTranslUnit -> String -> IO (Maybe String)
 checkFn tu name = do
-  assertions <- Assert.execAssert $ evalCodegen Nothing $ codegenFn tu name
+  assertions <- Assert.execAssert $ evalCodegen Nothing $ codegenFn tu True name
   Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)
 
