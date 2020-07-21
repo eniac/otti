@@ -16,6 +16,27 @@ packages:
   original:
     url: https://github.com/PLSysSec/haskell-z3/archive/df55d066238c09720491409f93153687a42141f4.tar.gz
 - completed:
+    hackage: arithmoi-0.11.0.1@sha256:5cb0d81848d25b20e58c1426bf1ff9dc4137efc182c9c4c567102e5fa16f1079,7639
+    pantry-tree:
+      size: 10135
+      sha256: 411702e6277e708f7567b398b676cf75d38d12114f6b5932a895ce835b362b3d
+  original:
+    hackage: arithmoi-0.11.0.1@sha256:5cb0d81848d25b20e58c1426bf1ff9dc4137efc182c9c4c567102e5fa16f1079,7639
+- completed:
+    hackage: galois-field-1.0.2@sha256:ecfdd72259a3db7dc89ddeaa5c5dd7d7bcc305c0450a89c757d93fe2ddb71c77,4685
+    pantry-tree:
+      size: 1451
+      sha256: 4b3eecd9ca434ee37785a1f3c4312c76760d9b79de05048fa17b0878c30f503c
+  original:
+    hackage: galois-field-1.0.2@sha256:ecfdd72259a3db7dc89ddeaa5c5dd7d7bcc305c0450a89c757d93fe2ddb71c77,4685
+- completed:
+    hackage: ghc-typelits-knownnat-0.7.2@sha256:63054c8108f21a4bc5ace477227476b72a4e3792f35f37f2d406eef262ae4346,4711
+    pantry-tree:
+      size: 602
+      sha256: 9267f4f6bcd9cf66db26b223c3da7f4f4a883a07af3d6bf26ae6e2157e237972
+  original:
+    hackage: ghc-typelits-knownnat-0.7.2@sha256:63054c8108f21a4bc5ace477227476b72a4e3792f35f37f2d406eef262ae4346,4711
+- completed:
     hackage: llvm-hs-9.0.1@sha256:ee6ec2eb8cba4daf2a43586388a87dbfd6a2ec6d81d1f9965896ac187acad286,8700
     pantry-tree:
       size: 13599
@@ -30,55 +51,50 @@ packages:
   original:
     hackage: llvm-hs-pure-9.0.0@sha256:134779f40086a366279f678e670b610d7a7618b28dd43f65894078fd20e04629,2945
 - completed:
-    size: 63109
-    url: https://github.com/adjoint-io/galois-field/archive/a1d0521c313b2a7ab1771846995452df80500810.tar.gz
-    name: galois-field
-    version: 1.0.1
-    sha256: b8c699f3039654a15413b2fcf670f517b575b88aceac9b0dafefd6cd120cdd09
+    hackage: chimera-0.3.1.0@sha256:1cacfe53e2ce9eda0eec6ae8b51af6c5626e0202333c08080f87d30bf9ed8b19,2525
     pantry-tree:
-      size: 4578
-      sha256: 3da360f395cdc50bbc6c2e86219b2405e5ffda11e56647d478968dc8dd1d3933
+      size: 637
+      sha256: b4a6ef4d4eed677e23e5932b8f187533ba2efece7410005ffcbdcec4c98e1df8
   original:
-    url: https://github.com/adjoint-io/galois-field/archive/a1d0521c313b2a7ab1771846995452df80500810.tar.gz
+    hackage: chimera-0.3.1.0@sha256:1cacfe53e2ce9eda0eec6ae8b51af6c5626e0202333c08080f87d30bf9ed8b19,2525
 - completed:
-    size: 23403
-    url: https://github.com/chessai/semirings/archive/b4334fe06635f106b1f08bac127c1ae259cddae6.tar.gz
-    name: semirings
-    version: 0.5.2
-    sha256: a6b5d1a9286379c93b5746b203d679fdebe044fdca4650acbe2cbcfb42788aef
+    hackage: ghc-typelits-natnormalise-0.7.2@sha256:0fc48a3744aa25e5e53a054a8bb1fe6410752e497f446d75db9bd67bb258d05e,3495
     pantry-tree:
-      size: 1042
-      sha256: 247122c81c37ed64c4d60794a845b5643a976ca878bd39b87af716b4c9eed194
+      size: 609
+      sha256: 08645cba16a116cba18f2ba0bcc6d1721a3ad77720a0717a9f2caa78c5e8f48b
   original:
-    url: https://github.com/chessai/semirings/archive/b4334fe06635f106b1f08bac127c1ae259cddae6.tar.gz
+    hackage: ghc-typelits-natnormalise-0.7.2@sha256:0fc48a3744aa25e5e53a054a8bb1fe6410752e497f446d75db9bd67bb258d05e,3495
 - completed:
-    size: 22608
-    url: https://github.com/Bodigrim/poly/archive/3cc4f30bdba2fe488b72ec84a1effb66766de477.tar.gz
-    name: poly
-    version: 0.3.3.0
-    sha256: f7413ce445ba3bd49944a5ba2c4719699f2b64ac22bd339f2020cd989da347ef
+    hackage: integer-roots-1.0@sha256:5ea7ecb80633fb05a8a36acd40e9da6fe22a6cef320b1310cb9f0330801ac124,2271
     pantry-tree:
-      size: 1613
-      sha256: 229b3f595256b26f2ed29e6db254f09187d628bc32cdb025306f6d4bfbc11272
+      size: 1543
+      sha256: f783228151085419e8ea328580aa4a4feec5d97b5ec7e14f893e239844fef9e4
   original:
-    url: https://github.com/Bodigrim/poly/archive/3cc4f30bdba2fe488b72ec84a1effb66766de477.tar.gz
+    hackage: integer-roots-1.0@sha256:5ea7ecb80633fb05a8a36acd40e9da6fe22a6cef320b1310cb9f0330801ac124,2271
 - completed:
-    hackage: mod-0.1.1.0@sha256:57f230d5664b1c311d1044c259ef880875e4b3bcbfc7c57eab3bf03fce87f445,1838
+    hackage: mod-0.1.2.0@sha256:4c331986c46808d89da590d791841f046509041c849c4254b0872c72284f73ad,2202
     pantry-tree:
-      size: 464
-      sha256: ca61450dd1d84e6beefba010a7032dfb5a8bc2e8344a369430992c56ec083ad7
+      size: 466
+      sha256: e98a21bc2bdaba7dfba0aeb33d7b2ed5472cd496aea38098b40bac665171cefb
   original:
-    hackage: mod-0.1.1.0@sha256:57f230d5664b1c311d1044c259ef880875e4b3bcbfc7c57eab3bf03fce87f445,1838
+    hackage: mod-0.1.2.0@sha256:4c331986c46808d89da590d791841f046509041c849c4254b0872c72284f73ad,2202
 - completed:
-    hackage: bitvec-1.0.2.0@sha256:492256514c4c7297d6b09f1dfdcb0fe579f1896b8ace89cb33842f797ac91544,4232
+    hackage: poly-0.4.0.0@sha256:75c243113712745dab5d2f4a52643705e146473770af212f9e0ce3d87a83f2ed,2123
     pantry-tree:
-      size: 2371
-      sha256: 9b2b82291d9a5480183e81c121801cc8401fa65b54edd027087e298c9b3b1880
+      size: 1896
+      sha256: 06f435980848905d2bcf23b85782863b1608f7a78dbdaea42e33a2e865adf476
   original:
-    hackage: bitvec-1.0.2.0
+    hackage: poly-0.4.0.0@sha256:75c243113712745dab5d2f4a52643705e146473770af212f9e0ce3d87a83f2ed,2123
+- completed:
+    hackage: semirings-0.5.4@sha256:5bd49c52a22c876c93d030cafa96b1233e9e7c42dacbe9f49686574368578c9c,2998
+    pantry-tree:
+      size: 610
+      sha256: 83e891acded173adc21b1bcce537f70f82d4b835fb42a41838ddf58d7bde7c7b
+  original:
+    hackage: semirings-0.5.4@sha256:5bd49c52a22c876c93d030cafa96b1233e9e7c42dacbe9f49686574368578c9c,2998
 snapshots:
 - completed:
-    size: 524786
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/14/11.yaml
-    sha256: 088bb91b545839510a41ae92fa5feb36779ef3529571a42bd12b9f51eb89ded3
-  original: lts-14.11
+    size: 524996
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/14/27.yaml
+    sha256: 7ea31a280c56bf36ff591a7397cc384d0dff622e7f9e4225b47d8980f019a0f0
+  original: lts-14.27

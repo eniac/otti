@@ -6,7 +6,7 @@ author:              "Author name here"
 maintainer:          "example@example.com"
 copyright:           "2019 Author name here"
 
-gxtra-source-files:
+extra-source-files:
 - README.md
 - ChangeLog.md
 
@@ -28,7 +28,7 @@ library:
   dependencies:
   - z3 >= 4.3.1
   - mtl >= 2.2.2
-  - containers >= 0.5 
+  - containers >= 0.5
   - data-binary-ieee754
   - split >= 0.2.3.3
   - bytestring >= 0.10.8.2
