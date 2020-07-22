@@ -29,7 +29,7 @@ constraintCountTest name path constraints = benchTestCase name $ do
   case result of
     Left  error -> assertFailure $ unwords ["Should not see", show error]
     Right tu    -> do
-      assertions <- execAssert $ evalCodegen Nothing $ codegenAll tu
+      assertions <- execAssert $ evalCodegen True $ codegenAll tu
       constraints @=? length (asserted assertions)
 
 basicTest :: BenchTest
@@ -53,7 +53,7 @@ ubCheckTest name fnName path undef = benchTestCase name $ do
   case result of
     Left  error -> assertFailure $ unwords ["Should not see", show error]
     Right tu    -> do
-      assertions <- execAssert $ evalCodegen Nothing $ codegenAll tu
+      assertions <- execAssert $ evalCodegen True $ codegenAll tu
       r          <- Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (asserted assertions)
       undef @=? isJust r
 

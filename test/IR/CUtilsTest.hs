@@ -65,7 +65,7 @@ cutilsTest = benchTestGroup
       Mem.initMem
       u <- Mem.liftAssert $ newVar AST.U8 "my_u8"
       p <- Mem.liftAssert $ newVar (AST.Ptr32 AST.U8) "my_u8_ptr"
-      _ <- Mem.liftAssert $ cppAssign p (cppIntLit AST.U32 0)
+      _ <- Mem.liftAssert $ cppAssign True p (cppIntLit AST.U32 0)
       _ <- cppStore p u (Ty.BoolLit True)
       cppLoad p
     let (_, w, bv) = asInt $ term a
@@ -76,7 +76,7 @@ cutilsTest = benchTestGroup
       Mem.initMem
       u <- Mem.liftAssert $ newVar (AST.Ptr32 AST.U8) "my_u8_ptr"
       p <- Mem.liftAssert $ newVar (AST.Ptr32 (AST.Ptr32 AST.U8)) "my_u8_ptr_ptr"
-      _ <- Mem.liftAssert $ cppAssign p (cppIntLit AST.U32 0)
+      _ <- Mem.liftAssert $ cppAssign True p (cppIntLit AST.U32 0)
       _ <- cppStore p u (Ty.BoolLit True)
       cppLoad p
     Ty.SortBv 32 @=? Ty.sort (snd $ asPtr $ term a)
