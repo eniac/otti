@@ -4,6 +4,7 @@ import           AST.C
 import           AST.Simple
 import           Codegen.CompilerMonad
 import           Codegen.Utils
+import           Control.Monad ( replicateM_ )
 import           Control.Monad.State.Strict     ( forM
                                                 , forM_
                                                 , liftIO
@@ -285,8 +286,7 @@ genStmtSMT stmt = case stmt of
         Just inc -> void $ genExprSMT inc
         _        -> error "Not yet supported"
       exitLexScope
-    forM_ [0 .. bound] $ \_ -> do
-      popGuard
+    replicateM_ (bound + 1) popGuard
     -- TODO: assert end
   CReturn expr _ -> when (isJust expr) $ do
     toReturn <- genExprSMT $ fromJust expr
@@ -311,12 +311,14 @@ genDeclSMT undef (CDecl specs decls _) = do
       else do
         declareVarSMT name baseType ptrType
         lhs <- genVarSMT name
-        liftAssert $ Assert.assert $ Ty.Eq (udef lhs) (Ty.BoolLit undef)
+        ub <- gets findUB
+        when ub $ liftAssert $ Assert.assert $ Ty.Eq (udef lhs) (Ty.BoolLit undef)
         case mInit of
           Just (CInitExpr e _) -> do
             lhs <- genVarSMT name
             rhs <- genExprSMT e
-            liftAssert $ cppAssign lhs rhs
+            a   <- getAssignment
+            liftAssert $ Assert.assert $ a lhs rhs
             return ()
           _ -> return ()
 
@@ -324,12 +326,13 @@ genDeclSMT undef (CDecl specs decls _) = do
 --- High level codegen (translation unit, etc)
 ---
 
-genFunDef :: CFunDef -> Bool -> Compiler ()
-genFunDef f checkUndef = do
+genFunDef :: CFunDef -> Compiler ()
+genFunDef f = do
   -- Declare the function and setup the return value
   let name = nameFromFunc f
       ptrs = ptrsFromFunc f
       tys  = baseTypeFromFunc f
+  checkUndef <- gets findUB
   retTy <- ctype tys ptrs
   pushFunction name retTy
   -- Declare the arguments and execute the body
@@ -356,11 +359,11 @@ codegenAll (CTranslUnit decls _) = do
   registerFns decls
   forM_ decls $ \case
     CDeclExt decl -> genDeclSMT True decl
-    CFDefExt fun  -> genFunDef fun True
+    CFDefExt fun  -> genFunDef fun
     CAsmExt asm _ -> genAsm asm
 
-codegenFn :: CTranslUnit -> Bool -> String -> Compiler ()
-codegenFn (CTranslUnit decls _) requireUndef name = do
+codegenFn :: CTranslUnit -> String -> Compiler ()
+codegenFn (CTranslUnit decls _) name = do
   registerFns decls
   let f = fromMaybe (error $ "No " ++ name) $ listToMaybe $ concatMap
         (\case
@@ -368,13 +371,18 @@ codegenFn (CTranslUnit decls _) requireUndef name = do
           _          -> []
         )
         decls
-  genFunDef f requireUndef
+  genFunDef f
 
 
 -- Can a fn exhibit undefined behavior?
 -- Returns a string describing it, if so.
 checkFn :: CTranslUnit -> String -> IO (Maybe String)
 checkFn tu name = do
-  assertions <- Assert.execAssert $ evalCodegen Nothing $ codegenFn tu True name
+  assertions <- Assert.execAssert $ evalCodegen True $ codegenFn tu name
   Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)
+
+-- Can a fn exhibit undefined behavior?K
+-- Returns a string describing it, if so.
+transFn :: CTranslUnit -> String -> IO [Ty.TermBool]
+transFn tu name = Assert.asserted <$> (Assert.execAssert <$> evalCodegen False $ codegenFn tu name)
 

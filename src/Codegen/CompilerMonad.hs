@@ -195,7 +195,7 @@ fsCurrentGuard :: FunctionScope -> Ty.TermBool
 fsCurrentGuard = safeNary (Ty.BoolLit True) Ty.And . conditionalGuards
 
 -- | Set the return value if we have not returned, and block future returns
-fsReturn :: CTerm -> FunctionScope -> Assert FunctionScope
+fsReturn :: CTerm -> FunctionScope -> Compiler FunctionScope
 fsReturn value scope =
   let returnCondition =
           Ty.BoolNaryExpr Ty.And [fsCurrentGuard scope, fsHasNotReturned scope]
@@ -203,7 +203,8 @@ fsReturn value scope =
         { returnValueGuards = conditionalGuards scope : returnValueGuards scope
         }
   in  do
-        Assert.implies returnCondition (cppAssignment value (retTerm scope))
+        a <- getAssignment
+        liftAssert $ Assert.implies returnCondition (a value (retTerm scope))
         return newScope
 
 fsHasNotReturned :: FunctionScope -> Ty.TermBool
@@ -232,6 +233,7 @@ data CompilerState = CompilerState { callStack         :: [FunctionScope]
                                    , loopBound         :: Int
                                    , prefix            :: [String]
                                    , fnCtr             :: Int
+                                   , findUB            :: Bool
                                    }
 
 newtype Compiler a = Compiler (StateT CompilerState Mem a)
@@ -249,12 +251,13 @@ instance MonadFail Compiler where
 ---
 
 emptyCompilerState :: CompilerState
-emptyCompilerState = CompilerState { callStack = []
-                                   , funs      = M.empty
-                                   , typedefs  = M.empty
-                                   , loopBound = 4
-                                   , prefix    = []
-                                   , fnCtr     = 0
+emptyCompilerState = CompilerState { callStack   = []
+                                   , funs        = M.empty
+                                   , typedefs    = M.empty
+                                   , loopBound   = 4
+                                   , prefix      = []
+                                   , findUB      = True
+                                   , fnCtr       = 0
                                    }
 
 compilerRunOnTop :: (FunctionScope -> (a, FunctionScope)) -> Compiler a
@@ -309,7 +312,7 @@ getGuard = compilerGetsTop fsCurrentGuard
 doReturn :: CTerm -> Compiler ()
 doReturn value = do
   s       <- get
-  newHead <- liftAssert $ fsReturn value (head $ callStack s)
+  newHead <- fsReturn value (head $ callStack s)
   put s { callStack = newHead : tail (callStack s) }
 
 getReturn :: Compiler CTerm
@@ -322,17 +325,16 @@ liftAssert :: Assert a -> Compiler a
 liftAssert = liftMem . Mem.liftAssert
 
 runCodegen
-  :: Maybe Integer -- ^ Optional timeout
+  :: Bool -- ^ wether to check for UB
   -> Compiler a       -- ^ Codegen computation
   -> Assert (a, CompilerState)
-runCodegen mTimeout (Compiler act) =
-  Mem.evalMem $ runStateT act emptyCompilerState
+runCodegen checkUB (Compiler act) = Mem.evalMem $ runStateT act $ emptyCompilerState { findUB = checkUB }
 
-evalCodegen :: Maybe Integer -> Compiler a -> Assert a
-evalCodegen mt act = fst <$> runCodegen mt act
+evalCodegen :: Bool -> Compiler a -> Assert a
+evalCodegen checkUB act = fst <$> runCodegen checkUB act
 
-execCodegen :: Maybe Integer -> Compiler a -> Assert CompilerState
-execCodegen mt act = snd <$> runCodegen mt act
+execCodegen :: Bool -> Compiler a -> Assert CompilerState
+execCodegen checkUB act = snd <$> runCodegen checkUB act
 
 -- TODO Run solver on SMT
 -- runSolverOnSMT :: Compiler SMTResult
@@ -363,9 +365,8 @@ ssaAssign var val = do
   nextVer var
   newNode <- getTerm var
   guard   <- getGuard
-  liftAssert $ Assert.assert $ Ty.Ite guard
-                                      (cppAssignment newNode val)
-                                      (cppAssignment newNode oldNode)
+  a       <- getAssignment
+  liftAssert $ Assert.assert $ Ty.Ite guard (a newNode val) (a newNode oldNode)
   return newNode
 
 ---
@@ -437,3 +438,8 @@ getLoopBound = gets loopBound
 
 setLoopBound :: Int -> Compiler ()
 setLoopBound bound = modify (\s -> s { loopBound = bound })
+
+-- UB
+
+getAssignment :: Compiler (CTerm -> CTerm -> Ty.TermBool)
+getAssignment = cppAssignment <$> gets findUB

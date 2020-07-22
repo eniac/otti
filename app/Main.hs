@@ -11,11 +11,10 @@
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 module Main where
 
-import           Codegen.C                  (codegenFn, checkFn)
-import           Codegen.CompilerMonad      (evalCodegen)
+import           Codegen.C                  (transFn, checkFn)
+--import           Codegen.CompilerMonad      (evalCodegen)
 import           Codegen.ToPf               (toPf)
-import qualified IR.TySmt                   as Smt
-import           Targets.SMT.Assert         (execAssert, asserted, vars)
+--import           Targets.SMT.Assert         (execAssert, asserted, vars)
 import qualified Codegen.Circom.Compilation as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
                                             as Wit
@@ -26,7 +25,6 @@ import           Control.Monad              (forM_)
 import qualified Data.Map                   as Map
 import qualified Data.IntMap                as IntMap
 import qualified Data.Maybe                 as Maybe
-import           Data.List                  (isInfixOf)
 import           Data.Proxy                 (Proxy(..))
 import           Parser.C                   (parseC)
 import           Parser.Circom              (loadMain)
@@ -175,14 +173,9 @@ cmdCR1cs name path = do
   result <- parseC path
   case result of
     Right tu -> do
-      gened <- execAssert $ evalCodegen Nothing $ codegenFn tu False name
-      let assertions = asserted gened
-      putStrLn "Variables:"
-      forM_ (Map.toList $ vars gened) $ \v -> do
-        putStr "  "
-        print v
+      assertions <- transFn tu name
       putStrLn "Assertions:"
-      forM_ (asserted gened) $ \v -> do
+      forM_ assertions $ \v -> do
         putStr "  "
         print v
       r <- toPf @Order assertions
@@ -191,15 +184,6 @@ cmdCR1cs name path = do
     Left p -> do
       putStrLn "Parse error"
       print p
- where
-  undefFree :: Smt.Term s -> Bool
-  undefFree = Smt.reduceTerm visit True (&&)
-   where
-    visit :: Smt.Term t -> Maybe Bool
-    visit t = case t of
-      Smt.Var v _ -> Just $ not $ isInfixOf "undef" v
-      _           -> Nothing
-
 
 defaultR1cs :: String
 defaultR1cs = "C"
