@@ -116,7 +116,7 @@ boolToPf term = do
       Just abool -> do
         a' <- boolToPf abool
         b' <- boolToPf $ fromJust $ cast b
-        binEq a' b'
+        bitEq a' b'
       -- Bv
       Nothing -> do
         let abv = fromJust $ cast a
@@ -156,8 +156,7 @@ opId o = case o of
   And -> True
   Or  -> False
   Xor -> False
--- TODO: There is a better implementation for binary (even ternary?) AND/OR.
--- It is based on AND as multiplication
+
 naryAnd :: KnownNat n => [LSig n] -> ToPf n (LSig n)
 naryAnd xs = if length xs <= 3
   then foldM binAnd (head xs) (tail xs)
@@ -186,16 +185,35 @@ impl a b = do
   v <- lcSig <$> nextVar "impl"
   enforce (a, lcNot b, lcNot v)
   return v
+bitEq :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
+bitEq a b = do
+  let net = lcAdd a b
+  v <- nextBit "eq"
+  let carry = lcScale (recip $ toP 2) $ lcSub net v
+  enforceBit carry
+  return v
 binEq :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 binEq a b = do
   v <- nextBit "eq"
   enforce (lcSub a b, v, lcZero)
   enforceNonzero $ lcAdd (lcSub a b) v
   return v
-binXor :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
-binXor a b = lcNot <$> binEq a b
+
+-- Strategy: we add the bits, and decompose the sum. The LSB is the answer.
 naryXor :: KnownNat n => [LSig n] -> ToPf n (LSig n)
-naryXor xs = foldM binXor (head xs) (tail xs)
+naryXor xs = do
+  let n = log2 $ length xs
+  bs <- nbits n
+  let s = deBitify bs
+  -- Could trim a constraint here.
+  enforce (lcZero, lcZero, lcSub s (foldr1 lcAdd xs))
+  return (head bs)
+
+binXor :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
+binXor a b = naryXor [a, b]
+
+log2 :: Int -> Int
+log2 x = if x == 0 then 0 else 1 + log2 (x `div` 2)
 
 -- # Arith constraints and storage
 

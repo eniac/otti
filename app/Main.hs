@@ -12,9 +12,8 @@
 module Main where
 
 import           Codegen.C                  (transFn, checkFn)
---import           Codegen.CompilerMonad      (evalCodegen)
 import           Codegen.ToPf               (toPf)
---import           Targets.SMT.Assert         (execAssert, asserted, vars)
+import           Codegen.Fold               (constantFold)
 import qualified Codegen.Circom.Compilation as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
                                             as Wit
@@ -179,8 +178,11 @@ cmdCR1cs name path = do
         putStr "  "
         print v
       r <- toPf @Order assertions
-      putStrLn "R1CS:"
-      forM_ r print
+      putStrLn $ "R1CS: " ++ show (length r)
+      forM_ (map constantFold assertions) print
+      r' <- toPf @Order $ map constantFold assertions
+      putStrLn $ "R1CS: " ++ show (length r')
+      forM_ r' print
     Left p -> do
       putStrLn "Parse error"
       print p

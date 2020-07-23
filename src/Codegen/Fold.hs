@@ -6,6 +6,11 @@ where
 
 import           IR.TySmt
 
+
+-- Folds constants (literals) away.
+-- The end result is either
+--   (a) the whole term is constant or
+--   (b) the term is constant-free.
 constantFold :: Term s -> Term s
 constantFold = mapTerm visit
  where
@@ -39,7 +44,7 @@ constantFold = mapTerm visit
       identity Or  = False
       identity And = True
       identity Xor = False
-      -- The effect of a non-indentity element
+      -- The effect of a non-indentity element on the expression
       xfm Or  = const (BoolLit True)
       xfm And = const (BoolLit False)
       xfm Xor = negateBool

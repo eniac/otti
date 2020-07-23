@@ -70,7 +70,7 @@ toPfTests = benchTestGroup
                           6
     , constraintCountTest "ite" [Ite (bv "a") (bv "b") (bv "c")] 6
     -- Thre bit constraints, one const constraint, two for Eq
-    , constraintCountTest "eq"  [Eq (bv "a") (bv "b")]           6
+    , constraintCountTest "eq"  [Eq (bv "a") (bv "b")]           5
     ]
   , benchTestGroup
     "bvToPf"
