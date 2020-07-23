@@ -124,10 +124,10 @@ boolToPf term = do
         a' <- bvToPf abv >> (fst . fromJust <$> getInt abv)
         b' <- bvToPf bbv >> (fst . fromJust <$> getInt bbv)
         binEq a' b'
-    BoolLit b  -> return $ lcShift (toP $ fromIntegral $ fromEnum b) lcZero
-    Not     a  -> lcNot <$> boolToPf a
-    Var name _ -> asBit name
-    BoolNaryExpr o xs -> do
+    BoolLit b -> return $ lcShift (toP $ fromIntegral $ fromEnum b) lcZero
+    Not     a            -> lcNot <$> boolToPf a
+    Var          name _  -> asBit name
+    BoolNaryExpr o    xs -> do
       xs' <- traverse boolToPf xs
       case xs' of
         []  -> pure $ lcShift (toP $ fromIntegral $ fromEnum $ opId o) lcZero
@@ -178,13 +178,16 @@ naryOr xs = if length xs <= 3
           enforce (s, lcSub lcOne or', lcZero)
           enforceNonzero $ lcSub (lcAdd lcOne s) or'
           return or'
+
 binOr :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 binOr a b = naryOr [a, b]
+
 impl :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 impl a b = do
   v <- lcSig <$> nextVar "impl"
   enforce (a, lcNot b, lcNot v)
   return v
+
 bitEq :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 bitEq a b = do
   let net = lcAdd a b
@@ -192,6 +195,7 @@ bitEq a b = do
   let carry = lcScale (recip $ toP 2) $ lcSub net v
   enforceBit carry
   return v
+
 binEq :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 binEq a b = do
   v <- nextBit "eq"
@@ -347,14 +351,14 @@ bvPredToPf predicate width l r = do
   bvToPf l
   bvToPf r
   case predicate of
-    BvUgt -> unsignedGreater width True l r
-    BvUlt -> unsignedGreater width True r l
-    BvUge -> unsignedGreater width False l r
-    BvUle -> unsignedGreater width False r l
-    BvSgt -> signedGreater width True l r
-    BvSlt -> signedGreater width True r l
-    BvSge -> signedGreater width False l r
-    BvSle -> signedGreater width False r l
+    BvUgt   -> unsignedGreater width True l r
+    BvUlt   -> unsignedGreater width True r l
+    BvUge   -> unsignedGreater width False l r
+    BvUle   -> unsignedGreater width False r l
+    BvSgt   -> signedGreater width True l r
+    BvSlt   -> signedGreater width True r l
+    BvSge   -> signedGreater width False l r
+    BvSle   -> signedGreater width False r l
     BvSaddo -> do
       l' <- fst . fromJust <$> getInt l
       r' <- fst . fromJust <$> getInt r
