@@ -13,7 +13,7 @@ module Main where
 
 import           Codegen.C                  (transFn, checkFn)
 import           Codegen.ToPf               (toPf)
-import           Codegen.Fold               (constantFold)
+import           Codegen.Opt                (constantFold)
 import qualified Codegen.Circom.Compilation as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
                                             as Wit

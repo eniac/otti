@@ -1,7 +1,7 @@
 import           BenchUtils
 import           Codegen.CTest
 import           Codegen.CircomTest
-import           Codegen.FoldTest
+import           Codegen.OptTest
 import           Codegen.ToPfTest
 import           IR.TySmtTest
 import           IR.MemoryTest
