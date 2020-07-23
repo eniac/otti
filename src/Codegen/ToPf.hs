@@ -3,6 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PolyKinds #-}
 module Codegen.ToPf
   ( toPf
@@ -344,55 +345,64 @@ bvToPf term = do
 
     _ -> error $ unwords ["Cannot translate", show bv]
 
+data Signedness = Signed | Unsigned
+isSigned :: Signedness -> Bool
+isSigned = \case
+  Signed   -> True
+  Unsigned -> False
 
+-- Embed this (dynamic) bit-vector predicate in the constraint system,
+-- returning a signal which is 1 if the predicate is satisfied, and 0
+-- otherwise.
 bvPredToPf
   :: KnownNat n => BvBinPred -> Int -> TermDynBv -> TermDynBv -> ToPf n (LSig n)
 bvPredToPf predicate width l r = do
   bvToPf l
   bvToPf r
   case predicate of
-    BvUgt   -> unsignedGreater width True l r
-    BvUlt   -> unsignedGreater width True r l
-    BvUge   -> unsignedGreater width False l r
-    BvUle   -> unsignedGreater width False r l
-    BvSgt   -> signedGreater width True l r
-    BvSlt   -> signedGreater width True r l
-    BvSge   -> signedGreater width False l r
-    BvSle   -> signedGreater width False r l
-    BvSaddo -> do
+    BvUgt -> unsignedGreater width True l r
+    BvUlt -> unsignedGreater width True r l
+    BvUge -> unsignedGreater width False l r
+    BvUle -> unsignedGreater width False r l
+    BvSgt -> signedGreater width True l r
+    BvSlt -> signedGreater width True r l
+    BvSge -> signedGreater width False l r
+    BvSle -> signedGreater width False r l
+    _     -> do
       l' <- fst . fromJust <$> getInt l
       r' <- fst . fromJust <$> getInt r
-      lcNeg <$> inBits True width (lcAdd l' r')
-    BvSmulo -> do
-      l' <- fst . fromJust <$> getInt l
-      r' <- fst . fromJust <$> getInt r
-      lcNeg <$> inBits True width (lcAdd l' r')
-    BvSsubo -> do
-      l' <- fst . fromJust <$> getInt l
-      r' <- fst . fromJust <$> getInt r
-      lcNeg <$> inBits True width (lcSub l' r')
+      case predicate of
+        BvSaddo -> lcNeg <$> inBits Signed width (lcAdd l' r')
+        BvSsubo -> lcNeg <$> inBits Signed width (lcSub l' r')
+        BvSmulo -> do
+          p <- lcSig <$> nextVar "muloverflow"
+          enforce (l', r', p)
+          lcNeg <$> inBits Signed width p
+        _ -> error "unreachable"
  where
   signedGreater
     :: KnownNat n => Int -> Bool -> TermDynBv -> TermDynBv -> ToPf n (LSig n)
   signedGreater w strict a b = do
-    aBits <- fromJust <$> getIntBits a
-    bBits <- fromJust <$> getIntBits b
-    let a' = deBitifySigned aBits
-    let b' = deBitifySigned bBits
-    lcGt w (if strict then a' else lcAdd lcOne a') b'
+    -- Strategy: To set r = a > b, make r indicate whether a - b - 1 is a small
+    -- positive value.
+    a' <- deBitifySigned . fromJust <$> getIntBits a
+    b' <- deBitifySigned . fromJust <$> getIntBits b
+    lcGt w (if strict then lcSub a' lcOne else a') b'
   unsignedGreater
     :: KnownNat n => Int -> Bool -> TermDynBv -> TermDynBv -> ToPf n (LSig n)
   unsignedGreater w strict a b = do
+    -- Strategy: To set r = a > b, make r indicate whether a - b - 1 is a small
+    -- positive value.
     a' <- fst . fromJust <$> getInt a
     b' <- fst . fromJust <$> getInt b
-    lcGt w (if strict then a' else lcAdd lcOne a') b'
+    lcGt w (if strict then lcSub a' lcOne else a') b'
   -- Does `number` fit in `w` `signed` bits?
-  inBits :: KnownNat n => Bool -> Int -> LSig n -> ToPf n (LSig n)
+  inBits :: KnownNat n => Signedness -> Int -> LSig n -> ToPf n (LSig n)
   inBits signed w number = do
     -- let s (bitSum) be a sum of n bits...
     -- To enforce r <-> s = x, we reduce this constraint as follows...
     --
-    -- 1. r(1-r) = 0    // done
+    -- 1. r(1-r) = 0    // done (emit this constraint as R1CS)
     --    r <-> s = x
     --
     -- 2. (s - x) = 0 -> r = 1
@@ -406,14 +416,14 @@ bvPredToPf predicate width l r = do
     -- There is some stuff going on with the last step that is a bit tricky.
     -- It takes advantage of the fact that when r = 1, the second constraint
     -- forces (s - x) to be 0
-    bitSum <- (if signed then deBitifySigned else deBitify) <$> nbits w
+    bitSum <- (if isSigned signed then deBitifySigned else deBitify) <$> nbits w
     result <- nextBit "inBits"
     let zeroIffTrue = lcSub bitSum number
     enforce (zeroIffTrue, result, lcZero)
     enforceNonzero $ lcAdd zeroIffTrue result
     return result
   lcGt :: KnownNat n => Int -> LSig n -> LSig n -> ToPf n (LSig n)
-  lcGt w a b = inBits False w (lcSub a b)
+  lcGt w a b = inBits Unsigned w (lcSub a b)
 
 
 -- # Top Level
