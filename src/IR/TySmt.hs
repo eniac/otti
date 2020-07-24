@@ -336,7 +336,7 @@ data Term s where
     -- Core terms
     Ite    ::TermBool -> Term s -> Term s -> Term s
     Var    ::String -> Sort -> Term s
-    Let    ::(Typeable s) => String -> Term s -> Term t -> Term t
+    Let    ::(SortClass s) => String -> Term s -> Term t -> Term t
     Exists ::String -> Sort -> Term t -> Term t
     Eq     :: SortClass s => Term s -> Term s -> TermBool
 
@@ -511,7 +511,7 @@ sort t = case sorted @s of
 -- applying that function at every stage. When the function returns something,
 -- this is the transformation. When the function does not, the transformation
 -- recurses.
-mapTerm :: (forall t . Term t -> Maybe (Term t)) -> Term s -> Term s
+mapTerm :: SortClass s => (forall t . SortClass t => Term t -> Maybe (Term t)) -> Term s -> Term s
 mapTerm f t = case f t of
   Nothing -> case t of
     BoolLit{}            -> t
@@ -580,7 +580,7 @@ mapTerm f t = case f t of
 
 
 reduceTerm
-  :: (forall t . Term t -> Maybe k) -> k -> (k -> k -> k) -> Term s -> k
+  :: SortClass s => (forall t . SortClass t => Term t -> Maybe k) -> k -> (k -> k -> k) -> Term s -> k
 reduceTerm mapF i foldF t = case mapF t of
   Nothing -> case t of
     BoolLit{} -> i
@@ -666,13 +666,13 @@ reduceTerm mapF i foldF t = case mapF t of
     NewArray -> i
   Just s -> s
 
-depth :: Term s -> Int
+depth :: SortClass s => Term s -> Int
 depth = reduceTerm (const Nothing) 0 (\a b -> 1 + max a b)
 
-nNodes :: Term s -> Int
+nNodes :: SortClass s => Term s -> Int
 nNodes = reduceTerm (const Nothing) 1 ((+) . (1 +))
 
-nChars :: Term s -> Int
+nChars :: SortClass s => Term s -> Int
 nChars = reduceTerm visit 0 (+)
  where
   visit t = case t of

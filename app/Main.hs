@@ -13,17 +13,18 @@ module Main where
 
 import           Codegen.C                  (transFn, checkFn)
 import           Codegen.ToPf               (toPf)
-import           Codegen.Opt                (constantFold)
+import           Codegen.Opt                (constantFold, eqElim)
 import qualified Codegen.Circom.Compilation as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
                                             as Wit
 import qualified Codegen.Circom.CompTypes   as CompT
 import qualified Codegen.Circom.Linking     as Link
-import qualified Codegen.Circom.Opt     as Opt
+import qualified Codegen.Circom.Opt         as Opt
 import           Control.Monad              (forM_)
 import qualified Data.Map                   as Map
 import qualified Data.IntMap                as IntMap
 import qualified Data.Maybe                 as Maybe
+import qualified Data.Set                   as Set
 import           Data.Proxy                 (Proxy(..))
 import           Parser.C                   (parseC)
 import           Parser.Circom              (loadMain)
@@ -179,10 +180,12 @@ cmdCR1cs name path = do
         print v
       r <- toPf @Order assertions
       putStrLn $ "R1CS: " ++ show (length r)
-      forM_ (map constantFold assertions) print
+      --forM_ (map constantFold assertions) print
       r' <- toPf @Order $ map constantFold assertions
       putStrLn $ "R1CS: " ++ show (length r')
-      forM_ r' print
+      r'' <- toPf @Order $ eqElim (Set.fromList ["f0_outer__return_v0"]) $ map constantFold assertions
+      putStrLn $ "R1CS: " ++ show (length r'')
+      forM_ (eqElim (Set.fromList ["f0_outer__return_v0"]) $ map constantFold assertions) print
     Left p -> do
       putStrLn "Parse error"
       print p

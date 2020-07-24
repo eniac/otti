@@ -42,7 +42,7 @@ memoryTest = benchTestGroup
     2 @=? sum (map countStores (Assert.asserted a))
   ]
 
-countStores :: Smt.Term s -> Int
+countStores :: Smt.SortClass s => Smt.Term s -> Int
 countStores = Smt.reduceTerm
   (\t -> case t of
     Smt.Store a i v -> Just $ 1 + countStores a + countStores i + countStores v

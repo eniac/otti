@@ -137,7 +137,7 @@ instance KnownNat n => BaseCtx (WitBaseCtx n) (WitBaseTerm n) (Prime n) where
     let
       keys = Fold.toList $ assignmentSet c
 
-      collectSigs :: Smt.Term s -> Set.Set Sig.Signal
+      collectSigs :: Smt.SortClass s => Smt.Term s -> Set.Set Sig.Signal
       collectSigs = Smt.reduceTerm visit Set.empty Set.union
        where
         visit :: Smt.Term t -> Maybe (Set.Set Sig.Signal)
@@ -185,6 +185,6 @@ instance KnownNat n => BaseCtx (WitBaseCtx n) (WitBaseTerm n) (Prime n) where
         , assignmentSet   = Set.empty
         }
 
-nSmtNodes :: WitBaseCtx n -> Int
+nSmtNodes :: KnownNat n => WitBaseCtx n -> Int
 nSmtNodes =
   Map.foldr ((+) . (\(WitBaseTerm a) -> Smt.nNodes a)) 0 . signalTerms

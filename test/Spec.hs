@@ -16,7 +16,7 @@ parserTests :: BenchTest
 parserTests = benchTestGroup "Parser tests" [cParserTests, circomParserTests]
 
 generatorTests :: BenchTest
-generatorTests = benchTestGroup "Generator tests" [circomGenTests, cTests, toPfTests, constantFoldingTests]
+generatorTests = benchTestGroup "Generator tests" [circomGenTests, cTests, toPfTests, optTests]
 
 irTests :: BenchTest
 irTests = benchTestGroup "IR tests" [tySmtTests, memoryTest, cutilsTest]
