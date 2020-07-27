@@ -4,7 +4,7 @@ import           AST.C
 import           AST.Simple
 import           Codegen.CompilerMonad
 import           Codegen.Utils
-import           Control.Monad ( replicateM_ )
+import           Control.Monad                  ( replicateM_ )
 import           Control.Monad.State.Strict     ( forM
                                                 , forM_
                                                 , liftIO
@@ -19,7 +19,7 @@ import           Data.Maybe                     ( fromJust
                                                 , fromMaybe
                                                 , listToMaybe
                                                 )
-import qualified Data.Map  as Map
+import qualified Data.Map                      as Map
 import           IR.CUtils
 import           IR.Memory                      ( bvNum )
 import qualified Targets.SMT.Assert            as Assert
@@ -245,7 +245,7 @@ genStmtSMT stmt = case stmt of
   CCompound ids items _ -> forM_ items $ \item -> do
     case item of
       CBlockStmt stmt -> genStmtSMT stmt
-      CBlockDecl decl -> genDeclSMT True decl
+      CBlockDecl decl -> void $ genDeclSMT True decl
       CNestedFunDef{} -> error "Nested function definitions not supported"
   CExpr e _                 -> when (isJust e) $ void $ genExprSMT $ fromJust e
   CIf cond trueBr falseBr _ -> do
@@ -268,7 +268,7 @@ genStmtSMT stmt = case stmt of
   CFor init check incr body _ -> do
     case init of
       Left  (Just expr) -> void $ genExprSMT expr
-      Right decl        -> genDeclSMT True decl
+      Right decl        -> void $ genDeclSMT True decl
       _                 -> return ()
     -- Make a guard on the bound to guard execution of the loop
     -- Execute up to the loop bound
@@ -293,7 +293,8 @@ genStmtSMT stmt = case stmt of
     doReturn toReturn
   _ -> liftIO $ print $ unwords ["other", show stmt]
 
-genDeclSMT :: Bool -> CDecl -> Compiler ()
+-- Returns the declaration's variable name
+genDeclSMT :: Bool -> CDecl -> Compiler String
 genDeclSMT undef (CDecl specs decls _) = do
   when (null specs) $ error "Expected specifier in declaration"
   let firstSpec = head specs
@@ -301,50 +302,54 @@ genDeclSMT undef (CDecl specs decls _) = do
         (isStorageSpec firstSpec) && (isTypedef $ storageFromSpec firstSpec)
       baseType = if isTypedefDecl then tail specs else specs
 
-  forM_ decls $ \(Just dec, mInit, _) -> do
-    let mName = identFromDeclr dec
-        name  = fromMaybe (error "Expected identifier in decl") mName
+  names <- forM decls $ \(Just dec, mInit, _) -> do
+    let mName   = identFromDeclr dec
+        name    = fromMaybe (error "Expected identifier in decl") mName
         ptrType = derivedFromDeclr dec
 
     if isTypedefDecl
-      then typedefSMT name baseType ptrType
+      then typedefSMT name baseType ptrType >> return "TYPEDEF"
       else do
         declareVarSMT name baseType ptrType
         lhs <- genVarSMT name
-        ub <- gets findUB
-        when ub $ liftAssert $ Assert.assert $ Ty.Eq (udef lhs) (Ty.BoolLit undef)
+        ub  <- gets findUB
+        when ub $ liftAssert $ Assert.assert $ Ty.Eq (udef lhs)
+                                                     (Ty.BoolLit undef)
         case mInit of
           Just (CInitExpr e _) -> do
-            lhs <- genVarSMT name
             rhs <- genExprSMT e
             a   <- getAssignment
-            liftAssert $ Assert.assert $ a lhs rhs
-            return ()
+            void $ liftAssert $ Assert.assert $ a lhs rhs
           _ -> return ()
+        return $ fromJust $ asVar lhs
+  return $ head names
+
 
 ---
 --- High level codegen (translation unit, etc)
 ---
 
-genFunDef :: CFunDef -> Compiler ()
+-- Returns the variable names corresponding to inputs and the return
+genFunDef :: CFunDef -> Compiler ([String], String)
 genFunDef f = do
   -- Declare the function and setup the return value
   let name = nameFromFunc f
       ptrs = ptrsFromFunc f
       tys  = baseTypeFromFunc f
   checkUndef <- gets findUB
-  retTy <- ctype tys ptrs
+  retTy      <- ctype tys ptrs
   pushFunction name retTy
   -- Declare the arguments and execute the body
-  forM_ (argsFromFunc f) (genDeclSMT False)
+  inputsNames <- forM (argsFromFunc f) (genDeclSMT False)
   let body = bodyFromFunc f
   case body of
     CCompound{} -> genStmtSMT body
     _           -> error "Expected C statement block in function definition"
+  returnValue <- getReturn
   when checkUndef $ do
-    returnValue <- getReturn
     liftAssert $ Assert.assert $ udef returnValue
   popFunction
+  return (inputsNames, fromJust $ asVar returnValue)
 
 genAsm :: CStringLiteral a -> Compiler ()
 genAsm = undefined
@@ -358,16 +363,16 @@ codegenAll :: CTranslUnit -> Compiler ()
 codegenAll (CTranslUnit decls _) = do
   registerFns decls
   forM_ decls $ \case
-    CDeclExt decl -> genDeclSMT True decl
-    CFDefExt fun  -> genFunDef fun
+    CDeclExt decl -> void $ genDeclSMT True decl
+    CFDefExt fun  -> void $ genFunDef fun
     CAsmExt asm _ -> genAsm asm
 
-codegenFn :: CTranslUnit -> String -> Compiler ()
+codegenFn :: CTranslUnit -> String -> Compiler ([String], String)
 codegenFn (CTranslUnit decls _) name = do
   registerFns decls
   let f = fromMaybe (error $ "No " ++ name) $ listToMaybe $ concatMap
         (\case
-          CFDefExt f -> [f | nameFromFunc f == name]
+          CFDefExt f -> [ f | nameFromFunc f == name ]
           _          -> []
         )
         decls
@@ -381,8 +386,18 @@ checkFn tu name = do
   assertions <- Assert.execAssert $ evalCodegen True $ codegenFn tu name
   Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)
 
--- Can a fn exhibit undefined behavior?K
--- Returns a string describing it, if so.
-transFn :: CTranslUnit -> String -> IO [Ty.TermBool]
-transFn tu name = Assert.asserted <$> (Assert.execAssert <$> evalCodegen False $ codegenFn tu name)
+data FnTrans = FnTrans { assertions :: [Ty.TermBool]
+                       , inputs :: [String]
+                       , output :: String
+                       }
 
+-- Can a fn exhibit undefined behavior?
+-- Returns a string describing it, if so.
+transFn :: CTranslUnit -> String -> IO FnTrans
+transFn tu name = do
+  ((inputs, output), assertState) <-
+    Assert.runAssert $ evalCodegen False $ codegenFn tu name
+  return $ FnTrans { assertions = Assert.asserted assertState
+                   , inputs     = inputs
+                   , output     = output
+                   }

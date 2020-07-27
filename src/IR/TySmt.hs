@@ -72,6 +72,7 @@ module IR.TySmt
   , TermDouble
   , sort
   , dynBvWidth
+  , asVarName
   , mkVar
   , sortDouble
   , valAsPf
@@ -665,6 +666,10 @@ reduceTerm mapF i foldF t = case mapF t of
       (reduceTerm mapF i foldF v)
     NewArray -> i
   Just s -> s
+
+asVarName :: Term s -> Maybe String
+asVarName (Var n _) = Just n
+asVarName _ = Nothing
 
 depth :: SortClass s => Term s -> Int
 depth = reduceTerm (const Nothing) 0 (\a b -> 1 + max a b)

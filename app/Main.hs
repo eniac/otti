@@ -11,7 +11,7 @@
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 module Main where
 
-import           Codegen.C                  (transFn, checkFn)
+import           Codegen.C                  (transFn, checkFn, FnTrans(..))
 import           Codegen.ToPf               (toPf)
 import           Codegen.Opt                (constantFold, eqElim)
 import qualified Codegen.Circom.Compilation as Comp
@@ -173,19 +173,22 @@ cmdCR1cs name path = do
   result <- parseC path
   case result of
     Right tu -> do
-      assertions <- transFn tu name
+      trans <- transFn tu name
       putStrLn "Assertions:"
-      forM_ assertions $ \v -> do
+      forM_ (assertions trans) $ \v -> do
         putStr "  "
         print v
-      r <- toPf @Order assertions
+      r <- toPf @Order $ assertions trans
       putStrLn $ "R1CS: " ++ show (length r)
       --forM_ (map constantFold assertions) print
-      r' <- toPf @Order $ map constantFold assertions
+      r' <- toPf @Order $ map constantFold $ assertions trans
       putStrLn $ "R1CS: " ++ show (length r')
-      r'' <- toPf @Order $ eqElim (Set.fromList ["f0_outer__return_v0"]) $ map constantFold assertions
+      let ioVars = Set.insert (output trans) (Set.fromList $ inputs trans)
+      putStrLn "Safe:"
+      forM_ (Set.toList ioVars) $ \s -> putStr "  " >> putStrLn s
+      r'' <- toPf @Order $ eqElim ioVars $ map constantFold $ assertions trans
       putStrLn $ "R1CS: " ++ show (length r'')
-      forM_ (eqElim (Set.fromList ["f0_outer__return_v0"]) $ map constantFold assertions) print
+      forM_ (eqElim ioVars $ map constantFold $ assertions trans) print
     Left p -> do
       putStrLn "Parse error"
       print p

@@ -58,6 +58,7 @@ module IR.CUtils
   , asInt
   , asPtr
   , asDouble
+  , asVar
   )
 where
 
@@ -119,6 +120,13 @@ asBool t         = error $ unwords [show t, "is not a boolean"]
 asPtr :: CTermData -> (AST.Type, Bv)
 asPtr (CPtr ty bv) = (ty, bv)
 asPtr t            = error $ unwords [show t, "is not a pointer"]
+
+asVar :: CTerm -> Maybe String
+asVar t = case term t of
+  CInt _ _ t' -> Ty.asVarName t'
+  CBool t' -> Ty.asVarName t'
+  CDouble t' -> Ty.asVarName t'
+  CPtr _  t' -> Ty.asVarName t'
 
 data CTerm = CTerm { term :: CTermData
                    , udef :: Ty.TermBool
