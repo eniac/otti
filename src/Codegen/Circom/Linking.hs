@@ -8,6 +8,8 @@ module Codegen.Circom.Linking
   , r1csCountVars
   , linkMain
   , writeToR1csFile
+  , lcToR1csLine
+  , qeqToR1csLines
   , computeWitnesses
   , parseSignalsFromFile
   , r1csStats

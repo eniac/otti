@@ -385,19 +385,3 @@ checkFn :: CTranslUnit -> String -> IO (Maybe String)
 checkFn tu name = do
   assertions <- Assert.execAssert $ evalCodegen True $ codegenFn tu name
   Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)
-
-data FnTrans = FnTrans { assertions :: [Ty.TermBool]
-                       , inputs :: [String]
-                       , output :: String
-                       }
-
--- Can a fn exhibit undefined behavior?
--- Returns a string describing it, if so.
-transFn :: CTranslUnit -> String -> IO FnTrans
-transFn tu name = do
-  ((inputs, output), assertState) <-
-    Assert.runAssert $ evalCodegen False $ codegenFn tu name
-  return $ FnTrans { assertions = Assert.asserted assertState
-                   , inputs     = inputs
-                   , output     = output
-                   }

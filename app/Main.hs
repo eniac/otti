@@ -11,20 +11,18 @@
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 module Main where
 
-import           Codegen.C                  (transFn, checkFn, FnTrans(..))
-import           Codegen.ToPf               (toPf)
-import           Codegen.Opt                (constantFold, eqElim)
+import           Codegen.CToR1cs            (emitFnAsR1cs)
+import           Codegen.C                  (checkFn)
 import qualified Codegen.Circom.Compilation as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
                                             as Wit
 import qualified Codegen.Circom.CompTypes   as CompT
 import qualified Codegen.Circom.Linking     as Link
 import qualified Codegen.Circom.Opt         as Opt
-import           Control.Monad              (forM_)
+import           Control.Monad
 import qualified Data.Map                   as Map
 import qualified Data.IntMap                as IntMap
 import qualified Data.Maybe                 as Maybe
-import qualified Data.Set                   as Set
 import           Data.Proxy                 (Proxy(..))
 import           Parser.C                   (parseC)
 import           Parser.Circom              (loadMain)
@@ -166,29 +164,12 @@ cmdCCheck name path = do
       putStrLn "Parse error"
       print p
 
-
-
-cmdCR1cs :: String -> FilePath -> IO ()
-cmdCR1cs name path = do
-  result <- parseC path
+cmdCR1cs :: String -> FilePath -> FilePath -> IO ()
+cmdCR1cs name cPath r1csPath = do
+  result <- parseC cPath
   case result of
     Right tu -> do
-      trans <- transFn tu name
-      putStrLn "Assertions:"
-      forM_ (assertions trans) $ \v -> do
-        putStr "  "
-        print v
-      r <- toPf @Order $ assertions trans
-      putStrLn $ "R1CS: " ++ show (length r)
-      --forM_ (map constantFold assertions) print
-      r' <- toPf @Order $ map constantFold $ assertions trans
-      putStrLn $ "R1CS: " ++ show (length r')
-      let ioVars = Set.insert (output trans) (Set.fromList $ inputs trans)
-      putStrLn "Safe:"
-      forM_ (Set.toList ioVars) $ \s -> putStr "  " >> putStrLn s
-      r'' <- toPf @Order $ eqElim ioVars $ map constantFold $ assertions trans
-      putStrLn $ "R1CS: " ++ show (length r'')
-      forM_ (eqElim ioVars $ map constantFold $ assertions trans) print
+      emitFnAsR1cs @Order tu name r1csPath
     Left p -> do
       putStrLn "Parse error"
       print p
@@ -237,6 +218,7 @@ main = do
     else if args `isPresent` command "c-r1cs" then do
         fnName <- args `getArgOrExit` argument "fn-name"
         path <- args `getArgOrExit` argument "path"
-        cmdCR1cs fnName path
+        r1csPath <- args `getArgOrExit` shortOption 'C'
+        cmdCR1cs fnName path r1csPath
     else
         exitWithUsageMessage patterns "Missing command!"
