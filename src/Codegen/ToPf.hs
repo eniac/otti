@@ -25,6 +25,7 @@ import           Data.Maybe                     ( isNothing
                                                 , fromJust
                                                 )
 import qualified Data.Map.Strict               as Map
+import qualified Data.Set                      as Set
 import           Data.Typeable                  ( cast )
 
 type PfVar = String
@@ -75,7 +76,7 @@ ensureVarsQeq (a, b, c) = forM_ [a, b, c] ensureVarsLc
  where
   ensureVarsLc :: KnownNat n => LC PfVar (Prime n) -> ToPf n ()
   ensureVarsLc (m, _) =
-    modify $ \s -> s { r1cs = r1csAddSignals (Map.keys m) $ r1cs s }
+    modify $ \s -> s { r1cs = foldr r1csEnsureSignal (r1cs s) (Map.keys m) }
 
 -- # Bit constraints and storage
 
@@ -448,5 +449,13 @@ enforceAsPf b = boolToPf b >>= enforceTrue
 runToPf :: KnownNat n => ToPf n a -> ToPfState n -> IO (a, ToPfState n)
 runToPf (ToPf f) = runStateT f
 
-toPf :: KnownNat n => [TermBool] -> IO (R1CS PfVar n)
-toPf bs = r1cs . snd <$> runToPf (forM_ bs enforceAsPf) emptyState
+publicizeInputs :: Set.Set PfVar -> ToPf n ()
+publicizeInputs is = do
+  modify $ \s -> s { r1cs = r1csAddSignals (Set.toList is) $ r1cs s }
+  forM_ is $ \i -> modify $ \s -> s { r1cs = r1csPublicizeSignal i $ r1cs s }
+
+toPf :: KnownNat n => Set.Set PfVar -> [TermBool] -> IO (R1CS PfVar n)
+toPf inputs bs =
+  r1cs
+    .   snd
+    <$> runToPf (publicizeInputs inputs >> forM_ bs enforceAsPf) emptyState

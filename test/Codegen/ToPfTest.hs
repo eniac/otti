@@ -9,7 +9,8 @@ import           Control.Monad
 import           BenchUtils
 import           Test.Tasty.HUnit
 import           Codegen.ToPf                   ( toPf )
-import           Codegen.Circom.R1cs (R1CS(..))
+import           Codegen.Circom.R1cs            ( R1CS(..) )
+import qualified Data.Set                      as Set
 import           IR.TySmt
 
 type Order
@@ -18,10 +19,8 @@ type Order
 constraintCountTest :: String -> [TermBool] -> Int -> BenchTest
 constraintCountTest name terms nConstraints =
   benchTestCase (nameWithConstraints name nConstraints) $ do
-    cs <- constraints <$> toPf @Order terms
-    when (nConstraints /= length cs)
-      $  putStrLn ""
-      >> forM_ cs print
+    cs <- constraints <$> toPf @Order Set.empty terms
+    when (nConstraints /= length cs) $ putStrLn "" >> forM_ cs print
     nConstraints @=? length cs
 
 nameWithConstraints :: String -> Int -> String
@@ -78,9 +77,12 @@ toPfTests = benchTestGroup
     [ constraintCountTest "5"
                           [mkDynBvEq (int "a" 4) (IntToDynBv 4 $ IntLit 5)]
                           9
-    , constraintCountTest "5 = x + y"
-                          [mkDynBvEq (mkDynBvBinExpr BvAdd (int "x" 4) (int "y" 4)) (IntToDynBv 4 $ IntLit 5)]
-                          20
+    , constraintCountTest
+      "5 = x + y"
+      [ mkDynBvEq (mkDynBvBinExpr BvAdd (int "x" 4) (int "y" 4))
+                  (IntToDynBv 4 $ IntLit 5)
+      ]
+      20
     , constraintCountTest "x < y"
                           [mkDynBvBinPred BvUlt (int "x" 4) (int "y" 4)]
                           -- Two 5bvs + 4 bits in the comparison difference + 3

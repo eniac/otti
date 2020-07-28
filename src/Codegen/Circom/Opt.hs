@@ -170,7 +170,21 @@ reduceLinearities r1cs =
         else r1cs
 
 opt :: KnownNat n => R1CS s n -> R1CS s n
-opt = compactifySigNums . reduceLinearities
+opt = compactifySigNums . removeDeadSignals . reduceLinearities
+
+
+-- Remove signals not involved in constraints
+removeDeadSignals :: R1CS s n -> R1CS s n
+removeDeadSignals r1cs =
+  let liveSigs = liveSignalIntsR1cs r1cs `IntSet.union` publicInputs r1cs
+  in  r1cs { numSigs = IntMap.filterWithKey (\k v -> IntSet.member k liveSigs) $ numSigs r1cs
+           , sigNums = Map.filter (\v -> IntSet.member v liveSigs) $ sigNums r1cs
+           , nextSigNum = 2 + IntSet.size liveSigs
+           }
+ where
+  liveSignalIntsLc (m, c) = Map.keys m
+  liveSignalIntsQeq (a, b, c) = IntSet.fromList (concatMap liveSignalIntsLc [a, b, c])
+  liveSignalIntsR1cs = Fold.foldr IntSet.union IntSet.empty . fmap liveSignalIntsQeq . constraints
 
 -- Given a set of constraints, ensures that the signal numbers are in the range
 -- [2..(1+n)], where n is the number of signals

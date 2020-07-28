@@ -3,7 +3,9 @@ module Codegen.Circom.R1cs
   , r1csStats
   , sigNumLookup
   , r1csAddSignal
+  , r1csEnsureSignal
   , r1csAddSignals
+  , r1csPublicizeSignal
   , r1csAddConstraint
   , r1csAddConstraints
   , emptyR1cs
@@ -67,14 +69,30 @@ r1csAddSignals sigs r1cs =
         , nextSigNum = length zipped + nextSigNum r1cs
         }
 
+r1csEnsureSignal :: Ord s => s -> R1CS s n -> R1CS s n
+r1csEnsureSignal sig r1cs =
+  if Map.member sig (sigNums r1cs) then r1cs else r1csAddSignal sig r1cs
+
 r1csAddSignal :: Ord s => s -> R1CS s n -> R1CS s n
 r1csAddSignal sig = r1csAddSignals [sig]
 
-r1csAddConstraint :: (Show s, Ord s, KnownNat n) => LD.QEQ s (Prime n) -> R1CS s n -> R1CS s n
+r1csPublicizeSignal :: (Show s, Ord s) => s -> R1CS s n -> R1CS s n
+r1csPublicizeSignal sig r1cs = r1cs
+  { publicInputs = IntSet.insert (sigNumLookup r1cs sig) $ publicInputs r1cs
+  }
+
+r1csAddConstraint
+  :: (Show s, Ord s, KnownNat n) => LD.QEQ s (Prime n) -> R1CS s n -> R1CS s n
 r1csAddConstraint c = r1csAddConstraints (Seq.singleton c)
 
-r1csAddConstraints :: (Show s, Ord s, KnownNat n) => Seq.Seq (LD.QEQ s (Prime n)) -> R1CS s n -> R1CS s n
-r1csAddConstraints c r1cs = r1cs { constraints = fmap (sigMapQeq (sigNumLookup r1cs)) c Seq.>< constraints r1cs }
+r1csAddConstraints
+  :: (Show s, Ord s, KnownNat n)
+  => Seq.Seq (LD.QEQ s (Prime n))
+  -> R1CS s n
+  -> R1CS s n
+r1csAddConstraints c r1cs = r1cs
+  { constraints = fmap (sigMapQeq (sigNumLookup r1cs)) c Seq.>< constraints r1cs
+  }
 
 emptyR1cs :: R1CS s n
 emptyR1cs = R1CS Map.empty IntMap.empty Seq.empty 2 IntSet.empty

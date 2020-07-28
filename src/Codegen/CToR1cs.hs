@@ -2,7 +2,10 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TypeApplications #-}
 module Codegen.CToR1cs
-  ( transFn, emitFnAsR1cs, FnTrans )
+  ( transFn
+  , emitFnAsR1cs
+  , FnTrans
+  )
 where
 
 import qualified IR.TySmt                      as Ty
@@ -13,6 +16,7 @@ import           Codegen.Circom.CompTypes.LowDeg
                                                 ( LC
                                                 , QEQ
                                                 )
+import qualified Codegen.Circom.Opt            as Opt
 import           Codegen.C                      ( codegenFn )
 import           Codegen.ToPf                   ( toPf )
 import           Codegen.Opt                    ( constantFold
@@ -22,6 +26,7 @@ import           Codegen.Circom.R1cs            ( sigMapQeq
                                                 , qeqToR1csLines
                                                 , R1CS(..)
                                                 , writeToR1csFile
+                                                , r1csStats
                                                 )
 import qualified Data.Set                      as Set
 import qualified Data.Map.Strict               as Map
@@ -52,8 +57,11 @@ emitFnAsR1cs tu fnName path = do
   fn <- transFn tu fnName
   let pubVars = Set.insert (output fn) $ Set.fromList $ inputs fn
   -- TODO: Use R1CS for optimization
-  r <- toPf @n $ eqElim pubVars $ map constantFold $ assertions fn
-  writeToR1csFile r path
+  r <- toPf @n pubVars $ eqElim pubVars $ map constantFold $ assertions fn
+  putStrLn $ r1csStats r
+  let r' = Opt.opt r
+  putStrLn $ r1csStats r'
+  writeToR1csFile r' path
   return ()
  where
   collectVarsLc :: LC String (Prime n) -> Set.Set String
