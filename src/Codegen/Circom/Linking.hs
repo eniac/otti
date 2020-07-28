@@ -49,21 +49,21 @@ import           Data.Dynamic                   ( Dynamic
                                                 )
 import           Data.Proxy                     ( Proxy(Proxy) )
 
-data R1CS n = R1CS { sigNums :: !(Map.Map GlobalSignal Int)
-                   , numSigs :: !(IntMap.IntMap GlobalSignal)
-                   , constraints :: !(Seq.Seq (LD.QEQ Int (Prime n)))
-                   , nextSigNum :: !Int
-                   , publicInputs :: !IntSet.IntSet
-                   } deriving (Show)
+data R1CS s n = R1CS { sigNums :: !(Map.Map s Int)
+                     , numSigs :: !(IntMap.IntMap s)
+                     , constraints :: !(Seq.Seq (LD.QEQ Int (Prime n)))
+                     , nextSigNum :: !Int
+                     , publicInputs :: !IntSet.IntSet
+                     } deriving (Show)
 
-r1csStats :: R1CS n -> String
+r1csStats :: R1CS s n -> String
 r1csStats r = unlines
   [ "Signals: " ++ show (IntMap.size $ numSigs r)
   , "Constraints: " ++ show (length $ constraints r)
   ]
 
 
-sigNumLookup :: R1CS n -> GlobalSignal -> Int
+sigNumLookup :: (Show s, Ord s) => R1CS s n -> s -> Int
 sigNumLookup r1cs s = Map.findWithDefault
   (  error
   $  "No signal number for "
@@ -75,7 +75,7 @@ sigNumLookup r1cs s = Map.findWithDefault
   m
   where m = sigNums r1cs
 
-r1csAddSignals :: [GlobalSignal] -> R1CS n -> R1CS n
+r1csAddSignals :: Ord s => [s] -> R1CS s n -> R1CS s n
 r1csAddSignals sigs r1cs =
   let zipped = zip sigs [(nextSigNum r1cs) ..]
   in  r1cs
@@ -85,25 +85,28 @@ r1csAddSignals sigs r1cs =
         , nextSigNum = length zipped + nextSigNum r1cs
         }
 
-emptyR1cs :: R1CS n
+emptyR1cs :: R1CS s n
 emptyR1cs = R1CS Map.empty IntMap.empty Seq.empty 2 IntSet.empty
 
-nPublicInputs :: R1CS n -> Int
+nPublicInputs :: R1CS s n -> Int
 nPublicInputs = IntSet.size . publicInputs
 
-newtype LinkState n a = LinkState (State (R1CS n) a)
-    deriving (Functor, Applicative, Monad, MonadState (R1CS n))
+newtype LinkState s n a = LinkState (State (R1CS s n) a)
+    deriving (Functor, Applicative, Monad, MonadState (R1CS s n))
 
-r1csCountVars :: KnownNat n => R1CS n -> Int
+r1csCountVars :: KnownNat n => R1CS s n -> Int
 r1csCountVars = foldr ((+) . qeqSize) 0 . constraints
   where qeqSize ((a, _), (b, _), (c, _)) = Map.size a + Map.size b + Map.size c
 
 type Namespace = GlobalSignal
 
 joinName :: Namespace -> Signal -> GlobalSignal
-joinName n s = case s of
-  SigLocal a     -> a : n
-  SigForeign a b -> b : a : n
+joinName (GlobalSignal n) s = case s of
+  SigLocal a     -> GlobalSignal $ a : n
+  SigForeign a b -> GlobalSignal $ b : a : n
+
+prependNamespace :: IndexedIdent -> Namespace -> Namespace
+prependNamespace i (GlobalSignal n) = GlobalSignal $ i : n
 
 sigMapLc :: (Ord s, Ord t) => (s -> t) -> LD.LC s n -> LD.LC t n
 sigMapLc f (m, c) = (Map.mapKeys f m, c)
@@ -131,7 +134,7 @@ link
   => Namespace
   -> Comp.TemplateInvocation (Prime n)
   -> LD.LowDegCompCtx (Prime n)
-  -> LinkState n ()
+  -> LinkState GlobalSignal n ()
 link namespace invocation ctx =
   let
     c =
@@ -143,7 +146,7 @@ link namespace invocation ctx =
     newSignals :: [Signal]
     newSignals = map SigLocal $ CompT.ctxOrderedSignals c
 
-    newConstraints :: R1CS n -> Seq.Seq (LD.QEQ Int (Prime n))
+    newConstraints :: R1CS GlobalSignal n -> Seq.Seq (LD.QEQ Int (Prime n))
     newConstraints ls =
       Seq.fromList
         $ map (sigMapQeq (sigNumLookup ls . joinName namespace))
@@ -158,16 +161,17 @@ link namespace invocation ctx =
       -- add our signals
       modify (r1csAddSignals (map (joinName namespace) newSignals))
       -- link sub-modules
-      mapM_ (\(loc, inv) -> link (loc : namespace) inv ctx) components
+      mapM_ (\(loc, inv) -> link (prependNamespace loc namespace) inv ctx)
+            components
       -- add our constraints
       modify
         (\ls -> ls { constraints = newConstraints ls Seq.>< constraints ls })
       return ()
 
-execLink :: KnownNat n => LinkState n a -> R1CS n -> R1CS n
+execLink :: KnownNat n => LinkState s n a -> R1CS s n -> R1CS s n
 execLink (LinkState s) = execState s
 
-linkMain :: forall k . KnownNat k => AST.SMainCircuit -> R1CS k
+linkMain :: forall k . KnownNat k => AST.SMainCircuit -> R1CS GlobalSignal k
 linkMain m =
   let c          = Comp.compMainCtx m
       invocation = Comp.getMainInvocation (Proxy @k) m
@@ -176,9 +180,10 @@ linkMain m =
               (error $ "Missing invocation " ++ show invocation ++ " from cache")
             $      CompT.cache c
             Map.!? invocation
-      n = CompT.nPublicInputs mainCtx
-  in  (execLink @k (link [("main", [])] invocation c) emptyR1cs)
-        { publicInputs = IntSet.fromAscList $ take n [2..]
+      n         = CompT.nPublicInputs mainCtx
+      namespace = GlobalSignal [("main", [])]
+  in  (execLink @k (link namespace invocation c) emptyR1cs)
+        { publicInputs = IntSet.fromAscList $ take n [2 ..]
         }
 
 lcToR1csLine :: PrimeField n => LD.LC Int n -> [Integer]
@@ -191,7 +196,7 @@ lcToR1csLine (m, c) =
 qeqToR1csLines :: PrimeField n => LD.QEQ Int n -> [[Integer]]
 qeqToR1csLines (a, b, c) = [] : map lcToR1csLine [a, b, c]
 
-r1csAsLines :: KnownNat n => R1CS n -> [[Integer]]
+r1csAsLines :: KnownNat n => R1CS s n -> [[Integer]]
 r1csAsLines r1cs =
   let nPubIns         = fromIntegral $ IntSet.size $ publicInputs r1cs
       nWit            = fromIntegral (Map.size $ sigNums r1cs) - nPubIns
@@ -199,7 +204,7 @@ r1csAsLines r1cs =
       constraintLines = concatMap qeqToR1csLines $ constraints r1cs
   in  [nPubIns, nWit, nConstraints] : constraintLines
 
-writeToR1csFile :: KnownNat n => R1CS n -> FilePath -> IO ()
+writeToR1csFile :: KnownNat n => R1CS s n -> FilePath -> IO ()
 writeToR1csFile r1cs path =
   writeFile path $ unlines $ map (unwords . map show) $ r1csAsLines r1cs
 
@@ -287,7 +292,7 @@ computeWitnessesIn ctx namespace invocation inputs =
       Right loc ->
         let
           callCtx       = emmigrateInputs loc localCtx
-          callNamespace = loc : namespace
+          callNamespace = prependNamespace loc namespace
           term          = CompT.LTermLocal loc
           instr         = CompT.load AST.nullSpan term
           result        = fst $ CompT.runCompState instr c
@@ -319,7 +324,7 @@ computeWitnesses order main inputs =
   let dynInputs       = Map.map (toDyn . Smt.ValPf @n . fromP) inputs
       c               = Comp.compMainWitCtx @n main
       invocation      = Comp.getMainInvocation order main
-      namespace       = [("main", [])]
+      namespace       = GlobalSignal [("main", [])]
       WitCompWriter w = computeWitnessesIn c namespace invocation dynInputs
   in 
     -- Add the input signals to the global map :P

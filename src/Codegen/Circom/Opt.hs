@@ -115,7 +115,7 @@ checkSubs subs =
 plines :: (Fold.Foldable f, Show a) => f a -> String
 plines = Fold.foldMap (\a -> "\n - " ++ show a)
 
-extractLinearSubs :: forall n . KnownNat n => R1CS n -> (Subs n, R1CS n)
+extractLinearSubs :: forall s n . KnownNat n => R1CS s n -> (Subs n, R1CS s n)
 extractLinearSubs r1cs = (constants, r1cs { constraints = newConstraints })
  where
   safeAdd sig lc subs = (\s -> checkSubs s `seq` s) <$> addSub sig lc subs
@@ -149,7 +149,7 @@ subLcsInQeq
 subLcsInQeq subs (a, b, c) =
   (subLcsInLc subs a, subLcsInLc subs b, subLcsInLc subs c)
 
-applyLinearSubs :: KnownNat n => Subs n -> R1CS n -> R1CS n
+applyLinearSubs :: KnownNat n => Subs n -> R1CS s n -> R1CS s n
 applyLinearSubs subs r1cs =
   let removed = IntSet.fromAscList $ Map.keys (fwd subs)
   in  r1cs
@@ -159,7 +159,7 @@ applyLinearSubs subs r1cs =
         , sigNums = Map.filter (not . (`IntSet.member` removed)) $ sigNums r1cs
         }
 
-reduceLinearities :: KnownNat n => R1CS n -> R1CS n
+reduceLinearities :: KnownNat n => R1CS s n -> R1CS s n
 reduceLinearities r1cs =
   let (subs, r1cs') = extractLinearSubs r1cs
   in  if not $ Map.null (fwd subs)
@@ -169,12 +169,12 @@ reduceLinearities r1cs =
           $! applyLinearSubs subs r1cs'
         else r1cs
 
-opt :: KnownNat n => R1CS n -> R1CS n
+opt :: KnownNat n => R1CS s n -> R1CS s n
 opt = compactifySigNums . reduceLinearities
 
 -- Given a set of constraints, ensures that the signal numbers are in the range
 -- [2..(1+n)], where n is the number of signals
-compactifySigNums :: R1CS n -> R1CS n
+compactifySigNums :: R1CS s n -> R1CS s n
 compactifySigNums r1cs =
   let usedNums = IntMap.keys $ numSigs r1cs
       numMap   = IntMap.fromDistinctAscList $ zip usedNums [2 ..]
