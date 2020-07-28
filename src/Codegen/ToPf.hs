@@ -15,6 +15,7 @@ import           Control.Monad.State.Strict
 import           Control.Monad                  ( )
 import           GHC.TypeNats
 import           Codegen.Circom.CompTypes.LowDeg
+import           Codegen.Circom.R1cs
 import qualified Codegen.ShowMap               as SMap
 import           Codegen.ShowMap                ( ShowMap )
 import           Data.Field.Galois              ( Prime
@@ -29,7 +30,7 @@ type PfVar = String
 
 type LSig n = LC PfVar (Prime n)
 
-data ToPfState n = ToPfState { qeqs :: [QEQ PfVar (Prime n)]
+data ToPfState n = ToPfState { r1cs :: R1CS PfVar n
                              , bools :: ShowMap TermBool (LSig n)
                              , ints :: ShowMap TermDynBv (BvEntry n)
                              , next :: Int
@@ -40,12 +41,12 @@ newtype ToPf n a = ToPf (StateT (ToPfState n) IO a)
 
 emptyState :: ToPfState n
 emptyState =
-  ToPfState { qeqs = [], bools = SMap.empty, ints = SMap.empty, next = 0 }
+  ToPfState { r1cs = emptyR1cs, bools = SMap.empty, ints = SMap.empty, next = 0 }
 
 -- # Constraints
 
 enforce :: KnownNat n => QEQ PfVar (Prime n) -> ToPf n ()
-enforce qeq = modify (\s -> s { qeqs = qeq : qeqs s })
+enforce qeq = modify (\s -> s { r1cs = r1csAddConstraint qeq $ r1cs s })
 
 enforceNonzero :: KnownNat n => LC PfVar (Prime n) -> ToPf n ()
 enforceNonzero x = do
@@ -434,5 +435,5 @@ enforceAsPf b = boolToPf b >>= enforceTrue
 runToPf :: KnownNat n => ToPf n a -> ToPfState n -> IO (a, ToPfState n)
 runToPf (ToPf f) = runStateT f
 
-toPf :: KnownNat n => [TermBool] -> IO [QEQ PfVar (Prime n)]
-toPf bs = qeqs . snd <$> runToPf (forM_ bs enforceAsPf) emptyState
+toPf :: KnownNat n => [TermBool] -> IO (R1CS PfVar n)
+toPf bs = r1cs . snd <$> runToPf (forM_ bs enforceAsPf) emptyState

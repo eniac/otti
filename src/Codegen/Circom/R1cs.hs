@@ -2,7 +2,10 @@ module Codegen.Circom.R1cs
   ( R1CS(..)
   , r1csStats
   , sigNumLookup
+  , r1csAddSignal
   , r1csAddSignals
+  , r1csAddConstraint
+  , r1csAddConstraints
   , emptyR1cs
   , nPublicInputs
   , r1csCountVars
@@ -63,6 +66,15 @@ r1csAddSignals sigs r1cs =
                                     (numSigs r1cs)
         , nextSigNum = length zipped + nextSigNum r1cs
         }
+
+r1csAddSignal :: Ord s => s -> R1CS s n -> R1CS s n
+r1csAddSignal sig = r1csAddSignals [sig]
+
+r1csAddConstraint :: (Ord s, KnownNat n) => LD.QEQ s (Prime n) -> R1CS s n -> R1CS s n
+r1csAddConstraint c = r1csAddConstraints (Seq.singleton c)
+
+r1csAddConstraints :: (Ord s, KnownNat n) => Seq.Seq (LD.QEQ s (Prime n)) -> R1CS s n -> R1CS s n
+r1csAddConstraints c cs = cs { constraints = fmap (sigMapQeq (sigNums cs Map.!)) c Seq.>< constraints cs }
 
 emptyR1cs :: R1CS s n
 emptyR1cs = R1CS Map.empty IntMap.empty Seq.empty 2 IntSet.empty

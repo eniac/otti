@@ -87,10 +87,10 @@ link namespace invocation ctx =
     newSignals :: [Signal]
     newSignals = map SigLocal $ CompT.ctxOrderedSignals c
 
-    newConstraints :: R1CS GlobalSignal n -> Seq.Seq (LD.QEQ Int (Prime n))
-    newConstraints ls =
+    newConstraints :: Seq.Seq (LD.QEQ GlobalSignal (Prime n))
+    newConstraints =
       Seq.fromList
-        $ map (sigMapQeq (sigNumLookup ls . joinName namespace))
+        $ map (sigMapQeq (joinName namespace))
         $ LD.constraints
         $ CompT.baseCtx c
 
@@ -105,8 +105,7 @@ link namespace invocation ctx =
       mapM_ (\(loc, inv) -> link (prependNamespace loc namespace) inv ctx)
             components
       -- add our constraints
-      modify
-        (\ls -> ls { constraints = newConstraints ls Seq.>< constraints ls })
+      modify $ r1csAddConstraints newConstraints
       return ()
 
 execLink :: KnownNat n => LinkState s n a -> R1CS s n -> R1CS s n

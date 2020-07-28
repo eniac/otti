@@ -20,6 +20,8 @@ import           Codegen.Opt                    ( constantFold
                                                 )
 import           Codegen.Circom.R1cs            ( sigMapQeq
                                                 , qeqToR1csLines
+                                                , R1CS(..)
+                                                , writeToR1csFile
                                                 )
 import qualified Data.Set                      as Set
 import qualified Data.Map.Strict               as Map
@@ -49,19 +51,9 @@ emitFnAsR1cs
 emitFnAsR1cs tu fnName path = do
   fn <- transFn tu fnName
   let pubVars = Set.insert (output fn) $ Set.fromList $ inputs fn
+  -- TODO: Use R1CS for optimization
   r <- toPf @n $ eqElim pubVars $ map constantFold $ assertions fn
-  let otherVars =
-        Set.difference (foldl1 Set.union $ map collectVarsQeq r) pubVars
-  let vMap = Map.fromList
-        $ zip (Set.toAscList pubVars ++ Set.toAscList otherVars) [0 ..]
-  let qeqs = map (sigMapQeq (vMap Map.!)) r
-  let ls =
-        [ fromIntegral (Set.size pubVars)
-          , fromIntegral (Set.size otherVars)
-          , fromIntegral (length qeqs)
-          ]
-          : concatMap qeqToR1csLines qeqs
-  writeFile path $ unlines $ map (unwords . map show) ls
+  writeToR1csFile r path
   return ()
  where
   collectVarsLc :: LC String (Prime n) -> Set.Set String
