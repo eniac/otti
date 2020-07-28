@@ -9,6 +9,7 @@ import           Control.Monad
 import           BenchUtils
 import           Test.Tasty.HUnit
 import           Codegen.ToPf                   ( toPf )
+import           Codegen.Circom.R1cs (R1CS(..))
 import           IR.TySmt
 
 type Order
@@ -17,11 +18,11 @@ type Order
 constraintCountTest :: String -> [TermBool] -> Int -> BenchTest
 constraintCountTest name terms nConstraints =
   benchTestCase (nameWithConstraints name nConstraints) $ do
-    constraints <- toPf @Order terms
-    when (nConstraints /= length constraints)
+    cs <- constraints <$> toPf @Order terms
+    when (nConstraints /= length cs)
       $  putStrLn ""
-      >> forM_ constraints print
-    nConstraints @=? length constraints
+      >> forM_ cs print
+    nConstraints @=? length cs
 
 nameWithConstraints :: String -> Int -> String
 nameWithConstraints name i = unwords [name, "in", show i, "constraints"]

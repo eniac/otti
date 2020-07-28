@@ -24,6 +24,7 @@ import           Data.Field.Galois              ( Prime
 import           Data.Maybe                     ( isNothing
                                                 , fromJust
                                                 )
+import qualified Data.Map.Strict               as Map
 import           Data.Typeable                  ( cast )
 
 type PfVar = String
@@ -40,13 +41,17 @@ newtype ToPf n a = ToPf (StateT (ToPfState n) IO a)
     deriving (Functor, Applicative, Monad, MonadState (ToPfState n), MonadIO)
 
 emptyState :: ToPfState n
-emptyState =
-  ToPfState { r1cs = emptyR1cs, bools = SMap.empty, ints = SMap.empty, next = 0 }
+emptyState = ToPfState { r1cs  = emptyR1cs
+                       , bools = SMap.empty
+                       , ints  = SMap.empty
+                       , next  = 0
+                       }
 
 -- # Constraints
 
 enforce :: KnownNat n => QEQ PfVar (Prime n) -> ToPf n ()
-enforce qeq = modify (\s -> s { r1cs = r1csAddConstraint qeq $ r1cs s })
+enforce qeq = ensureVarsQeq qeq
+  >> modify (\s -> s { r1cs = r1csAddConstraint qeq $ r1cs s })
 
 enforceNonzero :: KnownNat n => LC PfVar (Prime n) -> ToPf n ()
 enforceNonzero x = do
@@ -61,8 +66,16 @@ enforceTrue s = enforce (lcZero, lcZero, lcSub s lcOne)
 nextVar :: String -> ToPf n PfVar
 nextVar name = do
   i <- gets next
-  modify (\s -> s { next = 1 + next s })
-  return $ name ++ "_v" ++ show i
+  let var = name ++ "_v" ++ show i
+  modify $ \s -> s { next = 1 + next s, r1cs = r1csAddSignal var $ r1cs s }
+  return var
+
+ensureVarsQeq :: KnownNat n => QEQ PfVar (Prime n) -> ToPf n ()
+ensureVarsQeq (a, b, c) = forM_ [a, b, c] ensureVarsLc
+ where
+  ensureVarsLc :: KnownNat n => LC PfVar (Prime n) -> ToPf n ()
+  ensureVarsLc (m, _) =
+    modify $ \s -> s { r1cs = r1csAddSignals (Map.keys m) $ r1cs s }
 
 -- # Bit constraints and storage
 

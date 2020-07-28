@@ -70,11 +70,11 @@ r1csAddSignals sigs r1cs =
 r1csAddSignal :: Ord s => s -> R1CS s n -> R1CS s n
 r1csAddSignal sig = r1csAddSignals [sig]
 
-r1csAddConstraint :: (Ord s, KnownNat n) => LD.QEQ s (Prime n) -> R1CS s n -> R1CS s n
+r1csAddConstraint :: (Show s, Ord s, KnownNat n) => LD.QEQ s (Prime n) -> R1CS s n -> R1CS s n
 r1csAddConstraint c = r1csAddConstraints (Seq.singleton c)
 
-r1csAddConstraints :: (Ord s, KnownNat n) => Seq.Seq (LD.QEQ s (Prime n)) -> R1CS s n -> R1CS s n
-r1csAddConstraints c cs = cs { constraints = fmap (sigMapQeq (sigNums cs Map.!)) c Seq.>< constraints cs }
+r1csAddConstraints :: (Show s, Ord s, KnownNat n) => Seq.Seq (LD.QEQ s (Prime n)) -> R1CS s n -> R1CS s n
+r1csAddConstraints c r1cs = r1cs { constraints = fmap (sigMapQeq (sigNumLookup r1cs)) c Seq.>< constraints r1cs }
 
 emptyR1cs :: R1CS s n
 emptyR1cs = R1CS Map.empty IntMap.empty Seq.empty 2 IntSet.empty
