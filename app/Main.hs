@@ -18,6 +18,7 @@ import qualified Codegen.Circom.CompTypes.WitComp
                                             as Wit
 import qualified Codegen.Circom.CompTypes   as CompT
 import qualified Codegen.Circom.Linking     as Link
+import qualified Codegen.Circom.R1cs        as R1cs
 import qualified Codegen.Circom.Opt         as Opt
 import           Control.Monad
 import qualified Data.Map                   as Map
@@ -115,8 +116,8 @@ cmdEmitR1cs opt circomPath r1csPath = do
     m <- loadMain circomPath
     let optFn = if opt then Opt.opt else id
     let r1cs = optFn $ Link.linkMain @Order m
-    putStrLn $ Link.r1csStats r1cs
-    Link.writeToR1csFile r1cs r1csPath
+    putStrLn $ R1cs.r1csStats r1cs
+    R1cs.writeToR1csFile r1cs r1csPath
 
 cmdCountTerms :: FilePath -> IO ()
 cmdCountTerms circomPath = do

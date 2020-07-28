@@ -6,7 +6,7 @@ module Codegen.Circom.Opt
 where
 
 import           Codegen.Circom.Signal
-import           Codegen.Circom.Linking         ( R1CS(..)
+import           Codegen.Circom.R1cs            ( R1CS(..)
                                                 , r1csStats
                                                 , sigMapQeq
                                                 )

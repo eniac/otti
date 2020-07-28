@@ -1,5 +1,4 @@
 {-# OPTIONS_GHC -Wall #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
@@ -7,14 +6,10 @@ module Codegen.Circom.Linking
   ( R1CS(..)
   , r1csCountVars
   , linkMain
-  , writeToR1csFile
-  , lcToR1csLine
-  , qeqToR1csLines
   , computeWitnesses
   , parseSignalsFromFile
   , r1csStats
   , nPublicInputs
-  , sigMapQeq
   )
 where
 
@@ -25,13 +20,13 @@ import           Data.Bifunctor
 import           Control.Monad.State.Strict
 import           Control.Monad.Writer.Strict
 import qualified Codegen.Circom.Compilation    as Comp
+import           Codegen.Circom.R1cs
 import qualified Codegen.Circom.CompTypes      as CompT
 import qualified Codegen.Circom.CompTypes.LowDeg
                                                as LD
 import qualified Codegen.Circom.CompTypes.WitComp
                                                as Wit
 import           Data.Field.Galois              ( Prime
-                                                , PrimeField
                                                 , fromP
                                                 , toP
                                                 )
@@ -40,63 +35,15 @@ import qualified Data.Array                    as Arr
 import qualified Data.Sequence                 as Seq
 import qualified Data.List.Split               as Split
 import qualified Data.Maybe                    as Maybe
-import qualified Data.Tuple                    as Tuple
 import qualified Data.Map.Strict               as Map
-import qualified Data.IntMap.Strict            as IntMap
 import qualified Data.IntSet                   as IntSet
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
 import           Data.Proxy                     ( Proxy(Proxy) )
 
-data R1CS s n = R1CS { sigNums :: !(Map.Map s Int)
-                     , numSigs :: !(IntMap.IntMap s)
-                     , constraints :: !(Seq.Seq (LD.QEQ Int (Prime n)))
-                     , nextSigNum :: !Int
-                     , publicInputs :: !IntSet.IntSet
-                     } deriving (Show)
-
-r1csStats :: R1CS s n -> String
-r1csStats r = unlines
-  [ "Signals: " ++ show (IntMap.size $ numSigs r)
-  , "Constraints: " ++ show (length $ constraints r)
-  ]
-
-
-sigNumLookup :: (Show s, Ord s) => R1CS s n -> s -> Int
-sigNumLookup r1cs s = Map.findWithDefault
-  (  error
-  $  "No signal number for "
-  ++ show s
-  ++ "\nSignal numbers for these signals:\n"
-  ++ unlines (map (("  " ++) . show) $ Map.keys m)
-  )
-  s
-  m
-  where m = sigNums r1cs
-
-r1csAddSignals :: Ord s => [s] -> R1CS s n -> R1CS s n
-r1csAddSignals sigs r1cs =
-  let zipped = zip sigs [(nextSigNum r1cs) ..]
-  in  r1cs
-        { sigNums    = Map.union (Map.fromList zipped) (sigNums r1cs)
-        , numSigs    = IntMap.union (IntMap.fromAscList $ map Tuple.swap zipped)
-                                    (numSigs r1cs)
-        , nextSigNum = length zipped + nextSigNum r1cs
-        }
-
-emptyR1cs :: R1CS s n
-emptyR1cs = R1CS Map.empty IntMap.empty Seq.empty 2 IntSet.empty
-
-nPublicInputs :: R1CS s n -> Int
-nPublicInputs = IntSet.size . publicInputs
-
 newtype LinkState s n a = LinkState (State (R1CS s n) a)
     deriving (Functor, Applicative, Monad, MonadState (R1CS s n))
-
-r1csCountVars :: KnownNat n => R1CS s n -> Int
-r1csCountVars = foldr ((+) . qeqSize) 0 . constraints
-  where qeqSize ((a, _), (b, _), (c, _)) = Map.size a + Map.size b + Map.size c
 
 type Namespace = GlobalSignal
 
@@ -107,12 +54,6 @@ joinName (GlobalSignal n) s = case s of
 
 prependNamespace :: IndexedIdent -> Namespace -> Namespace
 prependNamespace i (GlobalSignal n) = GlobalSignal $ i : n
-
-sigMapLc :: (Ord s, Ord t) => (s -> t) -> LD.LC s n -> LD.LC t n
-sigMapLc f (m, c) = (Map.mapKeys f m, c)
-
-sigMapQeq :: (Ord s, Ord t) => (s -> t) -> LD.QEQ s n -> LD.QEQ t n
-sigMapQeq f (a, b, c) = (sigMapLc f a, sigMapLc f b, sigMapLc f c)
 
 extractComponents
   :: [Int]
@@ -185,28 +126,6 @@ linkMain m =
   in  (execLink @k (link namespace invocation c) emptyR1cs)
         { publicInputs = IntSet.fromAscList $ take n [2 ..]
         }
-
-lcToR1csLine :: PrimeField n => LD.LC Int n -> [Integer]
-lcToR1csLine (m, c) =
-  let pairs          = Map.toAscList m
-      augmentedPairs = if fromP c == 0 then pairs else (1, c) : pairs
-      nPairs         = fromIntegral (length augmentedPairs)
-  in  nPairs : concatMap (\(x, f) -> [fromP f, fromIntegral x]) augmentedPairs
-
-qeqToR1csLines :: PrimeField n => LD.QEQ Int n -> [[Integer]]
-qeqToR1csLines (a, b, c) = [] : map lcToR1csLine [a, b, c]
-
-r1csAsLines :: KnownNat n => R1CS s n -> [[Integer]]
-r1csAsLines r1cs =
-  let nPubIns         = fromIntegral $ IntSet.size $ publicInputs r1cs
-      nWit            = fromIntegral (Map.size $ sigNums r1cs) - nPubIns
-      nConstraints    = fromIntegral $ Seq.length $ constraints r1cs
-      constraintLines = concatMap qeqToR1csLines $ constraints r1cs
-  in  [nPubIns, nWit, nConstraints] : constraintLines
-
-writeToR1csFile :: KnownNat n => R1CS s n -> FilePath -> IO ()
-writeToR1csFile r1cs path =
-  writeFile path $ unlines $ map (unwords . map show) $ r1csAsLines r1cs
 
 type GlobalValues = Map.Map GlobalSignal Integer
 data LocalValues = LocalValues { stringValues :: !(Map.Map String Dynamic)

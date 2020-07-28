@@ -18,7 +18,7 @@ import           Codegen.ToPf                   ( toPf )
 import           Codegen.Opt                    ( constantFold
                                                 , eqElim
                                                 )
-import           Codegen.Circom.Linking         ( sigMapQeq
+import           Codegen.Circom.R1cs            ( sigMapQeq
                                                 , qeqToR1csLines
                                                 )
 import qualified Data.Set                      as Set
