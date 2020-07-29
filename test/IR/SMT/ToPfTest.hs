@@ -1,17 +1,17 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE TypeApplications    #-}
-module Codegen.ToPfTest
+module IR.SMT.ToPfTest
   ( toPfTests
   )
 where
 import           Control.Monad
 import           BenchUtils
 import           Test.Tasty.HUnit
-import           Codegen.ToPf                   ( toPf )
-import           Codegen.Circom.R1cs            ( R1CS(..) )
+import           IR.SMT.ToPf                    ( toPf )
+import           IR.R1cs                        ( R1CS(..) )
 import qualified Data.Set                      as Set
-import           IR.TySmt
+import           IR.SMT.TySmt
 
 type Order
   = 113890009193798365449144652900867294558768981710660728242748762258461992583217

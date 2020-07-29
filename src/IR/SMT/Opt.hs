@@ -3,14 +3,14 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE Rank2Types #-}
-module Codegen.Opt
+module IR.SMT.Opt
   ( constantFold
   , sub
   , eqElim
   )
 where
 
-import           IR.TySmt
+import           IR.SMT.TySmt
 
 import           Control.Monad.State.Strict
 import qualified Data.Map.Strict               as Map

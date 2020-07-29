@@ -1,13 +1,13 @@
 {-# LANGUAGE GADTs #-}
-module Codegen.OptTest
+module IR.SMT.OptTest
   ( optTests
   )
 where
 import           BenchUtils
-import           Codegen.Opt
+import           IR.SMT.Opt
 import           Control.Monad
 import qualified Data.Set                      as Set
-import           IR.TySmt
+import           IR.SMT.TySmt
 import           Test.Tasty.HUnit
 
 

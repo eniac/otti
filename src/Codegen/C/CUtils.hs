@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE DataKinds #-}
 
-module IR.CUtils
+module Codegen.C.CUtils
   ( CTerm(..)
   , CTermData(..)
   , Bitable(..)
@@ -62,12 +62,12 @@ module IR.CUtils
   )
 where
 
-import qualified IR.TySmt                      as Ty
+import qualified IR.SMT.TySmt                  as Ty
 import qualified AST.Simple                    as AST
-import qualified Targets.SMT.Assert            as Assert
-import           Targets.SMT.Assert             ( Assert )
-import qualified IR.Memory                     as Mem
-import           IR.Memory                      ( Mem )
+import qualified IR.SMT.Assert                 as Assert
+import           IR.SMT.Assert                  ( Assert )
+import qualified Codegen.C.Memory              as Mem
+import           Codegen.C.Memory               ( Mem )
 import           Data.Foldable                 as Fold
 import           Control.Monad
 

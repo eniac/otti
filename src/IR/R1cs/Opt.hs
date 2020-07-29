@@ -1,12 +1,12 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Codegen.Circom.Opt
+module IR.R1cs.Opt
   ( opt
   )
 where
 
 import           Codegen.Circom.Signal
-import           Codegen.Circom.R1cs            ( R1CS(..)
+import           IR.R1cs                        ( R1CS(..)
                                                 , r1csStats
                                                 , sigMapQeq
                                                 )

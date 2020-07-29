@@ -5,19 +5,19 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PolyKinds #-}
-module Codegen.ToPf
+module IR.SMT.ToPf 
   ( toPf
   )
 where
 
-import           IR.TySmt
+import           IR.SMT.TySmt
 import           Control.Monad.State.Strict
 import           Control.Monad                  ( )
 import           GHC.TypeNats
 import           Codegen.Circom.CompTypes.LowDeg
-import           Codegen.Circom.R1cs
-import qualified Codegen.ShowMap               as SMap
-import           Codegen.ShowMap                ( ShowMap )
+import           IR.R1cs
+import qualified Util.ShowMap                   as SMap
+import           Util.ShowMap                   ( ShowMap )
 import           Data.Field.Galois              ( Prime
                                                 , toP
                                                 )

@@ -2,12 +2,12 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Targets.SMT.Assert where
+module IR.SMT.Assert where
 import           Control.Monad()
 import           Control.Monad.State.Strict
 import qualified Data.Map.Strict               as M
 import qualified Data.Dynamic                  as Dyn
-import qualified IR.TySmt                      as Ty
+import qualified IR.SMT.TySmt                  as Ty
 
 ---
 --- Monad defintions

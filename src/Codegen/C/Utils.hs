@@ -1,7 +1,7 @@
-module Codegen.Utils where
+module Codegen.C.Utils where
 import           AST.C
 import           AST.Simple
-import           Codegen.CompilerMonad
+import           Codegen.C.CompilerMonad
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 

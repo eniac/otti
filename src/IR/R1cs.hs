@@ -1,4 +1,4 @@
-module Codegen.Circom.R1cs
+module IR.R1cs
   ( R1CS(..)
   , r1csStats
   , sigNumLookup

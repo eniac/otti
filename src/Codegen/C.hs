@@ -2,8 +2,8 @@
 module Codegen.C where
 import           AST.C
 import           AST.Simple
-import           Codegen.CompilerMonad
-import           Codegen.Utils
+import           Codegen.C.CompilerMonad
+import           Codegen.C.Utils
 import           Control.Monad                  ( replicateM_ )
 import           Control.Monad.State.Strict     ( forM
                                                 , forM_
@@ -20,10 +20,10 @@ import           Data.Maybe                     ( fromJust
                                                 , listToMaybe
                                                 )
 import qualified Data.Map                      as Map
-import           IR.CUtils
-import           IR.Memory                      ( bvNum )
-import qualified Targets.SMT.Assert            as Assert
-import qualified IR.TySmt                      as Ty
+import           Codegen.C.CUtils
+import           Codegen.C.Memory               ( bvNum )
+import qualified IR.SMT.Assert                 as Assert
+import qualified IR.SMT.TySmt                  as Ty
 import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST

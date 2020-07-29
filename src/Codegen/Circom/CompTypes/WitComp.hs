@@ -28,7 +28,7 @@ import qualified Codegen.Circom.Signal         as Sig
 import           Codegen.Circom.Utils           ( spanE
                                                 , mapGetE
                                                 )
-import qualified IR.TySmt                      as Smt
+import qualified IR.SMT.TySmt                  as Smt
 import           Data.Coerce                    ( coerce )
 import qualified Data.Either                   as Either
 import           Data.Field.Galois              ( Prime

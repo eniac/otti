@@ -1,28 +1,28 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TypeApplications #-}
-module Codegen.CToR1cs
+module Codegen.C.CToR1cs
   ( transFn
   , emitFnAsR1cs
   , FnTrans
   )
 where
 
-import qualified IR.TySmt                      as Ty
-import qualified Targets.SMT.Assert            as Assert
+import qualified IR.SMT.TySmt                  as Ty
+import qualified IR.SMT.Assert                 as Assert
 import qualified Language.C.Syntax.AST         as AST
-import           Codegen.CompilerMonad          ( evalCodegen )
+import           Codegen.C.CompilerMonad        ( evalCodegen )
 import           Codegen.Circom.CompTypes.LowDeg
                                                 ( LC
                                                 , QEQ
                                                 )
-import qualified Codegen.Circom.Opt            as Opt
+import qualified IR.R1cs.Opt                    as Opt
 import           Codegen.C                      ( codegenFn )
-import           Codegen.ToPf                   ( toPf )
-import           Codegen.Opt                    ( constantFold
+import           IR.SMT.ToPf                    ( toPf )
+import           IR.SMT.Opt                     ( constantFold
                                                 , eqElim
                                                 )
-import           Codegen.Circom.R1cs            ( sigMapQeq
+import           IR.R1cs                        ( sigMapQeq
                                                 , qeqToR1csLines
                                                 , R1CS(..)
                                                 , writeToR1csFile

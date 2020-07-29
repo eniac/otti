@@ -11,15 +11,15 @@
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 module Main where
 
-import           Codegen.CToR1cs            (emitFnAsR1cs)
+import           Codegen.C.CToR1cs          (emitFnAsR1cs)
 import           Codegen.C                  (checkFn)
 import qualified Codegen.Circom.Compilation as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
                                             as Wit
 import qualified Codegen.Circom.CompTypes   as CompT
 import qualified Codegen.Circom.Linking     as Link
-import qualified Codegen.Circom.R1cs        as R1cs
-import qualified Codegen.Circom.Opt         as Opt
+import qualified IR.R1cs                    as R1cs
+import qualified IR.R1cs.Opt                as Opt
 import           Control.Monad
 import qualified Data.Map                   as Map
 import qualified Data.IntMap                as IntMap

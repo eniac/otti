@@ -5,13 +5,13 @@ where
 import           AST.Simple
 import           BenchUtils
 import           Codegen.C
-import           Codegen.CompilerMonad
+import           Codegen.C.CompilerMonad
 import qualified Data.Map                      as M
 import           Data.Maybe                     ( isJust )
-import           Targets.SMT.Assert             ( execAssert
+import           IR.SMT.Assert                  ( execAssert
                                                 , AssertState(..)
                                                 )
-import qualified IR.TySmt                      as Ty
+import qualified IR.SMT.TySmt                  as Ty
 import           Parser.C
 import           Test.Tasty.HUnit
 import           Utils

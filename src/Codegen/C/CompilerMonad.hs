@@ -1,6 +1,6 @@
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module Codegen.CompilerMonad where
+module Codegen.C.CompilerMonad where
 import           AST.Simple
 import           Control.Monad.Fail
 import           Control.Monad.Reader
@@ -16,13 +16,13 @@ import           Data.Maybe                     ( catMaybes
                                                 , fromMaybe
                                                 )
 import           Language.C.Syntax.AST          ( CFunDef )
-import           IR.CUtils                     as CUtils
-import qualified IR.TySmt                      as Ty
-import qualified IR.Memory                     as Mem
-import           IR.Memory                      ( Mem )
+import           Codegen.C.CUtils              as CUtils
+import qualified IR.SMT.TySmt                  as Ty
+import qualified Codegen.C.Memory              as Mem
+import           Codegen.C.Memory               ( Mem )
 import           Targets.SMT                    ( SMTResult )
-import qualified Targets.SMT.Assert            as Assert
-import           Targets.SMT.Assert             ( Assert )
+import qualified IR.SMT.Assert                 as Assert
+import           IR.SMT.Assert                  ( Assert )
 import qualified Z3.Monad                      as Z
 
 {-|
@@ -251,13 +251,13 @@ instance MonadFail Compiler where
 ---
 
 emptyCompilerState :: CompilerState
-emptyCompilerState = CompilerState { callStack   = []
-                                   , funs        = M.empty
-                                   , typedefs    = M.empty
-                                   , loopBound   = 4
-                                   , prefix      = []
-                                   , findUB      = True
-                                   , fnCtr       = 0
+emptyCompilerState = CompilerState { callStack = []
+                                   , funs      = M.empty
+                                   , typedefs  = M.empty
+                                   , loopBound = 4
+                                   , prefix    = []
+                                   , findUB    = True
+                                   , fnCtr     = 0
                                    }
 
 compilerRunOnTop :: (FunctionScope -> (a, FunctionScope)) -> Compiler a
@@ -328,7 +328,8 @@ runCodegen
   :: Bool -- ^ wether to check for UB
   -> Compiler a       -- ^ Codegen computation
   -> Assert (a, CompilerState)
-runCodegen checkUB (Compiler act) = Mem.evalMem $ runStateT act $ emptyCompilerState { findUB = checkUB }
+runCodegen checkUB (Compiler act) =
+  Mem.evalMem $ runStateT act $ emptyCompilerState { findUB = checkUB }
 
 evalCodegen :: Bool -> Compiler a -> Assert a
 evalCodegen checkUB act = fst <$> runCodegen checkUB act

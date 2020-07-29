@@ -31,14 +31,15 @@ stack exec compiler
 # Directory structure
 
 ```
-├── app            -- Executable used to run the checkers
+├── app            -- Executable (checker or proof system compiler)
 ├── src
-│   ├── Checkers   -- Static and symbolic checkers
-│   ├── Control    -- Logging helpers
-│   ├── LLVMAST    -- LLVM AST interface
-│   ├── InternalIR -- Internal IR used to represent paths for both static and symex
-│   ├── Static     -- Static checker DSL
-│   └── Symex      -- Symbolic DSL and execution engine
+│   ├── AST        -- Syntax of input langauges
+│   ├── Codegen    -- Semantics of input languages
+│   ├── IR         -- Intermediate representations
+│   │   ├── SMT    -- Typed SMT, including field equations
+│   │   └── R1cs   -- rank-1 field equations
+│   ├── Targets    -- SMT solver bindings
+│   └── Util       -- General utilities (e.g. data structures)
 └── test           -- Tests
 ```
 

@@ -1,4 +1,4 @@
-module Codegen.ShowMap
+module Util.ShowMap
   ( ShowMap(..)
   , empty
   , insert

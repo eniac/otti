@@ -2,11 +2,11 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeApplications #-}
-module IR.Memory where
+module Codegen.C.Memory where
 import           Control.Monad.State.Strict
 import           Data.Maybe                    ( fromJust )
-import qualified IR.TySmt                      as Ty
-import           Targets.SMT.Assert            as Assert
+import qualified IR.SMT.TySmt                  as Ty
+import           IR.SMT.Assert                 as Assert
 
 bvNum :: Bool -> Int -> Integer -> Ty.TermDynBv
 bvNum signed width val

@@ -1,11 +1,11 @@
 import           BenchUtils
 import           Codegen.CTest
 import           Codegen.CircomTest
-import           Codegen.OptTest
-import           Codegen.ToPfTest
-import           IR.TySmtTest
-import           IR.MemoryTest
-import           IR.CUtilsTest
+import           Codegen.C.MemoryTest
+import           Codegen.C.CUtilsTest
+import           IR.SMT.OptTest
+import           IR.SMT.ToPfTest
+import           IR.SMT.TySmtTest
 import           Parser.CTest
 import           Parser.CircomTest
 import           Targets.SMT

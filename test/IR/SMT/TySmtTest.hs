@@ -3,7 +3,7 @@
 {-# LANGUAGE AllowAmbiguousTypes           #-}
 {-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module IR.TySmtTest where
+module IR.SMT.TySmtTest where
 import           BenchUtils
 import           Test.Tasty.HUnit
 import           Control.Monad                  ( unless
@@ -12,7 +12,7 @@ import           Control.Monad                  ( unless
 import qualified Data.BitVector                as Bv
 import           Data.Dynamic
 import qualified Data.Map.Strict               as Map
-import qualified IR.TySmt                      as Smt
+import qualified IR.SMT.TySmt                  as Smt
 import           GHC.TypeLits
 import           Z3.Monad
 
