@@ -27,57 +27,15 @@ import           Codegen.Circom.CompTypes       ( BaseTerm(..)
                                                 , primeBinOp
                                                 )
 import qualified Codegen.Circom.Signal         as Sig
-import           Data.Field.Galois              ( Prime
-                                                , GaloisField
-                                                )
-import qualified Data.Map.Strict               as Map
-import qualified Data.Map.Merge.Strict         as MapMerge
+import           Data.Field.Galois              ( Prime )
 import           GHC.TypeNats
-
-type LC s n = (Map.Map s n, n) -- A linear combination of signals and gen-time constants
-type QEQ s n = (LC s n, LC s n, LC s n)
+import           IR.R1cs
 
 data LowDeg n = Scalar !n
               | Linear !(LC Sig.Signal n)
               | Quadratic !(QEQ Sig.Signal n)
               | HighDegree
               deriving (Show,Eq,Ord)
-
-lcZero :: GaloisField k => LC s k
-lcZero = (Map.empty, 0)
-
--- For each pair of matching coefficients, add them, dropping the coefficient if 0
-lcAdd :: (Ord s, GaloisField k) => LC s k -> LC s k -> LC s k
-lcAdd (sm, sc) (tm, tc) =
-  ( MapMerge.merge
-    MapMerge.preserveMissing
-    MapMerge.preserveMissing
-    (MapMerge.zipWithMaybeMatched
-      (\_ a b -> let s = a + b in if s == 0 then Nothing else Just s)
-    )
-    sm
-    tm
-  , sc + tc
-  )
-
-lcSig :: (Ord s, GaloisField k) => s -> LC s k
-lcSig s = (Map.fromList [(s, 1)], 0)
-
-lcScale :: GaloisField k => k -> LC s k -> LC s k
-lcScale c (sm, sc) =
-  if c == 0 then (Map.empty, 0) else (Map.map (* c) sm, c * sc)
-
-lcShift :: GaloisField k => k -> LC s k -> LC s k
-lcShift c (sm, sc) = (sm, c + sc)
-
-qeqLcAdd :: (Ord s, GaloisField k) => QEQ s k -> LC s k -> QEQ s k
-qeqLcAdd (a1, b1, c1) l = (a1, b1, lcAdd c1 l)
-
-qeqScale :: GaloisField k => k -> QEQ s k -> QEQ s k
-qeqScale k (a2, b2, c2) = (lcScale k a2, lcScale k b2, lcScale k c2)
-
-qeqShift :: GaloisField k => k -> QEQ s k -> QEQ s k
-qeqShift k (a2, b2, c2) = (lcShift k a2, lcShift k b2, lcShift k c2)
 
 newtype LowDegCtx k = LowDegCtx { constraints :: [QEQ Sig.Signal k] } deriving (Show)
 

@@ -1,5 +1,15 @@
 module IR.R1cs
-  ( R1CS(..)
+  ( LC
+  , QEQ
+  , lcSig
+  , lcScale
+  , lcShift
+  , lcZero
+  , lcAdd
+  , qeqLcAdd
+  , qeqScale
+  , qeqShift
+  , R1CS(..)
   , r1csStats
   , sigNumLookup
   , r1csAddSignal
@@ -19,23 +29,63 @@ module IR.R1cs
   )
 where
 
-import qualified Codegen.Circom.CompTypes.LowDeg
-                                               as LD
 import           Data.Field.Galois              ( Prime
                                                 , PrimeField
+                                                , GaloisField
                                                 , fromP
                                                 , toP
                                                 )
 import qualified Data.IntMap.Strict            as IntMap
 import qualified Data.IntSet                   as IntSet
 import qualified Data.Map.Strict               as Map
+import qualified Data.Map.Merge.Strict         as MapMerge
 import qualified Data.Sequence                 as Seq
 import qualified Data.Tuple                    as Tuple
 import           GHC.TypeLits                   ( KnownNat )
 
+type LC s n = (Map.Map s n, n) -- A linear combination of signals and gen-time constants
+type QEQ s n = (LC s n, LC s n, LC s n)
+
+lcZero :: GaloisField k => LC s k
+lcZero = (Map.empty, 0)
+
+-- For each pair of matching coefficients, add them, dropping the coefficient if 0
+lcAdd :: (Ord s, GaloisField k) => LC s k -> LC s k -> LC s k
+lcAdd (sm, sc) (tm, tc) =
+  ( MapMerge.merge
+    MapMerge.preserveMissing
+    MapMerge.preserveMissing
+    (MapMerge.zipWithMaybeMatched
+      (\_ a b -> let s = a + b in if s == 0 then Nothing else Just s)
+    )
+    sm
+    tm
+  , sc + tc
+  )
+
+lcSig :: (Ord s, GaloisField k) => s -> LC s k
+lcSig s = (Map.fromList [(s, 1)], 0)
+
+lcScale :: GaloisField k => k -> LC s k -> LC s k
+lcScale c (sm, sc) =
+  if c == 0 then (Map.empty, 0) else (Map.map (* c) sm, c * sc)
+
+lcShift :: GaloisField k => k -> LC s k -> LC s k
+lcShift c (sm, sc) = (sm, c + sc)
+
+qeqLcAdd :: (Ord s, GaloisField k) => QEQ s k -> LC s k -> QEQ s k
+qeqLcAdd (a1, b1, c1) l = (a1, b1, lcAdd c1 l)
+
+qeqScale :: GaloisField k => k -> QEQ s k -> QEQ s k
+qeqScale k (a2, b2, c2) = (lcScale k a2, lcScale k b2, lcScale k c2)
+
+qeqShift :: GaloisField k => k -> QEQ s k -> QEQ s k
+qeqShift k (a2, b2, c2) = (lcShift k a2, lcShift k b2, lcShift k c2)
+
+
 data R1CS s n = R1CS { sigNums :: !(Map.Map s Int)
                      , numSigs :: !(IntMap.IntMap s)
-                     , constraints :: !(Seq.Seq (LD.QEQ Int (Prime n)))
+                     , constraints :: !(Seq.Seq (QEQ Int (Prime n)))
                      , nextSigNum :: !Int
                      , publicInputs :: !IntSet.IntSet
                      } deriving (Show)
@@ -82,12 +132,12 @@ r1csPublicizeSignal sig r1cs = r1cs
   }
 
 r1csAddConstraint
-  :: (Show s, Ord s, KnownNat n) => LD.QEQ s (Prime n) -> R1CS s n -> R1CS s n
+  :: (Show s, Ord s, KnownNat n) => QEQ s (Prime n) -> R1CS s n -> R1CS s n
 r1csAddConstraint c = r1csAddConstraints (Seq.singleton c)
 
 r1csAddConstraints
   :: (Show s, Ord s, KnownNat n)
-  => Seq.Seq (LD.QEQ s (Prime n))
+  => Seq.Seq (QEQ s (Prime n))
   -> R1CS s n
   -> R1CS s n
 r1csAddConstraints c r1cs = r1cs
@@ -104,20 +154,20 @@ r1csCountVars :: KnownNat n => R1CS s n -> Int
 r1csCountVars = foldr ((+) . qeqSize) 0 . constraints
   where qeqSize ((a, _), (b, _), (c, _)) = Map.size a + Map.size b + Map.size c
 
-sigMapLc :: (Ord s, Ord t) => (s -> t) -> LD.LC s n -> LD.LC t n
+sigMapLc :: (Ord s, Ord t) => (s -> t) -> LC s n -> LC t n
 sigMapLc f (m, c) = (Map.mapKeys f m, c)
 
-sigMapQeq :: (Ord s, Ord t) => (s -> t) -> LD.QEQ s n -> LD.QEQ t n
+sigMapQeq :: (Ord s, Ord t) => (s -> t) -> QEQ s n -> QEQ t n
 sigMapQeq f (a, b, c) = (sigMapLc f a, sigMapLc f b, sigMapLc f c)
 
-lcToR1csLine :: PrimeField n => LD.LC Int n -> [Integer]
+lcToR1csLine :: PrimeField n => LC Int n -> [Integer]
 lcToR1csLine (m, c) =
   let pairs          = Map.toAscList m
       augmentedPairs = if fromP c == 0 then pairs else (1, c) : pairs
       nPairs         = fromIntegral (length augmentedPairs)
   in  nPairs : concatMap (\(x, f) -> [fromP f, fromIntegral x]) augmentedPairs
 
-qeqToR1csLines :: PrimeField n => LD.QEQ Int n -> [[Integer]]
+qeqToR1csLines :: PrimeField n => QEQ Int n -> [[Integer]]
 qeqToR1csLines (a, b, c) = [] : map lcToR1csLine [a, b, c]
 
 r1csAsLines :: KnownNat n => R1CS s n -> [[Integer]]
