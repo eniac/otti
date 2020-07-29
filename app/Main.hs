@@ -11,6 +11,7 @@
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 module Main where
 
+import           Control.Exception          (catchJust)
 import           Codegen.C.CToR1cs          (emitFnAsR1cs)
 import           Codegen.C                  (checkFn)
 import qualified Codegen.Circom.Compilation as Comp
@@ -20,7 +21,6 @@ import qualified Codegen.Circom.CompTypes   as CompT
 import qualified Codegen.Circom.Linking     as Link
 import qualified IR.R1cs                    as R1cs
 import qualified IR.R1cs.Opt                as Opt
-import           Control.Monad
 import qualified Data.Map                   as Map
 import qualified Data.IntMap                as IntMap
 import qualified Data.Maybe                 as Maybe
@@ -28,9 +28,17 @@ import           Data.Proxy                 (Proxy(..))
 import           Parser.C                   (parseC)
 import           Parser.Circom              (loadMain)
 import           System.Environment         (getArgs)
-import           System.IO                  (openFile, hGetContents, hPutStr, IOMode(..), hClose)
+import           System.IO                  (hPutStr, IOMode(..), hClose, Handle, IOMode)
+import           System.IO.Error            (isDoesNotExistError)
+import qualified System.IO                  (openFile)
 import           System.Console.Docopt
 import           System.Process
+
+openFile :: FilePath -> IOMode -> IO Handle
+openFile path mode = do
+  catchJust (\e -> if isDoesNotExistError e then Just e else Nothing) (System.IO.openFile path mode) $ \e -> do
+    putStrLn $ "Could not find file: " ++ path
+    return $ error $ "Error: " ++ show e
 
 
 patterns :: Docopt
@@ -72,14 +80,6 @@ getArgOrExit :: Arguments -> Option -> IO String
 getArgOrExit = getArgOrExitWith patterns
 
 
--- input parsing/de-parsing
-parseInputs :: FilePath -> IO [Integer]
-parseInputs path = do
-    handle <- openFile path ReadMode
-    contents <- hGetContents handle
-    let r = tail $ map read $ words contents
-    return r
-
 emitAssignment :: [Integer] -> FilePath -> IO ()
 emitAssignment xs path = do
     handle <- openFile path WriteMode
@@ -117,6 +117,7 @@ cmdEmitR1cs opt circomPath r1csPath = do
     let optFn = if opt then Opt.opt else id
     let r1cs = optFn $ Link.linkMain @Order m
     putStrLn $ R1cs.r1csStats r1cs
+    putStrLn $ R1cs.r1csShow r1cs
     R1cs.writeToR1csFile r1cs r1csPath
 
 cmdCountTerms :: FilePath -> IO ()
@@ -138,7 +139,8 @@ cmdSetup opt libsnarkPath circomPath r1csPath pkPath vkPath = do
 cmdProve :: Bool -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdProve opt libsnarkPath pkPath vkPath inPath xPath wPath pfPath circomPath = do
     m <- loadMain circomPath
-    inputsSignals <- Link.parseSignalsFromFile (Proxy @Order) inPath
+    inputFile <- openFile inPath ReadMode
+    inputsSignals <- Link.parseSignalsFromFile (Proxy @Order) inputFile
     let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
     let optFn = if opt then Opt.opt else id
     let r1cs = optFn $ Link.linkMain @Order m

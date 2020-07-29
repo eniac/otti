@@ -41,6 +41,7 @@ import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
 import           Data.Proxy                     ( Proxy(Proxy) )
+import           System.IO                      ( Handle, hGetContents )
 
 newtype LinkState s n a = LinkState (State (R1CS s n) a)
     deriving (Functor, Applicative, Monad, MonadState (R1CS s n))
@@ -259,10 +260,10 @@ parseSignalsFromFile
   :: forall n
    . KnownNat n
   => Proxy n
-  -> FilePath
+  -> Handle
   -> IO (Map.Map IndexedIdent (Prime n))
 parseSignalsFromFile _order path = do
-  contents <- readFile path
+  contents <- hGetContents path
   return
     $ Map.fromList
     $ map

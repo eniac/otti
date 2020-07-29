@@ -44,6 +44,7 @@ instance Typed CraneliftTy where
   arrayNumElems _ = error "Not usable"
   newStructType _ = error "Not usable"
   newArrayType _ _ = error "Not usable"
+  structFieldList _ = error "Not usable"
 
 data Var = Var { varName :: String
                , varTy   :: CraneliftTy

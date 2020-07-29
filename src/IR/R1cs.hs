@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 module IR.R1cs
   ( LC
   , QEQ
@@ -18,6 +20,7 @@ module IR.R1cs
   , r1csPublicizeSignal
   , r1csAddConstraint
   , r1csAddConstraints
+  , r1csShow
   , emptyR1cs
   , nPublicInputs
   , r1csCountVars
@@ -35,13 +38,18 @@ import           Data.Field.Galois              ( Prime
                                                 , fromP
                                                 , toP
                                                 )
+import qualified Data.Foldable                 as Fold
 import qualified Data.IntMap.Strict            as IntMap
 import qualified Data.IntSet                   as IntSet
 import qualified Data.Map.Strict               as Map
 import qualified Data.Map.Merge.Strict         as MapMerge
 import qualified Data.Sequence                 as Seq
 import qualified Data.Tuple                    as Tuple
-import           GHC.TypeLits                   ( KnownNat )
+import qualified Data.List                     as List
+import           GHC.TypeLits                   ( KnownNat
+                                                , natVal
+                                                )
+import           Data.Proxy                     ( Proxy(..) )
 
 type LC s n = (Map.Map s n, n) -- A linear combination of signals and gen-time constants
 type QEQ s n = (LC s n, LC s n, LC s n)
@@ -96,6 +104,31 @@ r1csStats r = unlines
   , "Constraints: " ++ show (length $ constraints r)
   ]
 
+
+r1csShow :: (KnownNat n, Show s, Ord s) => R1CS s n -> String
+r1csShow r1cs =
+  List.intercalate ""
+    $ map (\qeq -> "  " ++ qeqShow qeq ++ "\n")
+    $ map (sigMapQeq (numSigs r1cs IntMap.!))
+    $ Fold.toList
+    $ constraints r1cs
+ where
+  primeShow :: forall n . KnownNat n => Prime n -> String
+  primeShow p =
+    let v  = fromP p
+        o  = natVal $ Proxy @n
+        ho = o `div` 2
+    in  if v < ho then show v else show (v - o)
+
+  qeqShow :: (KnownNat n, Show s) => QEQ s (Prime n) -> String
+  qeqShow (a, b, c) = unwords [lcShow a, "*", lcShow b, "=", lcShow c]
+
+  lcShow :: (KnownNat n, Show s) => LC s (Prime n) -> String
+  lcShow (m, c) =
+    let list =
+            map (\(x, v) -> primeShow v ++ " " ++ show x) (Map.toList m)
+              ++ [ primeShow c | c /= toP 0 ]
+    in  List.intercalate " + " (if null list then ["0"] else list)
 
 sigNumLookup :: (Show s, Ord s) => R1CS s n -> s -> Int
 sigNumLookup r1cs s = Map.findWithDefault

@@ -55,7 +55,8 @@ checkWitComp circuitPath inputs = benchTestCase circuitPath $ do
             i
             (unlines $ map (\(n, v) -> n ++ " " ++ show v) $ Map.toList inputs)
           _             <- hClose i
-          inputsSignals <- Link.parseSignalsFromFile (Proxy @Order) inPath
+          inFile <- openFile inPath ReadMode
+          inputsSignals <- Link.parseSignalsFromFile (Proxy @Order) inFile
           let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
           let r1cs       = Link.linkMain @Order m
           let

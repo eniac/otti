@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -138,9 +139,9 @@ sub name value = mapTerm visit
 dynamize :: (forall s . SortClass s => Term s -> Term s) -> Dynamic -> Dynamic
 dynamize f t
   | ty == typeOf (BoolLit True) = toDyn
-  $ f ((fromDyn t (error "unreachable")) :: TermBool)
+  $ f (fromDyn t (error "unreachable") :: TermBool)
   | ty == typeOf (IntToDynBv 0 (IntLit 0)) = toDyn
-  $ f ((fromDyn t (error "unreachable")) :: TermDynBv)
+  $ f (fromDyn t (error "unreachable") :: TermDynBv)
   where ty = dynTypeRep t
 
 inTerm :: SortClass s => String -> Term s -> Bool
