@@ -9,7 +9,9 @@ import           Control.Monad
 import           BenchUtils
 import           Test.Tasty.HUnit
 import           IR.SMT.ToPf                    ( toPf )
-import           IR.R1cs                        ( R1CS(..) )
+import           IR.R1cs                        ( R1CS(..)
+                                                , r1csShow
+                                                )
 import qualified Data.Set                      as Set
 import           IR.SMT.TySmt
 
@@ -19,9 +21,10 @@ type Order
 constraintCountTest :: String -> [TermBool] -> Int -> BenchTest
 constraintCountTest name terms nConstraints =
   benchTestCase (nameWithConstraints name nConstraints) $ do
-    cs <- constraints <$> toPf @Order Set.empty terms
-    when (nConstraints /= length cs) $ putStrLn "" >> forM_ cs print
-    nConstraints @=? length cs
+    cs <- toPf @Order Set.empty terms
+    when (nConstraints /= length (constraints cs)) $ putStrLn "" >> putStrLn
+      (r1csShow cs)
+    nConstraints @=? length (constraints cs)
 
 nameWithConstraints :: String -> Int -> String
 nameWithConstraints name i = unwords [name, "in", show i, "constraints"]
@@ -88,5 +91,18 @@ toPfTests = benchTestGroup
                           -- Two 5bvs + 4 bits in the comparison difference + 3
                           -- bits in the comparison logic + 1 assertion bit
                           (2 * 5 + 4 + 3 + 1)
+    , constraintCountTest
+      "17 = x << y"
+      [ mkDynBvEq (mkDynBvBinExpr BvShl (int "x" 16) (int "y" 16))
+                  (IntToDynBv 16 $ IntLit 17)
+      ]
+      (let inputBounds = 17 * 2
+           shiftRBound = 1
+           shiftMults  = 4
+           sumSplit    = 16 * 2
+           eq          = 3
+           forceBool   = 1
+       in  inputBounds + shiftRBound + shiftMults + sumSplit + eq + forceBool
+      )
     ]
   ]

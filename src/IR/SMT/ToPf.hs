@@ -5,7 +5,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PolyKinds #-}
-module IR.SMT.ToPf 
+module IR.SMT.ToPf
   ( toPf
   )
 where
@@ -16,7 +16,7 @@ import           Control.Monad                  ( )
 import           GHC.TypeNats
 import           Codegen.Circom.CompTypes.LowDeg
 import           IR.R1cs
-import qualified Util.ShowMap                   as SMap
+import qualified Util.ShowMap                  as SMap
 import           Util.ShowMap                   ( ShowMap )
 import           Data.Field.Galois              ( Prime
                                                 , toP
@@ -222,7 +222,7 @@ binEq a b = do
 -- Strategy: we add the bits, and decompose the sum. The LSB is the answer.
 naryXor :: KnownNat n => [LSig n] -> ToPf n (LSig n)
 naryXor xs = do
-  let n = log2 $ length xs
+  let n = bitsize $ length xs
   bs <- nbits n
   let s = deBitify bs
   -- Could trim a constraint here.
@@ -232,8 +232,8 @@ naryXor xs = do
 binXor :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 binXor a b = naryXor [a, b]
 
-log2 :: Int -> Int
-log2 x = if x == 0 then 0 else 1 + log2 (x `div` 2)
+bitsize :: Int -> Int
+bitsize x = if x == 0 then 0 else 1 + bitsize (x `div` 2)
 
 -- # Arith constraints and storage
 
@@ -284,8 +284,8 @@ getIntBits term = do
         return $ Just bs
       Nothing -> return Nothing
 
-twoPow :: Integer -> Integer
-twoPow = (2 ^)
+twoPow :: KnownNat n => Integer -> Prime n
+twoPow = toP . (2 ^)
 
 nbits :: KnownNat n => Int -> ToPf n [LSig n]
 nbits w = replicateM w (nextBit "bits")
@@ -293,19 +293,20 @@ nbits w = replicateM w (nextBit "bits")
 bitify :: KnownNat n => LSig n -> Int -> ToPf n [LSig n]
 bitify i width = do
   sigs <- nbits width
-  let sum' = foldr1 lcAdd $ zipWith lcScale (map (toP . twoPow) [0 ..]) sigs
+  let sum' = foldr1 lcAdd $ zipWith lcScale (map twoPow [0 ..]) sigs
   enforce (lcZero, lcZero, lcSub sum' i)
   return sigs
 
 deBitify :: KnownNat n => [LSig n] -> LSig n
-deBitify = foldr1 lcAdd . zipWith lcScale (map (toP . twoPow) [0 ..])
+deBitify = foldr1 lcAdd . zipWith lcScale (map twoPow [0 ..])
 
 deBitifySigned :: KnownNat n => [LSig n] -> LSig n
 deBitifySigned bs =
-  lcAdd
-      (lcScale (negate $ toP $ twoPow $ fromIntegral $ length bs - 1) (last bs))
+  lcAdd (lcScale (negate $ twoPow $ fromIntegral $ length bs - 1) (last bs))
     $ foldr1 lcAdd
-    $ zipWith lcScale (map (toP . twoPow) [0 ..]) (init bs)
+    $ zipWith lcScale (map twoPow [0 ..]) (init bs)
+
+data BvOpKind = Arith | Bit | Shift
 
 bvToPf :: KnownNat n => TermDynBv -> ToPf n ()
 bvToPf term = do
@@ -313,14 +314,15 @@ bvToPf term = do
   when (isNothing entry) $ bvToPfUncached term
  where
   unhandledOp = unhandled "bv operator in bvToPf"
-  isArithBvBinOp :: BvBinOp -> Bool
-  isArithBvBinOp o = case o of
-    BvAdd -> True
-    BvMul -> True
-    BvSub -> True
-    BvOr  -> False
-    BvAnd -> False
-    BvXor -> False
+  bvOpKind :: BvBinOp -> BvOpKind
+  bvOpKind o = case o of
+    BvAdd -> Arith
+    BvMul -> Arith
+    BvSub -> Arith
+    BvOr  -> Bit
+    BvAnd -> Bit
+    BvXor -> Bit
+    BvShl -> Shift
     _     -> unhandledOp o
 
   -- Uncached
@@ -334,8 +336,8 @@ bvToPf term = do
     DynBvBinExpr op w l r -> do
       bvToPf l
       bvToPf r
-      if isArithBvBinOp op
-        then do
+      case bvOpKind op of
+        Arith -> do
           l'           <- fst . fromJust <$> getInt l
           r'           <- fst . fromJust <$> getInt r
           (resSig, w') <- case op of
@@ -348,7 +350,7 @@ bvToPf term = do
             _ -> unhandledOp op
           bs <- bitify resSig w'
           saveIntBits bv (take w bs)
-        else do
+        Bit -> do
           l' <- fromJust <$> getIntBits l
           r' <- fromJust <$> getIntBits r
           bs <- case op of
@@ -356,6 +358,27 @@ bvToPf term = do
             BvAnd -> traverse id $ zipWith binAnd l' r'
             BvXor -> traverse id $ zipWith binXor l' r'
             _     -> unhandledOp op
+          saveIntBits bv bs
+        Shift -> do
+          li' <- fst . fromJust <$> getInt l
+          ri' <- fst . fromJust <$> getInt r
+          r'  <- fromJust <$> getIntBits r
+          let b = bitsize $ w - 1
+          unless (2 ^ b == w) $ error $ unwords
+            ["width", show w, "is not a power of 2: bitsize is", show b]
+          bs <- case op of
+            BvShl -> do
+              let bs = take b r'
+              -- Fits in log w bits
+              enforce (lcZero, lcZero, lcSub (deBitify bs) ri')
+              parts <- forM (zip [0 ..] bs) $ \(i, bit) -> do
+                v <- lcSig <$> nextVar ("shift_" ++ show i)
+                enforce (li', lcScale (twoPow i) bit, v)
+                return v
+              let oversum = foldr1 lcAdd parts
+              resultBits <- bitify oversum (2 * w - 1)
+              return $ take w resultBits
+            _ -> unhandledOp op
           saveIntBits bv bs
 
     _ -> error $ unwords ["Cannot translate", show bv]
