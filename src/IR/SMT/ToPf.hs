@@ -324,6 +324,7 @@ bvToPf term = do
     BvXor  -> Bit
     BvShl  -> Shift
     BvLshr -> Shift
+    BvAshr -> Shift
     _      -> unhandledOp o
 
   -- Uncached
@@ -375,18 +376,27 @@ bvToPf term = do
                 v <- lcSig <$> nextVar ("shift_" ++ show index)
                 enforce (integer, lcScale (twoPow index) doShift, v)
                 return v
-          -- Shift `leftInt` left by `rightInt`, above
-          let shiftInt leftInt = do
+          -- Shift `leftInt` left by `rightInt`, above.
+          -- If `lowBit` is not Nothing, extend it over the shift
+          let shiftInt leftInt  lowBit = do
                 shifted <- foldM shiftI leftInt (zip [0..] rightBits')
-                resultBits <- bitify shifted (2 * w - 1)
+                shiftedWithExt <- case lowBit of
+                  Just lowBit' -> do
+                    shiftedLowBit <- foldM shiftI lowBit' (zip [0..] rightBits')
+                    return $ lcAdd shifted (lcSub shiftedLowBit lcOne)
+                  Nothing -> return shifted
+                resultBits <- bitify shiftedWithExt (2 * w - 1)
                 return $ take w resultBits
           bs <- case op of
             BvShl -> do
               li' <- fst . fromJust <$> getInt l
-              shiftInt li'
+              shiftInt li' Nothing
             BvLshr -> do
               l' <- fromJust <$> getIntBits r
-              reverse <$> shiftInt (deBitify $ reverse l')
+              reverse <$> shiftInt (deBitify $ reverse l') Nothing
+            BvAshr -> do
+              l' <- fromJust <$> getIntBits r
+              reverse <$> shiftInt (deBitify $ reverse l') (Just $ last l')
             _ -> unhandledOp op
           saveIntBits bv bs
     _ -> error $ unwords ["Cannot translate", show bv]

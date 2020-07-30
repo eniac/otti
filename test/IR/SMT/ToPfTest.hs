@@ -117,5 +117,19 @@ toPfTests = benchTestGroup
            forceBool   = 1
        in  inputBounds + shiftRBound + shiftMults + sumSplit + eq + forceBool
       )
+    , constraintCountTest
+      "17 = x >> y (arithmetic)"
+      [ mkDynBvEq (mkDynBvBinExpr BvAshr (int "x" 16) (int "y" 16))
+                  (IntToDynBv 16 $ IntLit 17)
+      ]
+      (let inputBounds = 17 * 2
+           shiftRBound = 1
+           shiftMults  = 4
+           shiftExtMults  = 4
+           sumSplit    = 16 * 2
+           eq          = 3
+           forceBool   = 1
+       in  inputBounds + shiftRBound + shiftMults + shiftExtMults + sumSplit + eq + forceBool
+      )
     ]
   ]
