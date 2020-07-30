@@ -316,14 +316,15 @@ bvToPf term = do
   unhandledOp = unhandled "bv operator in bvToPf"
   bvOpKind :: BvBinOp -> BvOpKind
   bvOpKind o = case o of
-    BvAdd -> Arith
-    BvMul -> Arith
-    BvSub -> Arith
-    BvOr  -> Bit
-    BvAnd -> Bit
-    BvXor -> Bit
-    BvShl -> Shift
-    _     -> unhandledOp o
+    BvAdd  -> Arith
+    BvMul  -> Arith
+    BvSub  -> Arith
+    BvOr   -> Bit
+    BvAnd  -> Bit
+    BvXor  -> Bit
+    BvShl  -> Shift
+    BvLshr -> Shift
+    _      -> unhandledOp o
 
   -- Uncached
   bvToPfUncached :: KnownNat n => TermDynBv -> ToPf n ()
@@ -360,27 +361,31 @@ bvToPf term = do
             _     -> unhandledOp op
           saveIntBits bv bs
         Shift -> do
-          li' <- fst . fromJust <$> getInt l
-          ri' <- fst . fromJust <$> getInt r
-          r'  <- fromJust <$> getIntBits r
+          rightInt  <- fst . fromJust <$> getInt r
+          rightBits <- fromJust <$> getIntBits r
           let b = bitsize $ w - 1
           unless (2 ^ b == w) $ error $ unwords
             ["width", show w, "is not a power of 2: bitsize is", show b]
+          let rightBits' = take b rightBits
+          enforce (lcZero, lcZero, lcSub (deBitify rightBits') rightInt)
+          let shiftInt leftInt = do
+                -- Fits in log w bits
+                parts <- forM (zip [0 ..] rightBits') $ \(i, bit) -> do
+                  v <- lcSig <$> nextVar ("shift_" ++ show i)
+                  enforce (leftInt, lcScale (twoPow i) bit, v)
+                  return v
+                let oversum = foldr1 lcAdd parts
+                resultBits <- bitify oversum (2 * w - 1)
+                return $ take w resultBits
           bs <- case op of
             BvShl -> do
-              let bs = take b r'
-              -- Fits in log w bits
-              enforce (lcZero, lcZero, lcSub (deBitify bs) ri')
-              parts <- forM (zip [0 ..] bs) $ \(i, bit) -> do
-                v <- lcSig <$> nextVar ("shift_" ++ show i)
-                enforce (li', lcScale (twoPow i) bit, v)
-                return v
-              let oversum = foldr1 lcAdd parts
-              resultBits <- bitify oversum (2 * w - 1)
-              return $ take w resultBits
+              li' <- fst . fromJust <$> getInt l
+              shiftInt li'
+            BvLshr -> do
+              l' <- fromJust <$> getIntBits r
+              reverse <$> shiftInt (deBitify $ reverse l')
             _ -> unhandledOp op
           saveIntBits bv bs
-
     _ -> error $ unwords ["Cannot translate", show bv]
 
 data Signedness = Signed | Unsigned
