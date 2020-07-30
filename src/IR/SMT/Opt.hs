@@ -22,10 +22,7 @@ import           Data.Dynamic                   ( Dynamic
                                                 , fromDyn
                                                 , dynTypeRep
                                                 )
-import           Data.Typeable                  ( cast
-                                                , Typeable
-                                                , typeOf
-                                                )
+import           Data.Typeable                  ( typeOf )
 
 
 -- Folds constants (literals) away.
@@ -142,6 +139,7 @@ dynamize f t
   $ f (fromDyn t (error "unreachable") :: TermBool)
   | ty == typeOf (IntToDynBv 0 (IntLit 0)) = toDyn
   $ f (fromDyn t (error "unreachable") :: TermDynBv)
+  | otherwise = error $ "Cannot dynamize " ++ show ty
   where ty = dynTypeRep t
 
 inTerm :: SortClass s => String -> Term s -> Bool
