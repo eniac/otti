@@ -367,15 +367,18 @@ bvToPf term = do
           unless (2 ^ b == w) $ error $ unwords
             ["width", show w, "is not a power of 2: bitsize is", show b]
           let rightBits' = take b rightBits
+          -- Fits in log w bits
           enforce (lcZero, lcZero, lcSub (deBitify rightBits') rightInt)
+          -- Shift `integer` left by `index` if bit `doShift` is true
+          -- Done by mutplying `integer` by 2^`index` * `doShift`
+          let shiftI integer (index, doShift) = do
+                v <- lcSig <$> nextVar ("shift_" ++ show index)
+                enforce (integer, lcScale (twoPow index) doShift, v)
+                return v
+          -- Shift `leftInt` left by `rightInt`, above
           let shiftInt leftInt = do
-                -- Fits in log w bits
-                parts <- forM (zip [0 ..] rightBits') $ \(i, bit) -> do
-                  v <- lcSig <$> nextVar ("shift_" ++ show i)
-                  enforce (leftInt, lcScale (twoPow i) bit, v)
-                  return v
-                let oversum = foldr1 lcAdd parts
-                resultBits <- bitify oversum (2 * w - 1)
+                shifted <- foldM shiftI leftInt (zip [0..] rightBits')
+                resultBits <- bitify shifted (2 * w - 1)
                 return $ take w resultBits
           bs <- case op of
             BvShl -> do
