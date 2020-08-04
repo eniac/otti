@@ -35,7 +35,7 @@ import           System.Console.Docopt
 import           System.Process
 
 openFile :: FilePath -> IOMode -> IO Handle
-openFile path mode = do
+openFile path mode =
   catchJust (\e -> if isDoesNotExistError e then Just e else Nothing) (System.IO.openFile path mode) $ \e -> do
     putStrLn $ "Could not find file: " ++ path
     return $ error $ "Error: " ++ show e
