@@ -227,11 +227,10 @@ fsReturn value scope =
   in
     do
       a <- getAssignment
-      let (retAssertion, retVal) = a value (retTerm scope)
+      let (retAssertion, retVal) = a (retTerm scope) value
       liftAssert $ Assert.implies returnCondition retAssertion
       whenM computingValues $ whenM (smtEvalBool returnCondition) $ setRetValue
         retVal
-      -- TODO: store retVal?
       return newScope
 
 fsHasNotReturned :: FunctionScope -> Ty.TermBool
@@ -379,9 +378,9 @@ getGuard = compilerGetsTop fsCurrentGuard
 
 doReturn :: CTerm -> Compiler ()
 doReturn value = do
-  s       <- get
-  newHead <- fsReturn value (head $ callStack s)
-  put s { callStack = newHead : tail (callStack s) }
+  top     <- gets $ head . callStack
+  newHead <- fsReturn value top
+  modify $ \s -> s { callStack = newHead : tail (callStack s) }
 
 getReturn :: Compiler CTerm
 getReturn = compilerGetsTop retTerm
@@ -443,7 +442,7 @@ ssaAssign var val = do
 
 zeroAssign :: VarName -> Compiler ()
 zeroAssign name = do
-  ty      <- getType name
+  ty <- getType name
   setValue name (ctermZero ty)
 
 initValues :: Compiler ()

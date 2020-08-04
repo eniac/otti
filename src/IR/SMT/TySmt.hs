@@ -834,7 +834,7 @@ eval e t = case t of
   Var s _           -> typed
    where
     entry =
-      Map.findWithDefault (error $ "Unknown identifier '" ++ show s ++ "'") s e
+      Map.findWithDefault (error $ "Unknown identifier '" ++ s ++ "'" ++ show e) s e
     typed = fromDyn
       entry
       (  error

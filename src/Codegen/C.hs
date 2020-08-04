@@ -21,6 +21,7 @@ import           Data.Maybe                     ( fromJust
                                                 , listToMaybe
                                                 )
 import qualified Data.Map                      as Map
+import           Data.List                      ( intercalate )
 import           Codegen.C.CUtils
 import           Codegen.C.Memory               ( bvNum )
 import qualified IR.SMT.Assert                 as Assert
@@ -343,7 +344,7 @@ genFunDef f = do
   retTy      <- ctype tys ptrs
   pushFunction name retTy
   -- Declare the arguments and execute the body
-  inputsNames <- forM (argsFromFunc f) (genDeclSMT False)
+  inputsNames    <- forM (argsFromFunc f) (genDeclSMT False)
   fullInputNames <- map ssaVarAsString <$> forM inputsNames getSsaVar
   forM_ inputsNames zeroAssign
 
@@ -373,16 +374,26 @@ codegenAll (CTranslUnit decls _) = do
     CFDefExt fun  -> void $ genFunDef fun
     CAsmExt asm _ -> genAsm asm
 
+findFn :: String -> [CExtDecl] -> CFunDef
+findFn name decls =
+  let nameFnPair (CFDefExt f) = [(nameFromFunc f, f)]
+      nameFnPair _            = []
+      namesToFns = Map.fromList $ concatMap nameFnPair decls
+  in  fromMaybe
+        (  error
+        $  "No function `"
+        ++ name
+        ++ "`. Available functions: {"
+        ++ intercalate "," (Map.keys namesToFns)
+        ++ "}."
+        )
+        (namesToFns Map.!? name)
+
+
 codegenFn :: CTranslUnit -> String -> Compiler ([String], String)
 codegenFn (CTranslUnit decls _) name = do
   registerFns decls
-  let f = fromMaybe (error $ "No " ++ name) $ listToMaybe $ concatMap
-        (\case
-          CFDefExt f -> [ f | nameFromFunc f == name ]
-          _          -> []
-        )
-        decls
-  genFunDef f
+  genFunDef (findFn name decls)
 
 
 -- Can a fn exhibit undefined behavior?
