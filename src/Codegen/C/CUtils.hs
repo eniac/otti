@@ -59,6 +59,9 @@ module Codegen.C.CUtils
   , asPtr
   , asDouble
   , asVar
+  -- evaluation
+  , ctermEval
+  , ctermZero
   )
 where
 
@@ -69,12 +72,12 @@ import           IR.SMT.Assert                  ( Assert )
 import qualified Codegen.C.Memory              as Mem
 import           Codegen.C.Memory               ( Mem )
 import           Data.Foldable                 as Fold
+import qualified Data.Map                      as Map
 import           Control.Monad
+import           Data.Dynamic                   ( Dynamic
+                                                , toDyn
+                                                )
 
--- data CInt = CInt { _cintSigned :: Bool
---                  , _cintBits :: Int
---                  , _cintSmt :: Ty.TermDynBv
---                  }
 
 type Bv = Ty.TermDynBv
 
@@ -88,7 +91,7 @@ data CTermData = CInt Bool Int Bv
                | CBool Ty.TermBool
                | CDouble Ty.TermDouble
                | CPtr AST.Type Bv
-               deriving (Show)
+               deriving (Show, Eq)
 
 ctermDataTy :: CTermData -> AST.Type
 ctermDataTy t = case t of
@@ -104,6 +107,23 @@ ctermDataTy t = case t of
   CBool{}         -> AST.Bool
   CDouble{}       -> AST.Double
   CPtr ty _       -> ty
+
+ctermEval :: Map.Map String Dynamic -> CTerm -> Dynamic
+ctermEval env t = case term t of
+  CInt _ _ t' -> toDyn $ Ty.eval env t'
+  CBool   t'  -> toDyn $ Ty.eval env t'
+  CDouble t'  -> toDyn $ Ty.eval env t'
+  CPtr _ t'   -> toDyn $ Ty.eval env t'
+
+ctermZero :: AST.Type -> CTerm
+ctermZero ty = mkCTerm
+  (case ty of
+    AST.Bool -> CBool (Ty.BoolLit False)
+    _ | AST.isIntegerType ty ->
+      CInt False (AST.numBits ty) (Ty.IntToDynBv (AST.numBits ty) (Ty.IntLit 0))
+    _ -> error "Cannot init"
+  )
+  (Ty.BoolLit False)
 
 asDouble :: CTermData -> Ty.TermDouble
 asDouble (CDouble d) = d
@@ -124,14 +144,14 @@ asPtr t            = error $ unwords [show t, "is not a pointer"]
 asVar :: CTerm -> Maybe String
 asVar t = case term t of
   CInt _ _ t' -> Ty.asVarName t'
-  CBool t' -> Ty.asVarName t'
-  CDouble t' -> Ty.asVarName t'
-  CPtr _  t' -> Ty.asVarName t'
+  CBool   t'  -> Ty.asVarName t'
+  CDouble t'  -> Ty.asVarName t'
+  CPtr _ t'   -> Ty.asVarName t'
 
 data CTerm = CTerm { term :: CTermData
                    , udef :: Ty.TermBool
                    }
-                   deriving (Show)
+                   deriving (Show, Eq)
 
 -- Checks widths
 mkCTerm :: CTermData -> Ty.TermBool -> CTerm
@@ -620,7 +640,8 @@ cppCond cond t f =
     mkCTerm result (Ty.BoolNaryExpr Ty.Or [udef cond, udef t, udef f])
 
 
-cppAssignment :: Bool -> CTerm -> CTerm -> Ty.TermBool
+-- Returns an assignment of r to l, as well as the casted version of r
+cppAssignment :: Bool -> CTerm -> CTerm -> (Ty.TermBool, CTerm)
 cppAssignment assignUndef l r =
   let r'     = cppCast (ctermDataTy $ term l) r
       valAss = case (term l, term r') of
@@ -630,12 +651,14 @@ cppAssignment assignUndef l r =
         (CPtr lTy lB, CPtr rTy rB) | lTy == rTy -> Ty.Eq lB rB
         _                          -> error "Invalid cppAssign terms, post-cast"
       udefAss = Ty.Eq (udef l) (udef r')
-  in  if assignUndef then Ty.BoolNaryExpr Ty.And [valAss, udefAss] else valAss
+  in  ( if assignUndef then Ty.BoolNaryExpr Ty.And [valAss, udefAss] else valAss
+      , r'
+      )
 
 cppAssign :: Bool -> CTerm -> CTerm -> Assert CTerm
 cppAssign assignUndef l r =
   let r' = cppCast (ctermDataTy $ term l) r
-  in  Assert.assert (cppAssignment assignUndef l r) *> pure r'
+  in  Assert.assert (fst $ cppAssignment assignUndef l r) *> pure r'
 
 doubleton :: a -> a -> [a]
 doubleton x y = [x, y]

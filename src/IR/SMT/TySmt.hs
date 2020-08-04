@@ -76,6 +76,7 @@ module IR.SMT.TySmt
   , mkVar
   , sortDouble
   , valAsPf
+  , valAsBool
   )
 where
 

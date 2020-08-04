@@ -13,6 +13,7 @@ import           Control.Monad.State.Strict     ( forM
                                                 , when
                                                 , gets
                                                 )
+import qualified Data.BitVector                as Bv
 import           Data.Maybe                     ( fromJust
                                                 , isJust
                                                 , isNothing
@@ -319,9 +320,11 @@ genDeclSMT undef (CDecl specs decls _) = do
           Just (CInitExpr e _) -> do
             rhs <- genExprSMT e
             a   <- getAssignment
-            void $ liftAssert $ Assert.assert $ a lhs rhs
+            let (assertion, value) = a lhs rhs
+            setValue (identToVarName name) value
+            void $ liftAssert $ Assert.assert assertion
           _ -> return ()
-        return $ fromJust $ asVar lhs
+        return $ identToVarName name
   return $ head names
 
 
@@ -341,6 +344,9 @@ genFunDef f = do
   pushFunction name retTy
   -- Declare the arguments and execute the body
   inputsNames <- forM (argsFromFunc f) (genDeclSMT False)
+  fullInputNames <- map ssaVarAsString <$> forM inputsNames getSsaVar
+  forM_ inputsNames zeroAssign
+
   let body = bodyFromFunc f
   case body of
     CCompound{} -> genStmtSMT body
@@ -349,7 +355,7 @@ genFunDef f = do
   when checkUndef $ do
     liftAssert $ Assert.assert $ udef returnValue
   popFunction
-  return (inputsNames, fromJust $ asVar returnValue)
+  return (fullInputNames, fromJust $ asVar returnValue)
 
 genAsm :: CStringLiteral a -> Compiler ()
 genAsm = undefined

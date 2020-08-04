@@ -5,6 +5,7 @@ import           AST.Simple
 import           Control.Monad.Fail
 import           Control.Monad.Reader
 import           Control.Monad.State.Strict
+import qualified Data.BitVector                as Bv
 import           Data.List                      ( intercalate
                                                 , isInfixOf
                                                 , findIndex
@@ -14,7 +15,13 @@ import           Data.Foldable
 import qualified Data.Map                      as M
 import           Data.Maybe                     ( catMaybes
                                                 , fromMaybe
+                                                , isJust
                                                 )
+import           Data.Dynamic                   ( Dynamic
+                                                , toDyn
+                                                , fromDyn
+                                                )
+import qualified Util.ShowMap                  as SMap
 import           Language.C.Syntax.AST          ( CFunDef )
 import           Codegen.C.CUtils              as CUtils
 import qualified IR.SMT.TySmt                  as Ty
@@ -35,19 +42,26 @@ There are many bits of low-hanging optimization fruit here. For example, we are 
 redundant state lookups, and storing lists of function names instead of a hash of
 such a thing.
 
+Structure: The compiler monad is defined in terms of three nested notions of state:
+  * LexScope
+  * FunctionScope
+  * CompilerState
 -}
 
 type Version = Int
 
-data CodegenVar = CodegenVar VarName Version
+data SsaVar = SsaVar VarName Version
                 deriving (Eq, Ord, Show)
+
+data CVal = CValBool (Ty.Value Ty.BoolSort)
+          | CValInt  (Ty.Value Ty.DynBvSort)
 
 -- TODO rename
 data LexScope = LexScope { tys :: M.Map VarName Type
-                                 , vers :: M.Map VarName Version
-                                 , terms :: M.Map CodegenVar CTerm
-                                 , lsPrefix :: String
-                                 } deriving (Show)
+                         , vers :: M.Map VarName Version
+                         , terms :: M.Map SsaVar CTerm
+                         , lsPrefix :: String
+                         } deriving (Show)
 printLs :: LexScope -> IO ()
 printLs s =
   putStr
@@ -85,10 +99,10 @@ lsNextVer var scope =
 lsGetVer :: VarName -> LexScope -> Version
 lsGetVer var scope = fromMaybe (unknownVar var) (M.lookup var (vers scope))
 
--- | Get current CodegenVar
-lsGetCodegenVar :: VarName -> LexScope -> CodegenVar
-lsGetCodegenVar var scope =
-  CodegenVar (lsPrefix scope ++ "__" ++ var) (lsGetVer var scope)
+-- | Get current SsaVar
+lsGetSsaVar :: VarName -> LexScope -> SsaVar
+lsGetSsaVar var scope =
+  SsaVar (lsPrefix scope ++ "__" ++ var) (lsGetVer var scope)
 
 -- | Get the C++ type of the variable
 lsGetType :: VarName -> LexScope -> Type
@@ -97,19 +111,19 @@ lsGetType var scope = fromMaybe (unknownVar var) (M.lookup var (tys scope))
 -- | Get a CTerm for the given var
 lsEnsureTerm :: VarName -> LexScope -> Assert LexScope
 lsEnsureTerm varName scope =
-  let var = lsGetCodegenVar varName scope
+  let var = lsGetSsaVar varName scope
   in  case M.lookup var (terms scope) of
         Just node -> return scope
         Nothing ->
           let ty = lsGetType varName scope
           in  do
-                node <- newVar ty $ codegenToName var
+                node <- newVar ty $ ssaVarAsString var
                 return scope { terms = M.insert var node $ terms scope }
 
 lsGetTerm :: VarName -> LexScope -> CTerm
 lsGetTerm var scope = fromMaybe
   (error $ unwords ["No term for", var])
-  (M.lookup (lsGetCodegenVar var scope) (terms scope))
+  (M.lookup (lsGetSsaVar var scope) (terms scope))
 
 data FunctionScope = FunctionScope { -- Condition for current path
                                      conditionalGuards :: [Ty.TermBool]
@@ -121,6 +135,7 @@ data FunctionScope = FunctionScope { -- Condition for current path
                                    , lsCtr             :: Int
                                    , fsPrefix          :: String
                                    , retTerm           :: CTerm
+                                   , retTermName       :: String
                                    }
 
 listModify :: Functor m => Int -> (a -> m a) -> [a] -> m [a]
@@ -162,6 +177,12 @@ fsNextVer var = runIdentity . fsModifyLexScope var (Identity . lsNextVer var)
 fsGetVer :: VarName -> FunctionScope -> Version
 fsGetVer var = fsGetFromLexScope var (lsGetVer var)
 
+fsGetType :: VarName -> FunctionScope -> Type
+fsGetType var = fsGetFromLexScope var (lsGetType var)
+
+fsGetSsaVar :: VarName -> FunctionScope -> SsaVar
+fsGetSsaVar var = fsGetFromLexScope var (lsGetSsaVar var)
+
 fsGetTerm :: VarName -> FunctionScope -> Assert (CTerm, FunctionScope)
 fsGetTerm var scope = do
   scope' <- fsModifyLexScope var (lsEnsureTerm var) scope
@@ -197,15 +218,21 @@ fsCurrentGuard = safeNary (Ty.BoolLit True) Ty.And . conditionalGuards
 -- | Set the return value if we have not returned, and block future returns
 fsReturn :: CTerm -> FunctionScope -> Compiler FunctionScope
 fsReturn value scope =
-  let returnCondition =
-          Ty.BoolNaryExpr Ty.And [fsCurrentGuard scope, fsHasNotReturned scope]
-      newScope = scope
-        { returnValueGuards = conditionalGuards scope : returnValueGuards scope
-        }
-  in  do
-        a <- getAssignment
-        liftAssert $ Assert.implies returnCondition (a value (retTerm scope))
-        return newScope
+  let
+    returnCondition =
+      Ty.BoolNaryExpr Ty.And [fsCurrentGuard scope, fsHasNotReturned scope]
+    newScope = scope
+      { returnValueGuards = conditionalGuards scope : returnValueGuards scope
+      }
+  in
+    do
+      a <- getAssignment
+      let (retAssertion, retVal) = a value (retTerm scope)
+      liftAssert $ Assert.implies returnCondition retAssertion
+      whenM computingValues $ whenM (smtEvalBool returnCondition) $ setRetValue
+        retVal
+      -- TODO: store retVal?
+      return newScope
 
 fsHasNotReturned :: FunctionScope -> Ty.TermBool
 fsHasNotReturned =
@@ -216,10 +243,12 @@ fsHasNotReturned =
 
 fsWithPrefix :: String -> Type -> Assert FunctionScope
 fsWithPrefix prefix ty = do
-  retTerm <- newVar ty $ codegenToName $ CodegenVar (prefix ++ "__return") 0
+  let retTermName = ssaVarAsString $ SsaVar (prefix ++ "__return") 0
+  retTerm <- newVar ty retTermName
   let fs = FunctionScope { conditionalGuards = []
                          , returnValueGuards = []
                          , retTerm           = retTerm
+                         , retTermName       = retTermName
                          , lexicalScopes     = []
                          , lsCtr             = 0
                          , fsPrefix          = prefix
@@ -234,14 +263,12 @@ data CompilerState = CompilerState { callStack         :: [FunctionScope]
                                    , prefix            :: [String]
                                    , fnCtr             :: Int
                                    , findUB            :: Bool
+                                   , values            :: Maybe (M.Map String Dynamic)
                                    }
 
 newtype Compiler a = Compiler (StateT CompilerState Mem a)
     deriving (Functor, Applicative, Monad, MonadState CompilerState, MonadIO)
 
--- instance Z.MonadZ3 Compiler where
---     getSolver = Compiler $ lift $ Z.getSolver
---     getContext = Compiler $ lift $ Z.getContext
 
 instance MonadFail Compiler where
   fail = error "FAILED"
@@ -258,7 +285,11 @@ emptyCompilerState = CompilerState { callStack = []
                                    , prefix    = []
                                    , findUB    = True
                                    , fnCtr     = 0
+                                   , values    = Nothing
                                    }
+
+initWitComp :: [(String, CVal)] -> Compiler a
+initWitComp args = undefined
 
 compilerRunOnTop :: (FunctionScope -> (a, FunctionScope)) -> Compiler a
 compilerRunOnTop f = do
@@ -282,6 +313,45 @@ nextVer = compilerModifyTop . fsNextVer
 getVer :: VarName -> Compiler Version
 getVer = compilerGetsTop . fsGetVer
 
+getType :: VarName -> Compiler Type
+getType = compilerGetsTop . fsGetType
+
+getSsaVar :: VarName -> Compiler SsaVar
+getSsaVar = compilerGetsTop . fsGetSsaVar
+
+computingValues :: Compiler Bool
+computingValues = gets (isJust . values)
+
+getValues :: Compiler (M.Map String Dynamic)
+getValues = gets $ fromMaybe (error "Not computing values") . values
+
+modValues
+  :: (M.Map String Dynamic -> Compiler (M.Map String Dynamic)) -> Compiler ()
+modValues f = do
+  s <- get
+  case values s of
+    Just vs -> do
+      vs' <- f vs
+      put $ s { values = Just vs' }
+    Nothing -> return ()
+
+
+smtEval :: Ty.SortClass s => Ty.Term s -> Compiler (Ty.Value s)
+smtEval smt = flip Ty.eval smt <$> getValues
+
+smtEvalBool :: Ty.TermBool -> Compiler Bool
+smtEvalBool smt = Ty.valAsBool <$> smtEval smt
+
+setValue :: VarName -> CTerm -> Compiler ()
+setValue name cterm = modValues $ \vs -> do
+  var <- ssaVarAsString <$> getSsaVar name
+  return $ M.insert var (ctermEval vs cterm) vs
+
+setRetValue :: CTerm -> Compiler ()
+setRetValue cterm = modValues $ \vs -> do
+  var <- compilerGetsTop retTermName
+  return $ M.insert var (ctermEval vs cterm) vs
+
 getTerm :: VarName -> Compiler CTerm
 getTerm var = do
   s          <- get
@@ -290,9 +360,7 @@ getTerm var = do
   return t
 
 printComp :: Compiler ()
-printComp = do
-  s <- get
-  liftIO $ traverse_ printFs (callStack s)
+printComp = gets callStack >>= liftIO . traverse_ printFs
 
 enterLexScope :: Compiler ()
 enterLexScope = compilerModifyTop fsEnterLexScope
@@ -337,38 +405,49 @@ evalCodegen checkUB act = fst <$> runCodegen checkUB act
 execCodegen :: Bool -> Compiler a -> Assert CompilerState
 execCodegen checkUB act = snd <$> runCodegen checkUB act
 
--- TODO Run solver on SMT
--- runSolverOnSMT :: Compiler SMTResult
--- runSolverOnSMT = liftMem smtResult
-
----
----
----
 
 -- Turning VarNames (the AST's representation of a variable) into other representations
 -- of variables
 
-codegenVar :: VarName -> Compiler CodegenVar
+codegenVar :: VarName -> Compiler SsaVar
 codegenVar var = do
   ver <- getVer var
-  return $ CodegenVar var ver
+  return $ SsaVar var ver
 
 -- | Human readable name.
 -- We probably want to replace this with something faster (eg hash) someday, but
 -- this is great for debugging
-codegenToName :: CodegenVar -> String
-codegenToName (CodegenVar varName ver) = varName ++ "_v" ++ show ver
+ssaVarAsString :: SsaVar -> String
+ssaVarAsString (SsaVar varName ver) = varName ++ "_v" ++ show ver
+
+whenM :: Monad m => m Bool -> m () -> m ()
+whenM condition action = condition >>= flip when action
 
 -- Bump the version of `var` and assign `value` to it.
 ssaAssign :: VarName -> CTerm -> Compiler CTerm
 ssaAssign var val = do
   oldNode <- getTerm var
   nextVer var
+  setValue var val
+  -- TODO assign
   newNode <- getTerm var
   guard   <- getGuard
   a       <- getAssignment
-  liftAssert $ Assert.assert $ Ty.Ite guard (a newNode val) (a newNode oldNode)
+  let (newAssertion, newNodeCasted) = a newNode val
+  let (oldAssertion, oldNodeCasted) = a newNode oldNode
+  liftAssert $ Assert.assert $ Ty.Ite guard newAssertion oldAssertion
+  whenM computingValues $ do
+    g <- smtEvalBool guard
+    setValue var (if g then newNodeCasted else oldNodeCasted)
   return newNode
+
+zeroAssign :: VarName -> Compiler ()
+zeroAssign name = do
+  ty      <- getType name
+  setValue name (ctermZero ty)
+
+initValues :: Compiler ()
+initValues = modify $ \s -> s { values = Just M.empty }
 
 ---
 --- Functions
@@ -442,5 +521,5 @@ setLoopBound bound = modify (\s -> s { loopBound = bound })
 
 -- UB
 
-getAssignment :: Compiler (CTerm -> CTerm -> Ty.TermBool)
+getAssignment :: Compiler (CTerm -> CTerm -> (Ty.TermBool, CTerm))
 getAssignment = cppAssignment <$> gets findUB

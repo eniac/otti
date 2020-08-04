@@ -11,7 +11,7 @@ where
 import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.Assert                 as Assert
 import qualified Language.C.Syntax.AST         as AST
-import           Codegen.C.CompilerMonad        ( evalCodegen )
+import           Codegen.C.CompilerMonad        ( evalCodegen, initValues )
 import           Codegen.Circom.CompTypes.LowDeg
                                                 ( LC
                                                 , QEQ
@@ -45,7 +45,7 @@ data FnTrans = FnTrans { assertions :: [Ty.TermBool]
 transFn :: AST.CTranslUnit -> String -> IO FnTrans
 transFn tu name = do
   ((inputs, output), assertState) <-
-    Assert.runAssert $ evalCodegen False $ codegenFn tu name
+    Assert.runAssert $ evalCodegen False $ initValues >> codegenFn tu name
   return $ FnTrans { assertions = Assert.asserted assertState
                    , inputs     = inputs
                    , output     = output
