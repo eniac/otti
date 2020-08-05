@@ -1198,6 +1198,7 @@ evalZ3 term =
       Nothing -> return Nothing
 
 
+-- Tries to case the values to the same type
 dynEq :: (Typeable a, Typeable b) => Term a -> Term b -> Bool
 dynEq a b = Just a == cast b
 

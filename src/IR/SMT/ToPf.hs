@@ -5,6 +5,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TupleSections #-}
 module IR.SMT.ToPf
   ( toPf
   , toPfWithWit
@@ -45,7 +47,6 @@ import           Data.Field.Galois              ( Prime
                                                 )
 import           Data.Maybe                     ( isNothing
                                                 , fromJust
-                                                , fromMaybe
                                                 )
 import qualified Data.Map.Strict               as Map
 import           Data.Proxy                     ( Proxy(..) )
@@ -89,11 +90,11 @@ enforceCheck ((a, av), (b, bv), (c, cv)) = do
   case (av, bv, cv) of
     (Just x, Just y, Just z) -> if x * y == z
       then return ()
-      else error $ unwords $
-        [ "The QEQ"
-        , qeqShow (a, b, c)
-        , "is not satisfied"
-        ] ++ map primeShow [x, y, z]
+      else
+        error
+        $  unwords
+        $  ["The QEQ", qeqShow (a, b, c), "is not satisfied"]
+        ++ map primeShow [x, y, z]
     _ -> return ()
   enforce (a, b, c)
 
@@ -117,10 +118,8 @@ nextVar name value = do
 asVar :: KnownNat n => String -> Maybe (Prime n) -> ToPf n (LSig n)
 asVar var value = do
   case value of
-    Just v -> do
-      modify $ \s -> s { vals = Map.insert var v $ vals s }
-      liftIO $ putStrLn $ var ++ " -> " ++ primeShow v
-    _      -> return ()
+    Just v -> modify $ \s -> s { vals = Map.insert var v $ vals s }
+    _ -> return ()
   return (LD.lcSig var, value)
 
 ensureVarsQeq :: KnownNat n => QEQ PfVar (Prime n) -> ToPf n ()
@@ -160,6 +159,12 @@ lcOne = lcConst 1
 
 lcAdd :: KnownNat n => LSig n -> LSig n -> LSig n
 lcAdd (a, av) (b, bv) = (LD.lcAdd a b, liftA2 (+) av bv)
+
+lcMul :: KnownNat n => String -> LSig n -> LSig n -> ToPf n (LSig n)
+lcMul name (a, av) (b, bv) = do
+  prod <- nextVar name $ liftA2 (*) av bv
+  enforceCheck ((a, av), (b, bv), prod)
+  return prod
 
 lcZero :: KnownNat n => LSig n
 lcZero = ((Map.empty, toP 0), Just $ toP 0)
@@ -256,10 +261,7 @@ naryAnd xs = if length xs <= 3
   else lcNot <$> naryOr (map lcNot xs)
 
 binAnd :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
-binAnd a b = do
-  v <- nextVar "and" $ liftA2 (*) (snd a) (snd b)
-  enforceCheck (a, b, v)
-  return v
+binAnd = lcMul "and"
 
 naryOr :: KnownNat n => [LSig n] -> ToPf n (LSig n)
 naryOr xs = if length xs <= 3
@@ -277,7 +279,11 @@ binOr a b = naryOr [a, b]
 
 impl :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 impl a b = do
-  v <- nextVar "impl" (liftA2 (\hyp conc -> toP 1 - hyp * (toP 1 - conc)) (snd a) (snd b))
+  -- Could implement this with lcMul, but then the new variable would be the
+  -- negation of the result.
+  v <- nextVar
+    "impl"
+    (liftA2 (\hyp conc -> toP 1 - hyp * (toP 1 - conc)) (snd a) (snd b))
   enforceCheck (a, lcNot b, lcNot v)
   return v
 
@@ -301,7 +307,7 @@ naryXor :: KnownNat n => [LSig n] -> ToPf n (LSig n)
 naryXor xs = do
   let n = bitsize $ length xs
   let s = foldr1 lcAdd xs
-  bs <- bitify s n
+  bs <- bitify "xorSum" s n
   -- Could trim a constraint here?
   return (head bs)
 
@@ -355,7 +361,7 @@ getIntBits term = do
     Just bs -> return $ Just bs
     Nothing -> case e >>= int of
       Just (i, width) -> do
-        bs <- bitify i width
+        bs <- bitify "get" i width
         saveIntBits term bs
         return $ Just bs
       Nothing -> return Nothing
@@ -363,32 +369,37 @@ getIntBits term = do
 twoPow :: KnownNat n => Integer -> Prime n
 twoPow = toP . (2 ^)
 
-nbits :: KnownNat n => [Maybe Bool] -> ToPf n [LSig n]
-nbits vs = forM vs (nextBit "bits")
+nbits :: KnownNat n => String -> [Maybe Bool] -> ToPf n [LSig n]
+nbits ctx vs =
+  forM (zip [0 :: Int ..] vs) (\(i, b) -> nextBit (ctx ++ "_bit" ++ show i) b)
 
-fitsInBits
-  :: forall n . KnownNat n => Bool -> Int -> Maybe (Prime n) -> Maybe Bool
-fitsInBits signed w' i = case i of
-  Just i'' ->
-    Just
-      $ let i' = fromP i''
-            w  = toInteger w'
-        in  if signed
-              then i' < 2 ^ (w - 1) || i' >= negate (2 ^ (w - 1))
-              else i' < 2 ^ w
-  Nothing -> Nothing
+fitsInBits :: forall n . KnownNat n => Bool -> Int -> Prime n -> Bool
+fitsInBits signed w' p =
+  let i       = fromPNeg p
+      w       = toInteger w'
+      shifted = if signed then i + 2 ^ (w - 1) else i
+  in  0 <= shifted && shifted < 2 ^ w
+
+-- A variant of fromP which returns negative integers for field elements in the
+-- upper half of the field
+fromPNeg :: forall n . KnownNat n => Prime n -> Integer
+fromPNeg i =
+  let i' = fromP i
+      o  = toInteger $ natVal $ Proxy @n
+      ho = o `div` 2
+  in  if i' < ho then i' else i' - o
 
 asBits :: KnownNat n => Int -> Maybe (Prime n) -> [Maybe Bool]
 asBits width i = case i of
   Just i' ->
-    let bv = Bv.bitVec width (2 ^ width + fromP i')
+    let bv = Bv.bitVec width (2 ^ width + fromPNeg i')
     in  map (Just . Bits.testBit bv) [0 .. (width - 1)]
   Nothing -> replicate width Nothing
 
 
-bitify :: KnownNat n => LSig n -> Int -> ToPf n [LSig n]
-bitify x width = do
-  sigs <- nbits $ asBits width $ snd x
+bitify :: KnownNat n => String -> LSig n -> Int -> ToPf n [LSig n]
+bitify ctx x width = do
+  sigs <- nbits ctx $ asBits width $ snd x
   let sum' = foldr1 lcAdd $ zipWith lcScale (map twoPow [0 ..]) sigs
   enforceCheck (lcZero, lcZero, lcSub sum' x)
   return sigs
@@ -439,7 +450,7 @@ bvToPf env term = do
     IntToDynBv w    (IntLit i) -> saveInt bv (lcShift (toP i) lcZero, w)
     Var        name (SortBv w) -> do
       i  <- asVar name $ lookupIntVal name
-      bs <- bitify i w
+      bs <- bitify name i w
       saveIntBits bv bs
       saveInt bv (i, w)
     DynBvBinExpr op w l r -> do
@@ -451,13 +462,11 @@ bvToPf env term = do
           r'           <- fst . fromJust <$> getInt r
           (resSig, w') <- case op of
             BvAdd -> return (lcAdd l' r', w + 1)
-            BvSub -> return (lcSub l' r', w + 1)
-            BvMul -> do
-              v <- nextVar (show op) $ liftA2 (*) (snd l') (snd r')
-              enforceCheck (l', r', v)
-              return (v, 2 * w)
-            _ -> unhandledOp op
-          bs <- bitify resSig w'
+            BvSub ->
+              return (lcShift (twoPow $ fromIntegral w) $ lcSub l' r', w + 1)
+            BvMul -> (, 2 * w) <$> lcMul "mul" l' r'
+            _     -> unhandledOp op
+          bs <- bitify "arith" resSig w'
           saveIntBits bv (take w bs)
         Bit -> do
           l' <- fromJust <$> getIntBits l
@@ -477,46 +486,43 @@ bvToPf env term = do
           let rightBits' = take b rightBits
           -- Fits in log w bits
           enforceCheck (lcZero, lcZero, lcSub (deBitify rightBits') rightInt)
-          -- Shift `integer` left by `index` if bit `doShift` is true
-          -- Done by mutplying `integer` by 2^`index` * `doShift`
-          let shiftI integer (index, doShift) = do
-                v <- nextVar ("shift_" ++ show index) $ liftA2
-                  (\int' sh' -> if 0 /= sh'
-                    then toP (Bits.shiftL (fromP int') (fromIntegral index))
-                    else int'
-                  )
-                  (snd integer)
-                  (snd doShift)
-                enforceCheck (integer, lcScale (twoPow index) doShift, v)
-                return v
+          -- Shift `x` left by (2 ^ `n`) if bit `b` is true
+          -- Done by computing
+          --   s = (2 ^ (2 ^ n) - 1) b + 1
+          --   output = s * x
+          let optPowerShift x (n :: Integer, bit) =
+                let label m = m ++ show n
+                    s = lcAdd lcOne $ lcScale (twoPow (2 ^ n) - toP 1) bit
+                in  lcMul (label "shift") s x
           -- Shift `leftInt` left by `rightInt`, above.
           -- If `lowBit` is not Nothing, extend it over the shift
           let shiftInt leftInt lowBit = do
-                shifted        <- foldM shiftI leftInt (zip [0 ..] rightBits')
+                let shiftByR v = foldM optPowerShift v (zip [0 ..] rightBits')
+                shifted        <- shiftByR leftInt
                 shiftedWithExt <- case lowBit of
                   Just lowBit' -> do
-                    shiftedLowBit <- foldM shiftI
-                                           lowBit'
-                                           (zip [0 ..] rightBits')
-                    return $ lcAdd shifted (lcSub shiftedLowBit lcOne)
+                    -- The ones to add in
+                    extensionPart <- lcAdd (lcNeg lcOne) <$> shiftByR lowBit'
+                    -- Adding them in, if appropriate
+                    lcAdd shifted <$> lcMul "shiftExtMask" extensionPart lowBit'
                   Nothing -> return shifted
-                resultBits <- bitify shiftedWithExt (2 * w - 1)
+                resultBits <- bitify "shift" shiftedWithExt (2 * w - 1)
                 return $ take w resultBits
           bs <- case op of
             BvShl -> do
               li' <- fst . fromJust <$> getInt l
               shiftInt li' Nothing
             BvLshr -> do
-              l' <- fromJust <$> getIntBits r
+              l' <- fromJust <$> getIntBits l
               reverse <$> shiftInt (deBitify $ reverse l') Nothing
             BvAshr -> do
-              l' <- fromJust <$> getIntBits r
+              l' <- fromJust <$> getIntBits l
               reverse <$> shiftInt (deBitify $ reverse l') (Just $ last l')
             _ -> unhandledOp op
           saveIntBits bv bs
     _ -> error $ unwords ["Cannot translate", show bv]
 
-data Signedness = Signed | Unsigned
+data Signedness = Signed | Unsigned deriving(Show)
 isSigned :: Signedness -> Bool
 isSigned = \case
   Signed   -> True
@@ -546,15 +552,13 @@ bvPredToPf env predicate width l r = do
     BvSge -> signedGreater width False l r
     BvSle -> signedGreater width False r l
     _     -> do
-      l' <- fst . fromJust <$> getInt l
-      r' <- fst . fromJust <$> getInt r
+      l' <- deBitifySigned . fromJust <$> getIntBits l
+      r' <- deBitifySigned . fromJust <$> getIntBits r
       case predicate of
-        BvSaddo -> lcNeg <$> inBits Signed width (lcAdd l' r')
-        BvSsubo -> lcNeg <$> inBits Signed width (lcSub l' r')
-        BvSmulo -> do
-          p <- nextVar "muloverflow" $ liftA2 (*) (snd l') (snd r')
-          enforceCheck (l', r', p)
-          lcNeg <$> inBits Signed width p
+        BvSaddo -> lcNot <$> inBits Signed width (lcAdd l' r')
+        BvSsubo -> lcNot <$> inBits Signed width (lcSub l' r')
+        BvSmulo ->
+          lcNot <$> (inBits Signed width =<< lcMul "muloverflow" l' r')
         _ -> error "unreachable"
  where
   signedGreater
@@ -593,9 +597,12 @@ bvPredToPf env predicate width l r = do
     -- There is some stuff going on with the last step that is a bit tricky.
     -- It takes advantage of the fact that when r = 1, the second constraint
     -- forces (s - x) to be 0
-    bs <- nbits $ asBits w $ snd number
+    bs <- nbits "inBits" $ asBits w $ snd number
     let bitSum = (if isSigned signed then deBitifySigned else deBitify) bs
-    result <- nextBit "inBits" $ fitsInBits (isSigned signed) w $ snd number
+    result <-
+      nextBit "inBits"
+      $   fitsInBits (isSigned signed) w
+      <$> snd number
     let zeroIffTrue = lcSub bitSum number
     enforceCheck (zeroIffTrue, result, lcZero)
     enforceNonzero $ lcAdd zeroIffTrue result
