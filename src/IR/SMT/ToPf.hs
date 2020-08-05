@@ -52,7 +52,6 @@ import qualified Data.Map.Strict               as Map
 import           Data.Proxy                     ( Proxy(..) )
 import qualified Data.Set                      as Set
 import           Data.Typeable                  ( cast )
-import           Debug.Trace
 
 type PfVar = String
 type SmtVals = Map.Map String Dynamic
@@ -119,7 +118,7 @@ asVar :: KnownNat n => String -> Maybe (Prime n) -> ToPf n (LSig n)
 asVar var value = do
   case value of
     Just v -> modify $ \s -> s { vals = Map.insert var v $ vals s }
-    _ -> return ()
+    _      -> return ()
   return (LD.lcSig var, value)
 
 ensureVarsQeq :: KnownNat n => QEQ PfVar (Prime n) -> ToPf n ()
@@ -349,7 +348,7 @@ getInt term = do
     Just i  -> return $ Just i
     Nothing -> case e >>= bits of
       Just bs -> do
-        let i = deBitify bs
+        let i = deBitify False bs
         saveInt term (i, length bs)
         return $ Just (i, length bs)
       Nothing -> return Nothing
@@ -372,13 +371,6 @@ twoPow = toP . (2 ^)
 nbits :: KnownNat n => String -> [Maybe Bool] -> ToPf n [LSig n]
 nbits ctx vs =
   forM (zip [0 :: Int ..] vs) (\(i, b) -> nextBit (ctx ++ "_bit" ++ show i) b)
-
-fitsInBits :: forall n . KnownNat n => Bool -> Int -> Prime n -> Bool
-fitsInBits signed w' p =
-  let i       = fromPNeg p
-      w       = toInteger w'
-      shifted = if signed then i + 2 ^ (w - 1) else i
-  in  0 <= shifted && shifted < 2 ^ w
 
 -- A variant of fromP which returns negative integers for field elements in the
 -- upper half of the field
@@ -404,14 +396,12 @@ bitify ctx x width = do
   enforceCheck (lcZero, lcZero, lcSub sum' x)
   return sigs
 
-deBitify :: KnownNat n => [LSig n] -> LSig n
-deBitify = foldr1 lcAdd . zipWith lcScale (map twoPow [0 ..])
-
-deBitifySigned :: KnownNat n => [LSig n] -> LSig n
-deBitifySigned bs =
-  lcAdd (lcScale (negate $ twoPow $ fromIntegral $ length bs - 1) (last bs))
-    $ foldr1 lcAdd
-    $ zipWith lcScale (map twoPow [0 ..]) (init bs)
+deBitify :: KnownNat n => Bool -> [LSig n] -> LSig n
+deBitify signed bs =
+  let lowBits    = foldr1 lcAdd $ zipWith lcScale (map twoPow [0 ..]) (init bs)
+      highBitPos = lcScale (toP $ 2 ^ (length bs - 1)) $ last bs
+      highBit    = if signed then lcNeg highBitPos else highBitPos
+  in  lcAdd lowBits highBit
 
 data BvOpKind = Arith | Bit | Shift
 
@@ -485,7 +475,8 @@ bvToPf env term = do
             ["width", show w, "is not a power of 2: bitsize is", show b]
           let rightBits' = take b rightBits
           -- Fits in log w bits
-          enforceCheck (lcZero, lcZero, lcSub (deBitify rightBits') rightInt)
+          enforceCheck
+            (lcZero, lcZero, lcSub (deBitify False rightBits') rightInt)
           -- Shift `x` left by (2 ^ `n`) if bit `b` is true
           -- Done by computing
           --   s = (2 ^ (2 ^ n) - 1) b + 1
@@ -514,19 +505,14 @@ bvToPf env term = do
               shiftInt li' Nothing
             BvLshr -> do
               l' <- fromJust <$> getIntBits l
-              reverse <$> shiftInt (deBitify $ reverse l') Nothing
+              reverse <$> shiftInt (deBitify False $ reverse l') Nothing
             BvAshr -> do
               l' <- fromJust <$> getIntBits l
-              reverse <$> shiftInt (deBitify $ reverse l') (Just $ last l')
+              reverse
+                <$> shiftInt (deBitify False $ reverse l') (Just $ last l')
             _ -> unhandledOp op
           saveIntBits bv bs
     _ -> error $ unwords ["Cannot translate", show bv]
-
-data Signedness = Signed | Unsigned deriving(Show)
-isSigned :: Signedness -> Bool
-isSigned = \case
-  Signed   -> True
-  Unsigned -> False
 
 -- Embed this (dynamic) bit-vector predicate in the constraint system,
 -- returning a signal which is 1 if the predicate is satisfied, and 0
@@ -552,22 +538,21 @@ bvPredToPf env predicate width l r = do
     BvSge -> signedGreater width False l r
     BvSle -> signedGreater width False r l
     _     -> do
-      l' <- deBitifySigned . fromJust <$> getIntBits l
-      r' <- deBitifySigned . fromJust <$> getIntBits r
+      l' <- deBitify True . fromJust <$> getIntBits l
+      r' <- deBitify True . fromJust <$> getIntBits r
       case predicate of
-        BvSaddo -> lcNot <$> inBits Signed width (lcAdd l' r')
-        BvSsubo -> lcNot <$> inBits Signed width (lcSub l' r')
-        BvSmulo ->
-          lcNot <$> (inBits Signed width =<< lcMul "muloverflow" l' r')
-        _ -> error "unreachable"
+        BvSaddo -> lcNot <$> inBits True width (lcAdd l' r')
+        BvSsubo -> lcNot <$> inBits True width (lcSub l' r')
+        BvSmulo -> lcNot <$> (inBits True width =<< lcMul "BvSmulo" l' r')
+        _       -> error "unreachable"
  where
   signedGreater
     :: KnownNat n => Int -> Bool -> TermDynBv -> TermDynBv -> ToPf n (LSig n)
   signedGreater w strict a b = do
     -- Strategy: To set r = a > b, make r indicate whether a - b - 1 is a small
     -- positive value.
-    a' <- deBitifySigned . fromJust <$> getIntBits a
-    b' <- deBitifySigned . fromJust <$> getIntBits b
+    a' <- deBitify True . fromJust <$> getIntBits a
+    b' <- deBitify True . fromJust <$> getIntBits b
     lcGt w (if strict then lcSub a' lcOne else a') b'
   unsignedGreater
     :: KnownNat n => Int -> Bool -> TermDynBv -> TermDynBv -> ToPf n (LSig n)
@@ -578,37 +563,12 @@ bvPredToPf env predicate width l r = do
     b' <- fst . fromJust <$> getInt b
     lcGt w (if strict then lcSub a' lcOne else a') b'
   -- Does `number` fit in `w` `signed` bits?
-  inBits :: KnownNat n => Signedness -> Int -> LSig n -> ToPf n (LSig n)
+  inBits :: KnownNat n => Bool -> Int -> LSig n -> ToPf n (LSig n)
   inBits signed w number = do
-    -- let s (bitSum) be a sum of n bits...
-    -- To enforce r <-> s = x, we reduce this constraint as follows...
-    --
-    -- 1. r(1-r) = 0    // done (emit this constraint as R1CS)
-    --    r <-> s = x
-    --
-    -- 2. (s - x) = 0 -> r = 1
-    --    (s - x) /= 0 -> r = 0
-    --
-    -- 3. (s - x) /= 0 or r = 1
-    --    (s - x) = 0 or r = 0 // done, as (s - x)r = 0
-    --
-    -- 4. (s - x + r) /= 0 // done as exists i. (s - x + r)i = 1
-    --
-    -- There is some stuff going on with the last step that is a bit tricky.
-    -- It takes advantage of the fact that when r = 1, the second constraint
-    -- forces (s - x) to be 0
     bs <- nbits "inBits" $ asBits w $ snd number
-    let bitSum = (if isSigned signed then deBitifySigned else deBitify) bs
-    result <-
-      nextBit "inBits"
-      $   fitsInBits (isSigned signed) w
-      <$> snd number
-    let zeroIffTrue = lcSub bitSum number
-    enforceCheck (zeroIffTrue, result, lcZero)
-    enforceNonzero $ lcAdd zeroIffTrue result
-    return result
+    binEq number $ deBitify signed bs
   lcGt :: KnownNat n => Int -> LSig n -> LSig n -> ToPf n (LSig n)
-  lcGt w a b = inBits Unsigned w (lcSub a b)
+  lcGt w a b = inBits False w (lcSub a b)
 
 
 -- # Top Level
@@ -631,8 +591,7 @@ toPf inputs bs = do
   return $ r1cs $ snd s
 
 toPfWithWit
-  :: forall n
-   . KnownNat n
+  :: KnownNat n
   => SmtVals
   -> Set.Set PfVar
   -> [TermBool]
