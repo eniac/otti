@@ -21,7 +21,7 @@ type Order
 constraintCountTest :: String -> [TermBool] -> Int -> BenchTest
 constraintCountTest name terms nConstraints =
   benchTestCase (nameWithConstraints name nConstraints) $ do
-    cs <- toPf @Order Set.empty terms
+    cs <- toPf @Order Nothing Set.empty terms
     when (nConstraints /= length (constraints cs)) $ putStrLn "" >> putStrLn
       (r1csShow cs)
     nConstraints @=? length (constraints cs)

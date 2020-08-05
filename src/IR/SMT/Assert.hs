@@ -15,9 +15,10 @@ import qualified IR.SMT.TySmt                  as Ty
 
 -- | State for keeping track of SMT-layer information
 data AssertState = AssertState { vars         :: M.Map String Dyn.Dynamic
-                         , asserted     :: [Ty.Term Ty.BoolSort]
-                         }
-                         deriving (Show)
+                               , asserted     :: [Ty.Term Ty.BoolSort]
+                               --, vals         :: M.Map String Dyn.Dynamic
+                               }
+                               deriving (Show)
 
 newtype Assert a = Assert (StateT AssertState IO a)
     deriving (Functor, Applicative, Monad, MonadState AssertState, MonadIO)
@@ -46,6 +47,9 @@ assign a b = assert $ Ty.Eq a b
 
 implies :: Ty.Term Ty.BoolSort -> Ty.Term Ty.BoolSort -> Assert ()
 implies a b = assert $ Ty.BoolBinExpr Ty.Implies a b
+--
+--setValue :: Ty.SortClass s => String -> Ty.Value s -> Assert ()
+--setValue name value = modify $ \s -> s { vals = M.insert name (Dyn.toDyn value) $ vals s }
 
 -- REMOVE
 -- getVars :: Assert (M.Map String Dyn.Dynamic)
