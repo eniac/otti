@@ -15,16 +15,11 @@ import           IR.R1cs                        ( R1CS(..)
                                                 , r1csShow
                                                 , r1csCheck
                                                 )
-import           GHC.TypeNats
 import qualified Data.BitVector                as Bv
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
 import           Data.Either                    ( isRight )
-import           Data.Field.Galois              ( Prime
-                                                , toP
-                                                , fromP
-                                                )
 import qualified Data.Map.Strict               as Map
 import qualified Data.Set                      as Set
 import           IR.SMT.TySmt
@@ -261,6 +256,16 @@ toPfTests = benchTestGroup
     , satBinBvOpTest4b "i >> 0 (logical)"       BvLshr 8  0
     , satBinBvOpTest4b "i >> 1 (logical)"       BvLshr 13 1
     , satBinBvOpTest4b "i >> max (logical)"     BvLshr 15 3
+    , satBinBvOpTest4b "i // j (i << j)"        BvUdiv 1  8
+    , satBinBvOpTest4b "i // j (i < j)"         BvUdiv 7  8
+    , satBinBvOpTest4b "i // j (i = j)"         BvUdiv 8  8
+    , satBinBvOpTest4b "i // j (i > j)"         BvUdiv 9  8
+    , satBinBvOpTest4b "i // j (i >> j)"        BvUdiv 15 2
+    , satBinBvOpTest4b "i %  j (i << j)"        BvUrem 1  8
+    , satBinBvOpTest4b "i %  j (i < j)"         BvUrem 7  8
+    , satBinBvOpTest4b "i %  j (i = j)"         BvUrem 8  8
+    , satBinBvOpTest4b "i %  j (i > j)"         BvUrem 9  8
+    , satBinBvOpTest4b "i %  j (i >> j)"        BvUrem 15 2
     ]
   ]
  where

@@ -46,6 +46,7 @@ import           Data.Field.Galois              ( Prime
                                                 , fromP
                                                 )
 import           Data.Maybe                     ( isNothing
+                                                , fromMaybe
                                                 , fromJust
                                                 )
 import qualified Data.Map.Strict               as Map
@@ -118,7 +119,7 @@ asVar :: KnownNat n => String -> Maybe (Prime n) -> ToPf n (LSig n)
 asVar var value = do
   case value of
     Just v -> modify $ \s -> s { vals = Map.insert var v $ vals s }
-    _      -> return ()
+    _ -> return ()
   return (LD.lcSig var, value)
 
 ensureVarsQeq :: KnownNat n => QEQ PfVar (Prime n) -> ToPf n ()
@@ -215,8 +216,8 @@ boolToPf env term = do
       Nothing -> do
         let abv = fromJust $ cast a
             bbv = fromJust $ cast b
-        a' <- bvToPf env abv >> (fst . fromJust <$> getInt abv)
-        b' <- bvToPf env bbv >> (fst . fromJust <$> getInt bbv)
+        a' <- bvToPf env abv >> getInt abv
+        b' <- bvToPf env bbv >> getInt bbv
         binEq a' b'
     BoolLit b -> return $ lcShift (toP $ fromIntegral $ fromEnum b) lcZero
     Not     a            -> lcNot <$> boolToPf env a
@@ -332,7 +333,7 @@ initIntEntry :: TermDynBv -> ToPf n ()
 initIntEntry t =
   modify $ \s -> s { ints = SMap.insertWith (const id) t bvEntryEmpty $ ints s }
 
-
+-- Saving transalations
 saveInt :: TermDynBv -> (LSig n, Int) -> ToPf n ()
 saveInt term sig = initIntEntry term >> modify
   (\s -> s { ints = SMap.adjust (\e -> e { int = Just sig }) term $ ints s })
@@ -341,20 +342,27 @@ saveIntBits :: TermDynBv -> [LSig n] -> ToPf n ()
 saveIntBits term bits_ = initIntEntry term >> modify
   (\s -> s { ints = SMap.adjust (\e -> e { bits = Just bits_ }) term $ ints s })
 
-getInt :: KnownNat n => TermDynBv -> ToPf n (Maybe (LSig n, Int))
-getInt term = do
+-- Fetching transalations
+getInt :: KnownNat n => TermDynBv -> ToPf n (LSig n)
+getInt term = fromMaybe (error $ "No int for " ++ show term) <$> getIntM term
+
+getSignedInt :: KnownNat n => TermDynBv -> ToPf n (LSig n)
+getSignedInt term = deBitify True <$> getIntBits term
+
+getIntM :: KnownNat n => TermDynBv -> ToPf n (Maybe (LSig n))
+getIntM term = do
   e <- gets (SMap.lookup term . ints)
   case e >>= int of
-    Just i  -> return $ Just i
+    Just i  -> return $ Just $ fst i
     Nothing -> case e >>= bits of
       Just bs -> do
         let i = deBitify False bs
         saveInt term (i, length bs)
-        return $ Just (i, length bs)
+        return $ Just i
       Nothing -> return Nothing
 
-getIntBits :: KnownNat n => TermDynBv -> ToPf n (Maybe [LSig n])
-getIntBits term = do
+getIntBits :: KnownNat n => TermDynBv -> ToPf n [LSig n]
+getIntBits term = fromMaybe (error $ "No bits for " ++ show term) <$> do
   e <- gets (SMap.lookup term . ints)
   case e >>= bits of
     Just bs -> return $ Just bs
@@ -388,13 +396,19 @@ asBits width i = case i of
     in  map (Just . Bits.testBit bv) [0 .. (width - 1)]
   Nothing -> replicate width Nothing
 
-
+-- Require `x` to fit in `width` unsigned bits
 bitify :: KnownNat n => String -> LSig n -> Int -> ToPf n [LSig n]
 bitify ctx x width = do
   sigs <- nbits ctx $ asBits width $ snd x
   let sum' = foldr1 lcAdd $ zipWith lcScale (map twoPow [0 ..]) sigs
   enforceCheck (lcZero, lcZero, lcSub sum' x)
   return sigs
+
+-- Does `number` fit in `w` `signed` bits?
+inBits :: KnownNat n => Bool -> Int -> LSig n -> ToPf n (LSig n)
+inBits signed w number = do
+  bs <- nbits "inBits" $ asBits w $ snd number
+  binEq number $ deBitify signed bs
 
 deBitify :: KnownNat n => Bool -> [LSig n] -> LSig n
 deBitify signed bs =
@@ -403,11 +417,11 @@ deBitify signed bs =
       highBit    = if signed then lcNeg highBitPos else highBitPos
   in  lcAdd lowBits highBit
 
-data BvOpKind = Arith | Bit | Shift
+data BvOpKind = Division | Arith | Bit | Shift
 
 bvToPf :: forall n . KnownNat n => Maybe SmtVals -> TermDynBv -> ToPf n ()
 bvToPf env term = do
-  entry <- getInt term
+  entry <- getIntM term
   when (isNothing entry) $ bvToPfUncached term
  where
   unhandledOp = unhandled "bv operator in bvToPf"
@@ -416,23 +430,22 @@ bvToPf env term = do
     BvAdd  -> Arith
     BvMul  -> Arith
     BvSub  -> Arith
+    BvUrem -> Division
+    BvUdiv -> Division
     BvOr   -> Bit
     BvAnd  -> Bit
     BvXor  -> Bit
     BvShl  -> Shift
     BvLshr -> Shift
     BvAshr -> Shift
-    _      -> unhandledOp o
 
   lookupIntVal :: String -> Maybe (Prime n)
   lookupIntVal name =
-    toP
-      .   toInteger
-      .   fromEnum
-      .   Bv.nat
-      .   valAsDynBv
+    bvValToPf
       .   flip fromDyn (error $ name ++ " has wrong type")
-      <$> (env >>= (Map.!? name))
+      .   (Map.! name)
+      <$> env
+  bvValToPf = toP . Bv.nat . valAsDynBv
 
   -- Uncached
   bvToPfUncached :: KnownNat n => TermDynBv -> ToPf n ()
@@ -443,24 +456,45 @@ bvToPf env term = do
       bs <- bitify name i w
       saveIntBits bv bs
       saveInt bv (i, w)
+    DynBvUnExpr BvNeg w x -> do
+      x' <- getInt x
+      saveInt bv (lcSub (lcConst $ 2 ^ w) x', w)
+    DynBvUnExpr BvNot _ x -> do
+      x' <- getIntBits x
+      saveIntBits bv $ map lcNeg x'
     DynBvBinExpr op w l r -> do
       bvToPf env l
       bvToPf env r
       case bvOpKind op of
+        Division -> do
+          d <- getInt l
+          m <- getInt r
+          let dv = fromP <$> snd d
+          let mv = fromP <$> snd m
+          q  <- nextVar "div_q" $ toP <$> liftA2 div dv mv
+          r' <- nextVar "div_r" $ toP <$> liftA2 rem dv mv
+          enforceCheck (m, q, lcSub d r')
+          qb <- bitify "quotient" q w
+          rb <- bitify "remainder" r' w
+          enforceTrue =<< lcGt w (lcSub m lcOne) r'
+          saveIntBits bv $ case op of
+            BvUdiv -> qb
+            BvUrem -> rb
+            _      -> unhandledOp op
         Arith -> do
-          l'           <- fst . fromJust <$> getInt l
-          r'           <- fst . fromJust <$> getInt r
-          (resSig, w') <- case op of
-            BvAdd -> return (lcAdd l' r', w + 1)
+          l'        <- getInt l
+          r'        <- getInt r
+          (res, w') <- case op of
+            BvAdd -> pure (lcAdd l' r', w + 1)
             BvSub ->
-              return (lcShift (twoPow $ fromIntegral w) $ lcSub l' r', w + 1)
+              pure (lcShift (twoPow $ fromIntegral w) $ lcSub l' r', w + 1)
             BvMul -> (, 2 * w) <$> lcMul "mul" l' r'
             _     -> unhandledOp op
-          bs <- bitify "arith" resSig w'
+          bs <- bitify "arith" res w'
           saveIntBits bv (take w bs)
         Bit -> do
-          l' <- fromJust <$> getIntBits l
-          r' <- fromJust <$> getIntBits r
+          l' <- getIntBits l
+          r' <- getIntBits r
           bs <- case op of
             BvOr  -> traverse id $ zipWith binOr l' r'
             BvAnd -> traverse id $ zipWith binAnd l' r'
@@ -468,8 +502,8 @@ bvToPf env term = do
             _     -> unhandledOp op
           saveIntBits bv bs
         Shift -> do
-          rightInt  <- fst . fromJust <$> getInt r
-          rightBits <- fromJust <$> getIntBits r
+          rightInt  <- getInt r
+          rightBits <- getIntBits r
           let b = bitsize $ w - 1
           unless (2 ^ b == w) $ error $ unwords
             ["width", show w, "is not a power of 2: bitsize is", show b]
@@ -487,7 +521,7 @@ bvToPf env term = do
                 in  lcMul (label "shift") s x
           -- Shift `leftInt` left by `rightInt`, above.
           -- If `lowBit` is not Nothing, extend it over the shift
-          let shiftInt leftInt lowBit = do
+          let shiftInt lowBit leftInt = do
                 let shiftByR v = foldM optPowerShift v (zip [0 ..] rightBits')
                 shifted        <- shiftByR leftInt
                 shiftedWithExt <- case lowBit of
@@ -500,16 +534,14 @@ bvToPf env term = do
                 resultBits <- bitify "shift" shiftedWithExt (2 * w - 1)
                 return $ take w resultBits
           bs <- case op of
-            BvShl -> do
-              li' <- fst . fromJust <$> getInt l
-              shiftInt li' Nothing
+            BvShl  -> getInt l >>= shiftInt Nothing
             BvLshr -> do
-              l' <- fromJust <$> getIntBits l
-              reverse <$> shiftInt (deBitify False $ reverse l') Nothing
+              l' <- getIntBits l
+              reverse <$> shiftInt Nothing (deBitify False $ reverse l')
             BvAshr -> do
-              l' <- fromJust <$> getIntBits l
+              l' <- getIntBits l
               reverse
-                <$> shiftInt (deBitify False $ reverse l') (Just $ last l')
+                <$> shiftInt (Just $ last l') (deBitify False $ reverse l')
             _ -> unhandledOp op
           saveIntBits bv bs
     _ -> error $ unwords ["Cannot translate", show bv]
@@ -529,47 +561,41 @@ bvPredToPf env predicate width l r = do
   bvToPf env l
   bvToPf env r
   case predicate of
-    BvUgt -> unsignedGreater width True l r
-    BvUlt -> unsignedGreater width True r l
-    BvUge -> unsignedGreater width False l r
-    BvUle -> unsignedGreater width False r l
-    BvSgt -> signedGreater width True l r
-    BvSlt -> signedGreater width True r l
-    BvSge -> signedGreater width False l r
-    BvSle -> signedGreater width False r l
+    BvUgt -> greater width False True l r
+    BvUlt -> greater width False True r l
+    BvUge -> greater width False False l r
+    BvUle -> greater width False False r l
+    BvSgt -> greater width True True l r
+    BvSlt -> greater width True True r l
+    BvSge -> greater width True False l r
+    BvSle -> greater width True False r l
     _     -> do
-      l' <- deBitify True . fromJust <$> getIntBits l
-      r' <- deBitify True . fromJust <$> getIntBits r
+      l' <- getSignedInt l
+      r' <- getSignedInt r
       case predicate of
+        -- TODO: Better way? E.g. check overflow bits or something?
         BvSaddo -> lcNot <$> inBits True width (lcAdd l' r')
         BvSsubo -> lcNot <$> inBits True width (lcSub l' r')
         BvSmulo -> lcNot <$> (inBits True width =<< lcMul "BvSmulo" l' r')
         _       -> error "unreachable"
- where
-  signedGreater
-    :: KnownNat n => Int -> Bool -> TermDynBv -> TermDynBv -> ToPf n (LSig n)
-  signedGreater w strict a b = do
-    -- Strategy: To set r = a > b, make r indicate whether a - b - 1 is a small
-    -- positive value.
-    a' <- deBitify True . fromJust <$> getIntBits a
-    b' <- deBitify True . fromJust <$> getIntBits b
-    lcGt w (if strict then lcSub a' lcOne else a') b'
-  unsignedGreater
-    :: KnownNat n => Int -> Bool -> TermDynBv -> TermDynBv -> ToPf n (LSig n)
-  unsignedGreater w strict a b = do
-    -- Strategy: To set r = a > b, make r indicate whether a - b - 1 is a small
-    -- positive value.
-    a' <- fst . fromJust <$> getInt a
-    b' <- fst . fromJust <$> getInt b
-    lcGt w (if strict then lcSub a' lcOne else a') b'
-  -- Does `number` fit in `w` `signed` bits?
-  inBits :: KnownNat n => Bool -> Int -> LSig n -> ToPf n (LSig n)
-  inBits signed w number = do
-    bs <- nbits "inBits" $ asBits w $ snd number
-    binEq number $ deBitify signed bs
-  lcGt :: KnownNat n => Int -> LSig n -> LSig n -> ToPf n (LSig n)
-  lcGt w a b = inBits False w (lcSub a b)
 
+-- Is `a` greater than `b`, for varying width, signedness, and strictness.
+greater
+  :: KnownNat n
+  => Int
+  -> Bool
+  -> Bool
+  -> TermDynBv
+  -> TermDynBv
+  -> ToPf n (LSig n)
+greater width signed strict a b =
+  let valueGetter = if signed then getSignedInt else getInt
+      shifter     = if strict then flip lcSub lcOne else id
+  in  join $ liftM2 (lcGt width) (shifter <$> valueGetter a) (valueGetter b)
+
+-- Is `x` greater than `y`, assuming both fit in `w` bits?
+lcGt :: KnownNat n => Int -> LSig n -> LSig n -> ToPf n (LSig n)
+lcGt width x y = inBits False width (lcSub x y)
 
 -- # Top Level
 
