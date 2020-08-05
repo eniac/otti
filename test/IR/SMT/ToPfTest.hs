@@ -8,10 +8,24 @@ where
 import           Control.Monad
 import           BenchUtils
 import           Test.Tasty.HUnit
-import           IR.SMT.ToPf                    ( toPf )
+import           IR.SMT.ToPf                    ( toPf
+                                                , toPfWithWit
+                                                )
 import           IR.R1cs                        ( R1CS(..)
                                                 , r1csShow
+                                                , r1csCheck
                                                 )
+import           GHC.TypeNats
+import qualified Data.BitVector                as Bv
+import           Data.Dynamic                   ( Dynamic
+                                                , toDyn
+                                                )
+import           Data.Either                    ( isRight )
+import           Data.Field.Galois              ( Prime
+                                                , toP
+                                                , fromP
+                                                )
+import qualified Data.Map.Strict               as Map
 import qualified Data.Set                      as Set
 import           IR.SMT.TySmt
 
@@ -21,7 +35,7 @@ type Order
 constraintCountTest :: String -> [TermBool] -> Int -> BenchTest
 constraintCountTest name terms nConstraints =
   benchTestCase (nameWithConstraints name nConstraints) $ do
-    cs <- toPf @Order Nothing Set.empty terms
+    cs <- toPf @Order Set.empty terms
     when (nConstraints /= length (constraints cs)) $ putStrLn "" >> putStrLn
       (r1csShow cs)
     nConstraints @=? length (constraints cs)
@@ -50,6 +64,22 @@ andOrScalingTest op arity =
                           [BoolNaryExpr op (bvs arity)]
                           nC
 
+bVal :: String -> Bool -> (String, Dynamic)
+bVal s b = (s, toDyn $ ValBool b)
+
+iVal :: String -> Int -> Integer -> (String, Dynamic)
+iVal s w i = (s, toDyn $ ValDynBv $ Bv.bitVec w i)
+
+satTest :: String -> [(String, Dynamic)] -> [TermBool] -> BenchTest
+satTest name env assertions = benchTestCase name $ do
+  let e = Map.fromList env
+  -- Check SMT satisfaction first
+  forM_ assertions $ \a -> ValBool True @=? eval e a
+  -- Compute R1CS translation
+  (cs, wit) <- toPfWithWit @Order e Set.empty assertions
+  -- Check R1CS satisfaction
+  let checkResult = r1csCheck wit cs
+  isRight checkResult @? show checkResult
 
 toPfTests :: BenchTest
 toPfTests = benchTestGroup
@@ -122,14 +152,54 @@ toPfTests = benchTestGroup
       [ mkDynBvEq (mkDynBvBinExpr BvAshr (int "x" 16) (int "y" 16))
                   (IntToDynBv 16 $ IntLit 17)
       ]
-      (let inputBounds = 17 * 2
-           shiftRBound = 1
-           shiftMults  = 4
-           shiftExtMults  = 4
-           sumSplit    = 16 * 2
-           eq          = 3
-           forceBool   = 1
-       in  inputBounds + shiftRBound + shiftMults + shiftExtMults + sumSplit + eq + forceBool
+      (let inputBounds   = 17 * 2
+           shiftRBound   = 1
+           shiftMults    = 4
+           shiftExtMults = 4
+           sumSplit      = 16 * 2
+           eq            = 3
+           forceBool     = 1
+       in  inputBounds
+             + shiftRBound
+             + shiftMults
+             + shiftExtMults
+             + sumSplit
+             + eq
+             + forceBool
       )
     ]
+  , benchTestGroup
+    "boolean witness tests"
+    [ satTest "t" [bVal "a" True] [bv "a"]
+    , satTest "xor(t, f)"
+              [bVal "a" True, bVal "b" False]
+              [BoolNaryExpr Xor [bv "a", bv "b"]]
+    , satTest "xor(f, t)"
+              [bVal "a" False, bVal "b" True]
+              [BoolNaryExpr Xor [bv "a", bv "b"]]
+    , satTest "or(not(xor(f, f)),and(t,f,t))"
+              [bVal "a" False, bVal "b" True, bVal "c" False]
+              [o [n (x [bv "a", bv "c"]), a [bv "b", bv "c", t]]]
+    , satTest "not(implies(not(xor(f, f)),and(t,f,t)))"
+              [bVal "a" False, bVal "b" True, bVal "c" False]
+              [n $ i (n (x [bv "a", bv "c"])) (a [bv "b", bv "c", t])]
+    , satTest "or(eq(f, t), eq(f, f))"
+              [bVal "a" False, bVal "b" True, bVal "c" False]
+              [o [e (bv "a") (bv "b"), e (bv "a") (bv "c")]]
+    , satTest "or(t, not(f), t, not(f), t, not(f), ...)"
+              [bVal "a" False, bVal "b" True, bVal "c" False]
+              [o $ take 10 $ cycle [bv "b", n (bv "a")]]
+    , satTest "and(t, not(f), t, not(f), t, not(f), ...)"
+              [bVal "a" False, bVal "b" True, bVal "c" False]
+              [a $ take 10 $ cycle [bv "b", n (bv "a")]]
+    ]
   ]
+ where
+  t = BoolLit True
+  n = Not
+  f = BoolLit False
+  o = BoolNaryExpr Or
+  x = BoolNaryExpr Xor
+  e = Eq
+  a = BoolNaryExpr And
+  i = BoolBinExpr Implies

@@ -7,6 +7,7 @@
 {-# LANGUAGE PolyKinds #-}
 module IR.SMT.ToPf
   ( toPf
+  , toPfWithWit
   )
 where
 
@@ -24,10 +25,11 @@ import qualified Codegen.Circom.CompTypes.LowDeg
 import           IR.R1cs                        ( R1CS
                                                 , emptyR1cs
                                                 , r1csAddConstraint
-                                                , r1csAddSignal
                                                 , r1csEnsureSignal
                                                 , r1csAddSignals
                                                 , r1csPublicizeSignal
+                                                , qeqShow
+                                                , primeShow
                                                 )
 import qualified IR.R1cs                       as R1cs
 import qualified Util.ShowMap                  as SMap
@@ -35,7 +37,6 @@ import           Util.ShowMap                   ( ShowMap )
 import qualified Data.Bits                     as Bits
 import qualified Data.BitVector                as Bv
 import           Data.Dynamic                   ( Dynamic
-                                                , toDyn
                                                 , fromDyn
                                                 )
 import           Data.Field.Galois              ( Prime
@@ -44,11 +45,13 @@ import           Data.Field.Galois              ( Prime
                                                 )
 import           Data.Maybe                     ( isNothing
                                                 , fromJust
+                                                , fromMaybe
                                                 )
 import qualified Data.Map.Strict               as Map
 import           Data.Proxy                     ( Proxy(..) )
 import qualified Data.Set                      as Set
 import           Data.Typeable                  ( cast )
+import           Debug.Trace
 
 type PfVar = String
 type SmtVals = Map.Map String Dynamic
@@ -84,8 +87,13 @@ enforce qeq = ensureVarsQeq qeq
 enforceCheck :: KnownNat n => (LSig n, LSig n, LSig n) -> ToPf n ()
 enforceCheck ((a, av), (b, bv), (c, cv)) = do
   case (av, bv, cv) of
-    (Just x, Just y, Just z) ->
-      if x * y == z then return () else error "violation"
+    (Just x, Just y, Just z) -> if x * y == z
+      then return ()
+      else error $ unwords $
+        [ "The QEQ"
+        , qeqShow (a, b, c)
+        , "is not satisfied"
+        ] ++ map primeShow [x, y, z]
     _ -> return ()
   enforce (a, b, c)
 
@@ -109,7 +117,9 @@ nextVar name value = do
 asVar :: KnownNat n => String -> Maybe (Prime n) -> ToPf n (LSig n)
 asVar var value = do
   case value of
-    Just v -> modify $ \s -> s { vals = Map.insert var v $ vals s }
+    Just v -> do
+      modify $ \s -> s { vals = Map.insert var v $ vals s }
+      liftIO $ putStrLn $ var ++ " -> " ++ primeShow v
     _      -> return ()
   return (LD.lcSig var, value)
 
@@ -267,21 +277,21 @@ binOr a b = naryOr [a, b]
 
 impl :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 impl a b = do
-  v <- nextVar "impl" (liftA2 (\x y -> toP 1 - (toP 1 - x) * y) (snd a) (snd b))
+  v <- nextVar "impl" (liftA2 (\hyp conc -> toP 1 - hyp * (toP 1 - conc)) (snd a) (snd b))
   enforceCheck (a, lcNot b, lcNot v)
   return v
 
 bitEq :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 bitEq a b = do
-  let net = lcAdd a b
-  v <- nextBit "eq" $ liftA2 (==) (snd a) (snd b)
-  let carry = lcScale (recip $ toP 2) $ lcSub net (lcNeg v)
-  enforceBit carry
-  return v
+  eq <- nextBit "bitEq" $ liftA2 (==) (snd a) (snd b)
+  let onesPlace = lcNot eq
+  let twosPlace = lcSub (lcAdd a b) onesPlace
+  enforceCheck (twosPlace, lcSub twosPlace (lcConst 2), lcZero)
+  return eq
 
 binEq :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 binEq a b = do
-  v <- nextBit "eq" $ liftA2 (==) (snd a) (snd b)
+  v <- nextBit "binEq" $ liftA2 (==) (snd a) (snd b)
   enforceCheck (lcSub a b, v, lcZero)
   enforceNonzero $ lcAdd (lcSub a b) v
   return v
@@ -372,7 +382,7 @@ asBits :: KnownNat n => Int -> Maybe (Prime n) -> [Maybe Bool]
 asBits width i = case i of
   Just i' ->
     let bv = Bv.bitVec width (2 ^ width + fromP i')
-    in  map (Just . Bits.testBit bv) [1 .. width]
+    in  map (Just . Bits.testBit bv) [0 .. (width - 1)]
   Nothing -> replicate width Nothing
 
 
@@ -607,14 +617,20 @@ publicizeInputs is = do
   modify $ \s -> s { r1cs = r1csAddSignals (Set.toList is) $ r1cs s }
   forM_ is $ \i -> modify $ \s -> s { r1cs = r1csPublicizeSignal i $ r1cs s }
 
-toPf
-  :: KnownNat n
-  => Maybe SmtVals
+toPf :: KnownNat n => Set.Set PfVar -> [TermBool] -> IO (R1CS PfVar n)
+toPf inputs bs = do
+  s <- runToPf (publicizeInputs inputs >> forM_ bs (enforceAsPf Nothing))
+               emptyState
+  return $ r1cs $ snd s
+
+toPfWithWit
+  :: forall n
+   . KnownNat n
+  => SmtVals
   -> Set.Set PfVar
   -> [TermBool]
-  -> IO (R1CS PfVar n)
-toPf env inputs bs =
-  r1cs
-    .   snd
-    <$> runToPf (publicizeInputs inputs >> forM_ bs (enforceAsPf env))
-                emptyState
+  -> IO (R1CS PfVar n, PfVals n)
+toPfWithWit env inputs bs = do
+  s <- runToPf (publicizeInputs inputs >> forM_ bs (enforceAsPf $ Just env))
+               emptyState
+  return (r1cs $ snd s, vals $ snd s)

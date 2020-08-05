@@ -57,7 +57,7 @@ emitFnAsR1cs tu fnName path = do
   fn <- transFn tu fnName
   let pubVars = Set.insert (output fn) $ Set.fromList $ inputs fn
   -- TODO: Use R1CS for optimization
-  r <- toPf @n Nothing pubVars $ eqElim pubVars $ map constantFold $ assertions fn
+  r <- toPf @n pubVars $ eqElim pubVars $ map constantFold $ assertions fn
   putStrLn $ r1csStats r
   let r' = Opt.opt r
   putStrLn $ r1csStats r'
