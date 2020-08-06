@@ -238,7 +238,7 @@ boolToPf env term = do
       c' <- boolToPf env c
       t' <- boolToPf env t_
       f' <- boolToPf env f
-      v  <- nextVar "ite" $ liftA3 (?) ((/= toP 1) <$> snd c') (snd t') (snd f')
+      v  <- nextVar "ite" $ liftA3 (?) ((/= toP 0) <$> snd c') (snd t') (snd f')
       enforceCheck (c', lcSub v t', lcZero)
       enforceCheck (lcNot c', lcSub v f', lcZero)
       return v
