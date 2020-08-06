@@ -8,6 +8,7 @@ module Codegen.C.CToR1cs
   )
 where
 
+import Control.Monad
 import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.Assert                 as Assert
 import qualified Language.C.Syntax.AST         as AST
@@ -81,17 +82,21 @@ fnToR1cs opt tu fnName = do
 fnToR1csWithWit
   :: forall n
    . KnownNat n
-  => Maybe (Map.Map String Integer)
+  => Map.Map String Integer
   -> Bool
   -> AST.CTranslUnit
   -> String
   -> IO (R1CS String n, Map.Map String (Prime n))
 fnToR1csWithWit inVals opt tu fnName = do
-  fn <- fnToSmt inVals tu fnName
+  fn <- fnToSmt (Just inVals) tu fnName
+  let vs        = fromJust $ vals fn
+  forM_ (assertions fn) $ \a -> do
+    let v = Ty.eval vs a
+    unless (Ty.ValBool True == v) $
+      error $ "eval " ++ show a ++ " gave False"
   let pubVars = Set.insert (output fn) $ Set.fromList $ inputs fn
   let smtOptFn = if opt then eqElim pubVars . map constantFold else id
   let r1csOptFn = if opt then Opt.opt else id
-  let vs        = fromJust $ vals fn
   -- TODO: Use R1CS for optimization
   (r, w) <- toPfWithWit @n vs pubVars $ smtOptFn $ assertions fn
   return (r1csOptFn r, w)

@@ -117,7 +117,10 @@ nextVar name value = do
 asVar :: KnownNat n => String -> Maybe (Prime n) -> ToPf n (LSig n)
 asVar var value = do
   case value of
-    Just v -> modify $ \s -> s { vals = Map.insert var v $ vals s }
+    Just v -> do
+      -- Uncomment to see all variable assignments in ToPf
+      --liftIO $ putStrLn $ var ++ " -> " ++ primeShow v
+      modify $ \s -> s { vals = Map.insert var v $ vals s }
     _ -> return ()
   return (LD.lcSig var, value)
 

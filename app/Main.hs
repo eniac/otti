@@ -12,7 +12,7 @@
 module Main where
 
 import           Control.Exception          (catchJust)
-import           Codegen.C.CToR1cs          (fnToR1cs)
+import           Codegen.C.CToR1cs          (fnToR1cs, fnToR1csWithWit)
 import           Codegen.C                  (checkFn)
 import qualified Codegen.Circom.Compilation as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
@@ -21,6 +21,7 @@ import qualified Codegen.Circom.CompTypes   as CompT
 import qualified Codegen.Circom.Linking     as Link
 import qualified IR.R1cs                    as R1cs
 import qualified IR.R1cs.Opt                as Opt
+import           Data.Field.Galois          (fromP)
 import qualified Data.Map                   as Map
 import qualified Data.IntMap                as IntMap
 import qualified Data.Maybe                 as Maybe
@@ -53,6 +54,7 @@ Usage:
   compiler [options] c-check <fn-name> <path>
   compiler [options] c-emit-r1cs <fn-name> <path>
   compiler [options] c-setup <fn-name> <path>
+  compiler [options] c-prove <fn-name> <path>
 
 Options:
   -h, --help         Display this message
@@ -76,6 +78,7 @@ Commands:
   c-check          Check a C function using an SMT solver
   c-emit-r1cs      Convert a C function to R1CS
   c-setup          Run setup for a C function
+  c-prove          Write proof for a C function
 |]
 
 getArgOrExit :: Arguments -> Option -> IO String
@@ -158,22 +161,36 @@ cmdVerify = runVerify
 
 cmdCCheck :: String -> FilePath -> IO ()
 cmdCCheck name path = do
-  tu <- parseC path
-  r <- checkFn tu name
-  case r of
-    Just s -> putStrLn s
-    Nothing -> pure ()
+    tu <- parseC path
+    r <- checkFn tu name
+    case r of
+      Just s -> putStrLn s
+      Nothing -> pure ()
 
 cmdCEmitR1cs :: Bool -> String -> FilePath -> FilePath -> IO ()
 cmdCEmitR1cs opt fnName cPath r1csPath = do
-  tu <- parseC cPath
-  r1cs <- fnToR1cs @Order opt tu fnName
-  R1cs.writeToR1csFile r1cs r1csPath
+    tu <- parseC cPath
+    r1cs <- fnToR1cs @Order opt tu fnName
+    R1cs.writeToR1csFile r1cs r1csPath
 
 cmdCSetup :: Bool -> FilePath -> String -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdCSetup opt libsnarkPath fnName cPath r1csPath pkPath vkPath = do
-  cmdCEmitR1cs opt fnName cPath r1csPath
-  runSetup libsnarkPath r1csPath pkPath vkPath
+    cmdCEmitR1cs opt fnName cPath r1csPath
+    runSetup libsnarkPath r1csPath pkPath vkPath
+
+cmdCProve :: Bool -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> String -> FilePath -> IO ()
+cmdCProve opt libsnarkPath pkPath vkPath inPath xPath wPath pfPath fnName cPath = do
+    tu <- parseC cPath
+    inputFile <- openFile inPath ReadMode
+    inputsSignals <- Link.parseIntsFromFile inputFile
+    (r1cs, w) <- fnToR1csWithWit @Order inputsSignals opt tu fnName
+    let getOr m_ k = Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
+    let getOrI m_ k = Maybe.fromMaybe (error $ "Missing sig num: " ++ show k) $ m_ IntMap.!? k
+    let lookupSignalVal :: Int -> Integer
+        lookupSignalVal i = fromP $ getOr w $ getOrI (Link.numSigs r1cs) i
+    emitAssignment (map lookupSignalVal [2..(1 + Link.nPublicInputs r1cs)]) xPath
+    emitAssignment (map lookupSignalVal [(2 + Link.nPublicInputs r1cs)..(Link.nextSigNum r1cs - 1)]) wPath
+    runProve libsnarkPath pkPath vkPath xPath wPath pfPath
 
 defaultR1cs :: String
 defaultR1cs = "C"
@@ -229,5 +246,16 @@ main = do
         pkPath <- args `getArgOrExit` shortOption 'P'
         vkPath <- args `getArgOrExit` shortOption 'V'
         cmdCSetup optimize libsnarkPath fnName cPath r1csPath pkPath vkPath
+    else if args `isPresent` command "c-prove" then do
+        libsnarkPath <- args `getArgOrExit` longOption "libsnark"
+        fnName <- args `getArgOrExit` argument "fn-name"
+        cPath <- args `getArgOrExit` argument "path"
+        pkPath <- args `getArgOrExit` shortOption 'P'
+        vkPath <- args `getArgOrExit` shortOption 'V'
+        inPath <- args `getArgOrExit` shortOption 'i'
+        xPath <- args `getArgOrExit` shortOption 'x'
+        wPath <- args `getArgOrExit` shortOption 'w'
+        pfPath <- args `getArgOrExit` shortOption 'p'
+        cmdCProve optimize libsnarkPath pkPath vkPath inPath xPath wPath pfPath fnName cPath
     else
         exitWithUsageMessage patterns "Missing command!"

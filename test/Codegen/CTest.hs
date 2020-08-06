@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE TypeApplications    #-}
 module Codegen.CTest
   ( cTests
   )
@@ -7,22 +9,34 @@ import           BenchUtils
 import           Control.Monad
 import           Codegen.C
 import           Codegen.C.CompilerMonad
+import           Data.Either                    ( isRight )
 import qualified Data.Map                      as M
 import           Data.Maybe                     ( isJust
                                                 , fromJust
                                                 )
+import qualified Data.Set                      as Set
 import           IR.SMT.Assert                  ( execAssert
                                                 , AssertState(..)
                                                 , runAssert
                                                 , asserted
                                                 )
+import           IR.R1cs                        ( R1CS(..)
+                                                , r1csShow
+                                                , r1csCheck
+                                                )
+import           IR.SMT.ToPf                    ( toPfWithWit )
 import qualified IR.SMT.TySmt                  as Ty
 import           Parser.C
 import           Test.Tasty.HUnit
 import           Utils
 
+type Order
+  = 113890009193798365449144652900867294558768981710660728242748762258461992583217
+
 cTests :: BenchTest
-cTests = benchTestGroup "C codegen test" [toSmtTests, ubTests, satCircuitTests]
+cTests = benchTestGroup
+  "C codegen test"
+  [toSmtTests, ubTests, satSmtCircuitTests, satR1csTests]
 
 
 constraintCountTest :: String -> FilePath -> Int -> BenchTest
@@ -56,8 +70,8 @@ ubTests = benchTestGroup
   , ubCheckTest "constant loop" "sum" "test/Code/C/loop.c" False
   ]
 
-satCircuitTest :: String -> String -> FilePath -> BenchTest
-satCircuitTest name fnName path = benchTestCase name $ do
+satSmtCircuitTest :: String -> String -> FilePath -> BenchTest
+satSmtCircuitTest name fnName path = benchTestCase name $ do
   tu                       <- parseC path
   (compState, assertState) <-
     runAssert
@@ -69,9 +83,33 @@ satCircuitTest name fnName path = benchTestCase name $ do
   let env        = fromJust $ values compState
   forM_ assertions $ \a -> Ty.ValBool True @=? Ty.eval env a
 
-satCircuitTests = benchTestGroup
-  "SAT Circuit checks"
-  [ satCircuitTest "constant in if" "sum" "test/Code/C/if.c"
-  , satCircuitTest "constant in if" "sum" "test/Code/C/loop.c"
-  , satCircuitTest "constant in if" "add" "test/Code/C/add_unsigned.c"
+satSmtCircuitTests = benchTestGroup
+  "SAT SMT Circuit checks"
+  [ satSmtCircuitTest "constant in if" "sum" "test/Code/C/if.c"
+  , satSmtCircuitTest "loop"           "sum" "test/Code/C/loop.c"
+  , satSmtCircuitTest "sum"            "add" "test/Code/C/add_unsigned.c"
+  ]
+
+satR1csTest :: String -> String -> FilePath -> BenchTest
+satR1csTest name fnName path = benchTestCase name $ do
+  tu                       <- parseC path
+  (compState, assertState) <-
+    runAssert
+    $  execCodegen False
+    $  initValues
+    >> setDefaultValueZero
+    >> codegenFn tu fnName (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
+  let assertions = asserted assertState
+  let env        = fromJust $ values compState
+  forM_ assertions $ \a -> Ty.ValBool True @=? Ty.eval env a
+  (cs, wit) <- toPfWithWit @Order env Set.empty assertions
+  -- Check R1CS satisfaction
+  let checkResult = r1csCheck wit cs
+  isRight checkResult @? show checkResult
+
+satR1csTests = benchTestGroup
+  "SAT R1cs checks"
+  [ satR1csTest "constant in if" "sum" "test/Code/C/if.c"
+  , satR1csTest "loop"           "sum" "test/Code/C/loop.c"
+  , satR1csTest "sum"            "add" "test/Code/C/add_unsigned.c"
   ]

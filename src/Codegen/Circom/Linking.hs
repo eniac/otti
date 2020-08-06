@@ -8,6 +8,7 @@ module Codegen.Circom.Linking
   , linkMain
   , computeWitnesses
   , parseSignalsFromFile
+  , parseIntsFromFile
   , r1csStats
   , nPublicInputs
   )
@@ -41,7 +42,9 @@ import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
 import           Data.Proxy                     ( Proxy(Proxy) )
-import           System.IO                      ( Handle, hGetContents )
+import           System.IO                      ( Handle
+                                                , hGetContents
+                                                )
 
 newtype LinkState s n a = LinkState (State (R1CS s n) a)
     deriving (Functor, Applicative, Monad, MonadState (R1CS s n))
@@ -78,36 +81,34 @@ link
   -> LD.LowDegCompCtx (Prime n)
   -> LinkState GlobalSignal n ()
 link namespace invocation ctx =
-  let
-    c =
-      Maybe.fromMaybe
-          (error $ "Missing invocation " ++ show invocation ++ " from cache")
-        $      CompT.cache ctx
-        Map.!? invocation
+  let c =
+          Maybe.fromMaybe
+              (error $ "Missing invocation " ++ show invocation ++ " from cache")
+            $      CompT.cache ctx
+            Map.!? invocation
 
-    newSignals :: [Signal]
-    newSignals = map SigLocal $ CompT.ctxOrderedSignals c
+      newSignals :: [Signal]
+      newSignals = map SigLocal $ CompT.ctxOrderedSignals c
 
-    newConstraints :: Seq.Seq (LD.QEQ GlobalSignal (Prime n))
-    newConstraints =
-      Seq.fromList
-        $ map (sigMapQeq (joinName namespace))
-        $ LD.constraints
-        $ CompT.baseCtx c
+      newConstraints :: Seq.Seq (LD.QEQ GlobalSignal (Prime n))
+      newConstraints =
+          Seq.fromList
+            $ map (sigMapQeq (joinName namespace))
+            $ LD.constraints
+            $ CompT.baseCtx c
 
-    components :: Seq.Seq (IndexedIdent, Comp.TemplateInvocation (Prime n))
-    components =
-      foldMap (uncurry $ extractComponents []) $ Map.assocs $ CompT.env c
-  in
-    do
+      components :: Seq.Seq (IndexedIdent, Comp.TemplateInvocation (Prime n))
+      components =
+          foldMap (uncurry $ extractComponents []) $ Map.assocs $ CompT.env c
+  in  do
       -- add our signals
-      modify (r1csAddSignals (map (joinName namespace) newSignals))
-      -- link sub-modules
-      mapM_ (\(loc, inv) -> link (prependNamespace loc namespace) inv ctx)
-            components
-      -- add our constraints
-      modify $ r1csAddConstraints newConstraints
-      return ()
+        modify (r1csAddSignals (map (joinName namespace) newSignals))
+        -- link sub-modules
+        mapM_ (\(loc, inv) -> link (prependNamespace loc namespace) inv ctx)
+              components
+        -- add our constraints
+        modify $ r1csAddConstraints newConstraints
+        return ()
 
 execLink :: KnownNat n => LinkState s n a -> R1CS s n -> R1CS s n
 execLink (LinkState s) = execState s
@@ -256,19 +257,26 @@ parseIndexedIdent s =
   let parts = filter (not . null) $ Split.splitOneOf "[]" s
   in  (head parts, map (read @Int) $ tail parts)
 
+parseIntsFromFile :: Handle -> IO (Map.Map String Integer)
+parseIntsFromFile path = do
+  contents <- hGetContents path
+  return
+    $ Map.fromList
+    $ map
+        (\l -> case words l of
+          [a, b] -> (a, read b)
+          _      -> error $ "Invalid input line: " ++ show l
+        )
+    $ lines contents
+
 parseSignalsFromFile
   :: forall n
    . KnownNat n
   => Proxy n
   -> Handle
   -> IO (Map.Map IndexedIdent (Prime n))
-parseSignalsFromFile _order path = do
-  contents <- hGetContents path
-  return
-    $ Map.fromList
-    $ map
-        (\l -> case words l of
-          [a, b] -> (parseIndexedIdent a, toP $ read b)
-          _      -> error $ "Invalid input line: " ++ show l
-        )
-    $ lines contents
+parseSignalsFromFile _order path =
+  Map.fromList
+    . map (bimap parseIndexedIdent toP)
+    . Map.toAscList
+    <$> parseIntsFromFile path

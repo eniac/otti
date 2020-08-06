@@ -315,9 +315,9 @@ genDeclSMT undef (CDecl specs decls _) = do
       else do
         declareVarSMT name baseType ptrType
         lhs <- genVarSMT name
-        ub  <- gets findUB
-        when ub $ liftAssert $ Assert.assert $ Ty.Eq (udef lhs)
-                                                     (Ty.BoolLit undef)
+        whenM (gets findUB) $ liftAssert $ Assert.assert $ Ty.Eq
+          (udef lhs)
+          (Ty.BoolLit undef)
         case mInit of
           Just (CInitExpr e _) -> do
             rhs <- genExprSMT e
@@ -342,8 +342,7 @@ genFunDef f inVals = do
   let name = nameFromFunc f
       ptrs = ptrsFromFunc f
       tys  = baseTypeFromFunc f
-  checkUndef <- gets findUB
-  retTy      <- ctype tys ptrs
+  retTy <- ctype tys ptrs
   pushFunction name retTy
   -- Declare the arguments and execute the body
   inputsNames    <- forM (argsFromFunc f) (genDeclSMT False)
@@ -360,8 +359,7 @@ genFunDef f inVals = do
     CCompound{} -> genStmtSMT body
     _           -> error "Expected C statement block in function definition"
   returnValue <- getReturn
-  when checkUndef $ do
-    liftAssert $ Assert.assert $ udef returnValue
+  whenM (gets findUB) $ liftAssert $ Assert.assert $ udef returnValue
   popFunction
   return (fullInputNames, fromJust $ asVar returnValue)
 
