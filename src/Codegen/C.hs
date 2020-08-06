@@ -4,6 +4,7 @@ import           AST.C
 import           AST.Simple
 import           Codegen.C.CompilerMonad
 import           Codegen.C.Utils
+import           Control.Applicative
 import           Control.Monad                  ( replicateM_ )
 import           Control.Monad.State.Strict     ( forM
                                                 , forM_
@@ -334,8 +335,9 @@ genDeclSMT undef (CDecl specs decls _) = do
 ---
 
 -- Returns the variable names corresponding to inputs and the return
-genFunDef :: CFunDef -> Compiler ([String], String)
-genFunDef f = do
+genFunDef
+  :: CFunDef -> Maybe (Map.Map String Integer) -> Compiler ([String], String)
+genFunDef f inVals = do
   -- Declare the function and setup the return value
   let name = nameFromFunc f
       ptrs = ptrsFromFunc f
@@ -346,7 +348,12 @@ genFunDef f = do
   -- Declare the arguments and execute the body
   inputsNames    <- forM (argsFromFunc f) (genDeclSMT False)
   fullInputNames <- map ssaVarAsString <$> forM inputsNames getSsaVar
-  forM_ inputsNames zeroAssign
+  def            <- gets defaultValue
+  case inVals of
+    Just i -> forM_ inputsNames $ \n -> initAssign n $ fromMaybe
+      (error $ "Missing value for input " ++ n)
+      ((i Map.!? n) <|> def)
+    Nothing -> return ()
 
   let body = bodyFromFunc f
   case body of
@@ -371,7 +378,7 @@ codegenAll (CTranslUnit decls _) = do
   registerFns decls
   forM_ decls $ \case
     CDeclExt decl -> void $ genDeclSMT True decl
-    CFDefExt fun  -> void $ genFunDef fun
+    CFDefExt fun  -> void $ genFunDef fun Nothing
     CAsmExt asm _ -> genAsm asm
 
 findFn :: String -> [CExtDecl] -> CFunDef
@@ -390,15 +397,19 @@ findFn name decls =
         (namesToFns Map.!? name)
 
 
-codegenFn :: CTranslUnit -> String -> Compiler ([String], String)
-codegenFn (CTranslUnit decls _) name = do
+codegenFn
+  :: CTranslUnit
+  -> String
+  -> Maybe (Map.Map String Integer)
+  -> Compiler ([String], String)
+codegenFn (CTranslUnit decls _) name inVals = do
   registerFns decls
-  genFunDef (findFn name decls)
+  genFunDef (findFn name decls) inVals
 
 
 -- Can a fn exhibit undefined behavior?
 -- Returns a string describing it, if so.
 checkFn :: CTranslUnit -> String -> IO (Maybe String)
 checkFn tu name = do
-  assertions <- Assert.execAssert $ evalCodegen True $ codegenFn tu name
+  assertions <- Assert.execAssert $ evalCodegen True $ codegenFn tu name Nothing
   Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)

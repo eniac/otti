@@ -61,7 +61,7 @@ module Codegen.C.CUtils
   , asVar
   -- evaluation
   , ctermEval
-  , ctermZero
+  , ctermInit
   )
 where
 
@@ -115,12 +115,13 @@ ctermEval env t = case term t of
   CDouble t'  -> toDyn $ Ty.eval env t'
   CPtr _ t'   -> toDyn $ Ty.eval env t'
 
-ctermZero :: AST.Type -> CTerm
-ctermZero ty = mkCTerm
+ctermInit :: AST.Type -> Integer -> CTerm
+ctermInit ty value = mkCTerm
   (case ty of
-    AST.Bool -> CBool (Ty.BoolLit False)
+    AST.Bool -> CBool (Ty.BoolLit (value /= 0))
     _ | AST.isIntegerType ty ->
-      CInt False (AST.numBits ty) (Ty.IntToDynBv (AST.numBits ty) (Ty.IntLit 0))
+      let n = AST.numBits ty
+      in  CInt False n (Ty.IntToDynBv n (Ty.IntLit (value `rem` toInteger n)))
     _ -> error "Cannot init"
   )
   (Ty.BoolLit False)

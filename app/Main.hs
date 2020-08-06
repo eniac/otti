@@ -12,7 +12,7 @@
 module Main where
 
 import           Control.Exception          (catchJust)
-import           Codegen.C.CToR1cs          (emitFnAsR1cs)
+import           Codegen.C.CToR1cs          (fnToR1cs)
 import           Codegen.C                  (checkFn)
 import qualified Codegen.Circom.Compilation as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
@@ -44,14 +44,15 @@ openFile path mode =
 patterns :: Docopt
 patterns = [docopt|
 Usage:
-  compiler emit-r1cs [options]
-  compiler count-terms [options]
-  compiler setup [options]
-  compiler prove [options]
-  compiler verify [options]
+  compiler [options] emit-r1cs [options]
+  compiler [options] count-terms [options]
+  compiler [options] setup [options]
+  compiler [options] prove [options]
+  compiler [options] verify [options]
   compiler (-h | --help)
-  compiler c-check <fn-name> <path>
-  compiler c-r1cs <fn-name> <path>
+  compiler [options] c-check <fn-name> <path>
+  compiler [options] c-emit-r1cs <fn-name> <path>
+  compiler [options] c-setup <fn-name> <path>
 
 Options:
   -h, --help         Display this message
@@ -64,7 +65,7 @@ Options:
   -w <path>          Write the the auxiliary input to this path [default: w]
   -p <path>          Write/Read the proof at this path [default: pf]
   --libsnark <path>  Location of the libsnark binary [default: libsnark-frontend/build/src/main]
-  -o --opt           Optimize the circuit
+  -O --opt           Optimize the circuit
 
 Commands:
   prove            Run the prover
@@ -73,7 +74,8 @@ Commands:
   emit-r1cs        Emit R1CS
   count-terms      Compile at the fn-level only
   c-check          Check a C function using an SMT solver
-  c-r1cs           Convert a C program to R1CS
+  c-emit-r1cs      Convert a C function to R1CS
+  c-setup          Run setup for a C function
 |]
 
 getArgOrExit :: Arguments -> Option -> IO String
@@ -89,6 +91,7 @@ emitAssignment xs path = do
 -- libsnark functions
 runSetup :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 runSetup libsnarkPath circuitPath pkPath vkPath = do
+    print "Running libsnark"
     _ <- readProcess libsnarkPath ["setup", "-V", vkPath, "-P", pkPath, "-C", circuitPath] ""
     return ()
 
@@ -133,7 +136,6 @@ cmdCountTerms circomPath = do
 cmdSetup :: Bool -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdSetup opt libsnarkPath circomPath r1csPath pkPath vkPath = do
     cmdEmitR1cs opt circomPath r1csPath
-    print "Running libsnark"
     runSetup libsnarkPath r1csPath pkPath vkPath
 
 cmdProve :: Bool -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
@@ -156,26 +158,22 @@ cmdVerify = runVerify
 
 cmdCCheck :: String -> FilePath -> IO ()
 cmdCCheck name path = do
-  result <- parseC path
-  case result of
-    Right tu -> do
-      r <- checkFn tu name
-      case r of
-        Just s -> putStrLn s
-        Nothing -> pure ()
-    Left p -> do
-      putStrLn "Parse error"
-      print p
+  tu <- parseC path
+  r <- checkFn tu name
+  case r of
+    Just s -> putStrLn s
+    Nothing -> pure ()
 
-cmdCR1cs :: String -> FilePath -> FilePath -> IO ()
-cmdCR1cs name cPath r1csPath = do
-  result <- parseC cPath
-  case result of
-    Right tu -> do
-      emitFnAsR1cs @Order tu name r1csPath
-    Left p -> do
-      putStrLn "Parse error"
-      print p
+cmdCEmitR1cs :: Bool -> String -> FilePath -> FilePath -> IO ()
+cmdCEmitR1cs opt fnName cPath r1csPath = do
+  tu <- parseC cPath
+  r1cs <- fnToR1cs @Order opt tu fnName
+  R1cs.writeToR1csFile r1cs r1csPath
+
+cmdCSetup :: Bool -> FilePath -> String -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
+cmdCSetup opt libsnarkPath fnName cPath r1csPath pkPath vkPath = do
+  cmdCEmitR1cs opt fnName cPath r1csPath
+  runSetup libsnarkPath r1csPath pkPath vkPath
 
 defaultR1cs :: String
 defaultR1cs = "C"
@@ -218,10 +216,18 @@ main = do
         fnName <- args `getArgOrExit` argument "fn-name"
         path <- args `getArgOrExit` argument "path"
         cmdCCheck fnName path
-    else if args `isPresent` command "c-r1cs" then do
+    else if args `isPresent` command "c-emit-r1cs" then do
         fnName <- args `getArgOrExit` argument "fn-name"
         path <- args `getArgOrExit` argument "path"
         r1csPath <- args `getArgOrExit` shortOption 'C'
-        cmdCR1cs fnName path r1csPath
+        cmdCEmitR1cs optimize fnName path r1csPath
+    else if args `isPresent` command "c-setup" then do
+        libsnarkPath <- args `getArgOrExit` longOption "libsnark"
+        fnName <- args `getArgOrExit` argument "fn-name"
+        cPath <- args `getArgOrExit` argument "path"
+        r1csPath <- args `getArgOrExit` shortOption 'C'
+        pkPath <- args `getArgOrExit` shortOption 'P'
+        vkPath <- args `getArgOrExit` shortOption 'V'
+        cmdCSetup optimize libsnarkPath fnName cPath r1csPath pkPath vkPath
     else
         exitWithUsageMessage patterns "Missing command!"

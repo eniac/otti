@@ -263,6 +263,8 @@ data CompilerState = CompilerState { callStack         :: [FunctionScope]
                                    , fnCtr             :: Int
                                    , findUB            :: Bool
                                    , values            :: Maybe (M.Map String Dynamic)
+                                   -- Used for inputs that have no value.
+                                   , defaultValue      :: Maybe Integer
                                    }
 
 newtype Compiler a = Compiler (StateT CompilerState Mem a)
@@ -277,14 +279,15 @@ instance MonadFail Compiler where
 ---
 
 emptyCompilerState :: CompilerState
-emptyCompilerState = CompilerState { callStack = []
-                                   , funs      = M.empty
-                                   , typedefs  = M.empty
-                                   , loopBound = 4
-                                   , prefix    = []
-                                   , findUB    = True
-                                   , fnCtr     = 0
-                                   , values    = Nothing
+emptyCompilerState = CompilerState { callStack    = []
+                                   , funs         = M.empty
+                                   , typedefs     = M.empty
+                                   , loopBound    = 4
+                                   , prefix       = []
+                                   , findUB       = True
+                                   , fnCtr        = 0
+                                   , values       = Nothing
+                                   , defaultValue = Nothing
                                    }
 
 initWitComp :: [(String, CVal)] -> Compiler a
@@ -440,13 +443,16 @@ ssaAssign var val = do
     setValue var (if g then newNodeCasted else oldNodeCasted)
   return newNode
 
-zeroAssign :: VarName -> Compiler ()
-zeroAssign name = do
+initAssign :: VarName -> Integer -> Compiler ()
+initAssign name value = do
   ty <- getType name
-  setValue name (ctermZero ty)
+  setValue name (ctermInit ty value)
 
 initValues :: Compiler ()
 initValues = modify $ \s -> s { values = Just M.empty }
+
+setDefaultValueZero :: Compiler ()
+setDefaultValueZero = modify $ \s -> s { defaultValue = Just 0 }
 
 ---
 --- Functions
