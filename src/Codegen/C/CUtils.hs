@@ -572,7 +572,7 @@ cppCast toTy node = case term node of
     else if AST.isPointer toTy
       then
         let width = AST.numBits toTy
-            cptr  = CPtr (AST.pointeeType toTy) (boolToBv t width)
+            cptr  = CPtr toTy (boolToBv t width)
         in  mkCTerm cptr (udef node)
       else if AST.isDouble toTy
         then mkCTerm (CDouble $ Ty.DynUbvToFp $ boolToBv t 1) (udef node)
@@ -586,7 +586,7 @@ cppCast toTy node = case term node of
           t'  = intResize fromS toW t
       in  mkCTerm (CInt toS toW t') (udef node)
     else if AST.isPointer toTy
-      then mkCTerm (CPtr (AST.pointeeType toTy) (intResize fromS 32 t))
+      then mkCTerm (CPtr toTy (intResize fromS 32 t))
                    (udef node)
       else if AST.isDouble toTy
         then mkCTerm
@@ -649,7 +649,7 @@ cppAssignment assignUndef l r =
         (CDouble lB , CDouble rB ) -> Ty.Eq lB rB
         (CInt _ _ lB, CInt _ _ rB) -> Ty.Eq lB rB
         (CPtr lTy lB, CPtr rTy rB) | lTy == rTy -> Ty.Eq lB rB
-        _                          -> error "Invalid cppAssign terms, post-cast"
+        (x, y)                     -> error $ "Invalid cppAssign terms, post-cast: \n" ++ show x ++ "\nand\n" ++ show y
       udefAss = Ty.Eq (udef l) (udef r')
   in  ( if assignUndef then Ty.BoolNaryExpr Ty.And [valAss, udefAss] else valAss
       , r'
