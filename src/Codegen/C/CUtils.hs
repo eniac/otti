@@ -321,10 +321,9 @@ cppWrapBinArith name bvF doubleF ubF isAdd isSub allowDouble mergeWidths a b =
         (CInt s w i, CInt s' w' i') ->
           let width = if mergeWidths then max w w' else w
               sign  = max s s'
-          in  ( CInt sign width
-                $ bvF (intResize s width i) (intResize s' width i')
-              , ubF >>= (\f -> f s i s' i')
-              )
+              l     = intResize s width i
+              r     = intResize s' width i'
+          in  (CInt sign width $ bvF l r, ubF >>= (\f -> f s l s' r))
         (_, _) -> cannot $ unwords [show a, "and", show b]
       pUdef = Ty.BoolNaryExpr Ty.Or (udef a : udef b : Fold.toList u)
     in
