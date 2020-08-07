@@ -165,7 +165,7 @@ cmdCCheck name path = do
     r <- checkFn tu name
     case r of
       Just s -> putStrLn s
-      Nothing -> pure ()
+      Nothing -> putStrLn "No bug"
 
 cmdCEmitR1cs :: Bool -> String -> FilePath -> FilePath -> IO ()
 cmdCEmitR1cs opt fnName cPath r1csPath = do
