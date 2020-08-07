@@ -266,19 +266,18 @@ intResize fromSign toWidth from =
 -- 4. Scale the int, do the op.
 cppWrapBinArith
   :: String
-  -> (Bv -> Bv -> Bv)
+  -> Ty.BvBinOp
   -> (Ty.TermDouble -> Ty.TermDouble -> Ty.TermDouble)
   -- Undef function, takes sign and Bv term for each argument
   -> Maybe (Bool -> Bv -> Bool -> Bv -> Maybe Ty.TermBool)
-  -> Bool -- ^ is plus
-  -> Bool -- ^ is minus
   -> Bool -- ^ allow double
   -> Bool -- ^ make width the max of the two (alternative: the left)
   -> CTerm
   -> CTerm
   -> CTerm
-cppWrapBinArith name bvF doubleF ubF isAdd isSub allowDouble mergeWidths a b =
-  convert (integralPromotion a) (integralPromotion b)
+cppWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
+  (integralPromotion a)
+  (integralPromotion b)
  where
   convert a b =
     let
@@ -309,14 +308,16 @@ cppWrapBinArith name bvF doubleF ubF isAdd isSub allowDouble mergeWidths a b =
             , Nothing
             )
           else cannot "a double"
-        (CPtr ty addr, CInt s _ i) -> if isAdd || isSub
+        (CPtr ty addr, CInt s _ i) -> if bvOp == Ty.BvAdd || bvOp == Ty.BvSub
           then (CPtr ty $ cppPtrPlusInt ty addr s i, Nothing)
           else cannot "a pointer on the left"
-        (CPtr ty addr, CPtr ty' addr') -> if isSub && ty == ty'
+        (CPtr ty addr, CPtr ty' addr') -> if bvOp == Ty.BvSub && ty == ty'
           then -- TODO: ptrdiff_t?
-            (CPtr ty (bvF addr addr'), ubF >>= (\f -> f True addr True addr'))
+            ( CPtr ty (Ty.mkDynBvBinExpr bvOp addr addr')
+            , ubF >>= (\f -> f True addr True addr')
+            )
           else cannot "two pointers, or two pointers of different types"
-        (CInt s _ i, CPtr ty addr) -> if isAdd
+        (CInt s _ i, CPtr ty addr) -> if bvOp == Ty.BvAdd
           then (CPtr ty $ cppPtrPlusInt ty addr s i, Nothing)
           else cannot "a pointer on the right"
         -- Ptr diff
@@ -325,7 +326,9 @@ cppWrapBinArith name bvF doubleF ubF isAdd isSub allowDouble mergeWidths a b =
               sign  = max s s'
               l     = intResize s width i
               r     = intResize s' width i'
-          in  (CInt sign width $ bvF l r, ubF >>= (\f -> f s l s' r))
+          in  ( CInt sign width $ (Ty.mkDynBvBinExpr bvOp) l r
+              , ubF >>= (\f -> f s l s' r)
+              )
         (_, _) -> cannot $ unwords [show a, "and", show b]
       pUdef = Ty.BoolNaryExpr Ty.Or (udef a : udef b : Fold.toList u)
     in
@@ -334,91 +337,47 @@ cppWrapBinArith name bvF doubleF ubF isAdd isSub allowDouble mergeWidths a b =
 cppBitOr, cppBitXor, cppBitAnd, cppSub, cppMul, cppAdd, cppMin, cppMax, cppDiv, cppRem, cppShl, cppShr
   :: CTerm -> CTerm -> CTerm
 cppAdd = cppWrapBinArith "+"
-                         (Ty.mkDynBvBinExpr Ty.BvAdd)
+                         Ty.BvAdd
                          (Ty.FpBinExpr Ty.FpAdd)
                          (Just overflow)
-                         True
-                         False
                          True
                          True
  where
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSaddo i i' else Nothing
 cppSub = cppWrapBinArith "-"
-                         (Ty.mkDynBvBinExpr Ty.BvSub)
+                         Ty.BvSub
                          (Ty.FpBinExpr Ty.FpSub)
                          (Just overflow)
-                         False
-                         True
                          True
                          True
  where
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSsubo i i' else Nothing
 cppMul = cppWrapBinArith "*"
-                         (Ty.mkDynBvBinExpr Ty.BvMul)
+                         Ty.BvMul
                          (Ty.FpBinExpr Ty.FpMul)
                          (Just overflow)
-                         False
-                         False
                          True
                          True
  where
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSmulo i i' else Nothing
 -- TODO: div overflow
-cppDiv = cppWrapBinArith "/"
-                         (Ty.mkDynBvBinExpr Ty.BvUdiv)
-                         (Ty.FpBinExpr Ty.FpDiv)
-                         Nothing
-                         False
-                         False
-                         True
-                         True
+cppDiv =
+  cppWrapBinArith "/" Ty.BvUdiv (Ty.FpBinExpr Ty.FpDiv) Nothing True True
 -- TODO: CPP reference says that % requires integral arguments
-cppRem = cppWrapBinArith "%"
-                         (Ty.mkDynBvBinExpr Ty.BvUrem)
-                         (Ty.FpBinExpr Ty.FpRem)
-                         Nothing
-                         False
-                         False
-                         False
-                         True
+cppRem =
+  cppWrapBinArith "%" Ty.BvUrem (Ty.FpBinExpr Ty.FpRem) Nothing False True
 cppMin = undefined
 cppMax = undefined
-cppBitOr = cppWrapBinArith "|"
-                           (Ty.mkDynBvBinExpr Ty.BvOr)
-                           (const $ const $ error "no fp |")
-                           Nothing
-                           False
-                           False
-                           False
-                           True
-cppBitAnd = cppWrapBinArith "&"
-                            (Ty.mkDynBvBinExpr Ty.BvAnd)
-                            (const $ const $ error "no fp &")
-                            Nothing
-                            False
-                            False
-                            False
-                            True
-cppBitXor = cppWrapBinArith "^"
-                            (Ty.mkDynBvBinExpr Ty.BvXor)
-                            (const $ const $ error "no fp ^")
-                            Nothing
-                            False
-                            False
-                            False
-                            True
+noFpError :: Ty.TermDouble -> Ty.TermDouble -> Ty.TermDouble
+noFpError = const $ const $ error "Invalid FP op"
+cppBitOr = cppWrapBinArith "|" Ty.BvOr noFpError Nothing False True
+cppBitAnd = cppWrapBinArith "&" Ty.BvAnd noFpError Nothing False True
+cppBitXor = cppWrapBinArith "^" Ty.BvXor noFpError Nothing False True
 -- Not quite right, since we're gonna force these to be equal in size
-cppShl = cppWrapBinArith "<<"
-                         (Ty.mkDynBvBinExpr Ty.BvShl)
-                         (Ty.FpBinExpr Ty.FpAdd)
-                         (Just overflow)
-                         True
-                         True
-                         True
-                         True
+cppShl = cppWrapBinArith "<<" Ty.BvShl noFpError (Just overflow) False True
  where
   overflow s i s' i' =
     let baseNonNeg =
@@ -440,14 +399,7 @@ cppShl = cppWrapBinArith "<<"
             ]
     in  Just $ Ty.BoolNaryExpr Ty.Or $ baseNonNeg ++ shftNonNeg ++ shftSmall
 -- Not quite right, since we're gonna force these to be equal in size
-cppShr = cppWrapBinArith ">>"
-                         (Ty.mkDynBvBinExpr Ty.BvAshr)
-                         (Ty.FpBinExpr Ty.FpAdd)
-                         (Just overflow)
-                         True
-                         True
-                         True
-                         True
+cppShr = cppWrapBinArith ">>" Ty.BvAshr noFpError (Just overflow) False True
  where
   overflow _s i s' i' =
     let shftNonNeg =
@@ -588,8 +540,7 @@ cppCast toTy node = case term node of
           t'  = intResize fromS toW t
       in  mkCTerm (CInt toS toW t') (udef node)
     else if AST.isPointer toTy
-      then mkCTerm (CPtr toTy (intResize fromS 32 t))
-                   (udef node)
+      then mkCTerm (CPtr toTy (intResize fromS 32 t)) (udef node)
       else if AST.isDouble toTy
         then mkCTerm
           (CDouble $ (if fromS then Ty.DynSbvToFp else Ty.DynUbvToFp) t)
@@ -647,11 +598,16 @@ cppAssignment :: Bool -> CTerm -> CTerm -> (Ty.TermBool, CTerm)
 cppAssignment assignUndef l r =
   let r'     = cppCast (ctermDataTy $ term l) r
       valAss = case (term l, term r') of
-        (CBool   lB , CBool rB   ) -> Ty.Eq lB rB
-        (CDouble lB , CDouble rB ) -> Ty.Eq lB rB
-        (CInt _ _ lB, CInt _ _ rB) -> Ty.Eq lB rB
+        (CBool   lB , CBool rB   )              -> Ty.Eq lB rB
+        (CDouble lB , CDouble rB )              -> Ty.Eq lB rB
+        (CInt _ _ lB, CInt _ _ rB)              -> Ty.Eq lB rB
         (CPtr lTy lB, CPtr rTy rB) | lTy == rTy -> Ty.Eq lB rB
-        (x, y)                     -> error $ "Invalid cppAssign terms, post-cast: \n" ++ show x ++ "\nand\n" ++ show y
+        (x, y) ->
+          error
+            $  "Invalid cppAssign terms, post-cast: \n"
+            ++ show x
+            ++ "\nand\n"
+            ++ show y
       udefAss = Ty.Eq (udef l) (udef r')
   in  ( if assignUndef then Ty.BoolNaryExpr Ty.And [valAss, udefAss] else valAss
       , r'
