@@ -90,6 +90,7 @@ class Bitable s where
 data CTermData = CInt Bool Int Bv
                | CBool Ty.TermBool
                | CDouble Ty.TermDouble
+               -- The type is the pointer (not pointee) type!
                | CPtr AST.Type Bv
                deriving (Show, Eq)
 
@@ -253,6 +254,7 @@ intResize fromSign toWidth from =
         GT -> Ty.mkDynBvExtract 0 toWidth from
 
 
+-- TODO: clean this the fuck up.
 -- This is not quite right, but it's a reasonable approximation of C++ arithmetic.
 -- For an expression l (+) r, 
 -- 1. Both l and r undergo **integral promotion** (bool -> int)
@@ -311,7 +313,7 @@ cppWrapBinArith name bvF doubleF ubF isAdd isSub allowDouble mergeWidths a b =
           then (CPtr ty $ cppPtrPlusInt ty addr s i, Nothing)
           else cannot "a pointer on the left"
         (CPtr ty addr, CPtr ty' addr') -> if isSub && ty == ty'
-          then
+          then -- TODO: ptrdiff_t?
             (CPtr ty (bvF addr addr'), ubF >>= (\f -> f True addr True addr'))
           else cannot "two pointers, or two pointers of different types"
         (CInt s _ i, CPtr ty addr) -> if isAdd

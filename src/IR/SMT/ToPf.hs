@@ -445,7 +445,8 @@ bvToPf env term = do
   lookupIntVal name =
     bvValToPf
       .   flip fromDyn (error $ name ++ " has wrong type")
-      .   (Map.! name)
+      .   fromMaybe (error $ "No value for " ++ name)
+      .   (Map.!? name)
       <$> env
   bvValToPf = toP . Bv.nat . valAsDynBv
 

@@ -129,7 +129,7 @@ genExprSMT expr = case expr of
       f          <- getFunction fnName
       retTy      <- ctype (baseTypeFromFunc f) (ptrsFromFunc f)
       pushFunction fnName retTy
-      forM_ (argsFromFunc f) (genDeclSMT True)
+      forM_ (argsFromFunc f) (genDeclSMT Nothing)
       let
         formalArgs =
           map identToVarName
@@ -150,7 +150,7 @@ genExprSMT expr = case expr of
         $  error
         $  "Wrong arg count: "
         ++ show expr
-      forM_ (zip formalArgs actualArgs) (uncurry ssaAssign)
+      forM_ (zip formalArgs actualArgs) (uncurry argAssign)
       let body = bodyFromFunc f
       case body of
         CCompound{} -> genStmtSMT body
@@ -248,7 +248,7 @@ genStmtSMT stmt = case stmt of
   CCompound ids items _ -> forM_ items $ \item -> do
     case item of
       CBlockStmt stmt -> genStmtSMT stmt
-      CBlockDecl decl -> void $ genDeclSMT True decl
+      CBlockDecl decl -> void $ genDeclSMT (Just True) decl
       CNestedFunDef{} -> error "Nested function definitions not supported"
   CExpr e _                 -> when (isJust e) $ void $ genExprSMT $ fromJust e
   CIf cond trueBr falseBr _ -> do
@@ -271,7 +271,7 @@ genStmtSMT stmt = case stmt of
   CFor init check incr body _ -> do
     case init of
       Left  (Just expr) -> void $ genExprSMT expr
-      Right decl        -> void $ genDeclSMT True decl
+      Right decl        -> void $ genDeclSMT (Just True) decl
       _                 -> return ()
     -- Make a guard on the bound to guard execution of the loop
     -- Execute up to the loop bound
@@ -297,7 +297,7 @@ genStmtSMT stmt = case stmt of
   _ -> liftIO $ print $ unwords ["other", show stmt]
 
 -- Returns the declaration's variable name
-genDeclSMT :: Bool -> CDecl -> Compiler String
+genDeclSMT :: Maybe Bool -> CDecl -> Compiler String
 genDeclSMT undef (CDecl specs decls _) = do
   when (null specs) $ error "Expected specifier in declaration"
   let firstSpec = head specs
@@ -315,9 +315,9 @@ genDeclSMT undef (CDecl specs decls _) = do
       else do
         declareVarSMT name baseType ptrType
         lhs <- genVarSMT name
-        whenM (gets findUB) $ liftAssert $ Assert.assert $ Ty.Eq
-          (udef lhs)
-          (Ty.BoolLit undef)
+        whenM (gets findUB)
+          $ forM_ undef
+          $ (liftAssert . Assert.assert . Ty.Eq (udef lhs) . Ty.BoolLit)
         case mInit of
           Just (CInitExpr e _) -> do
             rhs <- genExprSMT e
@@ -345,7 +345,7 @@ genFunDef f inVals = do
   retTy <- ctype tys ptrs
   pushFunction name retTy
   -- Declare the arguments and execute the body
-  inputsNames    <- forM (argsFromFunc f) (genDeclSMT False)
+  inputsNames    <- forM (argsFromFunc f) (genDeclSMT (Just False))
   fullInputNames <- map ssaVarAsString <$> forM inputsNames getSsaVar
   def            <- gets defaultValue
   case inVals of
@@ -375,7 +375,7 @@ codegenAll :: CTranslUnit -> Compiler ()
 codegenAll (CTranslUnit decls _) = do
   registerFns decls
   forM_ decls $ \case
-    CDeclExt decl -> void $ genDeclSMT True decl
+    CDeclExt decl -> void $ genDeclSMT Nothing decl
     CFDefExt fun  -> void $ genFunDef fun Nothing
     CAsmExt asm _ -> genAsm asm
 

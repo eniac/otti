@@ -51,7 +51,7 @@ toSmtTests = benchTestGroup
   , constraintCountTest "loop"          "test/Code/C/loop.c"    26
   , constraintCountTest "if"            "test/Code/C/if.c"      6
   , constraintCountTest "return"        "test/Code/C/init.c"    4
-  , constraintCountTest "function call" "test/Code/C/fn_call.c" 13
+  , constraintCountTest "function call" "test/Code/C/fn_call.c" 11
   ]
 
 ubCheckTest :: String -> String -> FilePath -> Bool -> BenchTest
@@ -109,7 +109,9 @@ satR1csTest name fnName path = benchTestCase name $ do
 
 satR1csTests = benchTestGroup
   "SAT R1cs checks"
-  [ satR1csTest "constant in if" "sum" "test/Code/C/if.c"
-  , satR1csTest "loop"           "sum" "test/Code/C/loop.c"
-  , satR1csTest "sum"            "add" "test/Code/C/add_unsigned.c"
+  [ satR1csTest "constant in if" "sum"      "test/Code/C/if.c"
+  , satR1csTest "loop"           "sum"      "test/Code/C/loop.c"
+  , satR1csTest "add"            "add"      "test/Code/C/add_unsigned.c"
+  , satR1csTest "shifts"         "shift_it" "test/Code/C/shifts.c"
+  , satR1csTest "fn calls"       "outer"    "test/Code/C/fn_call.c"
   ]

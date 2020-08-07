@@ -347,6 +347,7 @@ smtEvalBool smt = Ty.valAsBool <$> smtEval smt
 setValue :: VarName -> CTerm -> Compiler ()
 setValue name cterm = modValues $ \vs -> do
   var <- ssaVarAsString <$> getSsaVar name
+  --liftIO $ putStrLn $ var ++ " -> " ++ show cterm
   return $ M.insert var (ctermEval vs cterm) vs
 
 setRetValue :: CTerm -> Compiler ()
@@ -425,12 +426,22 @@ ssaVarAsString (SsaVar varName ver) = varName ++ "_v" ++ show ver
 whenM :: Monad m => m Bool -> m () -> m ()
 whenM condition action = condition >>= flip when action
 
+argAssign :: VarName -> CTerm -> Compiler CTerm
+argAssign var val = do
+  setValue var val
+  -- TODO assign
+  node <- getTerm var
+  a       <- getAssignment
+  let (assertion, valCasted) = a node val
+  liftAssert $ Assert.assert assertion
+  whenM computingValues $ setValue var valCasted
+  return node
+
 -- Bump the version of `var` and assign `value` to it.
 ssaAssign :: VarName -> CTerm -> Compiler CTerm
 ssaAssign var val = do
   oldNode <- getTerm var
   nextVer var
-  setValue var val
   -- TODO assign
   newNode <- getTerm var
   guard   <- getGuard
