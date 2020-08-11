@@ -91,14 +91,19 @@ satSmtCircuitTests = benchTestGroup
   ]
 
 satR1csTest :: String -> String -> FilePath -> BenchTest
-satR1csTest name fnName path = benchTestCase name $ do
-  tu                       <- parseC path
-  (compState, assertState) <-
-    runAssert
-    $  execCodegen False
-    $  initValues
-    >> setDefaultValueZero
-    >> codegenFn tu fnName (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
+satR1csTest name fnName path = satR1csTestInputs name fnName path Nothing
+
+satR1csTestInputs
+  :: String -> String -> FilePath -> Maybe (M.Map String Integer) -> BenchTest
+satR1csTestInputs name fnName path inputs = benchTestCase name $ do
+  tu <- parseC path
+  let runIt = case inputs of
+        Just m  -> initValues >> codegenFn tu fnName (Just m) -- Provide an empty map to trigger initialization with default. ew.
+        Nothing -> initValues >> setDefaultValueZero >> codegenFn
+          tu
+          fnName
+          (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
+  (compState, assertState) <- runAssert $ execCodegen False runIt
   let assertions = asserted assertState
   let env        = fromJust $ values compState
   forM_ assertions $ \a -> Ty.ValBool True @=? Ty.eval env a
@@ -114,4 +119,18 @@ satR1csTests = benchTestGroup
   , satR1csTest "add"            "add"      "test/Code/C/add_unsigned.c"
   , satR1csTest "shifts"         "shift_it" "test/Code/C/shifts.c"
   , satR1csTest "fn calls"       "outer"    "test/Code/C/fn_call.c"
+  , satR1csTest "majority"       "maj"      "test/Code/C/sha.c"
+  , satR1csTest "ch"             "ch"       "test/Code/C/sha.c"
+  -- Set inputs specially because rotation is not SAT for 0 length (the
+  -- default) 
+  , satR1csTestInputs "rot left"
+                      "rotateleft"
+                      "test/Code/C/sha.c"
+                      (Just $ M.fromList [("x", 17), ("n", 30)])
+  -- Set inputs specially because rotation is not SAT for 0 length (the
+  -- default) 
+  , satR1csTestInputs "rot right"
+                      "rotateright"
+                      "test/Code/C/sha.c"
+                      (Just $ M.fromList [("x", 14), ("n", 1)])
   ]
