@@ -14,15 +14,28 @@ import           Test.Tasty.HUnit
 cValueTests :: BenchTest
 cValueTests = benchTestGroup
   "C value test"
-  [ constraintValueTest "assign" "test/Code/C/assign.c" [("f0_add_lex0__x_v0 ", 4)]
-  , constraintValueTest "simple if" "test/Code/C/simple_if.c" [("f0_foo_lex0__y_v2 ", 2)]
-  , constraintValueTest "assign if" "test/Code/C/assign_if.c" [("f0_foo_lex0__y_v2 ", 2)]
-  , constraintValueTest "return" "test/Code/C/return.c" [("f0_foo__return_v0 ", 3)]
-  , constraintValueTest "return if" "test/Code/C/return_if.c" [("f0_foo__return_v0 ", 3)]
-  , constraintValueTest "return complex 0" "test/Code/C/return_complex.c" [("f0_foo__return_v0 ", 5)]
-  , constraintValueTest "return complex 1" "test/Code/C/return_complex.c" [("f1_foo_bar__return_v0 ", 40)]
-  , constraintValueTest "return complex 2" "test/Code/C/return_complex.c" [("f2_foo_bar_baz__return_v0 ", 10)]
-  , constraintValueTest "return complex 3" "test/Code/C/return_complex.c" [("f3_foo_bar_baz_qux__return_v0 ", 606)]
+  [ constraintValueTest "ops" "test/Code/C/ops.c" [ ("f0_foo_lex0__a_v0 ", 17)
+                                                  , ("f0_foo_lex0__b_v0 ", 4294967289) -- -7
+                                                  , ("f0_foo_lex0__c_v0 ", 60)
+                                                  , ("f0_foo_lex0__d_v0 ", 0)
+                                                  , ("f0_foo_lex0__e_v0 ", 5)
+                                                  , ("f0_foo_lex0__f_v0 ", 0)
+                                                  , ("f0_foo_lex0__g_v0 ", 1)
+                                                  , ("f0_foo_lex0__h_v0 ", 1)
+                                                  , ("f0_foo_lex0__i_v0 ", 4294967295)
+                                                  , ("f0_foo_lex0__j_v0 ", 8)
+                                                  , ("f0_foo_lex0__k_v0 ", 25)
+                                                  , ("f0_foo_lex0__l_v0 ", 1)
+                                                  ]
+  , constraintValueTest "assign" "test/Code/C/assign.c" [ ("f0_foo_lex0__x_v0 ", 4) ]
+  , constraintValueTest "simple if" "test/Code/C/simple_if.c" [ ("f0_foo_lex0__y_v2 ", 2) ]
+  , constraintValueTest "assign if" "test/Code/C/assign_if.c" [ ("f0_foo_lex0__y_v2 ", 2) ]
+  , constraintValueTest "return" "test/Code/C/return.c" [ ("f0_foo__return_v0 ", 3) ]
+  , constraintValueTest "return if" "test/Code/C/return_if.c" [ ("f0_foo__return_v0 ", 3) ]
+  , constraintValueTest "return complex 0" "test/Code/C/return_complex.c" [ ("f0_foo__return_v0 ", 5) ]
+  , constraintValueTest "return complex 1" "test/Code/C/return_complex.c" [ ("f1_foo_bar__return_v0 ", 40) ]
+  , constraintValueTest "return complex 2" "test/Code/C/return_complex.c" [ ("f2_foo_bar_baz__return_v0 ", 10) ]
+  , constraintValueTest "return complex 3" "test/Code/C/return_complex.c" [ ("f3_foo_bar_baz_qux__return_v0 ", 606) ]
   , constraintValueTest "scope" "test/Code/C/scope.c" [ ("f0_foo_lex0__x_v0 ", 4)
                                                       , ("f0_foo__return_v0 ", 4)
                                                       ]

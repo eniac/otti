@@ -1,5 +1,5 @@
 
 
-int add () {
+int foo () {
   int x = 4;
 }
