@@ -242,17 +242,16 @@ genStmtSMT stmt = case stmt of
       CNestedFunDef{} -> error "Nested function definitions not supported"
   CExpr e _                 -> when (isJust e) $ void $ genExprSMT $ fromJust e
   CIf cond trueBr falseBr _ -> do
-    trueCond <- genExprSMT cond
-    let falseCond = cppBitNot trueCond
+    trueCond <- cppBool <$> genExprSMT cond
     -- Guard the true branch with the true condition
-    pushGuard (cppBool trueCond)
+    pushGuard trueCond
     enterLexScope
     genStmtSMT trueBr
     exitLexScope
     popGuard
     -- Guard the false branch with the false condition
     when (isJust falseBr) $ do
-      pushGuard (cppBool falseCond)
+      pushGuard (Ty.Not trueCond)
       enterLexScope
       genStmtSMT $ fromJust falseBr
       exitLexScope
