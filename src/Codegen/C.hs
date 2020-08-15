@@ -3,30 +3,20 @@ module Codegen.C where
 import           AST.C
 import           AST.Simple
 import           Codegen.C.CompilerMonad
+import           Codegen.C.CUtils
+import           Codegen.C.Memory                (bvNum)
 import           Codegen.C.Utils
 import           Control.Applicative
-import           Control.Monad                  ( replicateM_ )
-import           Control.Monad.State.Strict     ( forM
-                                                , forM_
-                                                , liftIO
-                                                , unless
-                                                , void
-                                                , when
-                                                , gets
-                                                )
-import qualified Data.BitVector                as Bv
-import           Data.Maybe                     ( fromJust
-                                                , isJust
-                                                , isNothing
-                                                , fromMaybe
-                                                , listToMaybe
-                                                )
-import qualified Data.Map                      as Map
-import           Data.List                      ( intercalate )
-import           Codegen.C.CUtils
-import           Codegen.C.Memory               ( bvNum )
-import qualified IR.SMT.Assert                 as Assert
-import qualified IR.SMT.TySmt                  as Ty
+import           Control.Monad                   (replicateM_)
+import           Control.Monad.State.Strict      (forM, forM_, gets, liftIO,
+                                                  unless, void, when)
+import qualified Data.BitVector                  as Bv
+import           Data.List                       (intercalate)
+import qualified Data.Map                        as Map
+import           Data.Maybe                      (fromJust, fromMaybe, isJust,
+                                                  isNothing, listToMaybe)
+import qualified IR.SMT.Assert                   as Assert
+import qualified IR.SMT.TySmt                    as Ty
 import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
@@ -170,16 +160,16 @@ getUnaryOp op arg = case op of
   CPreDecOp -> do
     lval <- genLValueSMT arg
     rval <- evalLVal lval
-    genAssign lval (cppSub (cppIntLit (cppType rval) 1) rval)
+    genAssign lval (cppSub rval (cppIntLit (cppType rval) 1))
   CPostIncOp -> do
     lval <- genLValueSMT arg
     rval <- evalLVal lval
-    genAssign lval (cppSub (cppIntLit (cppType rval) 1) rval)
+    genAssign lval (cppAdd (cppIntLit (cppType rval) 1) rval)
     return rval
   CPostDecOp -> do
     lval <- genLValueSMT arg
     rval <- evalLVal lval
-    genAssign lval (cppSub (cppIntLit (cppType rval) 1) rval)
+    genAssign lval (cppSub rval (cppIntLit (cppType rval) 1))
     return rval
   -- CAdrOp ->
   -- The '*' operation

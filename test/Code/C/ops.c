@@ -17,9 +17,9 @@ int foo () {
   _Bool m = 4 > 5;
   _Bool n = 5 <= 5;
   _Bool o = 5 >= 5;
-  a++;
   ++a;
-  a--;
+  a++;
   --a;
+  a--;
 
 }
