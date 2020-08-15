@@ -1,31 +1,23 @@
-{-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE DataKinds        #-}
+{-# LANGUAGE TypeApplications #-}
 module Codegen.CTest
   ( cTests
   )
 where
 import           AST.Simple
 import           BenchUtils
-import           Control.Monad
 import           Codegen.C
 import           Codegen.C.CompilerMonad
-import           Data.Either                    ( isRight )
-import qualified Data.Map                      as M
-import           Data.Maybe                     ( isJust
-                                                , fromJust
-                                                )
-import qualified Data.Set                      as Set
-import           IR.SMT.Assert                  ( execAssert
-                                                , AssertState(..)
-                                                , runAssert
-                                                , asserted
-                                                )
-import           IR.R1cs                        ( R1CS(..)
-                                                , r1csShow
-                                                , r1csCheck
-                                                )
-import           IR.SMT.ToPf                    ( toPfWithWit )
-import qualified IR.SMT.TySmt                  as Ty
+import           Control.Monad
+import           Data.Either             (isRight)
+import qualified Data.Map                as M
+import           Data.Maybe              (fromJust, isJust)
+import qualified Data.Set                as Set
+import           IR.R1cs                 (R1CS (..), r1csCheck, r1csShow)
+import           IR.SMT.Assert           (AssertState (..), asserted,
+                                          execAssert, runAssert)
+import           IR.SMT.ToPf             (toPfWithWit)
+import qualified IR.SMT.TySmt            as Ty
 import           Parser.C
 import           Test.Tasty.HUnit
 import           Utils

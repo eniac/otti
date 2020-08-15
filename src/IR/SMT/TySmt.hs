@@ -1,19 +1,19 @@
-{-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE GADTs               #-}
-{-# LANGUAGE StandaloneDeriving  #-}
-{-# LANGUAGE AllowAmbiguousTypes  #-}
-{-# LANGUAGE TypeOperators       #-}
-{-# LANGUAGE TypeFamilies        #-}
-{-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE ConstraintKinds    #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE Rank2Types          #-}
+{-# LANGUAGE AllowAmbiguousTypes    #-}
+{-# LANGUAGE ConstraintKinds        #-}
+{-# LANGUAGE DataKinds              #-}
+{-# LANGUAGE FlexibleContexts       #-}
+{-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE GADTs                  #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE PartialTypeSignatures  #-}
+{-# LANGUAGE Rank2Types             #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE StandaloneDeriving     #-}
+{-# LANGUAGE TypeApplications       #-}
+{-# LANGUAGE TypeFamilies           #-}
+{-# LANGUAGE TypeOperators          #-}
+{-# LANGUAGE TypeSynonymInstances   #-}
 {-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 
@@ -53,6 +53,7 @@ module IR.SMT.TySmt
   , toZ3
   , sortToZ3
   , evalZ3
+  , evalZ3Model
   , mkDynBvExtract
   , mkDynBvBinExpr
   , mkDynBvConcat
@@ -81,26 +82,21 @@ module IR.SMT.TySmt
   )
 where
 
+import           Control.Monad       (foldM, forM, liftM2)
+import qualified Data.Binary.IEEE754 as IEEE754
+import           Data.Bits           as Bits
+import qualified Data.BitVector      as Bv
+import           Data.Dynamic        (Dynamic, Typeable, fromDyn, toDyn)
+import           Data.Fixed          (mod')
+import           Data.List.Split     (splitOn)
+import           Data.Map            (Map)
+import qualified Data.Map            as Map
+import qualified Data.Maybe          as Maybe
+import           Data.Proxy          (Proxy (..))
+import           Data.Typeable       (cast)
 import           GHC.TypeLits
-import           Control.Monad                  ( liftM2
-                                                , foldM
-                                                )
-import           Data.Dynamic                   ( Typeable
-                                                , Dynamic
-                                                , fromDyn
-                                                , toDyn
-                                                )
-import           Data.Typeable                  ( cast )
-import qualified Data.BitVector                as Bv
-import qualified Data.Map                      as Map
-import           Data.Map                       ( Map )
-import qualified Data.Maybe                    as Maybe
-import           Data.Bits                     as Bits
-import           Data.Proxy                     ( Proxy(..) )
-import           Data.Fixed                     ( mod' )
-import qualified Data.Binary.IEEE754           as IEEE754
-import           Z3.Monad                       ( MonadZ3 )
-import qualified Z3.Monad                      as Z
+import           Z3.Monad            (MonadZ3)
+import qualified Z3.Monad            as Z
 
 data IntSort = IntSort deriving (Show,Ord,Eq,Typeable)
 data BoolSort = BoolSort deriving (Show,Ord,Eq,Typeable)
@@ -169,9 +165,9 @@ class (RealFloat fp, Typeable fp, KnownNat (Size fp), KnownNat (SigSize fp), Kno
     evalUn op = fromRepr . f . asRepr
       where
         f = case op of
-          FpNeg -> negate
-          FpAbs -> abs
-          FpSqrt -> sqrt
+          FpNeg   -> negate
+          FpAbs   -> abs
+          FpSqrt  -> sqrt
           FpRound -> fromIntegral @Integer . round
 
     evalUnPred :: FpUnPred -> (Value (FpSort fp)) -> (Value BoolSort)
@@ -179,13 +175,13 @@ class (RealFloat fp, Typeable fp, KnownNat (Size fp), KnownNat (SigSize fp), Kno
       where
         f :: fp -> Bool
         f = case op of
-          FpIsNormal -> not . isDenormalized
+          FpIsNormal    -> not . isDenormalized
           FpIsSubnormal -> isDenormalized
-          FpIsZero -> (==0.0)
-          FpIsInfinite -> isInfinite
-          FpIsNaN -> isNaN
-          FpIsNegative -> liftM2 (||) (<0.0) isNegativeZero
-          FpIsPositive -> liftM2 (||) (>0.0) (isNegativeZero . negate)
+          FpIsZero      -> (==0.0)
+          FpIsInfinite  -> isInfinite
+          FpIsNaN       -> isNaN
+          FpIsNegative  -> liftM2 (||) (<0.0) isNegativeZero
+          FpIsPositive  -> liftM2 (||) (>0.0) (isNegativeZero . negate)
 
     evalBinPred :: FpBinPred -> Value (FpSort fp) -> Value (FpSort fp) -> Value BoolSort
     evalBinPred op a b = ValBool $ f (asRepr a) (asRepr b)
@@ -331,10 +327,10 @@ type TermDouble = Term F64
 
 data Term s where
     -- Boolean terms
-    BoolLit     ::Bool -> TermBool
-    BoolBinExpr ::BoolBinOp -> TermBool -> TermBool -> TermBool
+    BoolLit      ::Bool -> TermBool
+    BoolBinExpr  ::BoolBinOp -> TermBool -> TermBool -> TermBool
     BoolNaryExpr ::BoolNaryOp -> [TermBool] -> TermBool
-    Not         ::TermBool -> TermBool
+    Not          ::TermBool -> TermBool
 
     -- Core terms
     Ite    ::TermBool -> Term s -> Term s -> Term s
@@ -478,12 +474,12 @@ dynBvWidth t = case t of
   Ite _ tt _ -> dynBvWidth tt
   Var _ s -> case s of
     SortBv w -> w
-    _ -> error "Can't deduce vare bitwidth"
+    _        -> error "Can't deduce vare bitwidth"
   Exists _ _ tt -> dynBvWidth tt
   Let _ _ tt -> dynBvWidth tt
   Select a _ -> case sort a of
     SortArray _ (SortBv w) -> w
-    _ -> error "Invalid array sort"
+    _                      -> error "Invalid array sort"
 
 sort :: forall s . SortClass s => Term s -> Sort
 sort t = case sorted @s of
@@ -506,7 +502,7 @@ sort t = case sorted @s of
     IntToDynBv w _ -> SortBv w
     Select a _ -> case sort a of
       SortArray _ s' -> s'
-      _ -> error "Invalid array sort"
+      _              -> error "Invalid array sort"
 
     _ -> error $ "Unreachable: " ++ show t ++ " should have static sort"
 
@@ -517,68 +513,68 @@ sort t = case sorted @s of
 mapTerm :: SortClass s => (forall t . SortClass t => Term t -> Maybe (Term t)) -> Term s -> Term s
 mapTerm f t = case f t of
   Nothing -> case t of
-    BoolLit{}            -> t
-    BoolBinExpr o l r    -> BoolBinExpr o (mapTerm f l) (mapTerm f r)
-    BoolNaryExpr o as    -> BoolNaryExpr o (map (mapTerm f) as)
-    Not s                -> Not (mapTerm f s)
+    BoolLit{}             -> t
+    BoolBinExpr o l r     -> BoolBinExpr o (mapTerm f l) (mapTerm f r)
+    BoolNaryExpr o as     -> BoolNaryExpr o (map (mapTerm f) as)
+    Not s                 -> Not (mapTerm f s)
 
-    Ite c tt ff          -> Ite (mapTerm f c) (mapTerm f tt) (mapTerm f ff)
-    Var{}                -> t
-    Exists v s tt        -> Exists v s (mapTerm f tt)
-    Let    v s e         -> Let v (mapTerm f s) (mapTerm f e)
-    Eq a b               -> Eq (mapTerm f a) (mapTerm f b)
+    Ite c tt ff           -> Ite (mapTerm f c) (mapTerm f tt) (mapTerm f ff)
+    Var{}                 -> t
+    Exists v s tt         -> Exists v s (mapTerm f tt)
+    Let    v s e          -> Let v (mapTerm f s) (mapTerm f e)
+    Eq a b                -> Eq (mapTerm f a) (mapTerm f b)
 
-    BvConcat  a b        -> BvConcat (mapTerm f a) (mapTerm f b)
-    BvExtract i s        -> BvExtract i (mapTerm f s)
-    BvBinExpr o l r      -> BvBinExpr o (mapTerm f l) (mapTerm f r)
-    BvBinPred o l r      -> BvBinPred o (mapTerm f l) (mapTerm f r)
-    BvUnExpr o r         -> BvUnExpr o (mapTerm f r)
-    IntToBv   tt         -> IntToBv (mapTerm f tt)
-    FpToBv    tt         -> FpToBv (mapTerm f tt)
+    BvConcat  a b         -> BvConcat (mapTerm f a) (mapTerm f b)
+    BvExtract i s         -> BvExtract i (mapTerm f s)
+    BvBinExpr o l r       -> BvBinExpr o (mapTerm f l) (mapTerm f r)
+    BvBinPred o l r       -> BvBinPred o (mapTerm f l) (mapTerm f r)
+    BvUnExpr o r          -> BvUnExpr o (mapTerm f r)
+    IntToBv   tt          -> IntToBv (mapTerm f tt)
+    FpToBv    tt          -> FpToBv (mapTerm f tt)
 
-    StatifyBv t'         -> StatifyBv (mapTerm f t')
+    StatifyBv t'          -> StatifyBv (mapTerm f t')
     RoundFpToDynBv w s t'-> RoundFpToDynBv w s (mapTerm f t')
-    DynBvBinExpr o w a b -> DynBvBinExpr o w (mapTerm f a) (mapTerm f b)
-    DynBvConcat w a b    -> DynBvConcat w (mapTerm f a) (mapTerm f b)
-    DynBvBinPred o w a b -> DynBvBinPred o w (mapTerm f a) (mapTerm f b)
-    DynBvExtract s l b   -> DynBvExtract s l (mapTerm f b)
-    DynBvUnExpr o w r    -> DynBvUnExpr o w (mapTerm f r)
-    DynBvSext w r        -> DynBvSext w (mapTerm f r)
-    DynBvUext w r        -> DynBvUext w (mapTerm f r)
-    DynamizeBv w b       -> DynamizeBv w (mapTerm f b)
-    IntToDynBv w i       -> IntToDynBv w (mapTerm f i)
+    DynBvBinExpr o w a b  -> DynBvBinExpr o w (mapTerm f a) (mapTerm f b)
+    DynBvConcat w a b     -> DynBvConcat w (mapTerm f a) (mapTerm f b)
+    DynBvBinPred o w a b  -> DynBvBinPred o w (mapTerm f a) (mapTerm f b)
+    DynBvExtract s l b    -> DynBvExtract s l (mapTerm f b)
+    DynBvUnExpr o w r     -> DynBvUnExpr o w (mapTerm f r)
+    DynBvSext w r         -> DynBvSext w (mapTerm f r)
+    DynBvUext w r         -> DynBvUext w (mapTerm f r)
+    DynamizeBv w b        -> DynamizeBv w (mapTerm f b)
+    IntToDynBv w i        -> IntToDynBv w (mapTerm f i)
 
 
-    IntLit{}             -> t
-    IntBinExpr o l r     -> IntBinExpr o (mapTerm f l) (mapTerm f r)
-    IntNaryExpr o as     -> IntNaryExpr o (map (mapTerm f) as)
-    IntUnExpr   o l      -> IntUnExpr o (mapTerm f l)
-    IntBinPred o l r     -> IntBinPred o (mapTerm f l) (mapTerm f r)
-    BvToInt       tt     -> BvToInt (mapTerm f tt)
-    SignedBvToInt tt     -> SignedBvToInt (mapTerm f tt)
-    BoolToInt     tt     -> BoolToInt (mapTerm f tt)
-    PfToInt       tt     -> PfToInt (mapTerm f tt)
+    IntLit{}              -> t
+    IntBinExpr o l r      -> IntBinExpr o (mapTerm f l) (mapTerm f r)
+    IntNaryExpr o as      -> IntNaryExpr o (map (mapTerm f) as)
+    IntUnExpr   o l       -> IntUnExpr o (mapTerm f l)
+    IntBinPred o l r      -> IntBinPred o (mapTerm f l) (mapTerm f r)
+    BvToInt       tt      -> BvToInt (mapTerm f tt)
+    SignedBvToInt tt      -> SignedBvToInt (mapTerm f tt)
+    BoolToInt     tt      -> BoolToInt (mapTerm f tt)
+    PfToInt       tt      -> PfToInt (mapTerm f tt)
 
-    Fp64Lit{}            -> t
-    Fp32Lit{}            -> t
-    FpBinExpr o l r      -> FpBinExpr o (mapTerm f l) (mapTerm f r)
-    FpUnExpr o l         -> FpUnExpr o (mapTerm f l)
-    FpBinPred o l r      -> FpBinPred o (mapTerm f l) (mapTerm f r)
-    FpUnPred o l         -> FpUnPred o (mapTerm f l)
-    FpFma a b c          -> FpFma (mapTerm f a) (mapTerm f b) (mapTerm f c)
-    IntToFp tt           -> IntToFp (mapTerm f tt)
-    FpToFp  tt           -> FpToFp (mapTerm f tt)
-    BvToFp  tt           -> BvToFp (mapTerm f tt)
-    DynUbvToFp tt        -> DynUbvToFp (mapTerm f tt)
-    DynSbvToFp tt        -> DynSbvToFp (mapTerm f tt)
+    Fp64Lit{}             -> t
+    Fp32Lit{}             -> t
+    FpBinExpr o l r       -> FpBinExpr o (mapTerm f l) (mapTerm f r)
+    FpUnExpr o l          -> FpUnExpr o (mapTerm f l)
+    FpBinPred o l r       -> FpBinPred o (mapTerm f l) (mapTerm f r)
+    FpUnPred o l          -> FpUnPred o (mapTerm f l)
+    FpFma a b c           -> FpFma (mapTerm f a) (mapTerm f b) (mapTerm f c)
+    IntToFp tt            -> IntToFp (mapTerm f tt)
+    FpToFp  tt            -> FpToFp (mapTerm f tt)
+    BvToFp  tt            -> BvToFp (mapTerm f tt)
+    DynUbvToFp tt         -> DynUbvToFp (mapTerm f tt)
+    DynSbvToFp tt         -> DynSbvToFp (mapTerm f tt)
 
-    PfNaryExpr o as      -> PfNaryExpr o (map (mapTerm f) as)
-    PfUnExpr   o l       -> PfUnExpr o (mapTerm f l)
-    IntToPf tt           -> IntToPf (mapTerm f tt)
+    PfNaryExpr o as       -> PfNaryExpr o (map (mapTerm f) as)
+    PfUnExpr   o l        -> PfUnExpr o (mapTerm f l)
+    IntToPf tt            -> IntToPf (mapTerm f tt)
 
-    Select a k           -> Select (mapTerm f a) (mapTerm f k)
-    Store a k v          -> Store (mapTerm f a) (mapTerm f k) (mapTerm f v)
-    NewArray             -> t
+    Select a k            -> Select (mapTerm f a) (mapTerm f k)
+    Store a k v           -> Store (mapTerm f a) (mapTerm f k) (mapTerm f v)
+    NewArray              -> t
   Just s -> s
 
 
@@ -671,7 +667,7 @@ reduceTerm mapF i foldF t = case mapF t of
 
 asVarName :: Term s -> Maybe String
 asVarName (Var n _) = Just n
-asVarName _ = Nothing
+asVarName _         = Nothing
 
 depth :: SortClass s => Term s -> Int
 depth = reduceTerm (const Nothing) 0 (\a b -> 1 + max a b)
@@ -748,7 +744,7 @@ pfNaryFn op m = case op of
 
 bvUnFn :: BvUnOp -> Bv.BV -> Bv.BV
 bvUnFn op = case op of
-  BvNot  -> Bv.not
+  BvNot -> Bv.not
   BvNeg -> negate
 
 bvBinFn :: BvBinOp -> Bv.BV -> Bv.BV -> Bv.BV
@@ -1061,7 +1057,7 @@ toZ3 t = case t of
   Fp32Lit{}        -> nyi "floats"
   FpBinExpr o l r ->
 
-    let wrapRound g a b = do 
+    let wrapRound g a b = do
            m <- Z.mkFpRoundToNearestTiesToEven
            g m a b
         f :: Z.AST -> Z.AST -> z Z.AST = case o of
@@ -1197,6 +1193,28 @@ evalZ3 term =
         return $ Just s
       Nothing -> return Nothing
 
+-- | Returns Nothing if UNSAT, or an association between variables and string if SAT
+evalZ3Model :: TermBool -> IO (Map String Int)
+evalZ3Model term = do
+  -- We have to do this because the bindings are broken.
+  -- Eventually we will just fix the bindings
+  model <- evalZ3 term
+  case model of
+    Nothing -> return Map.empty
+    Just str -> do
+      let modelLines = splitOn "\n" str
+      vs <- forM (init modelLines) $ \line -> return $ case splitOn "->" line of
+        [var, " true"] -> (var, 1)
+        [var, " false"] -> (var, 0)
+        [var, strVal] -> let maybeVal = drop 2 strVal
+                         in case maybeVal of
+                           -- Boolean
+                           'b':n -> (var, read n :: Int)
+                            -- Hex
+                           'x':_ -> (var, read ('0':maybeVal) :: Int)
+                           _     -> error $ unwords ["Bad line", show line]
+        _             -> error $ unwords ["Bad model", show model]
+      return $ Map.fromList vs
 
 -- Tries to case the values to the same type
 dynEq :: (Typeable a, Typeable b) => Term a -> Term b -> Bool

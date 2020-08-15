@@ -1,14 +1,15 @@
 import           BenchUtils
-import           Codegen.CTest
-import           Codegen.CircomTest
-import           Codegen.C.MemoryTest
 import           Codegen.C.CUtilsTest
-import           IR.SMT.OptTest
+import           Codegen.C.MemoryTest
+import           Codegen.CircomTest
+import           Codegen.CTest
+import           Codegen.CValuesTest
 import           IR.R1cs.OptTest
+import           IR.SMT.OptTest
 import           IR.SMT.ToPfTest
 import           IR.SMT.TySmtTest
-import           Parser.CTest
 import           Parser.CircomTest
+import           Parser.CTest
 import           Targets.SMT
 import           Targets.SMTTest
 import           Test.Tasty
@@ -17,7 +18,7 @@ parserTests :: BenchTest
 parserTests = benchTestGroup "Parser tests" [cParserTests, circomParserTests]
 
 generatorTests :: BenchTest
-generatorTests = benchTestGroup "Generator tests" [memoryTest, circomGenTests, cTests, cutilsTest]
+generatorTests = benchTestGroup "Generator tests" [memoryTest, circomGenTests, cTests, cutilsTest, cValueTests]
 
 irTests :: BenchTest
 irTests = benchTestGroup "IR tests" [tySmtTests, cutilsTest, toPfTests, optTests, r1csOptTests]
