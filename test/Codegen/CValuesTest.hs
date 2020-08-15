@@ -26,9 +26,12 @@ cValueTests = benchTestGroup
                                                   , ("f0_foo_lex0__j_v0 ", 8)
                                                   , ("f0_foo_lex0__k_v0 ", 25)
                                                   , ("f0_foo_lex0__l_v0 ", 1)
+                                                  , ("f0_foo_lex0__a_v1 ", 18)
+                                                  , ("f0_foo_lex0__a_v2 ", 19)
+                                                  , ("f0_foo_lex0__a_v3 ", 18)
+                                                  , ("f0_foo_lex0__a_v4 ", 17)
                                                   ]
   , constraintValueTest "assign" "test/Code/C/assign.c" [ ("f0_foo_lex0__x_v0 ", 4) ]
-  , constraintValueTest "simple if" "test/Code/C/simple_if.c" [ ("f0_foo_lex0__y_v2 ", 2) ]
   , constraintValueTest "assign if" "test/Code/C/assign_if.c" [ ("f0_foo_lex0__y_v2 ", 2) ]
   , constraintValueTest "return" "test/Code/C/return.c" [ ("f0_foo__return_v0 ", 3) ]
   , constraintValueTest "return if" "test/Code/C/return_if.c" [ ("f0_foo__return_v0 ", 3) ]
@@ -49,6 +52,8 @@ cValueTests = benchTestGroup
                                                               , ("f0_foo_lex1__x_v1 ", 51)
                                                               , ("f0_foo__return_v0 ", 4)
                                                               ]
+  , constraintValueTest "memory 0" "test/Code/C/memory_0.c" [ ("f0_foo__return_v0 ", 100) ]
+  , constraintValueTest "memory 1" "test/Code/C/memory_0.c" [ ("f0_foo__return_v0 ", 100) ]
   ]
 
 constraintValueTest :: String -> FilePath -> [(String, Int)] -> BenchTest
