@@ -18,6 +18,9 @@ cValueTests = benchTestGroup
   , constraintValueTest "simple if" "test/Code/C/simple_if.c" [("f0_foo_lex0__y_v2 ", 2)]
   , constraintValueTest "assign if" "test/Code/C/assign_if.c" [("f0_foo_lex0__y_v1 ", 2)]
   , constraintValueTest "return" "test/Code/C/return.c" [("f0_foo__return_v0 ", 3)]
+  , constraintValueTest "return if" "test/Code/C/return_if.c" [("f0_foo__return_v0 ", 3)]
+  , constraintValueTest "return complex 0" "test/Code/C/return_complex.c" [("f0_foo__return_v0 ", 5)]
+  , constraintValueTest "return complex 1" "test/Code/C/return_complex.c" [("f1_foo_bar__return_v0 ", 40)]
   ]
 
 constraintValueTest :: String -> FilePath -> [(String, Int)] -> BenchTest
