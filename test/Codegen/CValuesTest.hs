@@ -52,6 +52,8 @@ cValueTests = benchTestGroup
                                                               , ("f0_foo_lex1__x_v1 ", 51)
                                                               , ("f0_foo__return_v0 ", 4)
                                                               ]
+  , constraintValueTest "for bound" "test/Code/C/for_bound.c" [ ("f0_foo__return_v0 ", 2) ]
+  , constraintValueTest "for unbound" "test/Code/C/for_unbound.c" [ ("f0_foo__return_v0 ", 5) ] -- I'm actually not sure what we want to do here...
   , constraintValueTest "memory 0" "test/Code/C/memory_0.c" [ ("f0_foo__return_v0 ", 100) ]
   , constraintValueTest "memory 1" "test/Code/C/memory_0.c" [ ("f0_foo__return_v0 ", 100) ]
   ]
