@@ -32,6 +32,7 @@ ctypeToType ty = case ty of
                    [CVoidType{}]   -> return Void
                    [CTypeDef (Ident name _ _) _] -> untypedef name
                    [CCharType{}]   -> return S8
+                   [CBoolType{}]   -> return Bool
                    [CUnsigType{}, CCharType{}] -> return U8
                    [CIntType{}]    -> return S32
                    [CUnsigType{}]  -> return U32
