@@ -235,26 +235,24 @@ getAssignOp op l r = case op of
 genStmtSMT :: CStat -> Compiler ()
 genStmtSMT stmt = case stmt of
 --genStmtSMT stmt = case trace ("genStmtSMT " ++ show stmt) stmt of
-  CCompound ids items _ -> forM_ items $ \item -> do
-    case item of
-      CBlockStmt stmt -> genStmtSMT stmt
-      CBlockDecl decl -> void $ genDeclSMT (Just True) decl
-      CNestedFunDef{} -> error "Nested function definitions not supported"
+  CCompound ids items _ -> do
+    enterLexScope
+    forM_ items $ \case
+        CBlockStmt stmt -> genStmtSMT stmt
+        CBlockDecl decl -> void $ genDeclSMT (Just True) decl
+        CNestedFunDef{} -> error "Nested function definitions not supported"
+    exitLexScope
   CExpr e _                 -> when (isJust e) $ void $ genExprSMT $ fromJust e
   CIf cond trueBr falseBr _ -> do
     trueCond <- cppBool <$> genExprSMT cond
     -- Guard the true branch with the true condition
     pushGuard trueCond
-    enterLexScope
     genStmtSMT trueBr
-    exitLexScope
     popGuard
     -- Guard the false branch with the false condition
     when (isJust falseBr) $ do
       pushGuard (Ty.Not trueCond)
-      enterLexScope
       genStmtSMT $ fromJust falseBr
-      exitLexScope
       popGuard
   CWhile{}                    -> liftIO $ print "while"
   CFor init check incr body _ -> do
@@ -270,14 +268,12 @@ genStmtSMT stmt = case stmt of
         Just b -> genExprSMT b
         _      -> error "NYI"
       pushGuard (cppBool guard)
-      enterLexScope
       genStmtSMT body
       -- printComp
       -- increment the variable
       case incr of
         Just inc -> void $ genExprSMT inc
         _        -> error "Not yet supported"
-      exitLexScope
     replicateM_ (bound + 1) popGuard
     -- TODO: assert end
   CReturn expr _ -> when (isJust expr) $ do
