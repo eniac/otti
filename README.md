@@ -1,4 +1,8 @@
-# Compiler: Name of compiler or some descriptor
+# Compiler from C to circuit representations
+
+Currently, the compiler goes from C to:
+- R1CS
+- SMT
 
 # Install
 
