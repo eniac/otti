@@ -23,6 +23,19 @@ cValueTests = benchTestGroup
   , constraintValueTest "return complex 1" "test/Code/C/return_complex.c" [("f1_foo_bar__return_v0 ", 40)]
   , constraintValueTest "return complex 2" "test/Code/C/return_complex.c" [("f2_foo_bar_baz__return_v0 ", 10)]
   , constraintValueTest "return complex 3" "test/Code/C/return_complex.c" [("f3_foo_bar_baz_qux__return_v0 ", 606)]
+  , constraintValueTest "scope" "test/Code/C/scope.c" [ ("f0_foo_lex0__x_v0 ", 4)
+                                                      , ("f0_foo__return_v0 ", 4)
+                                                      ]
+  , constraintValueTest "scope if" "test/Code/C/scope_if.c" [ ("f0_foo_lex0__x_v0 ", 0)
+                                                            , ("f0_foo_lex1__x_v0 ", 500)
+                                                            , ("f0_foo_lex2__x_v0 ", 2)
+                                                            , ("f0_foo__return_v0 ", 0)
+                                                            ]
+  , constraintValueTest "scope for" "test/Code/C/scope_for.c" [ ("f0_foo_lex0__x_v0 ", 4)
+                                                              , ("f0_foo_lex1__x_v0 ", 50)
+                                                              , ("f0_foo_lex1__x_v1 ", 51)
+                                                              , ("f0_foo__return_v0 ", 4)
+                                                              ]
   ]
 
 constraintValueTest :: String -> FilePath -> [(String, Int)] -> BenchTest
