@@ -4,7 +4,8 @@
 
 ## Install dependencies
 
--
+- [z3](https://github.com/Z3Prover/z3)
+- The Haskell tool [Stack](https://docs.haskellstack.org/en/stable/README/)
 
 ## Build project
 
@@ -20,6 +21,13 @@ stack build
 stack test
 ```
 
+To run an individual test (e.g., C value test), use:
+
+```
+stack test --ta '-p C value test'
+```
+
+
 # Run
 
 Eventually, you will run the compiler with some command line options using the command:
@@ -29,17 +37,4 @@ stack exec compiler
 ```
 
 # Directory structure
-
-```
-├── app            -- Executable (checker or proof system compiler)
-├── src
-│   ├── AST        -- Syntax of input langauges
-│   ├── Codegen    -- Semantics of input languages
-│   ├── IR         -- Intermediate representations
-│   │   ├── SMT    -- Typed SMT, including field equations
-│   │   └── R1cs   -- rank-1 field equations
-│   ├── Targets    -- SMT solver bindings
-│   └── Util       -- General utilities (e.g. data structures)
-└── test           -- Tests
-```
 
