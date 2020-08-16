@@ -70,6 +70,8 @@ cRealTests = benchTestGroup
   "C real program test"
   [ constraintValueTest "set bits" "test/Code/C/setbits.c" [ ("f0_main__return_v0 ", 1028) ]
   , constraintValueTest "invert" "test/Code/C/invert.c" [ ("f1_invert_main__return_v0 ", 123811) ]
+  , constraintValueTest "rot" "test/Code/C/rot.c" [ ("f1_rightrot_main__return_v0 ", 1073741824) ]
+  , constraintValueTest "bitcount" "test/Code/C/bitcount.c" [ ("f1_bitcount_main__return_v0 ", 1) ]
   ]
 
 constraintValueTest :: String -> FilePath -> [(String, Int)] -> BenchTest
