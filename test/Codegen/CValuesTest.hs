@@ -45,6 +45,7 @@ cValueTests = benchTestGroup
   , constraintValueTest "function 3" "test/Code/C/function_3.c" [ ("f1_foo_main__return_v0 ", 9) ]
   , constraintValueTest "function 4" "test/Code/C/function_4.c" [ ("f1_foo_main__return_v0 ", 5) ]
   , constraintValueTest "function 5" "test/Code/C/function_5.c" [ ("f1_foo_main__return_v0 ", 6) ]
+  , constraintValueTest "function 6" "test/Code/C/function_5.c" [ ("f1_foo_main__return_v0 ", 0) ]
   , constraintValueTest "scope" "test/Code/C/scope.c" [ ("f0_foo_lex1__x_v0 ", 4)
                                                       , ("f0_foo__return_v0 ", 4)
                                                       ]
@@ -72,6 +73,8 @@ cRealTests = benchTestGroup
   , constraintValueTest "invert" "test/Code/C/invert.c" [ ("f1_invert_main__return_v0 ", 123811) ]
   , constraintValueTest "rot" "test/Code/C/rot.c" [ ("f1_rightrot_main__return_v0 ", 1073741824) ]
   , constraintValueTest "bitcount" "test/Code/C/bitcount.c" [ ("f1_bitcount_main__return_v0 ", 1) ]
+  , constraintValueTest "binsearch" "test/Code/C/binsearch.c" [ ("f1_binsearch_main__return_v0 ", 3) ]
+  , constraintValueTest "lower" "test/Code/C/lower.c" [ ("f1_lower_main__return_v0 ", 108) ]
   ]
 
 constraintValueTest :: String -> FilePath -> [(String, Int)] -> BenchTest
