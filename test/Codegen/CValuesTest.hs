@@ -65,6 +65,13 @@ cValueTests = benchTestGroup
 --  , constraintValueTest "memory 1" "test/Code/C/memory_1.c" [ ("f0_foo__return_v0 ", 100) ] -- Again, not sure what we want to do here. UC symex vs not UC symex?
   ]
 
+cRealTests :: BenchTest
+cRealTests = benchTestGroup
+  "C real program test"
+  [ constraintValueTest "set bits" "test/Code/C/setbits.c" [ ("f0_main__return_v0 ", 1028) ]
+  , constraintValueTest "invert" "test/Code/C/invert.c" [ ("f1_invert_main__return_v0 ", 123811) ]
+  ]
+
 constraintValueTest :: String -> FilePath -> [(String, Int)] -> BenchTest
 constraintValueTest name path expected = benchTestCase name $ do
   tu         <- parseC path
