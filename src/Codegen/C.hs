@@ -149,7 +149,15 @@ genExprSMT expr = case expr of
       popFunction
       return $ returnValue
     _ -> error $ unwords ["Fn call of", show fn, "is unsupported"]
+  CCond cond mTrueBr falseBr _ -> do
+    cond' <- genExprSMT cond
+    true' <- if isJust mTrueBr
+             then genExprSMT $ fromJust mTrueBr
+             else return cond'
+    false' <- genExprSMT falseBr
+    return $ cppCond cond' true' false'
   _ -> error $ unwords ["We do not support", show expr, "right now"]
+
 
 getUnaryOp :: CUnaryOp -> CExpr -> Compiler CTerm
 getUnaryOp op arg = case op of

@@ -30,6 +30,7 @@ cValueTests = benchTestGroup
                                                   , ("f0_foo_lex1__a_v2 ", 19)
                                                   , ("f0_foo_lex1__a_v3 ", 18)
                                                   , ("f0_foo_lex1__a_v4 ", 17)
+                                                  , ("f0_foo_lex1__p_v0 ", 1)
                                                   ]
   , constraintValueTest "assign" "test/Code/C/assign.c" [ ("f0_foo_lex1__x_v0 ", 4) ]
   , constraintValueTest "assign if" "test/Code/C/assign_if.c" [ ("f0_foo_lex1__y_v2 ", 2) ]
