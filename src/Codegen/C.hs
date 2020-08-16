@@ -4,7 +4,7 @@ import           AST.C
 import           AST.Simple
 import           Codegen.C.CompilerMonad
 import           Codegen.C.CUtils
-import           Codegen.C.Memory                (bvNum)
+import           Codegen.C.Memory                (bvNum, initMem)
 import           Codegen.C.Utils
 import           Control.Applicative
 import           Control.Monad                   (replicateM_)
@@ -358,6 +358,7 @@ registerFns decls = forM_ decls $ \case
 
 codegenAll :: CTranslUnit -> Compiler ()
 codegenAll (CTranslUnit decls _) = do
+  liftMem initMem
   registerFns decls
   forM_ decls $ \case
     CDeclExt decl -> void $ genDeclSMT Nothing decl

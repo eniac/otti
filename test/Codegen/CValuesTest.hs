@@ -39,6 +39,12 @@ cValueTests = benchTestGroup
   , constraintValueTest "return complex 1" "test/Code/C/return_complex.c" [ ("f1_foo_bar__return_v0 ", 40) ]
   , constraintValueTest "return complex 2" "test/Code/C/return_complex.c" [ ("f2_foo_bar_baz__return_v0 ", 10) ]
   , constraintValueTest "return complex 3" "test/Code/C/return_complex.c" [ ("f3_foo_bar_baz_qux__return_v0 ", 606) ]
+  , constraintValueTest "function 0" "test/Code/C/function.c" [ ("f1_foo_main__return_v0 ", 7) ]
+  , constraintValueTest "function 1" "test/Code/C/function_1.c" [ ("f2_bar_foo_main__return_v0 ", 6) ]
+  , constraintValueTest "function 2" "test/Code/C/function_2.c" [ ("f1_foo_main__return_v0 ", 12) ]
+  , constraintValueTest "function 3" "test/Code/C/function_3.c" [ ("f1_foo_main__return_v0 ", 9) ]
+  , constraintValueTest "function 4" "test/Code/C/function_4.c" [ ("f1_foo_main__return_v0 ", 5) ]
+  , constraintValueTest "function 5" "test/Code/C/function_5.c" [ ("f1_foo_main__return_v0 ", 6) ]
   , constraintValueTest "scope" "test/Code/C/scope.c" [ ("f0_foo_lex1__x_v0 ", 4)
                                                       , ("f0_foo__return_v0 ", 4)
                                                       ]
@@ -55,7 +61,8 @@ cValueTests = benchTestGroup
   , constraintValueTest "for bound" "test/Code/C/for_bound.c" [ ("f0_foo__return_v0 ", 2) ]
   , constraintValueTest "for unbound" "test/Code/C/for_unbound.c" [ ("f0_foo__return_v0 ", 5) ] -- I'm actually not sure what we want to do here...
   , constraintValueTest "memory 0" "test/Code/C/memory_0.c" [ ("f0_foo__return_v0 ", 100) ]
-  , constraintValueTest "memory 1" "test/Code/C/memory_0.c" [ ("f0_foo__return_v0 ", 100) ]
+-- Segfaults everytime
+--  , constraintValueTest "memory 1" "test/Code/C/memory_1.c" [ ("f0_foo__return_v0 ", 100) ] -- Again, not sure what we want to do here. UC symex vs not UC symex?
   ]
 
 constraintValueTest :: String -> FilePath -> [(String, Int)] -> BenchTest
