@@ -78,6 +78,7 @@ Commands:
   emit-r1cs        Emit R1CS
   count-terms      Compile at the fn-level only
   c-check          Check a C function using an SMT solver
+  c-eval           Evaluate C function & print model
   c-emit-r1cs      Convert a C function to R1CS
   c-setup          Run setup for a C function
   c-prove          Write proof for a C function
