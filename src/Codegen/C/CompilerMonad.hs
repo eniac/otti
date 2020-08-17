@@ -474,14 +474,14 @@ pushFunction name ty = do
   p <- gets prefix
   c <- gets fnCtr
   let p' = name : p
-  -- TODO update a fn counter to disambiguate repeat calls.
   fs <- liftAssert
     $ fsWithPrefix ("f" ++ show c ++ "_" ++ intercalate "_" (reverse p')) ty
   modify (\s -> s { prefix = p', callStack = fs : callStack s, fnCtr = c + 1 })
 
 -- Pop a function, returning the return term
 popFunction :: Compiler ()
-popFunction = modify (\s -> s { callStack = tail (callStack s) })
+popFunction =
+  modify (\s -> s { callStack = tail (callStack s), prefix = tail (prefix s) })
 
 registerFunction :: FunctionName -> CFunDef -> Compiler ()
 registerFunction name function = do

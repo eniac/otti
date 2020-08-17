@@ -14,7 +14,7 @@ import           Test.Tasty.HUnit
 cValueTests :: BenchTest
 cValueTests = benchTestGroup
   "C value test"
-  [ constraintValueTest "ops" "test/Code/C/ops.c" [ ("f0_foo_lex1__a_v0 ", 17)
+  [ constraintValueTest "ops" "foo" "test/Code/C/ops.c" [ ("f0_foo_lex1__a_v0 ", 17)
                                                   , ("f0_foo_lex1__b_v0 ", 4294967289) -- -7
                                                   , ("f0_foo_lex1__c_v0 ", 60)
                                                   , ("f0_foo_lex1__d_v0 ", 0)
@@ -32,37 +32,37 @@ cValueTests = benchTestGroup
                                                   , ("f0_foo_lex1__a_v4 ", 17)
                                                   , ("f0_foo_lex1__p_v0 ", 1)
                                                   ]
-  , constraintValueTest "assign" "test/Code/C/assign.c" [ ("f0_foo_lex1__x_v0 ", 4) ]
-  , constraintValueTest "assign if" "test/Code/C/assign_if.c" [ ("f0_foo_lex1__y_v2 ", 2) ]
-  , constraintValueTest "return" "test/Code/C/return.c" [ ("f0_foo__return_v0 ", 3) ]
-  , constraintValueTest "return if" "test/Code/C/return_if.c" [ ("f0_foo__return_v0 ", 3) ]
-  , constraintValueTest "return complex 0" "test/Code/C/return_complex.c" [ ("f0_foo__return_v0 ", 5) ]
-  , constraintValueTest "return complex 1" "test/Code/C/return_complex.c" [ ("f1_foo_bar__return_v0 ", 40) ]
-  , constraintValueTest "return complex 2" "test/Code/C/return_complex.c" [ ("f2_foo_bar_baz__return_v0 ", 10) ]
-  , constraintValueTest "return complex 3" "test/Code/C/return_complex.c" [ ("f3_foo_bar_baz_qux__return_v0 ", 606) ]
-  , constraintValueTest "function 0" "test/Code/C/function.c" [ ("f1_foo_main__return_v0 ", 7) ]
-  , constraintValueTest "function 1" "test/Code/C/function_1.c" [ ("f2_bar_foo_main__return_v0 ", 6) ]
-  , constraintValueTest "function 2" "test/Code/C/function_2.c" [ ("f1_foo_main__return_v0 ", 12) ]
-  , constraintValueTest "function 3" "test/Code/C/function_3.c" [ ("f1_foo_main__return_v0 ", 9) ]
-  , constraintValueTest "function 4" "test/Code/C/function_4.c" [ ("f1_foo_main__return_v0 ", 5) ]
-  , constraintValueTest "function 5" "test/Code/C/function_5.c" [ ("f1_foo_main__return_v0 ", 6) ]
-  , constraintValueTest "function 6" "test/Code/C/function_5.c" [ ("f1_foo_main__return_v0 ", 0) ]
-  , constraintValueTest "scope" "test/Code/C/scope.c" [ ("f0_foo_lex1__x_v0 ", 4)
-                                                      , ("f0_foo__return_v0 ", 4)
-                                                      ]
-  , constraintValueTest "scope if" "test/Code/C/scope_if.c" [ ("f0_foo_lex1__x_v0 ", 0)
-                                                            , ("f0_foo_lex2__x_v0 ", 500)
-                                                            , ("f0_foo_lex3__x_v0 ", 2)
-                                                            , ("f0_foo__return_v0 ", 0)
+  , constraintValueTest "assign" "foo" "test/Code/C/assign.c" [ ("f0_foo_lex1__x_v0 ", 4) ]
+  , constraintValueTest "assign if" "foo" "test/Code/C/assign_if.c" [ ("f0_foo_lex1__y_v2 ", 2) ]
+  , constraintValueTest "return" "foo" "test/Code/C/return.c" [ ("f0_foo__return_v0 ", 3) ]
+  , constraintValueTest "return if" "foo" "test/Code/C/return_if.c" [ ("f0_foo__return_v0 ", 3) ]
+  , constraintValueTest "return complex 0" "foo" "test/Code/C/return_complex.c" [ ("f0_foo__return_v0 ", 5) ]
+  , constraintValueTest "return complex 1" "bar" "test/Code/C/return_complex.c" [ ("f0_bar__return_v0 ", 40) ]
+  , constraintValueTest "return complex 2" "baz" "test/Code/C/return_complex.c" [ ("f0_baz__return_v0 ", 10) ]
+  , constraintValueTest "return complex 3" "qux" "test/Code/C/return_complex.c" [ ("f0_qux__return_v0 ", 606) ]
+  , constraintValueTest "function 0" "main" "test/Code/C/function.c" [ ("f0_main__return_v0 ", 7) ]
+  , constraintValueTest "function 1" "main" "test/Code/C/function_1.c" [ ("f0_main__return_v0 ", 6) ]
+  , constraintValueTest "function 2" "main" "test/Code/C/function_2.c" [ ("f0_main__return_v0 ", 12) ]
+  , constraintValueTest "function 3" "main" "test/Code/C/function_3.c" [ ("f0_main__return_v0 ", 9) ]
+  , constraintValueTest "function 4" "main" "test/Code/C/function_4.c" [ ("f0_main__return_v0 ", 5) ]
+  , constraintValueTest "function 5" "main" "test/Code/C/function_5.c" [ ("f0_main__return_v0 ", 6) ]
+  , constraintValueTest "function 6" "main" "test/Code/C/function_5.c" [ ("f0_main__return_v0 ", 0) ]
+  , constraintValueTest "scope" "foo" "test/Code/C/scope.c" [ ("f0_foo_lex1__x_v0 ", 4)
+                                                            , ("f0_foo__return_v0 ", 4)
                                                             ]
-  , constraintValueTest "scope for" "test/Code/C/scope_for.c" [ ("f0_foo_lex1__x_v0 ", 4)
-                                                              , ("f0_foo_lex2__x_v0 ", 50)
-                                                              , ("f0_foo_lex2__x_v1 ", 51)
-                                                              , ("f0_foo__return_v0 ", 4)
-                                                              ]
-  , constraintValueTest "for bound" "test/Code/C/for_bound.c" [ ("f0_foo__return_v0 ", 2) ]
-  , constraintValueTest "for unbound" "test/Code/C/for_unbound.c" [ ("f0_foo__return_v0 ", 5) ] -- I'm actually not sure what we want to do here...
-  , constraintValueTest "memory 0" "test/Code/C/memory_0.c" [ ("f0_foo__return_v0 ", 100) ]
+  , constraintValueTest "scope if" "foo" "test/Code/C/scope_if.c" [ ("f0_foo_lex1__x_v0 ", 0)
+                                                                  , ("f0_foo_lex2__x_v0 ", 500)
+                                                                  , ("f0_foo_lex3__x_v0 ", 2)
+                                                                  , ("f0_foo__return_v0 ", 0)
+                                                                  ]
+  , constraintValueTest "scope for" "foo" "test/Code/C/scope_for.c" [ ("f0_foo_lex1__x_v0 ", 4)
+                                                                    , ("f0_foo_lex2__x_v0 ", 50)
+                                                                    , ("f0_foo_lex2__x_v1 ", 51)
+                                                                    , ("f0_foo__return_v0 ", 4)
+                                                                    ]
+  , constraintValueTest "for bound" "foo" "test/Code/C/for_bound.c" [ ("f0_foo__return_v0 ", 2) ]
+  , constraintValueTest "for unbound" "foo" "test/Code/C/for_unbound.c" [ ("f0_foo__return_v0 ", 5) ] -- I'm actually not sure what we want to do here...
+  , constraintValueTest "memory 0" "foo" "test/Code/C/memory_0.c" [ ("f0_foo__return_v0 ", 100) ]
 -- Segfaults everytime
 --  , constraintValueTest "memory 1" "test/Code/C/memory_1.c" [ ("f0_foo__return_v0 ", 100) ] -- Again, not sure what we want to do here. UC symex vs not UC symex?
   ]
@@ -70,20 +70,18 @@ cValueTests = benchTestGroup
 cRealTests :: BenchTest
 cRealTests = benchTestGroup
   "C real program test"
-  [ constraintValueTest "set bits" "test/Code/C/setbits.c" [ ("f0_main__return_v0 ", 1028) ]
-  , constraintValueTest "invert" "test/Code/C/invert.c" [ ("f1_invert_main__return_v0 ", 123811) ]
-  , constraintValueTest "rot" "test/Code/C/rot.c" [ ("f1_rightrot_main__return_v0 ", 1073741824) ]
-  , constraintValueTest "bitcount" "test/Code/C/bitcount.c" [ ("f1_bitcount_main__return_v0 ", 1) ]
-  , constraintValueTest "binsearch" "test/Code/C/binsearch.c" [ ("f1_binsearch_main__return_v0 ", 3) ]
-  , constraintValueTest "lower" "test/Code/C/lower.c" [ ("f1_lower_main__return_v0 ", 108) ]
+  [ constraintValueTest "set bits" "main" "test/Code/C/setbits.c" [ ("f0_main__return_v0 ", 1028) ]
+  , constraintValueTest "invert" "main" "test/Code/C/invert.c" [ ("f0_main__return_v0 ", 123811) ]
+  , constraintValueTest "rot" "main" "test/Code/C/rot.c" [ ("f0_main__return_v0 ", 1073741824) ]
+  , constraintValueTest "bitcount" "main" "test/Code/C/bitcount.c" [ ("f0_main__return_v0 ", 1) ]
+  , constraintValueTest "binsearch" "main" "test/Code/C/binsearch.c" [ ("f0_main__return_v0 ", 3) ]
+  , constraintValueTest "lower" "main" "test/Code/C/lower.c" [ ("f0__main__return_v0 ", 108) ]
   ]
 
-constraintValueTest :: String -> FilePath -> [(String, Int)] -> BenchTest
-constraintValueTest name path expected = benchTestCase name $ do
-  tu         <- parseC path
-  -- Don't check for undefined behavior
-  assertions <- execAssert $ evalCodegen False $ codegenAll tu
-  r          <- Ty.evalZ3Model $ Ty.BoolNaryExpr Ty.And (asserted assertions)
+constraintValueTest :: String -> String -> FilePath -> [(String, Int)] -> BenchTest
+constraintValueTest name fnName path expected = benchTestCase name $ do
+  tu <- parseC path
+  r  <- evalFn tu fnName
   forM_ expected $ \(evar, eval) -> do
     case M.lookup evar r of
       Just aval -> eval @=? aval

@@ -405,3 +405,8 @@ checkFn :: CTranslUnit -> String -> IO (Maybe String)
 checkFn tu name = do
   assertions <- Assert.execAssert $ evalCodegen True $ codegenFn tu name Nothing
   Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)
+
+evalFn :: CTranslUnit -> String -> IO (Map.Map String Int)
+evalFn tu name = do
+  assertions <- Assert.execAssert $ evalCodegen False $ codegenFn tu name Nothing
+  Ty.evalZ3Model $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)

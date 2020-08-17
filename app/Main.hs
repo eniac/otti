@@ -13,13 +13,15 @@ module Main where
 
 import           Control.Exception          (catchJust)
 import           Codegen.C.CToR1cs          (fnToR1cs, fnToR1csWithWit)
-import           Codegen.C                  (checkFn)
+import           Codegen.C                  (checkFn, evalFn)
 import qualified Codegen.Circom.Compilation as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
                                             as Wit
 import qualified Codegen.Circom.CompTypes   as CompT
 import qualified Codegen.Circom.Linking     as Link
+import           Control.Monad
 import qualified IR.R1cs                    as R1cs
+import qualified IR.SMT.TySmt               as Ty
 import qualified IR.R1cs.Opt                as Opt
 import           Data.Field.Galois          (fromP)
 import qualified Data.Map                   as Map
@@ -55,6 +57,7 @@ Usage:
   compiler [options] c-emit-r1cs <fn-name> <path>
   compiler [options] c-setup <fn-name> <path>
   compiler [options] c-prove <fn-name> <path>
+  compiler [options] c-eval <fn-name> <path>
 
 Options:
   -h, --help         Display this message
@@ -167,6 +170,13 @@ cmdCCheck name path = do
       Just s -> putStrLn s
       Nothing -> putStrLn "No bug"
 
+cmdCEval :: String -> FilePath -> IO ()
+cmdCEval name path = do
+    tu         <- parseC path
+    r          <- evalFn tu name
+    forM_ (Map.toList r) $ \(k, v) ->
+      putStrLn $ unwords [k, ":", show v]
+
 cmdCEmitR1cs :: Bool -> String -> FilePath -> FilePath -> IO ()
 cmdCEmitR1cs opt fnName cPath r1csPath = do
     tu <- parseC cPath
@@ -233,6 +243,10 @@ main = do
         fnName <- args `getArgOrExit` argument "fn-name"
         path <- args `getArgOrExit` argument "path"
         cmdCCheck fnName path
+    else if args `isPresent` command "c-eval" then do
+        fnName <- args `getArgOrExit` argument "fn-name"
+        path <- args `getArgOrExit` argument "path"
+        cmdCEval fnName path
     else if args `isPresent` command "c-emit-r1cs" then do
         fnName <- args `getArgOrExit` argument "fn-name"
         path <- args `getArgOrExit` argument "path"
