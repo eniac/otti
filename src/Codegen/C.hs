@@ -83,12 +83,7 @@ genExprSMT expr = case expr of
   CAssign op lhs rhs _ -> do
     lval <- genLValueSMT lhs
     rval <- genExprSMT rhs
-    case lval of
-      CLVar  varName -> ssaAssign varName rval
-      CLAddr addr    -> do
-        guard <- getGuard
-        liftMem $ cppStore addr rval guard
-        return rval
+    genAssignOp op lval rval
   CBinary op left right _ -> do
     left'  <- genExprSMT left
     right' <- genExprSMT right
@@ -211,6 +206,7 @@ getBinOp op left right =
         CAndOp -> cppBitAnd
         CXorOp -> cppBitXor
         COrOp  -> cppBitOr
+        -- TODO: short circuiting
         CLndOp -> cppAnd
         CLorOp -> cppOr
   in  return $ f left right
@@ -218,8 +214,8 @@ getBinOp op left right =
 -- | Assign operation
 -- eg x += 1
 -- aka x = x + 1
-getAssignOp :: CAssignOp -> CLVal -> CTerm -> Compiler CTerm
-getAssignOp op l r = case op of
+genAssignOp :: CAssignOp -> CLVal -> CTerm -> Compiler CTerm
+genAssignOp op l r = case op of
   CAssignOp -> genAssign l r
   _ ->
     let f = case op of

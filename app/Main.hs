@@ -21,7 +21,6 @@ import qualified Codegen.Circom.CompTypes   as CompT
 import qualified Codegen.Circom.Linking     as Link
 import           Control.Monad
 import qualified IR.R1cs                    as R1cs
-import qualified IR.SMT.TySmt               as Ty
 import qualified IR.R1cs.Opt                as Opt
 import           Data.Field.Galois          (fromP)
 import qualified Data.Map                   as Map
