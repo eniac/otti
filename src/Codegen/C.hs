@@ -215,7 +215,6 @@ getBinOp op left right =
         CAndOp -> cppBitAnd
         CXorOp -> cppBitXor
         COrOp  -> cppBitOr
-        -- TODO: short circuiting
         CLndOp -> cppAnd
         CLorOp -> cppOr
   in  return $ f left right
