@@ -84,10 +84,19 @@ genExprSMT expr = case expr of
     lval <- genLValueSMT lhs
     rval <- genExprSMT rhs
     genAssignOp op lval rval
-  CBinary op left right _ -> do
-    left'  <- genExprSMT left
-    right' <- genExprSMT right
-    getBinOp op left' right'
+  CBinary op left right _ -> case op of
+    CLndOp -> do
+      left'  <- genExprSMT left
+      right' <- guarded (cppBool left') $ genExprSMT right
+      return $ cppAnd left' right'
+    CLorOp -> do
+      left'  <- genExprSMT left
+      right' <- guarded (Ty.Not $ cppBool left') $ genExprSMT right
+      return $ cppAnd left' right'
+    _ -> do
+      left'  <- genExprSMT left
+      right' <- genExprSMT right
+      getBinOp op left' right'
   CUnary op   arg   _ -> getUnaryOp op arg
   CIndex base index _ -> do
     base'  <- genExprSMT base
@@ -250,14 +259,9 @@ genStmtSMT stmt = case stmt of
   CIf cond trueBr falseBr _ -> do
     trueCond <- cppBool <$> genExprSMT cond
     -- Guard the true branch with the true condition
-    pushGuard trueCond
-    genStmtSMT trueBr
-    popGuard
+    guarded trueCond $ genStmtSMT trueBr
     -- Guard the false branch with the false condition
-    when (isJust falseBr) $ do
-      pushGuard (Ty.Not trueCond)
-      genStmtSMT $ fromJust falseBr
-      popGuard
+    forM_ falseBr $ \br -> guarded (Ty.Not trueCond) $ genStmtSMT br
   CWhile{}                    -> liftIO $ print "while"
   CFor init check incr body _ -> do
     case init of

@@ -65,6 +65,8 @@ cValueTests = benchTestGroup
   , constraintValueTest "memory 0" "foo" "test/Code/C/memory_0.c" [ ("f0_foo__return_v0 ", 100) ]
 -- Segfaults everytime
 --  , constraintValueTest "memory 1" "test/Code/C/memory_1.c" [ ("f0_foo__return_v0 ", 100) ] -- Again, not sure what we want to do here. UC symex vs not UC symex?
+  , constraintValueTest "short &&" "short_and" "test/Code/C/short-circuit.c" [ ("f0_short_and__return_v0 ", 0) ]
+  , constraintValueTest "short ||" "short_or" "test/Code/C/short-circuit.c" [ ("f0_short_or__return_v0 ", 0) ]
   ]
 
 cRealTests :: BenchTest

@@ -377,6 +377,9 @@ pushGuard = compilerModifyTop . fsPushGuard
 popGuard :: Compiler ()
 popGuard = compilerModifyTop fsPopGuard
 
+guarded :: Ty.TermBool -> Compiler a -> Compiler a
+guarded cond action = pushGuard cond *> action <* popGuard
+
 getGuard :: Compiler Ty.TermBool
 getGuard = compilerGetsTop fsCurrentGuard
 
