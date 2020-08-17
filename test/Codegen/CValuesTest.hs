@@ -75,6 +75,7 @@ cRealTests = benchTestGroup
   [ constraintValueTest "set bits" "main" "test/Code/C/setbits.c" [ ("f0_main__return_v0 ", 1028) ]
   , constraintValueTest "invert" "main" "test/Code/C/invert.c" [ ("f0_main__return_v0 ", 123811) ]
   , constraintValueTest "rot" "main" "test/Code/C/rot.c" [ ("f0_main__return_v0 ", 1073741824) ]
+  , constraintValueTest "rot" "other_main" "test/Code/C/rot.c" [ ("f0_other_main__return_v0 ", 1073741824) ]
   , constraintValueTest "bitcount" "main" "test/Code/C/bitcount.c" [ ("f0_main__return_v0 ", 1) ]
   , constraintValueTest "binsearch" "main" "test/Code/C/binsearch.c" [ ("f0_main__return_v0 ", 3) ]
   , constraintValueTest "lower" "main" "test/Code/C/lower.c" [ ("f0__main__return_v0 ", 108) ]

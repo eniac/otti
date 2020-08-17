@@ -1198,7 +1198,6 @@ evalZ3Model :: TermBool -> IO (Map String Int)
 evalZ3Model term = do
   -- We have to do this because the bindings are broken.
   -- Eventually we will just fix the bindings
-  print term
   model <- evalZ3 term
   case model of
     Nothing -> return Map.empty
