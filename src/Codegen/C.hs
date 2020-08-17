@@ -164,6 +164,9 @@ genExprSMT expr = case expr of
     -- Evaluate in false context, to get type, but avoid side-effects
     e' <- guarded (Ty.BoolLit False) (genExprSMT e)
     return $ cppIntLit U32 (toInteger $ numBits (cppType e') `div` 8)
+  CSizeofType decl _ -> do
+    ty <- cDeclToType decl
+    return $ cppIntLit U32 (toInteger $ numBits ty `div` 8)
   _ -> error $ unwords ["We do not support", show expr, "right now"]
 
 

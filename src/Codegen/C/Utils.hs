@@ -49,6 +49,9 @@ getTy ty (d:ds) = case d of
                     _ | isPtrDecl d -> getTy (Ptr32 ty) ds
                     _ -> error "Do not support"
 
+cDeclToType :: (Show a) => CDeclaration a -> Compiler Type
+cDeclToType (CDecl specs _ _) = ctypeToType $ map specToType specs
+
 baseTypeFromSpecs :: (Show a) => [CDeclarationSpecifier a] -> Compiler Type
 baseTypeFromSpecs all@(elem:rest) =
   if isTypeQual elem || isAlignSpec elem

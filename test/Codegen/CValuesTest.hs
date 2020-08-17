@@ -67,6 +67,9 @@ cValueTests = benchTestGroup
 --  , constraintValueTest "memory 1" "test/Code/C/memory_1.c" [ ("f0_foo__return_v0 ", 100) ] -- Again, not sure what we want to do here. UC symex vs not UC symex?
   , constraintValueTest "short &&" "short_and" "test/Code/C/short-circuit.c" [ ("f0_short_and__return_v0 ", 0) ]
   , constraintValueTest "short ||" "short_or" "test/Code/C/short-circuit.c" [ ("f0_short_or__return_v0 ", 0) ]
+  , constraintValueTest "sizeof(expr)" "sizeof_expr" "test/Code/C/sizeof.c" [ ("f0_sizeof_expr__return_v0 ", 4) ]
+  , constraintValueTest "sizeof(expr) no eval" "sizeof_expr_no_eval" "test/Code/C/sizeof.c" [ ("f0_sizeof_expr_no_eval__return_v0 ", 0) ]
+  , constraintValueTest "sizeof(type)" "sizeof_type" "test/Code/C/sizeof.c" [ ("f0_sizeof_type__return_v0 ", 4) ]
   ]
 
 cRealTests :: BenchTest
