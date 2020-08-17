@@ -7,7 +7,7 @@ int foo (int x, int y, int z, int w) {
 }
 
 int main() {
-  int a, b, c, d = 1;
+  int a = 1, b = 1, c = 1, d = 1;
   int result = foo(a,b,c,d); // all same, so foo returns 15
   if (result < 10) return 4; // 15 !< 10
   if (result > 20) return 5; // 15 !> 20
