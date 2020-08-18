@@ -292,10 +292,11 @@ genStmtSMT stmt = case stmt of
     -- TODO: assert end
   CWhile check body isDoWhile _ -> do
     bound <- getLoopBound
+    let addGuard = genExprSMT check >>= pushGuard . cppBool
     forM_ [0..bound] $ \_ -> do
-      unless isDoWhile $ genExprSMT check >>= pushGuard . cppBool
+      unless isDoWhile addGuard
       genStmtSMT body
-      when isDoWhile $ genExprSMT check >>= pushGuard . cppBool
+      when isDoWhile addGuard
     replicateM_ (bound + 1) popGuard
   CReturn expr _ -> when (isJust expr) $ do
     toReturn <- genExprSMT $ fromJust expr
