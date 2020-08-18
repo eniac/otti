@@ -269,7 +269,6 @@ genStmtSMT stmt = case stmt of
     guarded trueCond $ genStmtSMT trueBr
     -- Guard the false branch with the false condition
     forM_ falseBr $ \br -> guarded (Ty.Not trueCond) $ genStmtSMT br
-  CWhile{}                    -> liftIO $ print "while"
   CFor init check incr body _ -> do
     case init of
       Left  (Just expr) -> void $ genExprSMT expr
@@ -291,10 +290,17 @@ genStmtSMT stmt = case stmt of
         _        -> error "Not yet supported"
     replicateM_ (bound + 1) popGuard
     -- TODO: assert end
+  CWhile check body isDoWhile _ -> do
+    bound <- getLoopBound
+    forM_ [0..bound] $ \_ -> do
+      unless isDoWhile $ genExprSMT check >>= pushGuard . cppBool
+      genStmtSMT body
+      when isDoWhile $ genExprSMT check >>= pushGuard . cppBool
+    replicateM_ (bound + 1) popGuard
   CReturn expr _ -> when (isJust expr) $ do
     toReturn <- genExprSMT $ fromJust expr
     doReturn toReturn
-  _ -> liftIO $ print $ unwords ["other", show stmt]
+  _ -> error $ unwords ["Unsupported: ", show stmt]
 
 -- Returns the declaration's variable name
 genDeclSMT :: Maybe Bool -> CDecl -> Compiler String
