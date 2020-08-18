@@ -81,7 +81,9 @@ cRealTests = benchTestGroup
   , constraintValueTest "rot" "other_main" "test/Code/C/rot.c" [ ("f0_other_main__return_v0 ", 1073741824) ]
   , constraintValueTest "bitcount" "main" "test/Code/C/bitcount.c" [ ("f0_main__return_v0 ", 1) ]
   , constraintValueTest "binsearch" "main" "test/Code/C/binsearch.c" [ ("f0_main__return_v0 ", 3) ]
-  , constraintValueTest "lower" "main" "test/Code/C/lower.c" [ ("f0__main__return_v0 ", 108) ]
+  , constraintValueTest "lower" "main" "test/Code/C/lower.c" [ ("f0_main__return_v0 ", 108) ]
+  , constraintValueTest "power" "main" "test/Code/C/power.c" [ ("f0_main__return_v0 ", 8) ]
+  , constraintValueTest "farenheit" "main" "test/Code/C/farenheit.c" [ ("f0_main__return_v0 ", 8) ]
   ]
 
 constraintValueTest :: String -> String -> FilePath -> [(String, Int)] -> BenchTest
