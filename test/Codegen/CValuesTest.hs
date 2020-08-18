@@ -34,6 +34,7 @@ cValueTests = benchTestGroup
                                                   ]
   , constraintValueTest "assign" "foo" "test/Code/C/assign.c" [ ("f0_foo_lex1__x_v0 ", 4) ]
   , constraintValueTest "assign if" "foo" "test/Code/C/assign_if.c" [ ("f0_foo_lex1__y_v2 ", 2) ]
+  , constraintValueTest "global" "foo" "test/Code/C/global.c" [ ("f0_foo_lex1__x_v0 ", 4) ]
   , constraintValueTest "return" "foo" "test/Code/C/return.c" [ ("f0_foo__return_v0 ", 3) ]
   , constraintValueTest "return if" "foo" "test/Code/C/return_if.c" [ ("f0_foo__return_v0 ", 3) ]
   , constraintValueTest "short circuit if" "foo" "test/Code/C/short_if.c" [ ("f0_foo__return_v0 ", 12) ]
