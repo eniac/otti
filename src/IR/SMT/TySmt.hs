@@ -86,6 +86,7 @@ import           Control.Monad       (foldM, forM, liftM2)
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Bits           as Bits
 import qualified Data.BitVector      as Bv
+import           Data.Char           (digitToInt)
 import           Data.Dynamic        (Dynamic, Typeable, fromDyn, toDyn)
 import           Data.Fixed          (mod')
 import           Data.List.Split     (splitOn)
@@ -354,8 +355,10 @@ data Term s where
     DynBvBinExpr ::BvBinOp -> Int -> TermDynBv -> TermDynBv -> TermDynBv
     DynBvBinPred ::BvBinPred -> Int -> TermDynBv -> TermDynBv -> TermBool
     DynBvUnExpr  ::BvUnOp -> Int -> TermDynBv -> TermDynBv
-    DynBvUext    :: Int -> TermDynBv -> TermDynBv
-    DynBvSext    :: Int -> TermDynBv -> TermDynBv
+    -- width, extension amount, inner
+    DynBvUext    :: Int -> Int -> TermDynBv -> TermDynBv
+    -- width, extension amount, inner
+    DynBvSext    :: Int -> Int -> TermDynBv -> TermDynBv
     IntToDynBv   :: Int -> TermInt -> TermDynBv
     StatifyBv ::KnownNat n => TermDynBv -> TermBv n
     -- width, signedness, floating point number
@@ -449,10 +452,10 @@ mkDynBvUnExpr :: BvUnOp -> TermDynBv -> TermDynBv
 mkDynBvUnExpr o a = DynBvUnExpr o (dynBvWidth a) a
 
 mkDynBvSext :: Int -> TermDynBv -> TermDynBv
-mkDynBvSext w a = if w >= (dynBvWidth a) then DynBvSext w a else error "sext shrink!"
+mkDynBvSext newW a = let oldW = dynBvWidth a in if newW >= oldW then DynBvSext newW (newW - oldW) a else error "bv_sext shrink"
 
 mkDynBvUext :: Int -> TermDynBv -> TermDynBv
-mkDynBvUext w a = if w >= (dynBvWidth a) then DynBvUext w a else error "uext shrink!"
+mkDynBvUext newW a = let oldW = dynBvWidth a in if newW >= oldW then DynBvUext newW (newW - oldW) a else error "bv_uext shrink"
 
 mkDynBvEq :: TermDynBv -> TermDynBv -> TermBool
 mkDynBvEq a b =
@@ -466,8 +469,8 @@ dynBvWidth t = case t of
   DynBvExtract _ w _ -> w
   DynBvBinExpr _ w _ _ -> w
   DynBvUnExpr _ w _ -> w
-  DynBvSext w _ -> w
-  DynBvUext w _ -> w
+  DynBvSext w _ _ -> w
+  DynBvUext w _ _ -> w
   DynamizeBv w _ -> w
   RoundFpToDynBv w _ _ -> w
   IntToDynBv w _ -> w
@@ -493,8 +496,8 @@ sort t = case sorted @s of
 
     RoundFpToDynBv w _ _ -> SortBv w
     DynBvUnExpr _ w _ -> SortBv w
-    DynBvSext w _ -> SortBv w
-    DynBvUext w _ -> SortBv w
+    DynBvSext w _ _ -> SortBv w
+    DynBvUext w _ _ -> SortBv w
     DynBvBinExpr _ w _ _ -> SortBv w
     DynBvConcat w _ _    -> SortBv w
     DynBvExtract _ w _   -> SortBv w
@@ -533,14 +536,14 @@ mapTerm f t = case f t of
     FpToBv    tt          -> FpToBv (mapTerm f tt)
 
     StatifyBv t'          -> StatifyBv (mapTerm f t')
-    RoundFpToDynBv w s t'-> RoundFpToDynBv w s (mapTerm f t')
+    RoundFpToDynBv w s t' -> RoundFpToDynBv w s (mapTerm f t')
     DynBvBinExpr o w a b  -> DynBvBinExpr o w (mapTerm f a) (mapTerm f b)
     DynBvConcat w a b     -> DynBvConcat w (mapTerm f a) (mapTerm f b)
     DynBvBinPred o w a b  -> DynBvBinPred o w (mapTerm f a) (mapTerm f b)
     DynBvExtract s l b    -> DynBvExtract s l (mapTerm f b)
     DynBvUnExpr o w r     -> DynBvUnExpr o w (mapTerm f r)
-    DynBvSext w r         -> DynBvSext w (mapTerm f r)
-    DynBvUext w r         -> DynBvUext w (mapTerm f r)
+    DynBvSext w w' r      -> DynBvSext w w' (mapTerm f r)
+    DynBvUext w w' r      -> DynBvUext w w' (mapTerm f r)
     DynamizeBv w b        -> DynamizeBv w (mapTerm f b)
     IntToDynBv w i        -> IntToDynBv w (mapTerm f i)
 
@@ -619,8 +622,8 @@ reduceTerm mapF i foldF t = case mapF t of
       foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF b)
     DynBvExtract _ _ b -> reduceTerm mapF i foldF b
     DynBvUnExpr _ _ b -> reduceTerm mapF i foldF b
-    DynBvSext _ b -> reduceTerm mapF i foldF b
-    DynBvUext _ b -> reduceTerm mapF i foldF b
+    DynBvSext _ _ b -> reduceTerm mapF i foldF b
+    DynBvUext _ _ b -> reduceTerm mapF i foldF b
     DynamizeBv _ b     -> reduceTerm mapF i foldF b
     IntToDynBv _ i'      -> reduceTerm mapF i foldF i'
 
@@ -886,8 +889,8 @@ eval e t = case t of
     in  if Bv.width inner == w
           then ValDynBv $ bvUnFn o inner
           else error $ "bitwidth mis-match while evaluating " ++ show t
-  DynBvUext w t' -> ValDynBv $ Bv.zeroExtend w $ valAsDynBv $ eval e t'
-  DynBvSext w t' -> ValDynBv $ Bv.signExtend w $ valAsDynBv $ eval e t'
+  DynBvUext _ wDelta t' -> ValDynBv $ Bv.zeroExtend wDelta $ valAsDynBv $ eval e t'
+  DynBvSext _ wDelta t' -> ValDynBv $ Bv.signExtend wDelta $ valAsDynBv $ eval e t'
   DynBvExtract s w a ->
     let a' = valAsDynBv $ eval e a
     in  if s + w <= Bv.width a'
@@ -1019,8 +1022,8 @@ toZ3 t = case t of
   DynBvUnExpr o _ b  -> toZ3 b >>= case o of
     BvNeg -> Z.mkBvneg
     BvNot -> Z.mkBvnot
-  DynBvSext w b  -> toZ3 b >>= Z.mkSignExt w
-  DynBvUext w b  -> toZ3 b >>= Z.mkZeroExt w
+  DynBvSext _ wDelta b  -> toZ3 b >>= Z.mkSignExt wDelta
+  DynBvUext _ wDelta b  -> toZ3 b >>= Z.mkZeroExt wDelta
   DynBvConcat _ l r -> tyBinZ3Bin Z.mkConcat l r
   DynBvBinPred o _ l r -> tyBinZ3Bin (bvBinPredToZ3 o) l r
   DynBvExtract s w i -> toZ3 i >>= Z.mkExtract (w + s - 1) s
@@ -1203,18 +1206,21 @@ evalZ3Model term = do
     Nothing -> return Map.empty
     Just str -> do
       let modelLines = splitOn "\n" str
-      vs <- forM (init modelLines) $ \line -> return $ case splitOn "->" line of
-        [var, " true"] -> (var, 1)
-        [var, " false"] -> (var, 0)
-        [var, strVal] -> let maybeVal = drop 2 strVal
+      vs <- forM (init modelLines) $ \line -> return $ case splitOn " -> " line of
+        [var, "true"] -> (var, 1)
+        [var, "false"] -> (var, 0)
+        [var, strVal] -> let maybeVal = drop 1 strVal
                          in case maybeVal of
-                           -- Boolean
-                           'b':n -> (var, read n :: Int)
+                            -- Binary
+                           'b':n -> (var, readBin n)
                             -- Hex
                            'x':_ -> (var, read ('0':maybeVal) :: Int)
                            _     -> error $ unwords ["Bad line", show line]
         _             -> error $ unwords ["Bad model", show model]
       return $ Map.fromList vs
+ where
+  readBin :: String -> Int
+  readBin = foldr (\d a -> if d `elem` "01" then digitToInt d + 2 * a else error $ "invalid binary character: " ++ [d]) 0
 
 -- Tries to case the values to the same type
 dynEq :: (Typeable a, Typeable b) => Term a -> Term b -> Bool
@@ -1355,15 +1361,17 @@ instance Eq (Term s) where
            (((a2_abWh == b2_abWk))
               && ((a3_abWi == b3_abWl))))
   (==)
-    (DynBvUext a1_abWm a2_abWn)
-    (DynBvUext b1_abWo b2_abWp)
+    (DynBvUext a1_abWm a2_abWn a)
+    (DynBvUext b1_abWo b2_abWp b)
     = (((a1_abWm == b1_abWo))
-         && ((a2_abWn == b2_abWp)))
+         && ((a2_abWn == b2_abWp))
+         && (a == b))
   (==)
-    (DynBvSext a1_abWq a2_abWr)
-    (DynBvSext b1_abWs b2_abWt)
+    (DynBvSext a1_abWq a2_abWr a)
+    (DynBvSext b1_abWs b2_abWt b)
     = (((a1_abWq == b1_abWs))
-         && ((a2_abWr == b2_abWt)))
+         && ((a2_abWr == b2_abWt))
+         && (a == b))
   (==)
     (IntToDynBv a1_abWu a2_abWv)
     (IntToDynBv b1_abWw b2_abWx)

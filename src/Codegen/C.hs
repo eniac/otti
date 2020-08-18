@@ -13,6 +13,7 @@ import           Control.Monad.State.Strict      (forM, forM_, gets, liftIO,
 import qualified Data.BitVector                  as Bv
 import           Data.List                       (intercalate)
 import qualified Data.Map                        as Map
+import qualified Data.Char                       as Char
 import           Data.Maybe                      (fromJust, fromMaybe, isJust,
                                                   isNothing, listToMaybe)
 import qualified IR.SMT.Assert                   as Assert
@@ -42,10 +43,10 @@ genVarSMT (Ident name _ _) = getTerm name
 genNumSMT :: CConstant a -> Compiler CTerm
 genNumSMT c = case c of
   CIntConst   (CInteger i _ _) _ -> return $ cppIntLit S32 i
-  CCharConst  (CChar  c _    ) _ -> error ""
-  CCharConst  (CChars c _    ) _ -> error ""
-  CFloatConst (CFloat str    ) _ -> error ""
-  CStrConst   (CString str _ ) _ -> error ""
+  CCharConst  (CChar  c _    ) _ -> return $ cppIntLit S8 $ toInteger $ Char.ord c
+  CCharConst  (CChars c _    ) _ -> error "Chars const unsupported"
+  CFloatConst (CFloat str    ) _ -> error "Float const unsupported"
+  CStrConst   (CString str _ ) _ -> error "String const unsupported"
 
 data CLVal = CLVar VarName
            | CLAddr CTerm

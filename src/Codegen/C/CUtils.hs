@@ -215,7 +215,7 @@ cppIntLit :: AST.Type -> Integer -> CTerm
 cppIntLit t v =
   let s = AST.isSignedInt t
       w = AST.numBits t
-  in  mkCTerm (CInt s w (Mem.bvNum s w v)) (Ty.BoolLit False)
+  in  mkCTerm (CInt s w (Ty.IntToDynBv w (Ty.IntLit v))) (Ty.BoolLit False)
 
 -- TODO: shadow memory
 cppLoad :: CTerm -> Mem CTerm

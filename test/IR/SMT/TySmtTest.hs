@@ -9,6 +9,7 @@ import           Test.Tasty.HUnit
 import           Control.Monad                  ( unless
                                                 , forM_
                                                 )
+import           Data.Maybe                     ( fromMaybe )
 import qualified Data.BitVector                as Bv
 import           Data.Dynamic
 import qualified Data.Map.Strict               as Map
@@ -76,11 +77,15 @@ tySmtTests = benchTestGroup
   , genOverflowTest @4 Smt.BvSsubo True "high" 0 (-8)
   , genOverflowTest @4 Smt.BvSsubo False "low" (-3) 5
   , genOverflowTest @4 Smt.BvSsubo True "low" (-3) 6
-  , genZ3Test "bool sat" (Smt.Eq (Smt.BoolLit True) (Smt.Var "a" Smt.SortBool)) Sat
-  , genZ3Test "bool unsat"
+  , genZ3Test "bool sat"
+              (Smt.Eq (Smt.BoolLit True) (Smt.Var "a" Smt.SortBool))
+              Sat
+  , genZ3Test
+    "bool unsat"
     (Smt.Eq (Smt.Not (Smt.Var "a" Smt.SortBool)) (Smt.Var "a" Smt.SortBool))
     Unsat
-  , genZ3Test "bv unsat"
+  , genZ3Test
+    "bv unsat"
     (Smt.Eq
       (Smt.BvBinExpr @4 Smt.BvAdd
                         (Smt.Var "a" (Smt.SortBv 4))
@@ -89,7 +94,8 @@ tySmtTests = benchTestGroup
       (Smt.Var "a" (Smt.SortBv 4))
     )
     Unsat
-  , genZ3Test "bv sat"
+  , genZ3Test
+    "bv sat"
     (Smt.Eq
       (Smt.BvBinExpr @3 Smt.BvOr
                         (Smt.Var "a" (Smt.SortBv 3))
@@ -98,6 +104,33 @@ tySmtTests = benchTestGroup
       (Smt.Var "a" (Smt.SortBv 3))
     )
     Sat
+  , genZ3ModelTest
+    "bv extract"
+    (Smt.Eq
+      ( Smt.mkDynBvExtract 0 2
+      $ Smt.mkDynamizeBv (Smt.IntToBv @32 (Smt.IntLit 7))
+      )
+      (Smt.Var "a" (Smt.SortBv 2))
+    )
+    [("a", 3)]
+  , genZ3ModelTest
+    "bv sign ext"
+    (Smt.mkDynBvEq
+      ( Smt.mkDynBvSext 8
+      $ Smt.mkDynamizeBv (Smt.IntToBv @3 (Smt.IntLit 7))
+      )
+      (Smt.Var "a" (Smt.SortBv 8))
+    )
+    [("a", 255)]
+  , genZ3ModelTest
+    "bv logical ext"
+    (Smt.mkDynBvEq
+      ( Smt.mkDynBvUext 8
+      $ Smt.mkDynamizeBv (Smt.IntToBv @3 (Smt.IntLit 7))
+      )
+      (Smt.Var "a" (Smt.SortBv 8))
+    )
+    [("a", 7)]
   ]
 
 genOverflowTest
@@ -138,4 +171,11 @@ genZ3Test name term result = benchTestCase ("eval " ++ name) $ do
         return (r, Just m')
       Nothing -> return (r, Nothing)
   result @=? actResult
-  --forM_ model putStrLn
+
+genZ3ModelTest :: String -> Smt.TermBool -> [(String, Int)] -> BenchTest
+genZ3ModelTest name term modelEntries = benchTestCase ("eval " ++ name) $ do
+  model <- Smt.evalZ3Model term
+  forM_ modelEntries $ \(k, v) ->
+    fromMaybe (error $ unwords ["No model entry for", k, "in", show model])
+              (model Map.!? k)
+      @=? v
