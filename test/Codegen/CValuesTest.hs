@@ -64,6 +64,7 @@ cValueTests = benchTestGroup
                                                                     ]
   , constraintValueTest "for bound" "foo" "test/Code/C/for_bound.c" [ ("f0_foo__return_v0 ", 2) ]
   , constraintValueTest "for unbound" "foo" "test/Code/C/for_unbound.c" [ ("f0_foo__return_v0 ", 5) ] -- I'm actually not sure what we want to do here...
+  , constraintValueTest "do while bound" "foo" "test/Code/C/do_while.c" [ ("f0_foo__return_v0 ", 6) ]
   , constraintValueTest "memory 0" "foo" "test/Code/C/memory_0.c" [ ("f0_foo__return_v0 ", 100) ]
 -- Segfaults everytime
 --  , constraintValueTest "memory 1" "test/Code/C/memory_1.c" [ ("f0_foo__return_v0 ", 100) ] -- Again, not sure what we want to do here. UC symex vs not UC symex?
