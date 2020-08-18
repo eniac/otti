@@ -93,7 +93,7 @@ genExprSMT expr = case expr of
     CLorOp -> do
       left'  <- genExprSMT left
       right' <- guarded (Ty.Not $ cppBool left') $ genExprSMT right
-      return $ cppAnd left' right'
+      return $ cppOr left' right'
     _ -> do
       left'  <- genExprSMT left
       right' <- genExprSMT right
