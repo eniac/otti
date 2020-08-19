@@ -120,6 +120,7 @@ cPequinTests = benchTestGroup
   "C pequin compiler tests"
   [ constraintValueTest "base 2 log" "main" "test/Code/C/base_2_log.c" [ ("f0_main_return_v0", i 8) ]
   , constraintValueTest "sha1" "main" "test/Code/C/sha1.c" [ ]
+  , constraintValueTest "sqrt" "main" "test/Code/C/sqrt.c" [ ("f0_main_return_v0", i 3) ]
   ]
 
 constraintValueTest :: String -> String -> FilePath -> [(String, Val)] -> BenchTest
