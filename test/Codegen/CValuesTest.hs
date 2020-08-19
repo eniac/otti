@@ -113,6 +113,12 @@ cRealTests = benchTestGroup
   , constraintValueTest "farenheit" "main" "test/Code/C/farenheit.c" [ ("f0_main__return_v0", i 60) ]
   ]
 
+cPequinTests :: BenchTest
+cPequinTests = benchTestGroup
+  "C pequin compiler tests"
+  [ constraintValueTest "base 2 log" "main" "test/Code/C/base_2_log.c" [ ("f0_main_return_v0", i 8) ]
+  ]
+
 constraintValueTest :: String -> String -> FilePath -> [(String, Val)] -> BenchTest
 constraintValueTest name fnName path expected = benchTestCase name $ do
   tu <- parseC path
