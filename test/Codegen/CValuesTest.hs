@@ -113,10 +113,13 @@ cRealTests = benchTestGroup
   , constraintValueTest "farenheit" "main" "test/Code/C/farenheit.c" [ ("f0_main__return_v0", i 60) ]
   ]
 
+-- These tests pull from the Pepper project example applications:
+-- https://github.com/pepper-project/pepper/tree/master/pepper/apps_sfdl
 cPequinTests :: BenchTest
 cPequinTests = benchTestGroup
   "C pequin compiler tests"
   [ constraintValueTest "base 2 log" "main" "test/Code/C/base_2_log.c" [ ("f0_main_return_v0", i 8) ]
+  , constraintValueTest "sha1" "main" "test/Code/C/sha1.c" [ ]
   ]
 
 constraintValueTest :: String -> String -> FilePath -> [(String, Val)] -> BenchTest
