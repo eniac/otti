@@ -1,6 +1,8 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE DataKinds #-}
 
 module Codegen.C.CUtils
@@ -49,6 +51,8 @@ module Codegen.C.CUtils
   , cppFalse
   -- Literals
   , cppIntLit
+  , cppFloatLit
+  , cppDoubleLit
   -- Pointers
   , cppPtrOffset
   -- Reflection
@@ -90,6 +94,7 @@ class Bitable s where
 data CTermData = CInt Bool Int Bv
                | CBool Ty.TermBool
                | CDouble Ty.TermDouble
+               | CFloat Ty.TermFloat
                -- The type is the pointer (not pointee) type!
                | CPtr AST.Type Bv
                deriving (Show, Eq)
@@ -107,6 +112,7 @@ ctermDataTy t = case t of
   CInt _     w  _ -> error $ unwords ["Invalid int width:", show w]
   CBool{}         -> AST.Bool
   CDouble{}       -> AST.Double
+  CFloat{}        -> AST.Float
   CPtr ty _       -> ty
 
 ctermEval :: Map.Map String Dynamic -> CTerm -> Dynamic
@@ -114,6 +120,7 @@ ctermEval env t = case term t of
   CInt _ _ t' -> toDyn $ Ty.eval env t'
   CBool   t'  -> toDyn $ Ty.eval env t'
   CDouble t'  -> toDyn $ Ty.eval env t'
+  CFloat  t'  -> toDyn $ Ty.eval env t'
   CPtr _ t'   -> toDyn $ Ty.eval env t'
 
 ctermInit :: AST.Type -> Integer -> CTerm
@@ -130,6 +137,10 @@ ctermInit ty value = mkCTerm
 asDouble :: CTermData -> Ty.TermDouble
 asDouble (CDouble d) = d
 asDouble t           = error $ unwords [show t, "is not a double"]
+
+asFloat :: CTermData -> Ty.TermFloat
+asFloat (CFloat d) = d
+asFloat t          = error $ unwords [show t, "is not a float"]
 
 asInt :: CTermData -> (Bool, Int, Bv)
 asInt (CInt s w i) = (s, w, i)
@@ -148,6 +159,7 @@ asVar t = case term t of
   CInt _ _ t' -> Ty.asVarName t'
   CBool   t'  -> Ty.asVarName t'
   CDouble t'  -> Ty.asVarName t'
+  CFloat  t'  -> Ty.asVarName t'
   CPtr _ t'   -> Ty.asVarName t'
 
 data CTerm = CTerm { term :: CTermData
@@ -171,15 +183,18 @@ instance Bitable CTermData where
     CBool{}    -> 1
     CInt _ w _ -> w
     CDouble{}  -> 64
+    CFloat{}   -> 32
     CPtr ty _  -> AST.numBits ty
   serialize c = case c of
     CBool b     -> Ty.Ite b (Mem.bvNum False 1 1) (Mem.bvNum False 1 0)
     CInt _ _ bv -> bv
     CDouble d   -> Ty.mkDynamizeBv $ Ty.FpToBv d
+    CFloat  d   -> Ty.mkDynamizeBv $ Ty.FpToBv d
     CPtr _ bv   -> bv
   deserialize ty bv = case ty of
     t | AST.isIntegerType t -> CInt (AST.isSignedInt t) (AST.numBits t) bv
     AST.Double              -> CDouble $ Ty.BvToFp $ Ty.mkStatifyBv @64 bv
+    AST.Float               -> CFloat $ Ty.BvToFp $ Ty.mkStatifyBv @32 bv
     AST.Bool                -> CBool $ Ty.mkDynBvEq bv (Mem.bvNum False 1 1)
     AST.Ptr32 _             -> CPtr ty bv
     _                       -> error $ unwords ["Cannot deserialize", show ty]
@@ -207,6 +222,7 @@ newVar ty name = do
       CInt (AST.isSignedInt ty) (AST.numBits ty)
         <$> Assert.newVar name (Ty.SortBv $ AST.numBits ty)
     AST.Double  -> CDouble <$> Assert.newVar name Ty.sortDouble
+    AST.Float   -> CFloat <$> Assert.newVar name Ty.sortFloat
     AST.Ptr32 _ -> CPtr ty <$> Assert.newVar name (Ty.SortBv 32)
     _           -> nyi $ "newVar for type " ++ show ty
   return $ mkCTerm t u
@@ -216,6 +232,12 @@ cppIntLit t v =
   let s = AST.isSignedInt t
       w = AST.numBits t
   in  mkCTerm (CInt s w (Ty.IntToDynBv w (Ty.IntLit v))) (Ty.BoolLit False)
+
+cppDoubleLit :: Double -> CTerm
+cppDoubleLit v = mkCTerm (CDouble $ Ty.Fp64Lit v) (Ty.BoolLit False)
+
+cppFloatLit :: Float -> CTerm
+cppFloatLit v = mkCTerm (CFloat $ Ty.Fp32Lit v) (Ty.BoolLit False)
 
 -- TODO: shadow memory
 cppLoad :: CTerm -> Mem CTerm
@@ -267,7 +289,12 @@ intResize fromSign toWidth from =
 cppWrapBinArith
   :: String
   -> Ty.BvBinOp
-  -> (Ty.TermDouble -> Ty.TermDouble -> Ty.TermDouble)
+  -> (  forall f
+      . Ty.ComputableFp f
+     => Ty.Term (Ty.FpSort f)
+     -> Ty.Term (Ty.FpSort f)
+     -> Ty.Term (Ty.FpSort f)
+     )
   -- Undef function, takes sign and Bv term for each argument
   -> Maybe (Bool -> Bv -> Bool -> Bv -> Maybe Ty.TermBool)
   -> Bool -- ^ allow double
@@ -307,6 +334,14 @@ cppWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
             ( CDouble $ doubleF d $ asDouble $ term $ cppCast AST.Double a
             , Nothing
             )
+          else cannot "a double"
+        (CFloat d, _) -> if allowDouble
+          then
+            (CFloat $ doubleF d $ asFloat $ term $ cppCast AST.Float b, Nothing)
+          else cannot "a double"
+        (_, CFloat d) -> if allowDouble
+          then
+            (CFloat $ doubleF d $ asFloat $ term $ cppCast AST.Float a, Nothing)
           else cannot "a double"
         (CPtr ty addr, CInt s _ i) -> if bvOp == Ty.BvAdd || bvOp == Ty.BvSub
           then (CPtr ty $ cppPtrPlusInt ty addr s i, Nothing)
@@ -371,7 +406,12 @@ cppRem =
   cppWrapBinArith "%" Ty.BvUrem (Ty.FpBinExpr Ty.FpRem) Nothing False True
 cppMin = undefined
 cppMax = undefined
-noFpError :: Ty.TermDouble -> Ty.TermDouble -> Ty.TermDouble
+noFpError
+  :: forall f
+   . Ty.ComputableFp f
+  => Ty.Term (Ty.FpSort f)
+  -> Ty.Term (Ty.FpSort f)
+  -> Ty.Term (Ty.FpSort f)
 noFpError = const $ const $ error "Invalid FP op"
 cppBitOr = cppWrapBinArith "|" Ty.BvOr noFpError Nothing False True
 cppBitAnd = cppWrapBinArith "&" Ty.BvAnd noFpError Nothing False True
@@ -418,7 +458,15 @@ cppShr = cppWrapBinArith ">>" Ty.BvAshr noFpError (Just overflow) False True
     in  Just $ Ty.BoolNaryExpr Ty.Or $ shftNonNeg ++ shftSmall
 
 cppWrapUnArith
-  :: String -> (Bv -> Bv) -> (Ty.TermDouble -> Ty.TermDouble) -> CTerm -> CTerm
+  :: String
+  -> (Bv -> Bv)
+  -> (  forall f
+      . Ty.ComputableFp f
+     => Ty.Term (Ty.FpSort f)
+     -> Ty.Term (Ty.FpSort f)
+     )
+  -> CTerm
+  -> CTerm
 cppWrapUnArith name bvF doubleF a =
   let t = case term $ integralPromotion a of
         CDouble d  -> CDouble $ doubleF d
@@ -466,7 +514,12 @@ cppNot = cppWrapUnLogical "!" Ty.Not
 cppWrapCmp
   :: String
   -> (Bool -> Bv -> Bv -> Ty.TermBool) -- ^f(signed, bv_a, bv_b)
-  -> (Ty.TermDouble -> Ty.TermDouble -> Ty.TermBool)
+  -> (  forall f
+      . Ty.ComputableFp f
+     => Ty.Term (Ty.FpSort f)
+     -> Ty.Term (Ty.FpSort f)
+     -> Ty.TermBool
+     )
   -> CTerm
   -> CTerm
   -> CTerm
@@ -478,6 +531,8 @@ cppWrapCmp name bvF doubleF a b = convert (integralPromotion a)
         t = case (term a, term b) of
           (CDouble d, _) -> doubleF d (asDouble $ term $ cppCast AST.Double b)
           (_, CDouble d) -> doubleF (asDouble $ term $ cppCast AST.Double a) d
+          (CFloat d, _) -> doubleF d (asFloat $ term $ cppCast AST.Float b)
+          (_, CFloat d) -> doubleF (asFloat $ term $ cppCast AST.Float a) d
           (CPtr ty addr, CPtr ty' addr') -> if ty == ty'
             then bvF False addr addr'
             else cannot "two pointers, or two pointers of different types"
@@ -518,48 +573,58 @@ integralPromotion n = case term n of
 
 cppCast :: AST.Type -> CTerm -> CTerm
 cppCast toTy node = case term node of
-  CBool t -> if AST.isIntegerType toTy
-    then
+  CBool t -> case toTy of
+    _ | AST.isIntegerType toTy ->
       let width = AST.numBits toTy
           cint  = CInt (AST.isSignedInt toTy) width (boolToBv t width)
       in  mkCTerm cint (udef node)
-    else if AST.isPointer toTy
-      then
-        let width = AST.numBits toTy
-            cptr  = CPtr toTy (boolToBv t width)
-        in  mkCTerm cptr (udef node)
-      else if AST.isDouble toTy
-        then mkCTerm (CDouble $ Ty.DynUbvToFp $ boolToBv t 1) (udef node)
-        else if toTy == AST.Bool
-          then node
-          else error $ unwords ["Bad cast from", show t, "to", show toTy]
-  CInt fromS fromW t -> if AST.isIntegerType toTy
-    then
+    _ | AST.isPointer toTy ->
+      let width = AST.numBits toTy
+          cptr  = CPtr toTy (boolToBv t width)
+      in  mkCTerm cptr (udef node)
+    AST.Double -> mkCTerm (CDouble $ Ty.DynUbvToFp $ boolToBv t 1) (udef node)
+    AST.Float  -> mkCTerm (CFloat $ Ty.DynUbvToFp $ boolToBv t 1) (udef node)
+    AST.Bool   -> node
+    _          -> error $ unwords ["Bad cast from", show t, "to", show toTy]
+  CInt fromS fromW t -> case toTy of
+    _ | AST.isIntegerType toTy ->
       let toW = AST.numBits toTy
           toS = AST.isSignedInt toTy
           t'  = intResize fromS toW t
       in  mkCTerm (CInt toS toW t') (udef node)
-    else if AST.isPointer toTy
-      then mkCTerm (CPtr toTy (intResize fromS 32 t)) (udef node)
-      else if AST.isDouble toTy
-        then mkCTerm
-          (CDouble $ (if fromS then Ty.DynSbvToFp else Ty.DynUbvToFp) t)
-          (udef node)
-        else if toTy == AST.Bool
-          then mkCTerm (CBool $ Ty.Not $ Ty.Eq (Mem.bvNum False fromW 0) t)
-                       (udef node)
-          else error $ unwords ["Bad cast from", show t, "to", show toTy]
-  CDouble t -> if AST.isIntegerType toTy
-    then mkCTerm
+    _ | AST.isPointer toTy ->
+      mkCTerm (CPtr toTy (intResize fromS 32 t)) (udef node)
+    AST.Double -> mkCTerm
+      (CDouble $ (if fromS then Ty.DynSbvToFp else Ty.DynUbvToFp) t)
+      (udef node)
+    AST.Float -> mkCTerm
+      (CFloat $ (if fromS then Ty.DynSbvToFp else Ty.DynUbvToFp) t)
+      (udef node)
+    AST.Bool ->
+      mkCTerm (CBool $ Ty.Not $ Ty.Eq (Mem.bvNum False fromW 0) t) (udef node)
+    _ -> error $ unwords ["Bad cast from", show t, "to", show toTy]
+  CDouble t -> case toTy of
+    _ | AST.isIntegerType toTy -> mkCTerm
       ( CInt (AST.isSignedInt toTy) (AST.numBits toTy)
       $ Ty.RoundFpToDynBv (AST.numBits toTy) True t
       )
       (udef node)
-    else if toTy == AST.Bool
-      then mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
-      else if AST.isDouble toTy
-        then node
-        else error $ unwords ["Bad cast from", show t, "to", show toTy]
+    AST.Bool ->
+      mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
+    AST.Double -> node
+    AST.Float  -> mkCTerm (CFloat $ Ty.FpToFp t) (udef node)
+    _          -> error $ unwords ["Bad cast from", show t, "to", show toTy]
+  CFloat t -> case toTy of
+    _ | AST.isIntegerType toTy -> mkCTerm
+      ( CInt (AST.isSignedInt toTy) (AST.numBits toTy)
+      $ Ty.RoundFpToDynBv (AST.numBits toTy) True t
+      )
+      (udef node)
+    AST.Bool ->
+      mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
+    AST.Double -> mkCTerm (CDouble $ Ty.FpToFp t) (udef node)
+    AST.Float  -> node
+    _          -> error $ unwords ["Bad cast from", show t, "to", show toTy]
   CPtr ty t -> if AST.isIntegerType toTy
     then cppCast toTy $ mkCTerm (CInt False (Ty.dynBvWidth t) t) (udef node)
     else if toTy == AST.Bool
@@ -581,6 +646,7 @@ cppCond cond t f =
     result = case (term t, term f) of
       (CBool   tB, CBool fB  )                -> CBool $ Ty.Ite condB tB fB
       (CDouble tB, CDouble fB)                -> CDouble $ Ty.Ite condB tB fB
+      (CFloat  tB, CFloat fB )                -> CFloat $ Ty.Ite condB tB fB
       (CPtr tTy tB, CPtr fTy fB) | tTy == fTy -> CPtr tTy $ Ty.Ite condB tB fB
       (CInt s w i, CInt s' w' i') ->
         let sign  = s && s' -- Not really sure is this is correct b/c of ranks.
@@ -600,6 +666,7 @@ cppAssignment assignUndef l r =
       valAss = case (term l, term r') of
         (CBool   lB , CBool rB   )              -> Ty.Eq lB rB
         (CDouble lB , CDouble rB )              -> Ty.Eq lB rB
+        (CFloat  lB , CFloat rB  )              -> Ty.Eq lB rB
         (CInt _ _ lB, CInt _ _ rB)              -> Ty.Eq lB rB
         (CPtr lTy lB, CPtr rTy rB) | lTy == rTy -> Ty.Eq lB rB
         (x, y) ->

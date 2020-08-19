@@ -71,11 +71,14 @@ module IR.SMT.TySmt
   , TermInt
   , TermPf
   , TermDouble
+  , TermFloat
   , sort
+  , ComputableFp
   , dynBvWidth
   , asVarName
   , mkVar
   , sortDouble
+  , sortFloat
   , valAsPf
   , valAsBool
   , valAsDynBv
@@ -241,6 +244,9 @@ data Sort = SortInt
 sortDouble :: Sort
 sortDouble = SortFp 11 53
 
+sortFloat :: Sort
+sortFloat = SortFp 8 24
+
 data BoolNaryOp = And | Or | Xor deriving (Show,Ord,Eq,Typeable)
 
 data BoolBinOp = Implies deriving (Show,Ord,Eq,Typeable)
@@ -325,6 +331,7 @@ type TermBool = Term BoolSort
 type TermInt = Term IntSort
 type TermPf n = Term (PfSort n)
 type TermDouble = Term F64
+type TermFloat = Term F32
 
 data Term s where
     -- Boolean terms
@@ -964,6 +971,7 @@ sortToZ3 s = case s of
   SortBv w -> Z.mkBvSort w
   SortPf _ -> error "Prime fields"
   SortFp 11 53 -> Z.mkDoubleSort
+  SortFp 8 24 -> Z.mkFloatSort
   SortFp e si -> error $ unwords ["Fp" , show e, show si, "unsupported"]
   SortArray k v -> do
     k' <- sortToZ3 k
@@ -1017,7 +1025,11 @@ toZ3 t = case t of
 
   DynamizeBv _ i -> toZ3 i
   StatifyBv i -> toZ3 i
-  RoundFpToDynBv _w _s _i -> nyi "RoundFpToDynBv"
+  RoundFpToDynBv w s i -> do
+    let w' = fromIntegral w
+    i' <- toZ3 i
+    rm <- Z.mkFpRoundToNearestTiesToEven
+    if s then Z.mkFpToBv rm i' w' else Z.mkFpToUbv rm i' w'
   DynBvBinExpr o _ l r -> tyBinZ3Bin (bvBinOpToZ3 o) l r
   DynBvUnExpr o _ b  -> toZ3 b >>= case o of
     BvNeg -> Z.mkBvneg
@@ -1101,10 +1113,22 @@ toZ3 t = case t of
 
   FpFma{}      -> nyi "fused multiply-add"
   IntToFp{}    -> nyi "IntToFp"
-  FpToFp{}     -> nyi "FpToFp"
+  FpToFp i     -> do
+    i' <- toZ3 i
+    rm <- Z.mkFpRoundToNearestTiesToEven
+    s <- sortToZ3 (sort t)
+    Z.mkFpToFp rm i' s
   BvToFp{}     -> nyi "BvToFp"
-  DynUbvToFp{} -> nyi "DynUbvToFp"
-  DynSbvToFp{} -> nyi "DynSbvToFp"
+  DynUbvToFp i -> do
+    i' <- toZ3 i
+    rm <- Z.mkFpRoundToNearestTiesToEven
+    s <- sortToZ3 (sort t)
+    Z.mkUBvToFp rm i' s
+  DynSbvToFp i -> do
+    i' <- toZ3 i
+    rm <- Z.mkFpRoundToNearestTiesToEven
+    s <- sortToZ3 (sort t)
+    Z.mkSBvToFp rm i' s
 
   PfUnExpr{}   -> nyi "Prime fields"
   PfNaryExpr{} -> nyi "Prime fields"
@@ -1215,6 +1239,8 @@ evalZ3Model term = do
                            'b':n -> (var, readBin n)
                             -- Hex
                            'x':_ -> (var, read ('0':maybeVal) :: Int)
+                           -- Fp. Wrong! TODO: FIXME
+                           'f':_ -> (var, 0)
                            _     -> error $ unwords ["Bad line", show line]
         _             -> error $ unwords ["Bad model", show model]
       return $ Map.fromList vs

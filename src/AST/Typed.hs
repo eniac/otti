@@ -5,6 +5,7 @@ class Typed a where
   isSignedInt :: a -> Bool
   isUnsignedInt :: a -> Bool
   isDouble :: a -> Bool
+  isFloat :: a -> Bool
   isPointer :: a -> Bool
   pointeeType :: a -> a
   isStruct :: a -> Bool

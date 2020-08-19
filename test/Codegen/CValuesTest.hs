@@ -99,7 +99,7 @@ cRealTests = benchTestGroup
   , constraintValueTest "binsearch" "main" "test/Code/C/binsearch.c" [ ("f0_main__return_v0", 3) ]
   , constraintValueTest "lower" "main" "test/Code/C/lower.c" [ ("f0_main__return_v0", 108) ]
   , constraintValueTest "power" "main" "test/Code/C/power.c" [ ("f0_main__return_v0", 8) ]
-  , constraintValueTest "farenheit" "main" "test/Code/C/farenheit.c" [ ("f0_main__return_v0", 8) ]
+  , constraintValueTest "farenheit" "main" "test/Code/C/farenheit.c" [ ("f0_main__return_v0", 60) ]
   ]
 
 constraintValueTest :: String -> String -> FilePath -> [(String, Int)] -> BenchTest

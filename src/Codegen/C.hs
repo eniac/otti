@@ -4,20 +4,33 @@ import           AST.C
 import           AST.Simple
 import           Codegen.C.CompilerMonad
 import           Codegen.C.CUtils
-import           Codegen.C.Memory                (bvNum, initMem)
+import           Codegen.C.Memory               ( bvNum
+                                                , initMem
+                                                )
 import           Codegen.C.Utils
 import           Control.Applicative
-import           Control.Monad                   (replicateM_)
-import           Control.Monad.State.Strict      (forM, forM_, gets, liftIO,
-                                                  unless, void, when)
-import qualified Data.BitVector                  as Bv
-import           Data.List                       (intercalate)
-import qualified Data.Map                        as Map
-import qualified Data.Char                       as Char
-import           Data.Maybe                      (fromJust, fromMaybe, isJust,
-                                                  isNothing, listToMaybe)
-import qualified IR.SMT.Assert                   as Assert
-import qualified IR.SMT.TySmt                    as Ty
+import           Control.Monad                  ( replicateM_ )
+import           Control.Monad.State.Strict     ( forM
+                                                , forM_
+                                                , gets
+                                                , liftIO
+                                                , unless
+                                                , void
+                                                , when
+                                                )
+import qualified Data.BitVector                as Bv
+import           Data.Char                      ( toLower )
+import           Data.List                      ( intercalate )
+import qualified Data.Map                      as Map
+import qualified Data.Char                     as Char
+import           Data.Maybe                     ( fromJust
+                                                , fromMaybe
+                                                , isJust
+                                                , isNothing
+                                                , listToMaybe
+                                                )
+import qualified IR.SMT.Assert                 as Assert
+import qualified IR.SMT.TySmt                  as Ty
 import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
@@ -42,11 +55,15 @@ genVarSMT (Ident name _ _) = getTerm name
 
 genNumSMT :: CConstant a -> Compiler CTerm
 genNumSMT c = case c of
-  CIntConst   (CInteger i _ _) _ -> return $ cppIntLit S32 i
-  CCharConst  (CChar  c _    ) _ -> return $ cppIntLit S8 $ toInteger $ Char.ord c
-  CCharConst  (CChars c _    ) _ -> error "Chars const unsupported"
-  CFloatConst (CFloat str    ) _ -> error "Float const unsupported"
-  CStrConst   (CString str _ ) _ -> error "String const unsupported"
+  CIntConst (CInteger i _ _) _ -> return $ cppIntLit S32 i
+  CCharConst (CChar c _) _ -> return $ cppIntLit S8 $ toInteger $ Char.ord c
+  CCharConst (CChars c _) _ -> error "Chars const unsupported"
+  CFloatConst (Language.C.Syntax.Constants.CFloat str) _ ->
+    case toLower (last str) of
+      'f' -> return $ cppFloatLit (read $ init str)
+      'l' -> return $ cppDoubleLit (read $ init str)
+      _   -> return $ cppDoubleLit (read str)
+  CStrConst (CString str _) _ -> error "String const unsupported"
 
 data CLVal = CLVar VarName
            | CLAddr CTerm
@@ -157,8 +174,8 @@ genExprSMT expr = case expr of
   CCond cond mTrueBr falseBr _ -> do
     cond' <- genExprSMT cond
     true' <- if isJust mTrueBr
-             then genExprSMT $ fromJust mTrueBr
-             else return cond'
+      then genExprSMT $ fromJust mTrueBr
+      else return cond'
     false' <- genExprSMT falseBr
     return $ cppCond cond' true' false'
   CSizeofExpr e _ -> do
@@ -258,9 +275,9 @@ genStmtSMT stmt = case stmt of
   CCompound ids items _ -> do
     enterLexScope
     forM_ items $ \case
-        CBlockStmt stmt -> genStmtSMT stmt
-        CBlockDecl decl -> void $ genDeclSMT (Just True) decl
-        CNestedFunDef{} -> error "Nested function definitions not supported"
+      CBlockStmt stmt -> genStmtSMT stmt
+      CBlockDecl decl -> void $ genDeclSMT (Just True) decl
+      CNestedFunDef{} -> error "Nested function definitions not supported"
     exitLexScope
   CExpr e _                 -> when (isJust e) $ void $ genExprSMT $ fromJust e
   CIf cond trueBr falseBr _ -> do
@@ -293,7 +310,7 @@ genStmtSMT stmt = case stmt of
   CWhile check body isDoWhile _ -> do
     bound <- getLoopBound
     let addGuard = genExprSMT check >>= pushGuard . cppBool
-    forM_ [0..bound] $ \_ -> do
+    forM_ [0 .. bound] $ \_ -> do
       unless isDoWhile addGuard
       genStmtSMT body
       when isDoWhile addGuard
@@ -422,5 +439,7 @@ checkFn tu name = do
 
 evalFn :: CTranslUnit -> String -> IO (Map.Map String Int)
 evalFn tu name = do
-  assertions <- Assert.execAssert $ evalCodegen False $ codegenFn tu name Nothing
+  assertions <- Assert.execAssert $ evalCodegen False $ codegenFn tu
+                                                                  name
+                                                                  Nothing
   Ty.evalZ3Model $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)

@@ -77,6 +77,8 @@ instance Typed Type where
   isUnsignedInt _   = False
   isDouble Double = True
   isDouble _      = False
+  isFloat Float  = True
+  isFloat _      = False
   isPointer Ptr64{} = True
   isPointer Ptr32{} = True
   isPointer _       = False
