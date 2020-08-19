@@ -54,6 +54,12 @@ module IR.SMT.TySmt
   , sortToZ3
   , evalZ3
   , evalZ3Model
+  , Val(..)
+  , i_
+  , b_
+  , d_
+  , nz
+  , nan
   , mkDynBvExtract
   , mkDynBvBinExpr
   , mkDynBvConcat
@@ -1220,8 +1226,37 @@ evalZ3 term =
         return $ Just s
       Nothing -> return Nothing
 
+data Val = IVal Int
+         | BVal Bool
+         | DVal Double
+         | NegZ
+         | NaN
+         deriving (Eq, Ord)
+
+i_ :: Int -> Val
+i_ = IVal
+
+b_ :: Bool -> Val
+b_ = BVal
+
+d_ :: Double -> Val
+d_ = DVal
+
+nz :: Val
+nz = NegZ
+
+nan :: Val
+nan = NaN
+
+instance Show Val where
+    show (IVal i) = show i
+    show (BVal b) = show b
+    show (DVal d) = show d
+    show NegZ     = "-0"
+    show NaN      = "NaN"
+
 -- | Returns Nothing if UNSAT, or an association between variables and string if SAT
-evalZ3Model :: TermBool -> IO (Map String Int)
+evalZ3Model :: TermBool -> IO (Map String Val)
 evalZ3Model term = do
   -- We have to do this because the bindings are broken.
   -- Eventually we will just fix the bindings
@@ -1231,18 +1266,18 @@ evalZ3Model term = do
     Just str -> do
       let modelLines = splitOn "\n" str
       vs <- forM (init modelLines) $ \line -> return $ case splitOn " -> " line of
-        [var, "true"] -> (var, 1)
-        [var, "false"] -> (var, 0)
-        [var, strVal] -> let maybeVal = drop 1 strVal
-                         in case maybeVal of
-                            -- Binary
-                           'b':n -> (var, readBin n)
-                            -- Hex
-                           'x':_ -> (var, read ('0':maybeVal) :: Int)
-                           -- Fp. Wrong! TODO: FIXME
-                           'f':_ -> (var, 0)
-                           _     -> error $ unwords ["Bad line", show line]
-        _             -> error $ unwords ["Bad model", show model]
+        [var, "true"]  -> (var, BVal True)
+        [var, "false"] -> (var, BVal False)
+        [var, strVal]  -> let maybeVal = drop 1 strVal
+                          in case maybeVal of
+                             -- Binary
+                            'b':n -> (var, IVal $ readBin n)
+                             -- Hex
+                            'x':_ -> (var, IVal (read ('0':maybeVal) :: Int))
+                            -- Fp. Wrong! TODO: FIXME
+                            'f':_ -> (var, DVal 0.0)
+                            _     -> error $ unwords ["Bad line", show line]
+        _              -> error $ unwords ["Bad model", show model]
       return $ Map.fromList vs
  where
   readBin :: String -> Int

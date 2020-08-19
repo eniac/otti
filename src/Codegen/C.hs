@@ -4,33 +4,21 @@ import           AST.C
 import           AST.Simple
 import           Codegen.C.CompilerMonad
 import           Codegen.C.CUtils
-import           Codegen.C.Memory               ( bvNum
-                                                , initMem
-                                                )
+import           Codegen.C.Memory                (bvNum, initMem)
 import           Codegen.C.Utils
 import           Control.Applicative
-import           Control.Monad                  ( replicateM_ )
-import           Control.Monad.State.Strict     ( forM
-                                                , forM_
-                                                , gets
-                                                , liftIO
-                                                , unless
-                                                , void
-                                                , when
-                                                )
-import qualified Data.BitVector                as Bv
-import           Data.Char                      ( toLower )
-import           Data.List                      ( intercalate )
-import qualified Data.Map                      as Map
-import qualified Data.Char                     as Char
-import           Data.Maybe                     ( fromJust
-                                                , fromMaybe
-                                                , isJust
-                                                , isNothing
-                                                , listToMaybe
-                                                )
-import qualified IR.SMT.Assert                 as Assert
-import qualified IR.SMT.TySmt                  as Ty
+import           Control.Monad                   (replicateM_)
+import           Control.Monad.State.Strict      (forM, forM_, gets, liftIO,
+                                                  unless, void, when)
+import qualified Data.BitVector                  as Bv
+import           Data.Char                       (toLower)
+import qualified Data.Char                       as Char
+import           Data.List                       (intercalate)
+import qualified Data.Map                        as Map
+import           Data.Maybe                      (fromJust, fromMaybe, isJust,
+                                                  isNothing, listToMaybe)
+import qualified IR.SMT.Assert                   as Assert
+import qualified IR.SMT.TySmt                    as Ty
 import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
@@ -437,7 +425,7 @@ checkFn tu name = do
   assertions <- Assert.execAssert $ evalCodegen True $ codegenFn tu name Nothing
   Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)
 
-evalFn :: CTranslUnit -> String -> IO (Map.Map String Int)
+evalFn :: CTranslUnit -> String -> IO (Map.Map String Ty.Val)
 evalFn tu name = do
   assertions <- Assert.execAssert $ evalCodegen False $ codegenFn tu
                                                                   name
