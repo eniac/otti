@@ -30,6 +30,9 @@ cValueTests = benchTestGroup
                                                         , ("f0_foo_lex1__a_v3", 18)
                                                         , ("f0_foo_lex1__a_v4", 17)
                                                         , ("f0_foo_lex1__p_v0", 1)
+                                                        , ("f0_foo_lex1__q_v0", 18)
+                                                        , ("f0_foo_lex1__r_v0", 0)
+                                                        , ("f0_foo_lex1__s_v0", -1)
                                                         ]
   , constraintValueTest "cast" "foo" "test/Code/C/cast.c" [ ("f0_foo_lex1__a_v0", 1)
                                                           , ("f0_foo_lex1__b_v0", 1)

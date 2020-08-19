@@ -22,5 +22,7 @@ int foo () {
   --a;
   a--;
   int p = (4 == 5) ? 10 : 1;
-
+  int q = (int) 4.0 * 4.5;
+  int r = (int) 4.0 / 4.5;
+  int s = (int) 0.0 - 1.6;
 }
