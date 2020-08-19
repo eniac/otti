@@ -92,12 +92,14 @@ module IR.SMT.TySmt
 where
 
 import           Control.Monad       (foldM, forM, liftM2)
+import           Data.Binary.IEEE754 (wordToDouble)
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Bits           as Bits
 import qualified Data.BitVector      as Bv
 import           Data.Char           (digitToInt)
 import           Data.Dynamic        (Dynamic, Typeable, fromDyn, toDyn)
 import           Data.Fixed          (mod')
+import           Data.List           (foldl')
 import           Data.List.Split     (splitOn)
 import           Data.Map            (Map)
 import qualified Data.Map            as Map
@@ -105,6 +107,7 @@ import qualified Data.Maybe          as Maybe
 import           Data.Proxy          (Proxy (..))
 import           Data.Typeable       (cast)
 import           GHC.TypeLits
+import           Prelude             hiding (exp)
 import           Z3.Monad            (MonadZ3)
 import qualified Z3.Monad            as Z
 
@@ -1226,6 +1229,8 @@ evalZ3 term =
         return $ Just s
       Nothing -> return Nothing
 
+-- For generating a numerical description of the model
+
 data Val = IVal Int
          | BVal Bool
          | DVal Double
@@ -1270,18 +1275,31 @@ evalZ3Model term = do
         [var, "false"] -> (var, BVal False)
         [var, strVal]  -> let maybeVal = drop 1 strVal
                           in case maybeVal of
+                            -- Special values
+                            '_':' ':'-':'z':'e':'r':'o':_ -> (var, NegZ)
+                            '_':' ':'+':'z':'e':'r':'o':_ -> (var, DVal 0)
+                            '_':' ':'N':'a':'N':_         -> (var, NaN)
                              -- Binary
                             'b':n -> (var, IVal $ readBin n)
                              -- Hex
                             'x':_ -> (var, IVal (read ('0':maybeVal) :: Int))
-                            -- Fp. Wrong! TODO: FIXME
-                            'f':_ -> (var, DVal 0.0)
+                            -- Non-special floating point
+                            'f':'p':' ':rest              ->
+                              let components = splitOn " " rest
+                                  sign = read (drop 2 $ components !! 0) :: Integer
+                                  exp = toDec $ drop 2 $ components !! 1
+                                  sig = read ('0':(drop 1 $ init $ components !! 2)) :: Integer
+                                  result = (sig .&. 0xfffffffffffff) .|. ((exp .&. 0x7ff) `shiftL` 52) .|. ((sign .&. 0x1) `shiftL` 63)
+                              in (var, DVal $ wordToDouble $ fromIntegral $ result)
+                            -- Did not recognize the pattern
                             _     -> error $ unwords ["Bad line", show line]
         _              -> error $ unwords ["Bad model", show model]
       return $ Map.fromList vs
  where
   readBin :: String -> Int
   readBin = foldr (\d a -> if d `elem` "01" then digitToInt d + 2 * a else error $ "invalid binary character: " ++ [d]) 0
+  toDec :: String -> Integer
+  toDec = foldl' (\acc x -> acc * 2 + (fromIntegral $ digitToInt x)) 0
 
 -- Tries to case the values to the same type
 dynEq :: (Typeable a, Typeable b) => Term a -> Term b -> Bool
