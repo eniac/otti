@@ -1,21 +1,22 @@
 {-# OPTIONS_GHC -Wall #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE AllowAmbiguousTypes           #-}
-{-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications    #-}
 module IR.SMT.TySmtTest where
 import           BenchUtils
-import           Test.Tasty.HUnit
-import           Control.Monad                  ( unless
-                                                , forM_
-                                                )
-import           Data.Maybe                     ( fromMaybe )
-import qualified Data.BitVector                as Bv
+import           Control.Monad    (forM_, unless)
+import qualified Data.BitVector   as Bv
 import           Data.Dynamic
-import qualified Data.Map.Strict               as Map
-import qualified IR.SMT.TySmt                  as Smt
+import qualified Data.Map.Strict  as Map
+import           Data.Maybe       (fromMaybe)
 import           GHC.TypeLits
+import           IR.SMT.TySmt     (Val)
+import qualified IR.SMT.TySmt     as Smt
+import           Test.Tasty.HUnit
 import           Z3.Monad
+
+i = Smt.i_
 
 tySmtTests :: BenchTest
 tySmtTests = benchTestGroup
@@ -112,7 +113,7 @@ tySmtTests = benchTestGroup
       )
       (Smt.Var "a" (Smt.SortBv 2))
     )
-    [("a", 3)]
+    [("a", i 3)]
   , genZ3ModelTest
     "bv sign ext"
     (Smt.mkDynBvEq
@@ -121,7 +122,7 @@ tySmtTests = benchTestGroup
       )
       (Smt.Var "a" (Smt.SortBv 8))
     )
-    [("a", 255)]
+    [("a", i 255)]
   , genZ3ModelTest
     "bv logical ext"
     (Smt.mkDynBvEq
@@ -130,7 +131,7 @@ tySmtTests = benchTestGroup
       )
       (Smt.Var "a" (Smt.SortBv 8))
     )
-    [("a", 7)]
+    [("a", i 7)]
   ]
 
 genOverflowTest
@@ -172,7 +173,7 @@ genZ3Test name term result = benchTestCase ("eval " ++ name) $ do
       Nothing -> return (r, Nothing)
   result @=? actResult
 
-genZ3ModelTest :: String -> Smt.TermBool -> [(String, Int)] -> BenchTest
+genZ3ModelTest :: String -> Smt.TermBool -> [(String, Val)] -> BenchTest
 genZ3ModelTest name term modelEntries = benchTestCase ("eval " ++ name) $ do
   model <- Smt.evalZ3Model term
   forM_ modelEntries $ \(k, v) ->
