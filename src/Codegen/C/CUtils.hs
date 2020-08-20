@@ -197,6 +197,7 @@ instance Bitable CTermData where
     CDouble{}         -> 64
     CFloat{}          -> 32
     CStaticPtr ty _ _ -> AST.numBits ty
+    _           -> error $ "Cannot serialize: " ++ show c
   serialize c = case c of
     CBool b     -> Ty.Ite b (Mem.bvNum False 1 1) (Mem.bvNum False 1 0)
     CInt _ _ bv -> bv
@@ -278,24 +279,28 @@ cppStore ptr val guard = case term ptr of
   --TODO: serialize the udef bit too.
   CStaticPtr ty offset id ->
     let bits = serialize (term val)
-    in if AST.numBits ty == Ty.dynBvWidth bits
-         then Mem.stackStore id offset bits guard
-         else error $ unwords ["CTerm", show val, "is not", show (AST.numBits ty), "bits wide"]
+    in  if AST.numBits ty == Ty.dynBvWidth bits
+          then Mem.stackStore id offset bits guard
+          else error $ unwords
+            ["CTerm", show val, "is not", show (AST.numBits ty), "bits wide"]
   _ -> error $ unwords ["The value", show ptr, "cannot be cppStore'd"]
 
 arrayToPointer :: CTerm -> CTerm
 arrayToPointer arr =
   let (ty, id) = asArray $ term arr
-  in  mkCTerm (CStaticPtr (AST.Ptr32 $ AST.arrayBaseType ty) (Mem.bvNum False 32 0) id) (udef arr)
+  in  mkCTerm
+        (CStaticPtr (AST.Ptr32 $ AST.arrayBaseType ty) (Mem.bvNum False 32 0) id
+        )
+        (udef arr)
 
 cppIndex
   :: CTerm -- ^ Base
   -> CTerm -- ^ Index
   -> Mem CTerm -- Pointer
 cppIndex base idx = case term base of
-  CStaticPtr {} -> return $ cppAdd base idx
-  CArray {} -> return $ cppAdd (arrayToPointer base) idx
-  _ -> error $ unwords ["The value", show base, "cannot be indexed"]
+  CStaticPtr{} -> return $ cppAdd base idx
+  CArray{}     -> return $ cppAdd (arrayToPointer base) idx
+  _            -> error $ unwords ["The value", show base, "cannot be indexed"]
 
 
 intResize :: Bool -> Int -> Bv -> Bv
@@ -671,6 +676,12 @@ cppCast toTy node = case term node of
         -- TODO: Not quite right: widths
         then node
         else error $ unwords ["Bad cast from", show t, "to", show toTy]
+  CArray ty id -> case toTy of
+    AST.Ptr32 iTy | AST.pointeeType iTy == AST.arrayBaseType ty -> mkCTerm
+      (CStaticPtr toTy (Mem.bvNum False (AST.numBits ty) 0) id)
+      (udef node)
+    _ | toTy == ty -> node
+    _ -> error $ unwords ["Bad cast from", show node, "to", show toTy]
  where
   boolToBv :: Ty.TermBool -> Int -> Bv
   boolToBv b w = Ty.Ite b (Mem.bvNum False w 1) (Mem.bvNum False w 0)

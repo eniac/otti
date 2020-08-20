@@ -97,7 +97,12 @@ cValueTests = benchTestGroup
   , constraintValueTest "sizeof(type)" "sizeof_type" "test/Code/C/sizeof.c" [ ("f0_sizeof_type__return_v0", i 4) ]
   , constraintValueTest "char -> int" "char_to_int" "test/Code/C/casts.c" [ ("f0_char_to_int__return_v0", i 0) ]
   , constraintValueTest "uint -> uchar" "unsigned_to_uchar" "test/Code/C/casts.c" [ ("f0_unsigned_to_uchar__return_v0", i 255) ]
-  , constraintValueTest "uninit array, write, read" "main" "test/Code/C/array.c" [ ("f0_main__return_v0", i 1) ]
+  , constraintValueTest "array 0" "main" "test/Code/C/array.c" [ ("f0_main__return_v0", i 1) ]
+  , constraintValueTest "array 1" "main" "test/Code/C/array_1.c" [ ("f0_main__return_v0", i 17) ]
+  , constraintValueTest "array 2" "main" "test/Code/C/array_2.c" [ ("f0_main__return_v0", i 17) ]
+  , constraintValueTest "array 3" "main" "test/Code/C/array_3.c" [ ("f0_main__return_v0", i 6) ]
+  , constraintValueTest "array 4" "main" "test/Code/C/array_4.c" [ ("f0_main__return_v0", i 4) ]
+  , constraintValueTest "array 5" "main" "test/Code/C/array_5.c" [ ("f0_main__return_v0", i 2) ]
   ]
 
 cRealTests :: BenchTest

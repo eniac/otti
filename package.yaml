@@ -42,9 +42,6 @@ library:
   - ghc-typelits-knownnat >= 0.7
   - bitvec >= 1.0.2
   - data-binary-ieee754 >= 0.4
-  build-dependencies:
-  - happy >= 1.19
-  - alex >= 3.2
 
 executables:
   compiler-exe:
