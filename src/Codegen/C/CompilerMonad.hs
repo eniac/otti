@@ -1,5 +1,6 @@
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TupleSections #-}
 module Codegen.C.CompilerMonad where
 import           AST.Simple
 import           Control.Monad.Fail
@@ -83,17 +84,28 @@ lsWithPrefix s =
 unknownVar :: VarName -> a
 unknownVar var = error $ unwords ["Variable", var, "is unknown"]
 
-lsDeclareVar :: VarName -> Type -> LexScope -> LexScope
+lsDeclareVar :: VarName -> Type -> LexScope -> Mem LexScope
 lsDeclareVar var ty scope = case M.lookup var (tys scope) of
-  Nothing -> scope { vers = M.insert var initialVersion $ vers scope
-                   , tys  = M.insert var ty $ tys scope
-                   }
+  Nothing -> do
+    -- First we add type and version entries for this variable
+    let withTyAndVer = scope { vers = M.insert var initialVersion $ vers scope
+                             , tys  = M.insert var ty $ tys scope
+                             }
+        ssaVar = lsGetSsaVar var withTyAndVer
+    -- Now we declare it to the SMT layer
+    term <- newVar ty (ssaVarAsString ssaVar)
+    return $ withTyAndVer { terms = M.insert ssaVar term $ terms scope }
   Just actualTy ->
     error $ unwords ["Already declared", var, "to have type", show actualTy]
 
-lsNextVer :: VarName -> LexScope -> LexScope
-lsNextVer var scope =
-  scope { vers = M.insert var (lsGetVer var scope + 1) $ vers scope }
+lsNextVer :: VarName -> LexScope -> Mem LexScope
+lsNextVer var scope = do
+  let scope' = scope { vers = M.insert var (lsGetVer var scope + 1) $ vers scope }
+      ty = tys scope M.! var
+      ssaVar = lsGetSsaVar var scope'
+  v' <- newVar ty (ssaVarAsString ssaVar)
+  when (isPointer ty || isArray ty) $ error $ "No next version of pointers or arrays!: " ++ show var
+  return $ scope' { terms  = M.insert ssaVar v' $ terms scope' }
 
 -- | Get the current version of the variable
 lsGetVer :: VarName -> LexScope -> Version
@@ -109,17 +121,6 @@ lsGetType :: VarName -> LexScope -> Type
 lsGetType var scope = fromMaybe (unknownVar var) (M.lookup var (tys scope))
 
 -- | Get a CTerm for the given var
-lsEnsureTerm :: VarName -> LexScope -> Assert LexScope
-lsEnsureTerm varName scope =
-  let var = lsGetSsaVar varName scope
-  in  case M.lookup var (terms scope) of
-        Just node -> return scope
-        Nothing ->
-          let ty = lsGetType varName scope
-          in  do
-                node <- newVar ty $ ssaVarAsString var
-                return scope { terms = M.insert var node $ terms scope }
-
 lsGetTerm :: VarName -> LexScope -> CTerm
 lsGetTerm var scope = fromMaybe
   (error $ unwords ["No term for", var])
@@ -158,21 +159,20 @@ fsModifyLexScope var f scope = do
   n <- listModify (fsFindLexScope var scope) f $ lexicalScopes scope
   return $ scope { lexicalScopes = n }
 
--- | Apply a modification function to the first scope containing the variable.
+-- | Apply a fetching function to the first scope containing the variable.
 fsGetFromLexScope :: VarName -> (LexScope -> a) -> FunctionScope -> a
 fsGetFromLexScope var f scope =
   let i  = fsFindLexScope var scope
       ls = lexicalScopes scope !! i
   in  f ls
 
-fsDeclareVar :: VarName -> Type -> FunctionScope -> FunctionScope
-fsDeclareVar var ty scope = scope
-  { lexicalScopes = lsDeclareVar var ty (head $ lexicalScopes scope)
-                      : tail (lexicalScopes scope)
-  }
+fsDeclareVar :: VarName -> Type -> FunctionScope -> Mem FunctionScope
+fsDeclareVar var ty scope = do
+  head' <- lsDeclareVar var ty (head $ lexicalScopes scope)
+  return $ scope { lexicalScopes = head' : tail (lexicalScopes scope) }
 
-fsNextVer :: VarName -> FunctionScope -> FunctionScope
-fsNextVer var = runIdentity . fsModifyLexScope var (Identity . lsNextVer var)
+fsNextVer :: VarName -> FunctionScope -> Mem FunctionScope
+fsNextVer var = fsModifyLexScope var (lsNextVer var)
 
 fsGetVer :: VarName -> FunctionScope -> Version
 fsGetVer var = fsGetFromLexScope var (lsGetVer var)
@@ -183,10 +183,8 @@ fsGetType var = fsGetFromLexScope var (lsGetType var)
 fsGetSsaVar :: VarName -> FunctionScope -> SsaVar
 fsGetSsaVar var = fsGetFromLexScope var (lsGetSsaVar var)
 
-fsGetTerm :: VarName -> FunctionScope -> Assert (CTerm, FunctionScope)
-fsGetTerm var scope = do
-  scope' <- fsModifyLexScope var (lsEnsureTerm var) scope
-  return (fsGetFromLexScope var (lsGetTerm var) scope', scope')
+fsGetTerm :: VarName -> FunctionScope -> CTerm
+fsGetTerm var = fsGetFromLexScope var (lsGetTerm var)
 
 fsEnterLexScope :: FunctionScope -> FunctionScope
 fsEnterLexScope scope =
@@ -240,7 +238,7 @@ fsHasNotReturned =
     . map (safeNary (Ty.BoolLit True) Ty.And)
     . returnValueGuards
 
-fsWithPrefix :: String -> Type -> Assert FunctionScope
+fsWithPrefix :: String -> Type -> Mem FunctionScope
 fsWithPrefix prefix ty = do
   let retTermName = ssaVarAsString $ SsaVar (prefix ++ "__return") 0
   retTerm <- newVar ty retTermName
@@ -293,24 +291,27 @@ emptyCompilerState = CompilerState { callStack    = []
 initWitComp :: [(String, CVal)] -> Compiler a
 initWitComp args = undefined
 
-compilerRunOnTop :: (FunctionScope -> (a, FunctionScope)) -> Compiler a
+compilerRunOnTop :: (FunctionScope -> Compiler (a, FunctionScope)) -> Compiler a
 compilerRunOnTop f = do
-  s <- get
-  let (r, s') = f $ head $ callStack s
-  put $ s { callStack = s' : tail (callStack s) }
+  s       <- get
+  (r, s') <- f $ head $ callStack s
+  modify $ \s -> s { callStack = s' : tail (callStack s) }
   return r
 
+compilerModifyTopM :: (FunctionScope -> Compiler FunctionScope) -> Compiler ()
+compilerModifyTopM f = compilerRunOnTop $ fmap ((), ) . f
+
 compilerModifyTop :: (FunctionScope -> FunctionScope) -> Compiler ()
-compilerModifyTop f = compilerRunOnTop (\s -> ((), f s))
+compilerModifyTop f = compilerModifyTopM (return . f)
 
 compilerGetsTop :: (FunctionScope -> a) -> Compiler a
-compilerGetsTop f = compilerRunOnTop (\s -> (f s, s))
+compilerGetsTop f = compilerRunOnTop (\s -> return (f s, s))
 
 declareVar :: VarName -> Type -> Compiler ()
-declareVar var ty = compilerModifyTop (fsDeclareVar var ty)
+declareVar var ty = compilerModifyTopM $ \s -> liftMem $ fsDeclareVar var ty s
 
 nextVer :: VarName -> Compiler ()
-nextVer = compilerModifyTop . fsNextVer
+nextVer v = compilerModifyTopM $ \s -> liftMem $ fsNextVer v s
 
 getVer :: VarName -> Compiler Version
 getVer = compilerGetsTop . fsGetVer
@@ -348,19 +349,17 @@ setValue :: VarName -> CTerm -> Compiler ()
 setValue name cterm = modValues $ \vs -> do
   var <- ssaVarAsString <$> getSsaVar name
   --liftIO $ putStrLn $ var ++ " -> " ++ show cterm
-  return $ M.insert var (ctermEval vs cterm) vs
+  val <- liftMem $ ctermEval vs cterm
+  return $ M.insert var val vs
 
 setRetValue :: CTerm -> Compiler ()
 setRetValue cterm = modValues $ \vs -> do
   var <- compilerGetsTop retTermName
-  return $ M.insert var (ctermEval vs cterm) vs
+  val <- liftMem $ ctermEval vs cterm
+  return $ M.insert var val vs
 
 getTerm :: VarName -> Compiler CTerm
-getTerm var = do
-  s          <- get
-  (t, newFs) <- liftAssert $ fsGetTerm var $ head $ callStack s
-  put $ s { callStack = newFs : tail (callStack s) }
-  return t
+getTerm var = gets (fsGetTerm var . head . callStack)
 
 printComp :: Compiler ()
 printComp = gets callStack >>= liftIO . traverse_ printFs
@@ -434,7 +433,7 @@ argAssign var val = do
   setValue var val
   -- TODO assign
   node <- getTerm var
-  a       <- getAssignment
+  a    <- getAssignment
   let (assertion, valCasted) = a node val
   liftAssert $ Assert.assert assertion
   whenM computingValues $ setValue var valCasted
@@ -477,7 +476,7 @@ pushFunction name ty = do
   p <- gets prefix
   c <- gets fnCtr
   let p' = name : p
-  fs <- liftAssert
+  fs <- liftMem
     $ fsWithPrefix ("f" ++ show c ++ "_" ++ intercalate "_" (reverse p')) ty
   modify (\s -> s { prefix = p', callStack = fs : callStack s, fnCtr = c + 1 })
 

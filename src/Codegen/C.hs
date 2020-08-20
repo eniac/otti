@@ -69,7 +69,7 @@ genLValueSMT expr = case expr of
   CIndex base   idx  _    -> do
     base' <- genExprSMT base
     idx'  <- genExprSMT idx
-    addr  <- liftMem $ cppPtrOffset base' idx'
+    addr  <- liftMem $ cppIndex base' idx'
     return $ CLAddr addr
   _ -> error $ unwords ["Not yet impled:", show expr]
 
@@ -107,12 +107,8 @@ genExprSMT expr = case expr of
   CIndex base index _ -> do
     base'  <- genExprSMT base
     index' <- genExprSMT index
-    let baseTy = cppType base'
-    case baseTy of
-      --Array{}              -> liftMem $ getIdx base' index'
-      _ | isPointer baseTy -> liftMem $ do
-        addr <- cppPtrOffset base' index'
-        cppLoad addr
+    offset <- liftMem $ cppIndex base' index'
+    liftMem $ cppLoad offset
   --CMember struct field _ _ -> do
   --  struct' <- genExprSMT struct
   --  liftMem $ getField struct' $ fieldToInt field

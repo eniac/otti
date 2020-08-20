@@ -4,6 +4,7 @@ import           AST.Simple
 import           Codegen.C.CompilerMonad
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
+import           Language.C.Syntax.Constants
 
 -- | When expr appears on the lhs of an assignment, the assignment is actually a store
 isStore :: (Show a) => CExpression a -> Bool
@@ -47,7 +48,8 @@ getTy :: (Show a) => Type -> [CDerivedDeclarator a] -> Type
 getTy ty [] = ty
 getTy ty (d:ds) = case d of
                     _ | isPtrDecl d -> getTy (Ptr32 ty) ds
-                    _ -> error "Do not support"
+                    CArrDeclr _ (CArrSize _ (CConst (CIntConst (CInteger i _ _) _))) _ -> getTy (Array (fromIntegral i) ty) ds
+                    _ -> error $ "Do not support type " ++ show d
 
 cDeclToType :: (Show a) => CDeclaration a -> Compiler Type
 cDeclToType (CDecl specs _ _) = ctypeToType $ map specToType specs

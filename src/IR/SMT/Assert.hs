@@ -40,7 +40,9 @@ execAssert :: Assert a -> IO AssertState
 execAssert act = snd <$> runAssert act
 
 assert :: Ty.Term Ty.BoolSort -> Assert ()
-assert a = modify (\s -> s { asserted = a : asserted s })
+assert a = do
+  --liftIO $ putStrLn $ "ASSERT" ++ show a
+  modify (\s -> s { asserted = a : asserted s })
 
 assign :: Ty.SortClass s => Ty.Term s -> Ty.Term s -> Assert ()
 assign a b = assert $ Ty.Eq a b

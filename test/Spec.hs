@@ -21,7 +21,7 @@ generatorTests :: BenchTest
 generatorTests = benchTestGroup "Generator tests" [memoryTest, circomGenTests, cTests, cutilsTest, cValueTests, cRealTests, cPequinTests]
 
 irTests :: BenchTest
-irTests = benchTestGroup "IR tests" [tySmtTests, cutilsTest, toPfTests, optTests, r1csOptTests]
+irTests = benchTestGroup "IR tests" [tySmtTests, toPfTests, optTests, r1csOptTests]
 
 
 allTests :: [BenchTest]
