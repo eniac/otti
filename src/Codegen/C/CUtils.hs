@@ -9,7 +9,8 @@ module Codegen.C.CUtils
   ( CTerm(..)
   , CTermData(..)
   , Bitable(..)
-  , newVar
+  , cppDeclVar
+  , cppDeclInitVar
   -- Memory Operations
   , cppLoad
   , cppStore
@@ -76,9 +77,12 @@ import qualified IR.SMT.Assert                 as Assert
 import           IR.SMT.Assert                  ( Assert )
 import qualified Codegen.C.Memory              as Mem
 import           Codegen.C.Memory               ( Mem )
+import           Control.Applicative            ( (<|>) )
+import           Control.Monad                  ( unless, when )
 import qualified Data.BitVector                as Bv
 import           Data.Foldable                 as Fold
 import qualified Data.Map                      as Map
+import           Data.Maybe                     ( fromMaybe )
 import           Control.Monad
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
@@ -227,9 +231,57 @@ nyi msg = error $ "Not yet implemented: " ++ msg
 udefName :: String -> String
 udefName s = s ++ "_undef"
 
-newVar :: AST.Type -> String -> Mem CTerm
-newVar ty name = do
+
+-- Makes `name` an alias for `t`.
+-- That is, creates new SMT variable corresponding to the terms in `t`,
+-- constructs an equiavlent term with these new variables, and returns that new
+-- term.
+-- Useful for surfacing abtract terms under an easily identifiable name: `name`.
+alias :: Bool -> String -> CTerm -> Mem CTerm
+alias trackUndef name t = Mem.liftAssert $ do
+  u <- Assert.newVar (udefName name) Ty.SortBool
+  when trackUndef $ Assert.assign (udef t) u
+  d <- case term t of
+    CBool b -> do
+      let sort = Ty.SortBool
+      v <- Assert.newVar name sort
+      Assert.assign v b
+      return $ CBool b
+    CInt isNeg width val -> do
+      let sort = Ty.SortBv width
+      v <- Assert.newVar name sort
+      Assert.assign v val
+      return $ CInt isNeg width v
+    CFloat val -> do
+      let sort = Ty.sortFloat
+      v <- Assert.newVar name sort
+      Assert.assign v val
+      return $ CFloat v
+    CDouble val -> do
+      let sort = Ty.sortDouble
+      v <- Assert.newVar name sort
+      Assert.assign v val
+      return $ CDouble v
+    CStaticPtr ty off id -> do
+      let sort = Ty.SortBv $ AST.numBits ty
+      v <- Assert.newVar name sort
+      Assert.assign v off
+      return $ CStaticPtr ty v id
+    -- Arrays have to term-specific SMT variables, so there is nothign to alias.
+    CArray ty id -> return $ CArray ty id
+  return $ mkCTerm d u
+
+-- Declare a new variable, initialize it to a value.
+cppDeclInitVar :: Bool -> AST.Type -> String -> CTerm -> Mem CTerm
+cppDeclInitVar trackUndef ty name init = do
+  unless (ty == cppType init) $ error $ unwords ["Cannot assign", show init, "to var", name, "of type", show ty]
+  alias trackUndef name init
+
+-- Declare a new variable, do not initialize it.
+cppDeclVar :: AST.Type -> String -> Mem CTerm
+cppDeclVar ty name = do
   u <- Mem.liftAssert $ Assert.newVar (udefName name) Ty.SortBool
+  -- Mem.liftAssert $ Assert.assign u (Ty.BoolLit True)
   t <- case ty of
     AST.Bool -> Mem.liftAssert $ CBool <$> Assert.newVar name Ty.SortBool
     _ | AST.isIntegerType ty ->
@@ -718,7 +770,7 @@ cppAssignment assignUndef l r =
       (CFloat  lB , CFloat rB  ) -> Ty.Eq lB rB
       (CInt _ _ lB, CInt _ _ rB) -> Ty.Eq lB rB
       (CStaticPtr lTy lB lId, CStaticPtr rTy rB rId)
-        | lTy == rTy && lId == rId -> Ty.Eq lB rB
+        | lTy == rTy -> Ty.Eq lB rB
       (x, y) ->
         error
           $  "Invalid cppAssign terms, post-cast: \n"

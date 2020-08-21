@@ -35,15 +35,18 @@ constraintCountTest :: String -> FilePath -> Int -> BenchTest
 constraintCountTest name path constraints = benchTestCase name $ do
   tu         <- parseC path
   assertions <- execAssert $ evalCodegen True $ codegenAll tu
+  unless (constraints == length (asserted assertions)) $ do
+    --forM_ (asserted assertions) $ \s -> putStrLn $ name ++ ": " ++ show s
+    return ()
   constraints @=? length (asserted assertions)
 
 toSmtTests = benchTestGroup
   "SMT conversion"
-  [ constraintCountTest "basic"         "test/Code/C/add.c"     8
-  , constraintCountTest "loop"          "test/Code/C/loop.c"    26
-  , constraintCountTest "if"            "test/Code/C/if.c"      6
+  [ constraintCountTest "basic"         "test/Code/C/add.c"     9
+  , constraintCountTest "loop"          "test/Code/C/loop.c"    36
+  , constraintCountTest "if"            "test/Code/C/if.c"      7
   , constraintCountTest "return"        "test/Code/C/init.c"    4
-  , constraintCountTest "function call" "test/Code/C/fn_call.c" 11
+  , constraintCountTest "function call" "test/Code/C/fn_call.c" 13
   ]
 
 ubCheckTest :: String -> String -> FilePath -> Bool -> BenchTest
@@ -73,7 +76,10 @@ satSmtCircuitTest name fnName path = benchTestCase name $ do
     >> codegenFn tu fnName (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
   let assertions = asserted assertState
   let env        = fromJust $ values compState
-  forM_ assertions $ \a -> Ty.ValBool True @=? Ty.eval env a
+  forM_ assertions $ \a -> do
+    --unless (Ty.ValBool True == Ty.eval env a) $ do
+    --  putStrLn $ "Unsat constraint: " ++ show a
+    Ty.ValBool True @=? Ty.eval env a
 
 satSmtCircuitTests = benchTestGroup
   "SAT SMT Circuit checks"

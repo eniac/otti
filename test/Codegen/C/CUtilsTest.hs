@@ -16,26 +16,26 @@ cutilsTest = benchTestGroup
   [ benchTestCase "new var" $ do
     a <- Assert.execAssert $ Mem.execMem $ do
       Mem.initMem
-      newVar AST.U8 "my_u8"
+      cppDeclVar AST.U8 "my_u8"
     (2 + 1) @=? M.size (Assert.vars a)
   , benchTestCase "new vars" $ do
     a <- Assert.execAssert $ Mem.execMem $ do
       Mem.initMem
-      _ <- newVar AST.U8 "my_u8"
-      newVar AST.S8 "my_i8"
+      _ <- cppDeclVar AST.U8 "my_u8"
+      cppDeclVar AST.S8 "my_i8"
     (2 + 2 + 1) @=? M.size (Assert.vars a)
   , benchTestCase "cppAdd: u8 + i8 = i8" $ do
     a <- Assert.evalAssert $ Mem.evalMem $ do
       Mem.initMem
-      u <- newVar AST.U8 "my_u8"
-      i <- newVar AST.S8 "my_i8"
+      u <- cppDeclVar AST.U8 "my_u8"
+      i <- cppDeclVar AST.S8 "my_i8"
       return $ cppAdd u i
     AST.S8 @=? cppType a
   , benchTestCase "cppAdd: i32 + i8 = i32" $ do
     a <- Assert.evalAssert $ Mem.evalMem $ do
       Mem.initMem
-      u <- newVar AST.S32 "my_i32"
-      i <- newVar AST.S8 "my_i8"
+      u <- cppDeclVar AST.S32 "my_i32"
+      i <- cppDeclVar AST.S8 "my_i8"
       return $ cppAdd u i
     AST.S32 @=? cppType a
     let (_, w, bv) = asInt $ term a
@@ -43,28 +43,28 @@ cutilsTest = benchTestGroup
   , benchTestCase "cppNeg: -u8 = i8" $ do
     a <- Assert.evalAssert $ Mem.evalMem $ do
       Mem.initMem
-      u <- newVar AST.U8 "my_u8"
+      u <- cppDeclVar AST.U8 "my_u8"
       return $ cppNeg u
     AST.S8 @=? cppType a
   , benchTestCase "cppNot: !u8 = bool" $ do
     a <- Assert.evalAssert $ Mem.evalMem $ do
       Mem.initMem
-      u <- newVar AST.U8 "my_u8"
+      u <- cppDeclVar AST.U8 "my_u8"
       return $ cppNot u
     AST.Bool @=? cppType a
   , benchTestCase "cppCond: bool ? u8 : i8 = u8" $ do
     a <- Assert.evalAssert $ Mem.evalMem $ do
       Mem.initMem
-      u <- newVar AST.U8 "my_u8"
-      i <- newVar AST.S8 "my_i8"
-      b <- newVar AST.Bool "my_bool"
+      u <- cppDeclVar AST.U8 "my_u8"
+      i <- cppDeclVar AST.S8 "my_i8"
+      b <- cppDeclVar AST.Bool "my_bool"
       return $ cppCond b u i
     AST.U8 @=? cppType a
   , benchTestCase "cppStore + cppLoad preserves type and size of u8" $ do
     a <- Assert.evalAssert $ Mem.evalMem $ do
       Mem.initMem
-      u <- newVar AST.U8 "my_u8"
-      p <- newVar (AST.Ptr32 AST.U8) "my_u8_ptr"
+      u <- cppDeclVar AST.U8 "my_u8"
+      p <- cppDeclVar (AST.Ptr32 AST.U8) "my_u8_ptr"
       _ <- Mem.liftAssert $ cppAssign True p (cppIntLit AST.U32 0)
       _ <- cppStore p u (Ty.BoolLit True)
       cppLoad p
@@ -74,8 +74,8 @@ cutilsTest = benchTestGroup
   --, benchTestCase "cppStore + cppLoad preserves type and size of *u8" $ do
   --  a <- Assert.evalAssert $ Mem.evalMem $ do
   --    Mem.initMem
-  --    u <- newVar (AST.Ptr32 AST.U8) "my_u8_ptr"
-  --    p <- newVar (AST.Ptr32 (AST.Ptr32 AST.U8)) "my_u8_ptr_ptr"
+  --    u <- cppDeclVar (AST.Ptr32 AST.U8) "my_u8_ptr"
+  --    p <- cppDeclVar (AST.Ptr32 (AST.Ptr32 AST.U8)) "my_u8_ptr_ptr"
   --    _ <- Mem.liftAssert $ cppAssign True p (cppIntLit AST.U32 0)
   --    _ <- cppStore p u (Ty.BoolLit True)
   --    cppLoad p

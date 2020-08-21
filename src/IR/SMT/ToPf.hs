@@ -459,6 +459,16 @@ bvToPf env term = do
       bs <- bitify name i w
       saveIntBits bv bs
       saveInt bv (i, w)
+    Ite c t_ f -> do
+      c' <- boolToPf env c
+      bvToPf env t_
+      t' <- getInt t_
+      bvToPf env f
+      f' <- getInt f
+      v  <- nextVar "ite" $ liftA3 (?) ((/= toP 0) <$> snd c') (snd t') (snd f')
+      enforceCheck (c', lcSub v t', lcZero)
+      enforceCheck (lcNot c', lcSub v f', lcZero)
+      saveInt bv (v, dynBvWidth t_)
     DynBvUnExpr BvNeg w x -> do
       x' <- getInt x
       saveInt bv (lcSub (lcConst $ 2 ^ w) x', w)

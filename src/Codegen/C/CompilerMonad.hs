@@ -93,28 +93,29 @@ lsDeclareVar var ty scope = case M.lookup var (tys scope) of
                              }
         ssaVar = lsGetSsaVar var withTyAndVer
     -- Now we declare it to the SMT layer
-    term <- newVar ty (ssaVarAsString ssaVar)
+    term <- cppDeclVar ty (ssaVarAsString ssaVar)
     return $ withTyAndVer { terms = M.insert ssaVar term $ terms scope }
   Just actualTy ->
     error $ unwords ["Already declared", var, "to have type", show actualTy]
 
-lsNextVer :: VarName -> LexScope -> Mem LexScope
-lsNextVer var scope = do
-  let scope' = scope { vers = M.insert var (lsGetVer var scope + 1) $ vers scope }
-      ty = tys scope M.! var
-      ssaVar = lsGetSsaVar var scope'
-  v' <- newVar ty (ssaVarAsString ssaVar)
-  when (isPointer ty || isArray ty) $ error $ "No next version of pointers or arrays!: " ++ show var
-  return $ scope' { terms  = M.insert ssaVar v' $ terms scope' }
 
 -- | Get the current version of the variable
 lsGetVer :: VarName -> LexScope -> Version
-lsGetVer var scope = fromMaybe (unknownVar var) (M.lookup var (vers scope))
+lsGetVer var scope = fromMaybe (unknownVar var) (lsGetMaybeVer var scope)
+
+lsGetMaybeVer :: VarName -> LexScope -> Maybe Version
+lsGetMaybeVer var scope = M.lookup var (vers scope)
 
 -- | Get current SsaVar
 lsGetSsaVar :: VarName -> LexScope -> SsaVar
-lsGetSsaVar var scope =
-  SsaVar (lsPrefix scope ++ "__" ++ var) (lsGetVer var scope)
+lsGetSsaVar var scope = SsaVar (lsScopedVar var scope) (lsGetVer var scope)
+
+lsGetNextSsaVar :: VarName -> LexScope -> SsaVar
+lsGetNextSsaVar var scope =
+  SsaVar (lsScopedVar var scope) (lsGetVer var scope + 1)
+
+lsScopedVar :: VarName -> LexScope -> String
+lsScopedVar var scope = lsPrefix scope ++ "__" ++ var
 
 -- | Get the C++ type of the variable
 lsGetType :: VarName -> LexScope -> Type
@@ -125,6 +126,14 @@ lsGetTerm :: VarName -> LexScope -> CTerm
 lsGetTerm var scope = fromMaybe
   (error $ unwords ["No term for", var])
   (M.lookup (lsGetSsaVar var scope) (terms scope))
+
+lsSetTerm :: VarName -> CTerm -> LexScope -> LexScope
+lsSetTerm var val scope =
+  scope { terms = M.insert (lsGetSsaVar var scope) val $ terms scope }
+
+lsNextVer :: VarName -> LexScope -> LexScope
+lsNextVer var scope =
+  scope { vers = M.insert var (lsGetVer var scope + 1) $ vers scope }
 
 data FunctionScope = FunctionScope { -- Condition for current path
                                      conditionalGuards :: [Ty.TermBool]
@@ -171,9 +180,6 @@ fsDeclareVar var ty scope = do
   head' <- lsDeclareVar var ty (head $ lexicalScopes scope)
   return $ scope { lexicalScopes = head' : tail (lexicalScopes scope) }
 
-fsNextVer :: VarName -> FunctionScope -> Mem FunctionScope
-fsNextVer var = fsModifyLexScope var (lsNextVer var)
-
 fsGetVer :: VarName -> FunctionScope -> Version
 fsGetVer var = fsGetFromLexScope var (lsGetVer var)
 
@@ -183,8 +189,18 @@ fsGetType var = fsGetFromLexScope var (lsGetType var)
 fsGetSsaVar :: VarName -> FunctionScope -> SsaVar
 fsGetSsaVar var = fsGetFromLexScope var (lsGetSsaVar var)
 
+fsGetNextSsaVar :: VarName -> FunctionScope -> SsaVar
+fsGetNextSsaVar var = fsGetFromLexScope var (lsGetNextSsaVar var)
+
 fsGetTerm :: VarName -> FunctionScope -> CTerm
 fsGetTerm var = fsGetFromLexScope var (lsGetTerm var)
+
+fsSetTerm :: VarName -> CTerm -> FunctionScope -> FunctionScope
+fsSetTerm var val =
+  runIdentity . fsModifyLexScope var (Identity . lsSetTerm var val)
+
+fsNextVer :: VarName -> FunctionScope -> FunctionScope
+fsNextVer var = runIdentity . fsModifyLexScope var (Identity . lsNextVer var)
 
 fsEnterLexScope :: FunctionScope -> FunctionScope
 fsEnterLexScope scope =
@@ -241,7 +257,7 @@ fsHasNotReturned =
 fsWithPrefix :: String -> Type -> Mem FunctionScope
 fsWithPrefix prefix ty = do
   let retTermName = ssaVarAsString $ SsaVar (prefix ++ "__return") 0
-  retTerm <- newVar ty retTermName
+  retTerm <- cppDeclVar ty retTermName
   let fs = FunctionScope { conditionalGuards = []
                          , returnValueGuards = []
                          , retTerm           = retTerm
@@ -310,17 +326,23 @@ compilerGetsTop f = compilerRunOnTop (\s -> return (f s, s))
 declareVar :: VarName -> Type -> Compiler ()
 declareVar var ty = compilerModifyTopM $ \s -> liftMem $ fsDeclareVar var ty s
 
-nextVer :: VarName -> Compiler ()
-nextVer v = compilerModifyTopM $ \s -> liftMem $ fsNextVer v s
-
 getVer :: VarName -> Compiler Version
 getVer = compilerGetsTop . fsGetVer
+
+nextVer :: VarName -> Compiler ()
+nextVer = compilerModifyTop . fsNextVer
 
 getType :: VarName -> Compiler Type
 getType = compilerGetsTop . fsGetType
 
 getSsaVar :: VarName -> Compiler SsaVar
 getSsaVar = compilerGetsTop . fsGetSsaVar
+
+getNextSsaVar :: VarName -> Compiler SsaVar
+getNextSsaVar = compilerGetsTop . fsGetNextSsaVar
+
+getSsaName :: VarName -> Compiler String
+getSsaName n = ssaVarAsString <$> getSsaVar n
 
 computingValues :: Compiler Bool
 computingValues = gets (isJust . values)
@@ -360,6 +382,9 @@ setRetValue cterm = modValues $ \vs -> do
 
 getTerm :: VarName -> Compiler CTerm
 getTerm var = gets (fsGetTerm var . head . callStack)
+
+setTerm :: VarName -> CTerm -> Compiler ()
+setTerm var val = compilerModifyTop (fsSetTerm var val)
 
 printComp :: Compiler ()
 printComp = gets callStack >>= liftIO . traverse_ printFs
@@ -428,33 +453,38 @@ ssaVarAsString (SsaVar varName ver) = varName ++ "_v" ++ show ver
 whenM :: Monad m => m Bool -> m () -> m ()
 whenM condition action = condition >>= flip when action
 
+-- Assert that the current version of `var` is assign `value` to it.
 argAssign :: VarName -> CTerm -> Compiler CTerm
 argAssign var val = do
-  setValue var val
-  -- TODO assign
-  node <- getTerm var
-  a    <- getAssignment
-  let (assertion, valCasted) = a node val
-  liftAssert $ Assert.assert assertion
-  whenM computingValues $ setValue var valCasted
-  return node
+  priorTerm  <- getTerm var
+  ty         <- getType var
+  trackUndef <- gets findUB
+  ssaVar     <- getSsaVar var
+  let castVal = cppCast ty val
+  t <- liftMem $ cppDeclInitVar trackUndef ty (ssaVarAsString ssaVar) castVal
+  setTerm var t
+  whenM computingValues $ setValue var castVal
+  return t
 
 -- Bump the version of `var` and assign `value` to it.
 ssaAssign :: VarName -> CTerm -> Compiler CTerm
 ssaAssign var val = do
-  oldNode <- getTerm var
+  priorTerm  <- getTerm var
+  ty         <- getType var
+  nextSsaVar <- getNextSsaVar var
+  guard      <- getGuard
+  let guardTerm = CTerm (CBool guard) (Ty.BoolLit False)
+      castVal   = cppCast ty val
+      guardVal  = cppCond guardTerm castVal priorTerm
+  trackUndef <- gets findUB
+  t          <- liftMem
+    $ cppDeclInitVar trackUndef ty (ssaVarAsString nextSsaVar) guardVal
   nextVer var
-  -- TODO assign
-  newNode <- getTerm var
-  guard   <- getGuard
-  a       <- getAssignment
-  let (newAssertion, newNodeCasted) = a newNode val
-  let (oldAssertion, oldNodeCasted) = a newNode oldNode
-  liftAssert $ Assert.assert $ Ty.Ite guard newAssertion oldAssertion
+  setTerm var t
   whenM computingValues $ do
-    g <- smtEvalBool guard
-    setValue var (if g then newNodeCasted else oldNodeCasted)
-  return newNode
+    g  <- smtEvalBool guard
+    setValue var (if g then castVal else priorTerm)
+  return t
 
 initAssign :: VarName -> Integer -> Compiler ()
 initAssign name value = do

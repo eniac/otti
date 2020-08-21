@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module IR.SMT.Assert where
-import           Control.Monad()
+import           Control.Monad                  ( )
 import           Control.Monad.State.Strict
 import qualified Data.Map.Strict               as M
 import qualified Data.Dynamic                  as Dyn
@@ -66,5 +66,8 @@ newVar name sort = do
       let v = Ty.Var @s name sort
       modify $ \s -> s { vars = M.insert name (Dyn.toDyn v) $ vars s }
       return v
-    _ -> error $ unwords ["Already created variable", name]
-
+    Just v -> return $ Dyn.fromDyn
+      v
+      (error $ unwords
+        ["Already created variable", name, "with wrong sort:", show v]
+      )
