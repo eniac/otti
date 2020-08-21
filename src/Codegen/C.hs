@@ -9,7 +9,9 @@ import           Codegen.C.Memory               ( bvNum
                                                 )
 import           Codegen.C.Utils
 import           Control.Applicative
-import           Control.Monad                  ( replicateM_ , join)
+import           Control.Monad                  ( replicateM_
+                                                , join
+                                                )
 import           Control.Monad.State.Strict     ( forM
                                                 , forM_
                                                 , gets
@@ -340,15 +342,14 @@ genDeclSMT undef (CDecl specs decls _) = do
       else do
         declareVarSMT ident baseType ptrType
         lhs <- genVarSMT ident
-        whenM (gets findUB) $ forM_
-          undef
-          (liftAssert . Assert.assert . Ty.Eq (udef lhs) . Ty.BoolLit)
         case mInit of
           Just (CInitExpr e _) -> do
             trackUndef <- gets findUB
             rhs        <- genExprSMT e
             void $ argAssign name rhs
-          _ -> return ()
+          _ -> whenM (gets findUB) $ forM_
+            undef
+            (liftAssert . Assert.assert . Ty.Eq (udef lhs) . Ty.BoolLit)
         return name
 
 

@@ -78,13 +78,10 @@ import qualified IR.SMT.Assert                 as Assert
 import           IR.SMT.Assert                  ( Assert )
 import qualified Codegen.C.Memory              as Mem
 import           Codegen.C.Memory               ( Mem )
-import           Control.Applicative            ( (<|>) )
 import           Control.Monad                  ( unless, when )
 import qualified Data.BitVector                as Bv
 import           Data.Foldable                 as Fold
 import qualified Data.Map                      as Map
-import           Data.Maybe                     ( fromMaybe )
-import           Control.Monad
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
