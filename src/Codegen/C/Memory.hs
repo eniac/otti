@@ -8,6 +8,7 @@ import qualified Data.Map.Strict               as Map
 import           Data.Maybe                     ( fromJust
                                                 , fromMaybe
                                                 )
+import qualified Data.BitVector                as Bv
 import qualified IR.SMT.TySmt                  as Ty
 import           IR.SMT.Assert                 as Assert
 
@@ -210,16 +211,20 @@ takeNextStackId = do
 intCeil :: Int -> Int -> Int
 intCeil x y = 1 + ((x - 1) `div` y)
 
-stackNewAlloc
-  :: Int -- ^ # of bits
-  -> Mem StackAllocId -- ^ id of allocation
-stackNewAlloc nbits = do
+stackAllocLit :: Bv.BV -> Mem StackAllocId
+stackAllocLit bits = do
   i <- takeNextStackId
   modify $ \s -> s
-    { stackAllocations = Map.insert i (StackAlloc $ bvNum False nbits 0)
+    { stackAllocations = Map.insert i (StackAlloc $ bvNum False (Bv.size bits) (Bv.nat bits))
                            $ stackAllocations s
     }
   return i
+
+
+stackNewAlloc
+  :: Int -- ^ # of bits
+  -> Mem StackAllocId -- ^ id of allocation
+stackNewAlloc nbits = stackAllocLit $ Bv.zeros nbits
 
 stackGetAlloc :: StackAllocId -> Mem Ty.TermDynBv
 stackGetAlloc id = do

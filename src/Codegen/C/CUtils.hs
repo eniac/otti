@@ -54,6 +54,7 @@ module Codegen.C.CUtils
   , cppIntLit
   , cppFloatLit
   , cppDoubleLit
+  , cppArrayLit
   -- Pointers & Arrays
   , cppIndex
   -- Reflection
@@ -307,6 +308,11 @@ cppDoubleLit v = mkCTerm (CDouble $ Ty.Fp64Lit v) (Ty.BoolLit False)
 
 cppFloatLit :: Float -> CTerm
 cppFloatLit v = mkCTerm (CFloat $ Ty.Fp32Lit v) (Ty.BoolLit False)
+
+cppArrayLit :: AST.Type -> [Bv.BV] -> Mem CTerm
+cppArrayLit ty bvs = do
+  id <- Mem.stackAllocLit (Bv.concat $ reverse bvs)
+  return $ mkCTerm (CArray (AST.Array (length bvs) ty) id) (Ty.BoolLit False)
 
 -- Is a pointer's value valid? (in its allocation or 1 beyond?)
 staticPointerValid :: CTerm -> Ty.TermBool

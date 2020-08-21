@@ -4,21 +4,36 @@ import           AST.C
 import           AST.Simple
 import           Codegen.C.CompilerMonad
 import           Codegen.C.CUtils
-import           Codegen.C.Memory                (bvNum, initMem)
+import           Codegen.C.Memory               ( bvNum
+                                                , initMem
+                                                )
 import           Codegen.C.Utils
 import           Control.Applicative
-import           Control.Monad                   (replicateM_)
-import           Control.Monad.State.Strict      (forM, forM_, gets, liftIO,
-                                                  unless, void, when)
-import qualified Data.BitVector                  as Bv
-import           Data.Char                       (toLower)
-import qualified Data.Char                       as Char
-import           Data.List                       (intercalate)
-import qualified Data.Map                        as Map
-import           Data.Maybe                      (fromJust, fromMaybe, isJust,
-                                                  isNothing, listToMaybe)
-import qualified IR.SMT.Assert                   as Assert
-import qualified IR.SMT.TySmt                    as Ty
+import           Control.Monad                  ( replicateM_ , join)
+import           Control.Monad.State.Strict     ( forM
+                                                , forM_
+                                                , gets
+                                                , liftIO
+                                                , unless
+                                                , void
+                                                , when
+                                                )
+import qualified Data.BitVector                as Bv
+import           Data.Char                      ( toLower
+                                                , ord
+                                                )
+import qualified Data.Char                     as Char
+import           Data.List                      ( intercalate )
+import qualified Data.Map                      as Map
+import           Data.Maybe                     ( fromJust
+                                                , fromMaybe
+                                                , isJust
+                                                , isNothing
+                                                , listToMaybe
+                                                , maybeToList
+                                                )
+import qualified IR.SMT.Assert                 as Assert
+import qualified IR.SMT.TySmt                  as Ty
 import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
@@ -41,8 +56,8 @@ declareVarSMT (Ident name _ _) tys ptrs = do
 genVarSMT :: Ident -> Compiler CTerm
 genVarSMT (Ident name _ _) = getTerm name
 
-genNumSMT :: CConstant a -> Compiler CTerm
-genNumSMT c = case c of
+genConstSMT :: CConstant a -> Compiler CTerm
+genConstSMT c = case c of
   CIntConst (CInteger i _ _) _ -> return $ cppIntLit S32 i
   CCharConst (CChar c _) _ -> return $ cppIntLit S8 $ toInteger $ Char.ord c
   CCharConst (CChars c _) _ -> error "Chars const unsupported"
@@ -51,7 +66,8 @@ genNumSMT c = case c of
       'f' -> return $ cppFloatLit (read $ init str)
       'l' -> return $ cppDoubleLit (read $ init str)
       _   -> return $ cppDoubleLit (read str)
-  CStrConst (CString str _) _ -> error "String const unsupported"
+  CStrConst (CString str _) _ ->
+    liftMem $ cppArrayLit S8 (map (Bv.bitVec 8 . ord) str ++ [Bv.bitVec 8 0])
 
 data CLVal = CLVar VarName
            | CLAddr CTerm
@@ -85,7 +101,7 @@ genExprSMT :: CExpr -> Compiler CTerm
 --genExprSMT expr = case trace ("genExprSMT " ++ show expr) expr of
 genExprSMT expr = case expr of
   CVar id _            -> genVarSMT id
-  CConst c             -> genNumSMT c
+  CConst c             -> genConstSMT c
   CAssign op lhs rhs _ -> do
     lval <- genLValueSMT lhs
     rval <- genExprSMT rhs
@@ -305,7 +321,7 @@ genStmtSMT stmt = case stmt of
   _ -> error $ unwords ["Unsupported: ", show stmt]
 
 -- Returns the declaration's variable name
-genDeclSMT :: Maybe Bool -> CDecl -> Compiler String
+genDeclSMT :: Maybe Bool -> CDecl -> Compiler [String]
 genDeclSMT undef (CDecl specs decls _) = do
   when (null specs) $ error "Expected specifier in declaration"
   let firstSpec = head specs
@@ -313,29 +329,27 @@ genDeclSMT undef (CDecl specs decls _) = do
         (isStorageSpec firstSpec) && (isTypedef $ storageFromSpec firstSpec)
       baseType = if isTypedefDecl then tail specs else specs
 
-  names <- forM decls $ \(Just dec, mInit, _) -> do
+  forM decls $ \(Just dec, mInit, _) -> do
     let mName   = identFromDeclr dec
-        name    = fromMaybe (error "Expected identifier in decl") mName
+        ident   = fromMaybe (error "Expected identifier in decl") mName
+        name    = identToVarName ident
         ptrType = derivedFromDeclr dec
 
     if isTypedefDecl
-      then typedefSMT name baseType ptrType >> return "TYPEDEF"
+      then typedefSMT ident baseType ptrType >> return "TYPEDEF"
       else do
-        declareVarSMT name baseType ptrType
-        lhs <- genVarSMT name
-        whenM (gets findUB)
-          $ forM_ undef
-          $ (liftAssert . Assert.assert . Ty.Eq (udef lhs) . Ty.BoolLit)
+        declareVarSMT ident baseType ptrType
+        lhs <- genVarSMT ident
+        whenM (gets findUB) $ forM_
+          undef
+          (liftAssert . Assert.assert . Ty.Eq (udef lhs) . Ty.BoolLit)
         case mInit of
           Just (CInitExpr e _) -> do
-            rhs <- genExprSMT e
-            a   <- getAssignment
-            let (assertion, value) = a lhs rhs
-            setValue (identToVarName name) value
-            void $ liftAssert $ Assert.assert assertion
+            trackUndef <- gets findUB
+            rhs        <- genExprSMT e
+            void $ argAssign name rhs
           _ -> return ()
-        return $ identToVarName name
-  return $ head names
+        return name
 
 
 ---
@@ -353,11 +367,12 @@ genFunDef f inVals = do
   retTy <- ctype tys ptrs
   pushFunction name retTy
   -- Declare the arguments and execute the body
-  inputsNames    <- forM (argsFromFunc f) (genDeclSMT (Just False))
-  fullInputNames <- map ssaVarAsString <$> forM inputsNames getSsaVar
+  inputNamesList <- forM (argsFromFunc f) (genDeclSMT (Just False))
+  let inputNames = join inputNamesList
+  fullInputNames <- map ssaVarAsString <$> forM inputNames getSsaVar
   def            <- gets defaultValue
   case inVals of
-    Just i -> forM_ inputsNames $ \n -> initAssign n $ fromMaybe
+    Just i -> forM_ inputNames $ \n -> initAssign n $ fromMaybe
       (error $ "Missing value for input " ++ n)
       ((i Map.!? n) <|> def)
     Nothing -> return ()

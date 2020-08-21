@@ -470,11 +470,25 @@ bvToPf env term = do
       enforceCheck (lcNot c', lcSub v f', lcZero)
       saveInt bv (v, dynBvWidth t_)
     DynBvUnExpr BvNeg w x -> do
+      bvToPf env x
       x' <- getInt x
       saveInt bv (lcSub (lcConst $ 2 ^ w) x', w)
     DynBvUnExpr BvNot _ x -> do
+      bvToPf env x
       x' <- getIntBits x
       saveIntBits bv $ map lcNeg x'
+    DynBvSext _ deltaW i -> do
+      bvToPf env i
+      i' <- getIntBits i
+      saveIntBits bv $ replicate deltaW (head i')
+    DynBvUext w _ i -> do
+      bvToPf env i
+      i' <- getInt i
+      saveInt bv (i', w)
+    DynBvExtract start w i -> do
+      bvToPf env i
+      i' <- getIntBits i
+      saveIntBits bv $ take w (drop start i')
     DynBvBinExpr op w l r -> do
       bvToPf env l
       bvToPf env r

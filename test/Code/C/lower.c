@@ -8,7 +8,7 @@ int lower(int c)
 
 int main(void)
 {
-  char s[] = "lsk L";
-  int i;
-  return lower(s[4]); // 108
+  char s[6] = "lsk L";
+  int i = s[4];
+  return lower(i); // 108
 }

@@ -371,6 +371,7 @@ data Term s where
     DynBvBinExpr ::BvBinOp -> Int -> TermDynBv -> TermDynBv -> TermDynBv
     DynBvBinPred ::BvBinPred -> Int -> TermDynBv -> TermDynBv -> TermBool
     DynBvUnExpr  ::BvUnOp -> Int -> TermDynBv -> TermDynBv
+    DynBvLit     ::Bv.BV -> TermDynBv
     -- width, extension amount, inner
     DynBvUext    :: Int -> Int -> TermDynBv -> TermDynBv
     -- width, extension amount, inner
@@ -485,6 +486,7 @@ dynBvWidth t = case t of
   DynBvExtract _ w _ -> w
   DynBvBinExpr _ w _ _ -> w
   DynBvUnExpr _ w _ -> w
+  DynBvLit l -> Bv.size l
   DynBvSext w _ _ -> w
   DynBvUext w _ _ -> w
   DynamizeBv w _ -> w
@@ -512,6 +514,7 @@ sort t = case sorted @s of
 
     RoundFpToDynBv w _ _ -> SortBv w
     DynBvUnExpr _ w _ -> SortBv w
+    DynBvLit bv -> SortBv (Bv.size bv)
     DynBvSext w _ _ -> SortBv w
     DynBvUext w _ _ -> SortBv w
     DynBvBinExpr _ w _ _ -> SortBv w
@@ -558,6 +561,7 @@ mapTerm f t = case f t of
     DynBvBinPred o w a b  -> DynBvBinPred o w (mapTerm f a) (mapTerm f b)
     DynBvExtract s l b    -> DynBvExtract s l (mapTerm f b)
     DynBvUnExpr o w r     -> DynBvUnExpr o w (mapTerm f r)
+    DynBvLit bv           -> DynBvLit bv
     DynBvSext w w' r      -> DynBvSext w w' (mapTerm f r)
     DynBvUext w w' r      -> DynBvUext w w' (mapTerm f r)
     DynamizeBv w b        -> DynamizeBv w (mapTerm f b)
@@ -638,6 +642,7 @@ reduceTerm mapF i foldF t = case mapF t of
       foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF b)
     DynBvExtract _ _ b -> reduceTerm mapF i foldF b
     DynBvUnExpr _ _ b -> reduceTerm mapF i foldF b
+    DynBvLit {}       -> i
     DynBvSext _ _ b -> reduceTerm mapF i foldF b
     DynBvUext _ _ b -> reduceTerm mapF i foldF b
     DynamizeBv _ b     -> reduceTerm mapF i foldF b
@@ -905,6 +910,7 @@ eval e t = case t of
     in  if Bv.width inner == w
           then ValDynBv $ bvUnFn o inner
           else error $ "bitwidth mis-match while evaluating " ++ show t
+  DynBvLit bv -> ValDynBv bv
   DynBvUext _ wDelta t' -> ValDynBv $ Bv.zeroExtend wDelta $ valAsDynBv $ eval e t'
   DynBvSext _ wDelta t' -> ValDynBv $ Bv.signExtend wDelta $ valAsDynBv $ eval e t'
   DynBvExtract s w a ->
@@ -1043,6 +1049,7 @@ toZ3 t = case t of
   DynBvUnExpr o _ b  -> toZ3 b >>= case o of
     BvNeg -> Z.mkBvneg
     BvNot -> Z.mkBvnot
+  DynBvLit bv -> Z.mkBvNum (Bv.size bv) bv
   DynBvSext _ wDelta b  -> toZ3 b >>= Z.mkSignExt wDelta
   DynBvUext _ wDelta b  -> toZ3 b >>= Z.mkZeroExt wDelta
   DynBvConcat _ l r -> tyBinZ3Bin Z.mkConcat l r
@@ -1439,6 +1446,10 @@ instance Eq (Term s) where
          &&
            (((a2_abWh == b2_abWk))
               && ((a3_abWi == b3_abWl))))
+  (==)
+    (DynBvLit a1_abWg)
+    (DynBvLit b1_abWj)
+    = (a1_abWg == b1_abWj)
   (==)
     (DynBvUext a1_abWm a2_abWn a)
     (DynBvUext b1_abWo b2_abWp b)
