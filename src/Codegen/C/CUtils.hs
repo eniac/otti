@@ -62,7 +62,7 @@ module Codegen.C.CUtils
   -- Utilities
   , asBool
   , asInt
-  , asStaticPtr
+  , asStackPtr
   , asArray
   , asDouble
   , asVar
@@ -104,7 +104,7 @@ data CTermData = CInt Bool Int Bv
                | CArray AST.Type Mem.StackAllocId
                -- The type is the pointer (not pointee) type!
                -- Also the offset and the underlying allocation.
-               | CStaticPtr AST.Type Bv Mem.StackAllocId
+               | CStackPtr AST.Type Bv Mem.StackAllocId
                deriving (Show, Eq)
 
 ctermDataTy :: CTermData -> AST.Type
@@ -122,7 +122,7 @@ ctermDataTy t = case t of
   CDouble{}         -> AST.Double
   CFloat{}          -> AST.Float
   CArray ty _       -> ty
-  CStaticPtr ty _ _ -> ty
+  CStackPtr ty _ _ -> ty
 
 ctermEval :: Map.Map String Dynamic -> CTerm -> Mem Dynamic
 ctermEval env t = case term t of
@@ -130,7 +130,7 @@ ctermEval env t = case term t of
   CBool   t'        -> return $ toDyn $ Ty.eval env t'
   CDouble t'        -> return $ toDyn $ Ty.eval env t'
   CFloat  t'        -> return $ toDyn $ Ty.eval env t'
-  CStaticPtr _ t' _ -> return $ toDyn $ Ty.eval env t'
+  CStackPtr _ t' _ -> return $ toDyn $ Ty.eval env t'
   CArray _ i        -> do
     array <- Mem.stackGetAlloc i
     return $ toDyn $ Ty.eval env array
@@ -162,9 +162,9 @@ asBool :: CTermData -> Ty.TermBool
 asBool (CBool b) = b
 asBool t         = error $ unwords [show t, "is not a boolean"]
 
-asStaticPtr :: CTermData -> (AST.Type, Bv, Mem.StackAllocId)
-asStaticPtr (CStaticPtr ty bv alloc) = (ty, bv, alloc)
-asStaticPtr t = error $ unwords [show t, "is not a pointer"]
+asStackPtr :: CTermData -> (AST.Type, Bv, Mem.StackAllocId)
+asStackPtr (CStackPtr ty bv alloc) = (ty, bv, alloc)
+asStackPtr t = error $ unwords [show t, "is not a pointer"]
 
 asArray :: CTermData -> (AST.Type, Mem.StackAllocId)
 asArray (CArray ty alloc) = (ty, alloc)
@@ -189,7 +189,7 @@ mkCTerm d b = case d of
   CInt _ w bv -> if Ty.dynBvWidth bv == w
     then CTerm d b
     else error $ unwords ["Bad width in CTerm", show d]
-  CStaticPtr ty off alloc -> if Ty.dynBvWidth off == AST.numBits ty
+  CStackPtr ty off alloc -> if Ty.dynBvWidth off == AST.numBits ty
     then CTerm d b
     else error $ unwords ["Bad width in CTerm", show d]
   _ -> CTerm d b
@@ -200,7 +200,7 @@ instance Bitable CTermData where
     CInt _ w _        -> w
     CDouble{}         -> 64
     CFloat{}          -> 32
-    CStaticPtr ty _ _ -> AST.numBits ty
+    --CStackPtr ty _ _ -> AST.numBits ty
     _                 -> error $ "Cannot serialize: " ++ show c
   serialize c = case c of
     CBool b     -> Ty.Ite b (Mem.bvNum False 1 1) (Mem.bvNum False 1 0)
@@ -262,11 +262,11 @@ alias trackUndef name t = Mem.liftAssert $ do
       v <- Assert.newVar name sort
       Assert.assign v val
       return $ CDouble v
-    CStaticPtr ty off id -> do
+    CStackPtr ty off id -> do
       let sort = Ty.SortBv $ AST.numBits ty
       v <- Assert.newVar name sort
       Assert.assign v off
-      return $ CStaticPtr ty v id
+      return $ CStackPtr ty v id
     -- Arrays have to term-specific SMT variables, so there is nothign to alias.
     CArray ty id -> return $ CArray ty id
   return $ mkCTerm d u
@@ -293,10 +293,11 @@ cppDeclVar ty name = do
     AST.Float  -> Mem.liftAssert $ CFloat <$> Assert.newVar name Ty.sortFloat
     AST.Array (Just size) innerTy ->
       CArray ty <$> Mem.stackNewAlloc (size * AST.numBits innerTy)
-    -- TODO: better idea here.
-    AST.Array Nothing innerTy -> return $ CArray ty 0
-    -- AST.Ptr32 _ -> CPtr ty <$> Assert.newVar name (Ty.SortBv 32)
-    _                         -> nyi $ "newVar for type " ++ show ty
+    AST.Array Nothing _ -> return $ CArray ty Mem.stackIdUnknown
+    AST.Ptr32 _ -> do
+      bv :: Bv <- Mem.liftAssert $ Assert.newVar name (Ty.SortBv 32)
+      return $ CStackPtr ty bv Mem.stackIdUnknown
+    _                         -> nyi $ "cppDeclVar for type " ++ show ty
   return $ mkCTerm t u
 
 cppIntLit :: AST.Type -> Integer -> CTerm
@@ -329,7 +330,7 @@ staticPointerAccessible _ptr = undefined
 
 cppLoad :: CTerm -> Mem CTerm
 cppLoad ptr = case term ptr of
-  CStaticPtr ty offset id -> do
+  CStackPtr ty offset id -> do
     bits <- Mem.stackLoad id offset (AST.numBits $ AST.pointeeType ty)
     let value = deserialize (AST.pointeeType ty) bits
         -- TODO: Check bounds
@@ -340,7 +341,7 @@ cppLoad ptr = case term ptr of
 cppStore :: CTerm -> CTerm -> Ty.TermBool -> Mem ()
 cppStore ptr val guard = case term ptr of
   --TODO: serialize the udef bit too.
-  CStaticPtr ty offset id ->
+  CStackPtr ty offset id ->
     let bits = serialize (term val)
     in  if AST.numBits ty == Ty.dynBvWidth bits
           then Mem.stackStore id offset bits guard
@@ -352,7 +353,7 @@ arrayToPointer :: CTerm -> CTerm
 arrayToPointer arr =
   let (ty, id) = asArray $ term arr
   in  mkCTerm
-        (CStaticPtr (AST.Ptr32 $ AST.arrayBaseType ty) (Mem.bvNum False 32 0) id
+        (CStackPtr (AST.Ptr32 $ AST.arrayBaseType ty) (Mem.bvNum False 32 0) id
         )
         (udef arr)
 
@@ -361,7 +362,7 @@ cppIndex
   -> CTerm -- ^ Index
   -> Mem CTerm -- Pointer
 cppIndex base idx = case term base of
-  CStaticPtr{} -> return $ cppAdd base idx
+  CStackPtr{} -> return $ cppAdd base idx
   CArray{}     -> return $ cppAdd (arrayToPointer base) idx
   _            -> error $ unwords ["The value", show base, "cannot be indexed"]
 
@@ -444,11 +445,11 @@ cppWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
           then
             (CFloat $ doubleF d $ asFloat $ term $ cppCast AST.Float a, Nothing)
           else cannot "a double"
-        (CStaticPtr ty off id, CInt s _ i) ->
+        (CStackPtr ty off id, CInt s _ i) ->
           if bvOp == Ty.BvAdd || bvOp == Ty.BvSub
-            then (CStaticPtr ty (cppPtrPlusInt ty off s i) id, Nothing)
+            then (CStackPtr ty (cppPtrPlusInt ty off s i) id, Nothing)
             else cannot "a pointer on the left"
-        (CStaticPtr ty off id, CStaticPtr ty' off' id') ->
+        (CStackPtr ty off id, CStackPtr ty' off' id') ->
           if bvOp == Ty.BvSub && ty == ty' && id == id'
             then -- TODO: ptrdiff_t?
               ( CInt True (AST.numBits ty) (Ty.mkDynBvBinExpr bvOp off off')
@@ -457,8 +458,8 @@ cppWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
             else
               cannot
                 "two pointers, or two pointers of different types, or pointers to different allocations"
-        (CInt s _ i, CStaticPtr ty addr id) -> if bvOp == Ty.BvAdd
-          then (CStaticPtr ty (cppPtrPlusInt ty addr s i) id, Nothing)
+        (CInt s _ i, CStackPtr ty addr id) -> if bvOp == Ty.BvAdd
+          then (CStackPtr ty (cppPtrPlusInt ty addr s i) id, Nothing)
           else cannot "a pointer on the right"
         -- Ptr diff
         (CInt s w i, CInt s' w' i') ->
@@ -639,7 +640,7 @@ cppWrapCmp name bvF doubleF a b = convert (integralPromotion a)
         (_, CDouble d) -> doubleF (asDouble $ term $ cppCast AST.Double a) d
         (CFloat d, _) -> doubleF d (asFloat $ term $ cppCast AST.Float b)
         (_, CFloat d) -> doubleF (asFloat $ term $ cppCast AST.Float a) d
-        (CStaticPtr ty addr id, CStaticPtr ty' addr' id') ->
+        (CStackPtr ty addr id, CStackPtr ty' addr' id') ->
           if ty == ty' && id == id'
             then bvF False addr addr'
             else
@@ -729,7 +730,7 @@ cppCast toTy node = case term node of
     AST.Double -> mkCTerm (CDouble $ Ty.FpToFp t) (udef node)
     AST.Float  -> node
     _          -> error $ unwords ["Bad cast from", show t, "to", show toTy]
-  CStaticPtr ty t _id -> if AST.isIntegerType toTy
+  CStackPtr ty t _id -> if AST.isIntegerType toTy
     then cppCast toTy $ mkCTerm (CInt False (Ty.dynBvWidth t) t) (udef node)
     else if toTy == AST.Bool
       then mkCTerm
@@ -740,8 +741,8 @@ cppCast toTy node = case term node of
         then node
         else error $ unwords ["Bad cast from", show t, "to", show toTy]
   CArray ty id -> case toTy of
-    AST.Ptr32 iTy | AST.pointeeType iTy == AST.arrayBaseType ty -> mkCTerm
-      (CStaticPtr toTy (Mem.bvNum False (AST.numBits ty) 0) id)
+    AST.Ptr32 iTy | iTy == AST.arrayBaseType ty -> mkCTerm
+      (CStackPtr toTy (Mem.bvNum False (AST.numBits toTy) 0) id)
       (udef node)
     AST.Array Nothing toBaseTy | toBaseTy == AST.arrayBaseType ty ->
       mkCTerm (CArray toTy id) (udef node)
@@ -759,8 +760,8 @@ cppCond cond t f =
       (CBool   tB, CBool fB  ) -> CBool $ Ty.Ite condB tB fB
       (CDouble tB, CDouble fB) -> CDouble $ Ty.Ite condB tB fB
       (CFloat  tB, CFloat fB ) -> CFloat $ Ty.Ite condB tB fB
-      (CStaticPtr tTy tB tId, CStaticPtr fTy fB fId)
-        | tTy == fTy && tId == fId -> CStaticPtr tTy (Ty.Ite condB tB fB) tId
+      (CStackPtr tTy tB tId, CStackPtr fTy fB fId)
+        | tTy == fTy && tId == fId -> CStackPtr tTy (Ty.Ite condB tB fB) tId
       (CInt s w i, CInt s' w' i') ->
         let sign  = s && s' -- Not really sure is this is correct b/c of ranks.
             width = max w w'
@@ -782,7 +783,7 @@ cppAssignment assignUndef l r =
       (CDouble lB , CDouble rB ) -> Ty.Eq lB rB
       (CFloat  lB , CFloat rB  ) -> Ty.Eq lB rB
       (CInt _ _ lB, CInt _ _ rB) -> Ty.Eq lB rB
-      (CStaticPtr lTy lB lId, CStaticPtr rTy rB rId) | lTy == rTy -> Ty.Eq lB rB
+      (CStackPtr lTy lB lId, CStackPtr rTy rB rId) | lTy == rTy -> Ty.Eq lB rB
       (x, y) ->
         error
           $  "Invalid cppAssign terms, post-cast: \n"

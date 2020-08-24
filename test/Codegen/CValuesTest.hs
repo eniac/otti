@@ -103,6 +103,8 @@ cValueTests = benchTestGroup
   , constraintValueTest "array 3" "main" "test/Code/C/array_3.c" [ ("f0_main__return_v0", i 6) ]
   , constraintValueTest "array 4" "main" "test/Code/C/array_4.c" [ ("f0_main__return_v0", i 4) ]
   , constraintValueTest "array 5" "main" "test/Code/C/array_5.c" [ ("f0_main__return_v0", i 2) ]
+  , constraintValueTest "array 6" "main" "test/Code/C/array_6.c" [ ("f0_main__return_v0", i 5) ]
+  , constraintValueTest "array 7" "main" "test/Code/C/array_7.c" [ ("f0_main__return_v0", i 5) ]
   ]
 
 cRealTests :: BenchTest

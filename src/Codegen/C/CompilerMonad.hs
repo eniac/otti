@@ -450,6 +450,7 @@ whenM condition action = condition >>= flip when action
 -- Assert that the current version of `var` is assign `value` to it.
 argAssign :: VarName -> CTerm -> Compiler CTerm
 argAssign var val = do
+  --liftIO $ putStrLn $ "argAssign " ++ var ++ " = " ++ show val
   priorTerm  <- getTerm var
   ty         <- getType var
   trackUndef <- gets findUB
@@ -463,6 +464,7 @@ argAssign var val = do
 -- Bump the version of `var` and assign `value` to it.
 ssaAssign :: VarName -> CTerm -> Compiler CTerm
 ssaAssign var val = do
+  --liftIO $ putStrLn $ "ssaAssign " ++ var ++ " = " ++ show val
   priorTerm  <- getTerm var
   ty         <- getType var
   nextSsaVar <- getNextSsaVar var
