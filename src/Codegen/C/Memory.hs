@@ -211,15 +211,16 @@ takeNextStackId = do
 intCeil :: Int -> Int -> Int
 intCeil x y = 1 + ((x - 1) `div` y)
 
-stackAllocLit :: Bv.BV -> Mem StackAllocId
-stackAllocLit bits = do
+stackAlloc :: Ty.TermDynBv -> Mem StackAllocId
+stackAlloc bits = do
   i <- takeNextStackId
   modify $ \s -> s
-    { stackAllocations = Map.insert i (StackAlloc $ bvNum False (Bv.size bits) (Bv.nat bits))
-                           $ stackAllocations s
+    { stackAllocations = Map.insert i (StackAlloc bits) $ stackAllocations s
     }
   return i
 
+stackAllocLit :: Bv.BV -> Mem StackAllocId
+stackAllocLit bits = stackAlloc (bvNum False (Bv.size bits) (Bv.nat bits))
 
 stackNewAlloc
   :: Int -- ^ # of bits
@@ -252,6 +253,10 @@ stackStore id offset value guard = do
   alloc <- stackGetAlloc id
   let alloc' = StackAlloc $ Ty.Ite guard (setBits value alloc offset) alloc
   modify $ \s -> s { stackAllocations = Map.insert id alloc' $ stackAllocations s }
+
+stackIdUnknown :: StackAllocId
+stackIdUnknown = maxBound
+
 
 memLoad
   :: Ty.TermDynBv -- ^ low idx

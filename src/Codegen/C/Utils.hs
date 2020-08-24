@@ -48,7 +48,8 @@ getTy :: (Show a) => Type -> [CDerivedDeclarator a] -> Type
 getTy ty [] = ty
 getTy ty (d:ds) = case d of
                     _ | isPtrDecl d -> getTy (Ptr32 ty) ds
-                    CArrDeclr _ (CArrSize _ (CConst (CIntConst (CInteger i _ _) _))) _ -> getTy (Array (fromIntegral i) ty) ds
+                    CArrDeclr _ (CArrSize _ (CConst (CIntConst (CInteger i _ _) _))) _ -> getTy (Array (Just $ fromIntegral i) ty) ds
+                    CArrDeclr _ (CNoArrSize _) _ -> getTy (Array Nothing ty) ds
                     _ -> error $ "Do not support type " ++ show d
 
 cDeclToType :: (Show a) => CDeclaration a -> Compiler Type

@@ -27,7 +27,7 @@ data Type = U8 | S8
           | Ptr64 Type
           | Ptr32 Type
           | Struct [(String, Type)]
-          | Array Int Type
+          | Array (Maybe Int) Type
           | Void
           | Char
           | Float
@@ -63,7 +63,8 @@ instance Typed Type where
   numBits Ptr64{}        = 64
   numBits Ptr32{}        = 32
   numBits (Struct tys)   = sum $ map (numBits . snd) tys
-  numBits (Array num ty) = num * numBits ty
+  numBits (Array (Just num) ty) = num * numBits ty
+  numBits (Array Nothing ty) = 32
 
   isSignedInt S8  = True
   isSignedInt S16 = True
@@ -97,7 +98,7 @@ instance Typed Type where
   arrayBaseType a            =
       error $ unwords ["Cannot call arrayBaseType on non-array", show a]
 
-  arrayNumElems (Array n _) = n
+  arrayNumElems (Array (Just n) _) = n
   arrayNumElems n           =
       error $ unwords ["Cannot call array num elems on non-array type", show n]
 
@@ -110,7 +111,7 @@ instance Typed Type where
       error $ unwords ["Cannot call structFieldList on non-struct", show s]
 
   newStructType = Struct
-  newArrayType = Array
+  newArrayType = Array . Just
 
 int8, int16, int32, int64 :: Type -> Bool
 int8 S8 = True

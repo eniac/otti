@@ -54,9 +54,6 @@ type Version = Int
 data SsaVar = SsaVar VarName Version
                 deriving (Eq, Ord, Show)
 
-data CVal = CValBool (Ty.Value Ty.BoolSort)
-          | CValInt  (Ty.Value Ty.DynBvSort)
-
 -- TODO rename
 data LexScope = LexScope { tys :: M.Map VarName Type
                          , vers :: M.Map VarName Version
@@ -303,9 +300,6 @@ emptyCompilerState = CompilerState { callStack    = []
                                    , values       = Nothing
                                    , defaultValue = Nothing
                                    }
-
-initWitComp :: [(String, CVal)] -> Compiler a
-initWitComp args = undefined
 
 compilerRunOnTop :: (FunctionScope -> Compiler (a, FunctionScope)) -> Compiler a
 compilerRunOnTop f = do

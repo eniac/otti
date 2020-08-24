@@ -58,8 +58,8 @@ declareVarSMT (Ident name _ _) tys ptrs = do
 genVarSMT :: Ident -> Compiler CTerm
 genVarSMT (Ident name _ _) = getTerm name
 
-genConstSMT :: CConstant a -> Compiler CTerm
-genConstSMT c = case c of
+genConstSMT :: Show a => CConstant a -> Compiler CVal
+genConstSMT c = liftIO (print "c") >> case c of
   CIntConst (CInteger i _ _) _ -> return $ cppIntLit S32 i
   CCharConst (CChar c _) _ -> return $ cppIntLit S8 $ toInteger $ Char.ord c
   CCharConst (CChars c _) _ -> error "Chars const unsupported"
@@ -100,8 +100,7 @@ genAssign location value = case location of
     return value
 
 genExprSMT :: CExpr -> Compiler CTerm
---genExprSMT expr = case trace ("genExprSMT " ++ show expr) expr of
-genExprSMT expr = case expr of
+genExprSMT expr = liftIO (print "expr") >> case expr of
   CVar id _            -> genVarSMT id
   CConst c             -> genConstSMT c
   CAssign op lhs rhs _ -> do
@@ -272,7 +271,7 @@ genAssignOp op l r = case op of
 ---
 
 genStmtSMT :: CStat -> Compiler ()
-genStmtSMT stmt = case stmt of
+genStmtSMT stmt = liftIO (print "stmt") >> case stmt of
 --genStmtSMT stmt = case trace ("genStmtSMT " ++ show stmt) stmt of
   CCompound ids items _ -> do
     enterLexScope
@@ -324,7 +323,7 @@ genStmtSMT stmt = case stmt of
 
 -- Returns the declaration's variable name
 genDeclSMT :: Maybe Bool -> CDecl -> Compiler [String]
-genDeclSMT undef (CDecl specs decls _) = do
+genDeclSMT undef d@(CDecl specs decls _) = liftIO (print d) >> do
   when (null specs) $ error "Expected specifier in declaration"
   let firstSpec = head specs
       isTypedefDecl =
@@ -347,11 +346,20 @@ genDeclSMT undef (CDecl specs decls _) = do
             trackUndef <- gets findUB
             rhs        <- genExprSMT e
             void $ argAssign name rhs
+          Just (CInitList l _) -> do
+            
           _ -> whenM (gets findUB) $ forM_
             undef
             (liftAssert . Assert.assert . Ty.Eq (udef lhs) . Ty.BoolLit)
         return name
 
+genInitSMT :: AST.Type -> CInit -> Compiler CTerm
+genInitSMT ty i = case (ty, i) of
+  (ty, CInitExpr e _) -> cppCast ty <$> genExprSMT e
+  (AST.Array _ innerTy, CInitList is -> do
+    values <- forM is (genInitSMT innerTy)
+    id <- Mem.stackAllocLit (Bv
+  _ -> error $ unwords ["Cannot initialize type", show ty, "from", show i]
 
 ---
 --- High level codegen (translation unit, etc)

@@ -8,6 +8,7 @@
 module Codegen.C.CUtils
   ( CTerm(..)
   , CTermData(..)
+  , CVal(..)
   , Bitable(..)
   , cppDeclVar
   , cppDeclInitVar
@@ -55,6 +56,7 @@ module Codegen.C.CUtils
   , cppFloatLit
   , cppDoubleLit
   , cppArrayLit
+  , cppLitToTerm
   -- Pointers & Arrays
   , cppIndex
   -- Reflection
@@ -78,8 +80,12 @@ import qualified IR.SMT.Assert                 as Assert
 import           IR.SMT.Assert                  ( Assert )
 import qualified Codegen.C.Memory              as Mem
 import           Codegen.C.Memory               ( Mem )
-import           Control.Monad                  ( unless, when )
+import           Control.Monad                  ( unless
+                                                , when
+                                                )
+import qualified Data.Binary.IEEE754           as IEEE754
 import qualified Data.BitVector                as Bv
+import qualified Data.Bits                     as Bits
 import           Data.Foldable                 as Fold
 import qualified Data.Map                      as Map
 import           Data.Dynamic                   ( Dynamic
@@ -93,6 +99,13 @@ class Bitable s where
   nbits :: s -> Int
   serialize :: s -> Bv
   deserialize :: AST.Type -> Bv -> s
+
+data CVal = CValInt Bool Int Integer
+          | CValBool Bool
+          | CValDouble Double
+          | CValFloat Float
+          | CValArray AST.Type [CVal]
+          deriving (Show)
 
 data CTermData = CInt Bool Int Bv
                | CBool Ty.TermBool
@@ -199,7 +212,7 @@ instance Bitable CTermData where
     CDouble{}         -> 64
     CFloat{}          -> 32
     CStaticPtr ty _ _ -> AST.numBits ty
-    _           -> error $ "Cannot serialize: " ++ show c
+    _                 -> error $ "Cannot serialize: " ++ show c
   serialize c = case c of
     CBool b     -> Ty.Ite b (Mem.bvNum False 1 1) (Mem.bvNum False 1 0)
     CInt _ _ bv -> bv
@@ -272,7 +285,8 @@ alias trackUndef name t = Mem.liftAssert $ do
 -- Declare a new variable, initialize it to a value.
 cppDeclInitVar :: Bool -> AST.Type -> String -> CTerm -> Mem CTerm
 cppDeclInitVar trackUndef ty name init = do
-  unless (ty == cppType init) $ error $ unwords ["Cannot assign", show init, "to var", name, "of type", show ty]
+  unless (ty == cppType init) $ error $ unwords
+    ["Cannot assign", show init, "to var", name, "of type", show ty]
   alias trackUndef name init
 
 -- Declare a new variable, do not initialize it.
@@ -288,28 +302,64 @@ cppDeclVar ty name = do
         <$> Assert.newVar name (Ty.SortBv $ AST.numBits ty)
     AST.Double -> Mem.liftAssert $ CDouble <$> Assert.newVar name Ty.sortDouble
     AST.Float  -> Mem.liftAssert $ CFloat <$> Assert.newVar name Ty.sortFloat
-    AST.Array size innerTy ->
+    AST.Array (Just size) innerTy ->
       CArray ty <$> Mem.stackNewAlloc (size * AST.numBits innerTy)
+    -- TODO: better idea here.
+    AST.Array Nothing innerTy -> return $ CArray ty 0
     -- AST.Ptr32 _ -> CPtr ty <$> Assert.newVar name (Ty.SortBv 32)
-    _ -> nyi $ "newVar for type " ++ show ty
+    _                         -> nyi $ "newVar for type " ++ show ty
   return $ mkCTerm t u
 
-cppIntLit :: AST.Type -> Integer -> CTerm
-cppIntLit t v =
+cppIntLit :: AST.Type -> Integer -> CVal
+cppIntLit t =
   let s = AST.isSignedInt t
       w = AST.numBits t
-  in  mkCTerm (CInt s w (Ty.IntToDynBv w (Ty.IntLit v))) (Ty.BoolLit False)
+  in  CValInt s w
 
-cppDoubleLit :: Double -> CTerm
-cppDoubleLit v = mkCTerm (CDouble $ Ty.Fp64Lit v) (Ty.BoolLit False)
+cppDoubleLit :: Double -> CVal
+cppDoubleLit = CValDouble
 
-cppFloatLit :: Float -> CTerm
-cppFloatLit v = mkCTerm (CFloat $ Ty.Fp32Lit v) (Ty.BoolLit False)
+cppFloatLit :: Float -> CVal
+cppFloatLit = CValFloat
 
-cppArrayLit :: AST.Type -> [Bv.BV] -> Mem CTerm
-cppArrayLit ty bvs = do
-  id <- Mem.stackAllocLit (Bv.concat $ reverse bvs)
-  return $ mkCTerm (CArray (AST.Array (length bvs) ty) id) (Ty.BoolLit False)
+cppArrayLit :: AST.Type -> [CVal] -> CVal
+cppArrayLit ty vs = if all (\v -> ty == cppLitTy v) vs
+  then CValArray (AST.Array (Just $ length vs) ty) vs
+  else error $ unwords ["Bad type in array lit:", show ty, show vs]
+
+bitsAsBv :: Bits.FiniteBits b => b -> Bv.BV
+bitsAsBv v =
+  Bv.fromBits $ map (Bits.testBit v) $ take (Bits.finiteBitSize v) [0 ..]
+
+cppLitBits :: CVal -> Bv.BV
+cppLitBits v = case v of
+  CValBool b     -> Bv.bitVec 1 (fromEnum b)
+  CValInt _ w i  -> Bv.bitVec w i
+  CValFloat  f   -> bitsAsBv $ IEEE754.floatToWord f
+  CValDouble d   -> bitsAsBv $ IEEE754.doubleToWord d
+  CValArray _ vs -> Bv.concat $ map cppLitBits vs
+
+cppLitTy :: CVal -> AST.Type
+cppLitTy v = case v of
+  CValBool _     -> AST.Bool
+  CValInt s w _  -> AST.makeType w s
+  CValFloat  _   -> AST.Float
+  CValDouble _   -> AST.Double
+  CValArray ty _ -> ty
+
+
+cppLitToTerm :: CVal -> Mem CTerm
+cppLitToTerm v = do
+  t <- case v of
+    CValBool   b   -> return $ CBool (Ty.BoolLit b)
+    CValFloat  b   -> return $ CFloat (Ty.Fp32Lit b)
+    CValDouble b   -> return $ CDouble (Ty.Fp64Lit b)
+    CValInt s w i  -> return $ CInt s w (Ty.DynBvLit (Bv.bitVec w i))
+    CValArray ty _ -> do
+      id <- Mem.stackAllocLit (cppLitBits v)
+      return $ CArray ty id
+
+  return $ mkCTerm t (Ty.BoolLit True)
 
 -- Is a pointer's value valid? (in its allocation or 1 beyond?)
 staticPointerValid :: CTerm -> Ty.TermBool
@@ -772,8 +822,7 @@ cppAssignment assignUndef l r =
       (CDouble lB , CDouble rB ) -> Ty.Eq lB rB
       (CFloat  lB , CFloat rB  ) -> Ty.Eq lB rB
       (CInt _ _ lB, CInt _ _ rB) -> Ty.Eq lB rB
-      (CStaticPtr lTy lB lId, CStaticPtr rTy rB rId)
-        | lTy == rTy -> Ty.Eq lB rB
+      (CStaticPtr lTy lB lId, CStaticPtr rTy rB rId) | lTy == rTy -> Ty.Eq lB rB
       (x, y) ->
         error
           $  "Invalid cppAssign terms, post-cast: \n"
