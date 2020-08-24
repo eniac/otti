@@ -8,7 +8,6 @@
 module Codegen.C.CUtils
   ( CTerm(..)
   , CTermData(..)
-  , CVal(..)
   , Bitable(..)
   , cppDeclVar
   , cppDeclInitVar
@@ -56,7 +55,6 @@ module Codegen.C.CUtils
   , cppFloatLit
   , cppDoubleLit
   , cppArrayLit
-  , cppLitToTerm
   -- Pointers & Arrays
   , cppIndex
   -- Reflection
@@ -83,9 +81,7 @@ import           Codegen.C.Memory               ( Mem )
 import           Control.Monad                  ( unless
                                                 , when
                                                 )
-import qualified Data.Binary.IEEE754           as IEEE754
 import qualified Data.BitVector                as Bv
-import qualified Data.Bits                     as Bits
 import           Data.Foldable                 as Fold
 import qualified Data.Map                      as Map
 import           Data.Dynamic                   ( Dynamic
@@ -99,13 +95,6 @@ class Bitable s where
   nbits :: s -> Int
   serialize :: s -> Bv
   deserialize :: AST.Type -> Bv -> s
-
-data CVal = CValInt Bool Int Integer
-          | CValBool Bool
-          | CValDouble Double
-          | CValFloat Float
-          | CValArray AST.Type [CVal]
-          deriving (Show)
 
 data CTermData = CInt Bool Int Bv
                | CBool Ty.TermBool
@@ -310,56 +299,25 @@ cppDeclVar ty name = do
     _                         -> nyi $ "newVar for type " ++ show ty
   return $ mkCTerm t u
 
-cppIntLit :: AST.Type -> Integer -> CVal
-cppIntLit t =
+cppIntLit :: AST.Type -> Integer -> CTerm
+cppIntLit t v =
   let s = AST.isSignedInt t
       w = AST.numBits t
-  in  CValInt s w
+  in  mkCTerm (CInt s w (Ty.IntToDynBv w (Ty.IntLit v))) (Ty.BoolLit False)
 
-cppDoubleLit :: Double -> CVal
-cppDoubleLit = CValDouble
+cppDoubleLit :: Double -> CTerm
+cppDoubleLit v = mkCTerm (CDouble $ Ty.Fp64Lit v) (Ty.BoolLit False)
 
-cppFloatLit :: Float -> CVal
-cppFloatLit = CValFloat
+cppFloatLit :: Float -> CTerm
+cppFloatLit v = mkCTerm (CFloat $ Ty.Fp32Lit v) (Ty.BoolLit False)
 
-cppArrayLit :: AST.Type -> [CVal] -> CVal
-cppArrayLit ty vs = if all (\v -> ty == cppLitTy v) vs
-  then CValArray (AST.Array (Just $ length vs) ty) vs
-  else error $ unwords ["Bad type in array lit:", show ty, show vs]
-
-bitsAsBv :: Bits.FiniteBits b => b -> Bv.BV
-bitsAsBv v =
-  Bv.fromBits $ map (Bits.testBit v) $ take (Bits.finiteBitSize v) [0 ..]
-
-cppLitBits :: CVal -> Bv.BV
-cppLitBits v = case v of
-  CValBool b     -> Bv.bitVec 1 (fromEnum b)
-  CValInt _ w i  -> Bv.bitVec w i
-  CValFloat  f   -> bitsAsBv $ IEEE754.floatToWord f
-  CValDouble d   -> bitsAsBv $ IEEE754.doubleToWord d
-  CValArray _ vs -> Bv.concat $ map cppLitBits vs
-
-cppLitTy :: CVal -> AST.Type
-cppLitTy v = case v of
-  CValBool _     -> AST.Bool
-  CValInt s w _  -> AST.makeType w s
-  CValFloat  _   -> AST.Float
-  CValDouble _   -> AST.Double
-  CValArray ty _ -> ty
-
-
-cppLitToTerm :: CVal -> Mem CTerm
-cppLitToTerm v = do
-  t <- case v of
-    CValBool   b   -> return $ CBool (Ty.BoolLit b)
-    CValFloat  b   -> return $ CFloat (Ty.Fp32Lit b)
-    CValDouble b   -> return $ CDouble (Ty.Fp64Lit b)
-    CValInt s w i  -> return $ CInt s w (Ty.DynBvLit (Bv.bitVec w i))
-    CValArray ty _ -> do
-      id <- Mem.stackAllocLit (cppLitBits v)
-      return $ CArray ty id
-
-  return $ mkCTerm t (Ty.BoolLit True)
+cppArrayLit :: AST.Type -> [CTerm] -> Mem CTerm
+cppArrayLit ty vals = do
+  forM_ vals $ \v -> unless (cppType v == ty) $ error $ unwords
+    ["Type mismatch in cppArrayLit:", show ty, "vs", show $ cppType v]
+  id <- Mem.stackAlloc (foldl1 Ty.mkDynBvConcat $ reverse $ map (serialize . term) vals)
+  return $ mkCTerm (CArray (AST.Array (Just $ length vals) ty) id)
+                   (Ty.BoolLit False)
 
 -- Is a pointer's value valid? (in its allocation or 1 beyond?)
 staticPointerValid :: CTerm -> Ty.TermBool
@@ -785,6 +743,8 @@ cppCast toTy node = case term node of
     AST.Ptr32 iTy | AST.pointeeType iTy == AST.arrayBaseType ty -> mkCTerm
       (CStaticPtr toTy (Mem.bvNum False (AST.numBits ty) 0) id)
       (udef node)
+    AST.Array Nothing toBaseTy | toBaseTy == AST.arrayBaseType ty ->
+      mkCTerm (CArray toTy id) (udef node)
     _ | toTy == ty -> node
     _ -> error $ unwords ["Bad cast from", show node, "to", show toTy]
  where

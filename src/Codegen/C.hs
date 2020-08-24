@@ -58,8 +58,8 @@ declareVarSMT (Ident name _ _) tys ptrs = do
 genVarSMT :: Ident -> Compiler CTerm
 genVarSMT (Ident name _ _) = getTerm name
 
-genConstSMT :: Show a => CConstant a -> Compiler CVal
-genConstSMT c = liftIO (print "c") >> case c of
+genConstSMT :: Show a => CConstant a -> Compiler CTerm
+genConstSMT c = case c of
   CIntConst (CInteger i _ _) _ -> return $ cppIntLit S32 i
   CCharConst (CChar c _) _ -> return $ cppIntLit S8 $ toInteger $ Char.ord c
   CCharConst (CChars c _) _ -> error "Chars const unsupported"
@@ -69,7 +69,7 @@ genConstSMT c = liftIO (print "c") >> case c of
       'l' -> return $ cppDoubleLit (read $ init str)
       _   -> return $ cppDoubleLit (read str)
   CStrConst (CString str _) _ ->
-    liftMem $ cppArrayLit S8 (map (Bv.bitVec 8 . ord) str ++ [Bv.bitVec 8 0])
+    liftMem $ cppArrayLit S8 (map (cppIntLit S8 . toInteger . ord) str ++ [cppIntLit S8 0])
 
 data CLVal = CLVar VarName
            | CLAddr CTerm
@@ -100,7 +100,7 @@ genAssign location value = case location of
     return value
 
 genExprSMT :: CExpr -> Compiler CTerm
-genExprSMT expr = liftIO (print "expr") >> case expr of
+genExprSMT expr = case expr of
   CVar id _            -> genVarSMT id
   CConst c             -> genConstSMT c
   CAssign op lhs rhs _ -> do
@@ -271,7 +271,7 @@ genAssignOp op l r = case op of
 ---
 
 genStmtSMT :: CStat -> Compiler ()
-genStmtSMT stmt = liftIO (print "stmt") >> case stmt of
+genStmtSMT stmt = case stmt of
 --genStmtSMT stmt = case trace ("genStmtSMT " ++ show stmt) stmt of
   CCompound ids items _ -> do
     enterLexScope
@@ -323,7 +323,7 @@ genStmtSMT stmt = liftIO (print "stmt") >> case stmt of
 
 -- Returns the declaration's variable name
 genDeclSMT :: Maybe Bool -> CDecl -> Compiler [String]
-genDeclSMT undef d@(CDecl specs decls _) = liftIO (print d) >> do
+genDeclSMT undef d@(CDecl specs decls _) = do
   when (null specs) $ error "Expected specifier in declaration"
   let firstSpec = head specs
       isTypedefDecl =
@@ -342,23 +342,21 @@ genDeclSMT undef d@(CDecl specs decls _) = liftIO (print d) >> do
         declareVarSMT ident baseType ptrType
         lhs <- genVarSMT ident
         case mInit of
-          Just (CInitExpr e _) -> do
-            trackUndef <- gets findUB
-            rhs        <- genExprSMT e
+          Just init -> do
+            ty <- ctype baseType ptrType
+            rhs        <- genInitSMT ty init
             void $ argAssign name rhs
-          Just (CInitList l _) -> do
-            
-          _ -> whenM (gets findUB) $ forM_
+          Nothing -> whenM (gets findUB) $ forM_
             undef
             (liftAssert . Assert.assert . Ty.Eq (udef lhs) . Ty.BoolLit)
         return name
 
-genInitSMT :: AST.Type -> CInit -> Compiler CTerm
+genInitSMT :: Type -> CInit -> Compiler CTerm
 genInitSMT ty i = case (ty, i) of
   (ty, CInitExpr e _) -> cppCast ty <$> genExprSMT e
-  (AST.Array _ innerTy, CInitList is -> do
-    values <- forM is (genInitSMT innerTy)
-    id <- Mem.stackAllocLit (Bv
+  (Array _ innerTy, CInitList is _) -> do
+    values <- forM is $ \(_, i) -> genInitSMT innerTy i
+    liftMem $ cppArrayLit innerTy values
   _ -> error $ unwords ["Cannot initialize type", show ty, "from", show i]
 
 ---
