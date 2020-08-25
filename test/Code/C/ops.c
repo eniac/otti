@@ -22,7 +22,9 @@ int foo () {
   --a;
   a--;
   int p = (4 == 5) ? 10 : 1;
-  int q = (int) 4.0 * 4.5;
-  int r = (int) 4.0 / 4.5;
-  int s = (int) 0.0 - 1.6;
+  double q = (4.0 * 4.5);
+  double r = (4.0 / 4.0);
+  double s = (0.0 - 1.6);
+  int t = (int)0.6;
+  int u = (int)-0.6;
 }

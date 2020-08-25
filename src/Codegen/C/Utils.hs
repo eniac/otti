@@ -35,6 +35,12 @@ ctypeToType ty = case ty of
                    [CCharType{}]   -> return S8
                    [CBoolType{}]   -> return Bool
                    [CUnsigType{}, CCharType{}] -> return U8
+                   [CShortType{}] -> return S16
+                   [CUnsigType{}, CShortType{}] -> return U16
+                   [CLongType{}] -> return S32
+                   [CUnsigType{}, CLongType{}] -> return U32
+                   [CLongType{}, CLongType{}] -> return S32
+                   [CUnsigType{}, CLongType{}, CLongType{}] -> return U64
                    [CIntType{}]    -> return S32
                    [CUnsigType{}]  -> return U32
                    [CFloatType{}]  -> return Float

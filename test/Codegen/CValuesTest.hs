@@ -38,17 +38,19 @@ cValueTests = benchTestGroup
                                                         , ("f0_foo_lex1__a_v3", i 18)
                                                         , ("f0_foo_lex1__a_v4", i 17)
                                                         , ("f0_foo_lex1__p_v0", i 1)
-                                                        , ("f0_foo_lex1__q_v0", i 18)
-                                                        , ("f0_foo_lex1__r_v0", i 0)
-                                                        , ("f0_foo_lex1__s_v0", i 4294967295)
+                                                        , ("f0_foo_lex1__q_v0", d 18.0)
+                                                        , ("f0_foo_lex1__r_v0", d 1.0)
+                                                        , ("f0_foo_lex1__s_v0", d (-1.6))
+                                                        , ("f0_foo_lex1__t_v0", i 0)
+                                                        , ("f0_foo_lex1__u_v0", i 0)
                                                         ]
   , constraintValueTest "cast" "foo" "test/Code/C/cast.c" [ ("f0_foo_lex1__a_v0", i 1)
                                                           , ("f0_foo_lex1__b_v0", i 1)
                                                           , ("f0_foo_lex1__c_v0", i 0)
-                                                          , ("f0_foo_lex1__e_v0", i 0)
-                                                          , ("f0_foo_lex1__g_v0", i 0)
-                                                          , ("f0_foo_lex1__i_v0", i 0)
-                                                          , ("f0_foo_lex1__k_v0", i 0)
+                                                          , ("f0_foo_lex1__e_v0", i 4294967295)
+                                                          , ("f0_foo_lex1__g_v0", i 4294967295)
+                                                          , ("f0_foo_lex1__i_v0", i 255)
+                                                          , ("f0_foo_lex1__k_v0", i 127)
                                                           ]
   , constraintValueTest "assign" "foo" "test/Code/C/assign.c" [ ("f0_foo_lex1__x_v0", i 4) ]
   , constraintValueTest "assign if" "foo" "test/Code/C/assign_if.c" [ ("f0_foo_lex1__y_v2", i 2) ]

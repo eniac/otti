@@ -109,29 +109,29 @@ data CTermData = CInt Bool Int Bv
 
 ctermDataTy :: CTermData -> AST.Type
 ctermDataTy t = case t of
-  CInt True  8  _   -> AST.S8
-  CInt False 8  _   -> AST.U8
-  CInt True  16 _   -> AST.S16
-  CInt False 16 _   -> AST.U16
-  CInt True  32 _   -> AST.S32
-  CInt False 32 _   -> AST.U32
-  CInt True  64 _   -> AST.S64
-  CInt False 64 _   -> AST.U64
-  CInt _     w  _   -> error $ unwords ["Invalid int width:", show w]
-  CBool{}           -> AST.Bool
-  CDouble{}         -> AST.Double
-  CFloat{}          -> AST.Float
-  CArray ty _       -> ty
+  CInt True  8  _  -> AST.S8
+  CInt False 8  _  -> AST.U8
+  CInt True  16 _  -> AST.S16
+  CInt False 16 _  -> AST.U16
+  CInt True  32 _  -> AST.S32
+  CInt False 32 _  -> AST.U32
+  CInt True  64 _  -> AST.S64
+  CInt False 64 _  -> AST.U64
+  CInt _     w  _  -> error $ unwords ["Invalid int width:", show w]
+  CBool{}          -> AST.Bool
+  CDouble{}        -> AST.Double
+  CFloat{}         -> AST.Float
+  CArray ty _      -> ty
   CStackPtr ty _ _ -> ty
 
 ctermEval :: Map.Map String Dynamic -> CTerm -> Mem Dynamic
 ctermEval env t = case term t of
-  CInt _ _ t'       -> return $ toDyn $ Ty.eval env t'
-  CBool   t'        -> return $ toDyn $ Ty.eval env t'
-  CDouble t'        -> return $ toDyn $ Ty.eval env t'
-  CFloat  t'        -> return $ toDyn $ Ty.eval env t'
+  CInt _ _ t'      -> return $ toDyn $ Ty.eval env t'
+  CBool   t'       -> return $ toDyn $ Ty.eval env t'
+  CDouble t'       -> return $ toDyn $ Ty.eval env t'
+  CFloat  t'       -> return $ toDyn $ Ty.eval env t'
   CStackPtr _ t' _ -> return $ toDyn $ Ty.eval env t'
-  CArray _ i        -> do
+  CArray _ i       -> do
     array <- Mem.stackGetAlloc i
     return $ toDyn $ Ty.eval env array
 
@@ -196,12 +196,12 @@ mkCTerm d b = case d of
 
 instance Bitable CTermData where
   nbits c = case c of
-    CBool{}           -> 1
-    CInt _ w _        -> w
-    CDouble{}         -> 64
-    CFloat{}          -> 32
+    CBool{}    -> 1
+    CInt _ w _ -> w
+    CDouble{}  -> 64
+    CFloat{}   -> 32
     --CStackPtr ty _ _ -> AST.numBits ty
-    _                 -> error $ "Cannot serialize: " ++ show c
+    _          -> error $ "Cannot serialize: " ++ show c
   serialize c = case c of
     CBool b     -> Ty.Ite b (Mem.bvNum False 1 1) (Mem.bvNum False 1 0)
     CInt _ _ bv -> bv
@@ -294,10 +294,10 @@ cppDeclVar ty name = do
     AST.Array (Just size) innerTy ->
       CArray ty <$> Mem.stackNewAlloc (size * AST.numBits innerTy)
     AST.Array Nothing _ -> return $ CArray ty Mem.stackIdUnknown
-    AST.Ptr32 _ -> do
+    AST.Ptr32 _         -> do
       bv :: Bv <- Mem.liftAssert $ Assert.newVar name (Ty.SortBv 32)
       return $ CStackPtr ty bv Mem.stackIdUnknown
-    _                         -> nyi $ "cppDeclVar for type " ++ show ty
+    _ -> nyi $ "cppDeclVar for type " ++ show ty
   return $ mkCTerm t u
 
 cppIntLit :: AST.Type -> Integer -> CTerm
@@ -316,7 +316,8 @@ cppArrayLit :: AST.Type -> [CTerm] -> Mem CTerm
 cppArrayLit ty vals = do
   forM_ vals $ \v -> unless (cppType v == ty) $ error $ unwords
     ["Type mismatch in cppArrayLit:", show ty, "vs", show $ cppType v]
-  id <- Mem.stackAlloc (foldl1 Ty.mkDynBvConcat $ reverse $ map (serialize . term) vals)
+  id <- Mem.stackAlloc
+    (foldl1 Ty.mkDynBvConcat $ reverse $ map (serialize . term) vals)
   return $ mkCTerm (CArray (AST.Array (Just $ length vals) ty) id)
                    (Ty.BoolLit False)
 
@@ -353,8 +354,7 @@ arrayToPointer :: CTerm -> CTerm
 arrayToPointer arr =
   let (ty, id) = asArray $ term arr
   in  mkCTerm
-        (CStackPtr (AST.Ptr32 $ AST.arrayBaseType ty) (Mem.bvNum False 32 0) id
-        )
+        (CStackPtr (AST.Ptr32 $ AST.arrayBaseType ty) (Mem.bvNum False 32 0) id)
         (udef arr)
 
 cppIndex
@@ -363,8 +363,8 @@ cppIndex
   -> Mem CTerm -- Pointer
 cppIndex base idx = case term base of
   CStackPtr{} -> return $ cppAdd base idx
-  CArray{}     -> return $ cppAdd (arrayToPointer base) idx
-  _            -> error $ unwords ["The value", show base, "cannot be indexed"]
+  CArray{}    -> return $ cppAdd (arrayToPointer base) idx
+  _           -> error $ unwords ["The value", show base, "cannot be indexed"]
 
 
 intResize :: Bool -> Int -> Bv -> Bv
@@ -709,22 +709,42 @@ cppCast toTy node = case term node of
       mkCTerm (CBool $ Ty.Not $ Ty.Eq (Mem.bvNum False fromW 0) t) (udef node)
     _ -> error $ unwords ["Bad cast from", show t, "to", show toTy]
   CDouble t -> case toTy of
-    _ | AST.isIntegerType toTy -> mkCTerm
-      ( CInt (AST.isSignedInt toTy) (AST.numBits toTy)
-      $ Ty.RoundFpToDynBv (AST.numBits toTy) True t
-      )
-      (udef node)
+    _ | AST.isIntegerType toTy ->
+      -- TODO: Do this with rounding modes
+      let half    = Ty.Fp64Lit 0.5
+          negHalf = Ty.Fp64Lit (-0.5)
+      in  mkCTerm
+            (CInt (AST.isSignedInt toTy) (AST.numBits toTy) $ Ty.RoundFpToDynBv
+              (AST.numBits toTy)
+              True
+              (Ty.FpBinExpr
+                Ty.FpAdd
+                t
+                (Ty.Ite (Ty.FpUnPred Ty.FpIsPositive t) negHalf half)
+              )
+            )
+            (udef node)
     AST.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
     AST.Double -> node
     AST.Float  -> mkCTerm (CFloat $ Ty.FpToFp t) (udef node)
     _          -> error $ unwords ["Bad cast from", show t, "to", show toTy]
   CFloat t -> case toTy of
-    _ | AST.isIntegerType toTy -> mkCTerm
-      ( CInt (AST.isSignedInt toTy) (AST.numBits toTy)
-      $ Ty.RoundFpToDynBv (AST.numBits toTy) True t
-      )
-      (udef node)
+    _ | AST.isIntegerType toTy ->
+      -- TODO: Do this with rounding modes
+      let half    = Ty.Fp32Lit 0.5
+          negHalf = Ty.Fp32Lit (-0.5)
+      in  mkCTerm
+            (CInt (AST.isSignedInt toTy) (AST.numBits toTy) $ Ty.RoundFpToDynBv
+              (AST.numBits toTy)
+              True
+              (Ty.FpBinExpr
+                Ty.FpAdd
+                t
+                (Ty.Ite (Ty.FpUnPred Ty.FpIsPositive t) negHalf half)
+              )
+            )
+            (udef node)
     AST.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
     AST.Double -> mkCTerm (CDouble $ Ty.FpToFp t) (udef node)
@@ -760,8 +780,8 @@ cppCond cond t f =
       (CBool   tB, CBool fB  ) -> CBool $ Ty.Ite condB tB fB
       (CDouble tB, CDouble fB) -> CDouble $ Ty.Ite condB tB fB
       (CFloat  tB, CFloat fB ) -> CFloat $ Ty.Ite condB tB fB
-      (CStackPtr tTy tB tId, CStackPtr fTy fB fId)
-        | tTy == fTy && tId == fId -> CStackPtr tTy (Ty.Ite condB tB fB) tId
+      (CStackPtr tTy tB tId, CStackPtr fTy fB fId) | tTy == fTy && tId == fId ->
+        CStackPtr tTy (Ty.Ite condB tB fB) tId
       (CInt s w i, CInt s' w' i') ->
         let sign  = s && s' -- Not really sure is this is correct b/c of ranks.
             width = max w w'
