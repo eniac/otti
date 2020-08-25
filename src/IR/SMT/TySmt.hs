@@ -1085,7 +1085,7 @@ toZ3 t = case t of
   PfToInt{}        -> nyi "Prime fields"
 
   Fp64Lit d        -> Z.mkDoubleSort >>= Z.mkFpFromDouble d
-  Fp32Lit{}        -> nyi "floats"
+  Fp32Lit d        -> Z.mkFloatSort >>= Z.mkFpFromFloat d
   FpBinExpr o l r ->
 
     let wrapRound g a b = do
