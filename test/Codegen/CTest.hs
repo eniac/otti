@@ -63,6 +63,14 @@ ubTests = benchTestGroup
   , ubCheckTest "unsigned overflow" "add" "test/Code/C/add_unsigned.c" False
   , ubCheckTest "constant in if" "sum" "test/Code/C/if.c" False
   , ubCheckTest "constant loop" "sum" "test/Code/C/loop.c" False
+  , ubCheckTest "left shift by neg" "lneg" "test/Code/C/shift.c" True
+  , ubCheckTest "right shift by neg" "rneg" "test/Code/C/shift.c" True
+  , ubCheckTest "right shift overflow" "lover" "test/Code/C/shift.c" True
+  , ubCheckTest "right shift overflow" "rover" "test/Code/C/shift.c" True
+  , ubCheckTest "left shift sign bit" "signoff" "test/Code/C/shift.c" True
+  , ubCheckTest "right shift sign bit" "arith" "test/Code/C/shift.c" True
+  , ubCheckTest "shift anything" "any" "test/Code/C/shift.c" True
+  , ubCheckTest "shift anything unsigned" "usany" "test/Code/C/shift.c" True
   ]
 
 satSmtCircuitTest :: String -> String -> FilePath -> BenchTest
@@ -120,13 +128,13 @@ satR1csTests = benchTestGroup
   , satR1csTest "majority"       "maj"      "test/Code/C/sha.c"
   , satR1csTest "ch"             "ch"       "test/Code/C/sha.c"
   -- Set inputs specially because rotation is not SAT for 0 length (the
-  -- default) 
+  -- default)
   , satR1csTestInputs "rot left"
                       "rotateleft"
                       "test/Code/C/sha.c"
                       (Just $ M.fromList [("x", 17), ("n", 30)])
   -- Set inputs specially because rotation is not SAT for 0 length (the
-  -- default) 
+  -- default)
   , satR1csTestInputs "rot right"
                       "rotateright"
                       "test/Code/C/sha.c"
