@@ -32,4 +32,6 @@ int usany (unsigned int x, unsigned int y) {
   return x << y;
 }
 
-
+int divzero (int x) {
+  return x / 0;
+}

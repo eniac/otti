@@ -76,6 +76,8 @@ ubTests = benchTestGroup
   , ubCheckTest "null deref" "null" "test/Code/C/other.c" True
   , ubCheckTest "out of bounds" "oob" "test/Code/C/other.c" True
   , ubCheckTest "modify string" "str" "test/Code/C/other.c" True
+  , ubCheckTest "negate intmin" "neg" "test/Code/C/other.c" True
+  , ubCheckTest "divide by zero" "divzero" "test/Code/C/other.c" True
   ]
 
 satSmtCircuitTest :: String -> String -> FilePath -> BenchTest

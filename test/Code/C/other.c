@@ -21,9 +21,17 @@ int oob () {
   return x[5];
 }
 
-
 int str () {
   char * x = "hello there";
   x[1] = 'o';
   return 0;
+}
+
+int neg () {
+  int min = -2147483648;
+  return -min;
+}
+
+int divzero (int x) {
+  return x / 0;
 }
