@@ -70,7 +70,12 @@ ubTests = benchTestGroup
   , ubCheckTest "left shift sign bit" "signoff" "test/Code/C/shift.c" True
   , ubCheckTest "right shift sign bit" "arith" "test/Code/C/shift.c" True
   , ubCheckTest "shift anything" "any" "test/Code/C/shift.c" True
-  , ubCheckTest "shift anything unsigned" "usany" "test/Code/C/shift.c" True
+  , ubCheckTest "shift anything unsigned" "usany" "test/Code/C/shift.c" False
+  , ubCheckTest "undefined variable 1" "undef1" "test/Code/C/other.c" True
+  , ubCheckTest "undefined variable 2" "undef2" "test/Code/C/other.c" True
+  , ubCheckTest "null deref" "null" "test/Code/C/other.c" True
+  , ubCheckTest "out of bounds" "oob" "test/Code/C/other.c" True
+  , ubCheckTest "modify string" "str" "test/Code/C/other.c" True
   ]
 
 satSmtCircuitTest :: String -> String -> FilePath -> BenchTest
