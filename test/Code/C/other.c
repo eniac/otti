@@ -35,3 +35,7 @@ int neg () {
 int divzero (int x, int y) {
   return x / y;
 }
+
+int modzero (int x, int y) {
+  return x % y;
+}

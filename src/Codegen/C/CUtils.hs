@@ -508,17 +508,19 @@ cppMul = cppWrapBinArith "*"
 cppDiv = cppWrapBinArith "/"
                          Ty.BvUdiv
                          (Ty.FpBinExpr Ty.FpDiv)
-                         (Just divZero)
+                         (Just isDivZero)
                          True
                          True
- where
-  divZero _s _i _s' i' =
-    let w = Ty.dynBvWidth i'
-    in  Just $ Ty.mkDynBvEq i' (Ty.DynBvLit (Bv.zeros w))
+isDivZero :: Bool -> Bv -> Bool -> Bv -> Maybe Ty.TermBool
+isDivZero _s _i _s' i' = Just $ Ty.mkDynBvEq i' (Ty.DynBvLit (Bv.zeros (Ty.dynBvWidth i')))
 
 -- TODO: CPP reference says that % requires integral arguments
-cppRem =
-  cppWrapBinArith "%" Ty.BvUrem (Ty.FpBinExpr Ty.FpRem) Nothing False True
+cppRem = cppWrapBinArith "%"
+                         Ty.BvUrem
+                         (Ty.FpBinExpr Ty.FpRem)
+                         (Just isDivZero)
+                         False
+                         True
 cppMin = undefined
 cppMax = undefined
 noFpError
