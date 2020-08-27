@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs                      #-}
+
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TupleSections #-}
 module Codegen.C.CompilerMonad where
@@ -17,6 +18,7 @@ import qualified Data.Map                      as M
 import           Data.Maybe                     ( catMaybes
                                                 , fromMaybe
                                                 , isJust
+                                                , listToMaybe
                                                 )
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
@@ -152,7 +154,11 @@ listModify n f (x : xs) = (x :) `fmap` listModify (n - 1) f xs
 fsFindLexScope :: VarName -> FunctionScope -> Int
 fsFindLexScope var scope =
   fromMaybe (error $ unwords ["Cannot find", var, "in current scope"])
-    $ findIndex (M.member var . tys) (lexicalScopes scope)
+    $ fsFindLexScopeOpt var scope
+
+fsFindLexScopeOpt :: VarName -> FunctionScope -> Maybe Int
+fsFindLexScopeOpt var scope =
+  findIndex (M.member var . tys) (lexicalScopes scope)
 
 -- | Apply a modification function to the first scope containing the variable.
 fsModifyLexScope
@@ -267,6 +273,7 @@ fsWithPrefix prefix ty = do
 
 -- | Internal state of the compiler for code generation
 data CompilerState = CompilerState { callStack         :: [FunctionScope]
+                                   , globals           :: LexScope
                                    , funs              :: M.Map FunctionName CFunDef
                                    , typedefs          :: M.Map VarName Type
                                    , loopBound         :: Int
@@ -291,6 +298,7 @@ instance MonadFail Compiler where
 
 emptyCompilerState :: CompilerState
 emptyCompilerState = CompilerState { callStack    = []
+                                   , globals      = lsWithPrefix "global"
                                    , funs         = M.empty
                                    , typedefs     = M.empty
                                    , loopBound    = 4
@@ -304,9 +312,50 @@ emptyCompilerState = CompilerState { callStack    = []
 compilerRunOnTop :: (FunctionScope -> Compiler (a, FunctionScope)) -> Compiler a
 compilerRunOnTop f = do
   s       <- get
-  (r, s') <- f $ head $ callStack s
+  (r, s') <-
+    f
+    $ fromMaybe (error "Cannot run in function: no function!")
+    $ listToMaybe
+    $ callStack s
   modify $ \s -> s { callStack = s' : tail (callStack s) }
   return r
+
+compilerRunInScope
+  :: String
+  -> (FunctionScope -> Compiler (a, FunctionScope))
+  -> (LexScope -> Compiler (a, LexScope))
+  -> Compiler a
+compilerRunInScope var fF lF = do
+  stack <- gets callStack
+  case stack of
+    top : rest | isJust (fsFindLexScopeOpt var top) -> do
+      (r, top') <- fF top
+      modify $ \s -> s { callStack = top' : rest }
+      return r
+    _ -> do
+      global       <- gets globals
+      (r, global') <- lF global
+      modify $ \s -> s { globals = global' }
+      return r
+
+compilerModifyInScope
+  :: VarName
+  -> (FunctionScope -> FunctionScope)
+  -> (LexScope -> LexScope)
+  -> Compiler ()
+compilerModifyInScope v fF lF =
+  compilerRunInScope v (return . ((), ) . fF) (return . ((), ) . lF)
+
+compilerGetsInScope
+  :: String -> (FunctionScope -> a) -> (LexScope -> a) -> Compiler a
+compilerGetsInScope var fF lF = do
+  stack <- gets callStack
+  case stack of
+    top : rest | isJust (fsFindLexScopeOpt var top) -> return $ fF top
+    _ -> lF <$> gets globals
+
+compilerGetsFunction :: (FunctionScope -> a) -> Compiler a
+compilerGetsFunction f = compilerRunOnTop (\s -> return (f s, s))
 
 compilerModifyTopM :: (FunctionScope -> Compiler FunctionScope) -> Compiler ()
 compilerModifyTopM f = compilerRunOnTop $ fmap ((), ) . f
@@ -318,22 +367,32 @@ compilerGetsTop :: (FunctionScope -> a) -> Compiler a
 compilerGetsTop f = compilerRunOnTop (\s -> return (f s, s))
 
 declareVar :: VarName -> Type -> Compiler ()
-declareVar var ty = compilerModifyTopM $ \s -> liftMem $ fsDeclareVar var ty s
+declareVar var ty = do
+  --liftIO $ putStrLn $ "declareVar: " ++ var ++ ": " ++ show ty
+  isGlobal <- gets (null . callStack)
+  if isGlobal
+    then do
+      g  <- gets globals
+      g' <- liftMem $ lsDeclareVar var ty g
+      modify $ \s -> s { globals = g' }
+    else compilerModifyTopM $ \s -> liftMem $ fsDeclareVar var ty s
 
 getVer :: VarName -> Compiler Version
-getVer = compilerGetsTop . fsGetVer
+getVer v = compilerGetsInScope v (fsGetVer v) (lsGetVer v)
 
 nextVer :: VarName -> Compiler ()
-nextVer = compilerModifyTop . fsNextVer
+nextVer v = compilerRunInScope v
+                               (return . ((), ) . fsNextVer v)
+                               (return . ((), ) . lsNextVer v)
 
 getType :: VarName -> Compiler Type
-getType = compilerGetsTop . fsGetType
+getType v = compilerGetsInScope v (fsGetType v) (lsGetType v)
 
 getSsaVar :: VarName -> Compiler SsaVar
-getSsaVar = compilerGetsTop . fsGetSsaVar
+getSsaVar v = compilerGetsInScope v (fsGetSsaVar v) (lsGetSsaVar v)
 
 getNextSsaVar :: VarName -> Compiler SsaVar
-getNextSsaVar = compilerGetsTop . fsGetNextSsaVar
+getNextSsaVar v = compilerGetsInScope v (fsGetNextSsaVar v) (lsGetNextSsaVar v)
 
 getSsaName :: VarName -> Compiler String
 getSsaName n = ssaVarAsString <$> getSsaVar n
@@ -375,10 +434,10 @@ setRetValue cterm = modValues $ \vs -> do
   return $ M.insert var val vs
 
 getTerm :: VarName -> Compiler CTerm
-getTerm var = gets (fsGetTerm var . head . callStack)
+getTerm var = compilerGetsInScope var (fsGetTerm var) (lsGetTerm var)
 
 setTerm :: VarName -> CTerm -> Compiler ()
-setTerm var val = compilerModifyTop (fsSetTerm var val)
+setTerm n v = compilerModifyInScope n (fsSetTerm n v) (lsSetTerm n v)
 
 printComp :: Compiler ()
 printComp = gets callStack >>= liftIO . traverse_ printFs
@@ -402,10 +461,7 @@ getGuard :: Compiler Ty.TermBool
 getGuard = compilerGetsTop fsCurrentGuard
 
 doReturn :: CTerm -> Compiler ()
-doReturn value = do
-  top     <- gets $ head . callStack
-  newHead <- fsReturn value top
-  modify $ \s -> s { callStack = newHead : tail (callStack s) }
+doReturn value = compilerModifyTopM (fsReturn value)
 
 getReturn :: Compiler CTerm
 getReturn = compilerGetsTop retTerm
@@ -434,9 +490,7 @@ execCodegen checkUB act = snd <$> runCodegen checkUB act
 -- of variables
 
 codegenVar :: VarName -> Compiler SsaVar
-codegenVar var = do
-  ver <- getVer var
-  return $ SsaVar var ver
+codegenVar var = SsaVar var <$> getVer var
 
 -- | Human readable name.
 -- We probably want to replace this with something faster (eg hash) someday, but
@@ -478,7 +532,7 @@ ssaAssign var val = do
   nextVer var
   setTerm var t
   whenM computingValues $ do
-    g  <- smtEvalBool guard
+    g <- smtEvalBool guard
     setValue var (if g then castVal else priorTerm)
   return t
 
@@ -530,20 +584,12 @@ getFunction funName = do
 ---
 
 typedef :: VarName -> Type -> Compiler ()
-typedef name ty = do
-  s0 <- get
-  let tds = typedefs s0
-  case M.lookup name tds of
-    Nothing -> put $ s0 { typedefs = M.insert name ty tds }
-    Just t  -> error $ unwords ["Already td'd", name, "to", show t]
+typedef name ty = modify $ \s -> case M.lookup name (typedefs s) of
+  Nothing -> s { typedefs = M.insert name ty $ typedefs s }
+  Just t  -> error $ unwords ["Already td'd", name, "to", show t]
 
-untypedef :: VarName -> Compiler Type
-untypedef name = do
-  tds <- gets typedefs
-  case M.lookup name tds of
-    Nothing -> error $ unwords ["No type defined for", name]
-    Just ty -> return ty
-
+untypedef :: VarName -> Compiler (Maybe Type)
+untypedef name = M.lookup name <$> gets typedefs
 
 ---
 --- If-statements

@@ -343,8 +343,8 @@ cppStore :: CTerm -> CTerm -> Ty.TermBool -> Mem ()
 cppStore ptr val guard = case term ptr of
   --TODO: serialize the udef bit too.
   CStackPtr ty offset id ->
-    let bits = serialize (term val)
-    in  if AST.numBits ty == Ty.dynBvWidth bits
+    let bits = serialize (term $ cppCast (AST.pointeeType ty) val)
+    in  if AST.numBits (AST.pointeeType ty) == Ty.dynBvWidth bits
           then Mem.stackStore id offset bits guard
           else error $ unwords
             ["CTerm", show val, "is not", show (AST.numBits ty), "bits wide"]

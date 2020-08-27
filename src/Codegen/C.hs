@@ -20,11 +20,13 @@ import           Control.Monad.State.Strict     ( forM
                                                 , void
                                                 , when
                                                 )
+--import Control.Monad.Trans.Class
 import qualified Data.BitVector                as Bv
 import           Data.Char                      ( toLower
                                                 , ord
                                                 )
 import qualified Data.Char                     as Char
+import           Data.Either                    ( fromRight )
 import           Data.List                      ( intercalate )
 import qualified Data.Map                      as Map
 import           Data.Maybe                     ( fromJust
@@ -40,6 +42,8 @@ import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
+import Language.C.Data.Node
+import Language.C.Data.Position
 --import Debug.Trace
 
 fieldToInt :: Ident -> Int
@@ -48,18 +52,19 @@ fieldToInt = undefined
 typedefSMT :: Ident -> [CDeclSpec] -> [CDerivedDeclr] -> Compiler ()
 typedefSMT (Ident name _ _) tys ptrs = do
   ty <- ctype tys ptrs
-  typedef name ty
+  forM_ ty $ typedef name
 
 declareVarSMT :: Ident -> [CDeclSpec] -> [CDerivedDeclr] -> Compiler ()
 declareVarSMT (Ident name _ _) tys ptrs = do
   ty <- ctype tys ptrs
-  declareVar name ty
+  forM_ ty $ declareVar name
 
 genVarSMT :: Ident -> Compiler CTerm
 genVarSMT (Ident name _ _) = getTerm name
 
-genConstSMT :: Show a => CConstant a -> Compiler CTerm
+genConstSMT :: CConst -> Compiler CTerm
 genConstSMT c = case c of
+--genConstSMT c = liftIO (("Const: " ++) <$> nodeText c >>= putStrLn) >> case c of
   CIntConst (CInteger i _ _) _ -> return $ cppIntLit S32 i
   CCharConst (CChar c _) _ -> return $ cppIntLit S8 $ toInteger $ Char.ord c
   CCharConst (CChars c _) _ -> error "Chars const unsupported"
@@ -68,8 +73,9 @@ genConstSMT c = case c of
       'f' -> return $ cppFloatLit (read $ init str)
       'l' -> return $ cppDoubleLit (read $ init str)
       _   -> return $ cppDoubleLit (read str)
-  CStrConst (CString str _) _ ->
-    liftMem $ cppArrayLit S8 (map (cppIntLit S8 . toInteger . ord) str ++ [cppIntLit S8 0])
+  CStrConst (CString str _) _ -> liftMem $ cppArrayLit
+    S8
+    (map (cppIntLit S8 . toInteger . ord) str ++ [cppIntLit S8 0])
 
 data CLVal = CLVar VarName
            | CLAddr CTerm
@@ -99,7 +105,31 @@ genAssign location value = case location of
     liftMem $ cppStore addr value guard
     return value
 
+unwrap :: Show l => Either l r -> r
+unwrap e = case e of
+  Left l -> error $ "Either is not right, it is: Left " ++ show l
+  Right r -> r
+
+nodeText :: (Show a, CNode a) => a -> IO String
+nodeText n =
+  fromMaybe ("<Missing text>" ++ show n) <$> nodeTextMaybe n
+ where
+  nodeTextMaybe :: (Show a, CNode a) => a -> IO (Maybe String)
+  nodeTextMaybe n = do
+    let pos = posOfNode $ nodeInfo n
+        file = posFile pos
+        lineno = posRow pos
+        colno = posColumn pos
+    case lengthOfNode (nodeInfo n) of
+      Just len -> do
+        lines_ <- lines <$> readFile file
+        let line = lines_ !! (lineno - 1)
+            text = take len $ drop (colno - 1) line
+        return $ Just text
+      Nothing -> return Nothing
+
 genExprSMT :: CExpr -> Compiler CTerm
+--genExprSMT expr = liftIO (("Expr: " ++) <$> nodeText expr >>= putStrLn) >> case expr of
 genExprSMT expr = case expr of
   CVar id _            -> genVarSMT id
   CConst c             -> genConstSMT c
@@ -131,7 +161,7 @@ genExprSMT expr = case expr of
   --  liftMem $ getField struct' $ fieldToInt field
   CCast decl expr _ -> case decl of
     CDecl specs _ _ -> do
-      ty    <- baseTypeFromSpecs specs
+      ty    <- unwrap <$> baseTypeFromSpecs specs
       expr' <- genExprSMT expr
       return $ cppCast ty expr'
     _ -> error "Expected type in cast"
@@ -140,7 +170,7 @@ genExprSMT expr = case expr of
       let fnName = identToVarName fnIdent
       actualArgs <- traverse genExprSMT args
       f          <- getFunction fnName
-      retTy      <- ctype (baseTypeFromFunc f) (ptrsFromFunc f)
+      retTy      <- unwrap <$> ctype (baseTypeFromFunc f) (ptrsFromFunc f)
       pushFunction fnName retTy
       forM_ (argsFromFunc f) (genDeclSMT Nothing)
       let
@@ -184,7 +214,7 @@ genExprSMT expr = case expr of
     e' <- guarded (Ty.BoolLit False) (genExprSMT e)
     return $ cppIntLit U32 (toInteger $ numBits (cppType e') `div` 8)
   CSizeofType decl _ -> do
-    ty <- cDeclToType decl
+    ty <- unwrap <$> cDeclToType decl
     return $ cppIntLit U32 (toInteger $ numBits ty `div` 8)
   _ -> error $ unwords ["We do not support", show expr, "right now"]
 
@@ -324,6 +354,8 @@ genStmtSMT stmt = case stmt of
 -- Returns the declaration's variable name
 genDeclSMT :: Maybe Bool -> CDecl -> Compiler [String]
 genDeclSMT undef d@(CDecl specs decls _) = do
+  -- At the top level, we ignore types we don't understand.
+  skipBadTypes <- gets (null . callStack)
   when (null specs) $ error "Expected specifier in declaration"
   let firstSpec = head specs
       isTypedefDecl =
@@ -343,9 +375,12 @@ genDeclSMT undef d@(CDecl specs decls _) = do
         lhs <- genVarSMT ident
         case mInit of
           Just init -> do
-            ty <- ctype baseType ptrType
-            rhs        <- genInitSMT ty init
-            void $ argAssign name rhs
+            ty  <- ctype baseType ptrType
+            case ty of
+              Left err -> if skipBadTypes then return () else error err
+              Right ty -> do
+                rhs <- genInitSMT ty init
+                void $ argAssign name rhs
           Nothing -> whenM (gets findUB) $ forM_
             undef
             (liftAssert . Assert.assert . Ty.Eq (udef lhs) . Ty.BoolLit)
@@ -353,7 +388,7 @@ genDeclSMT undef d@(CDecl specs decls _) = do
 
 genInitSMT :: Type -> CInit -> Compiler CTerm
 genInitSMT ty i = case (ty, i) of
-  (ty, CInitExpr e _) -> cppCast ty <$> genExprSMT e
+  (ty             , CInitExpr e _ ) -> cppCast ty <$> genExprSMT e
   (Array _ innerTy, CInitList is _) -> do
     values <- forM is $ \(_, i) -> genInitSMT innerTy i
     liftMem $ cppArrayLit innerTy values
@@ -371,7 +406,7 @@ genFunDef f inVals = do
   let name = nameFromFunc f
       ptrs = ptrsFromFunc f
       tys  = baseTypeFromFunc f
-  retTy <- ctype tys ptrs
+  retTy <- unwrap <$> ctype tys ptrs
   pushFunction name retTy
   -- Declare the arguments and execute the body
   inputNamesList <- forM (argsFromFunc f) (genDeclSMT (Just False))
@@ -399,7 +434,10 @@ genAsm = undefined
 registerFns :: [CExtDecl] -> Compiler ()
 registerFns decls = forM_ decls $ \case
   CFDefExt f -> registerFunction (nameFromFunc f) f
-  _          -> pure ()
+  CDeclExt d -> do
+    void $ genDeclSMT Nothing d
+    printComp
+  CAsmExt asm _ -> genAsm asm
 
 codegenAll :: CTranslUnit -> Compiler ()
 codegenAll (CTranslUnit decls _) = do

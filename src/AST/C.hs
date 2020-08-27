@@ -76,9 +76,9 @@ isTypeSpec :: CDeclarationSpecifier a -> Bool
 isTypeSpec CTypeSpec{} = True
 isTypeSpec _           = False
 
-typeFromSpec :: CDeclarationSpecifier a -> CTypeSpecifier a
-typeFromSpec (CTypeSpec spec) = spec
-typeFromSpec _                = error "Expected type specifier"
+typeFromSpec :: (Show a) =>  CDeclarationSpecifier a -> Maybe (CTypeSpecifier a)
+typeFromSpec (CTypeSpec spec) = Just spec
+typeFromSpec a                = Nothing
 
 isTypeQual :: CDeclarationSpecifier a -> Bool
 isTypeQual CTypeQual{} = True

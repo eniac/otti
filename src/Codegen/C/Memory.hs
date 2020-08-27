@@ -81,7 +81,14 @@ getBits structure width index =
   let castIndex     = castToWidth index (Ty.dynBvWidth structure)
       -- Shift structure so LSB of read is at 0
       shiftedStruct = Ty.mkDynBvBinExpr Ty.BvLshr structure castIndex
-  in  Ty.mkDynBvExtract 0 width shiftedStruct
+  in  if width <= Ty.dynBvWidth structure
+        then Ty.mkDynBvExtract 0 width shiftedStruct
+        else
+          error
+          $  "In getBits, the source has width "
+          ++ show (Ty.dynBvWidth structure)
+          ++ " but the load has width "
+          ++ show width
 
 -- | Set a given number of bits in a structure starting from a given symbolic index
 setBits
@@ -95,11 +102,11 @@ setBits element structure index =
       structureWidth  = Ty.dynBvWidth structure
       elementWidth    = Ty.dynBvWidth element
       widthDifference = structureWidth - elementWidth
-  in  if widthDifference == 0
+  in  case widthDifference of
       -- Setting every bit is just the same as returning the element
-        then element
+        0 -> element
       -- Otherwise we have to change some bits while preserving others
-        else
+        _ | widthDifference > 0 ->
           let
      -- struct: 1001..01011...1011
      -- mask:   1111..00000...1111
@@ -130,13 +137,19 @@ setBits element structure index =
 
        -- Or the two together!
           in  Ty.mkDynBvBinExpr Ty.BvOr shiftedElem res
+        _ ->
+          error
+            $  "In setBits, the destination has width "
+            ++ show structureWidth
+            ++ " but the set value has width "
+            ++ show elementWidth
 
 data MemoryStrategy = Flat { blockSize :: Int } deriving (Eq,Ord,Show)
 
 type MemSort = Ty.ArraySort Ty.DynBvSort Ty.DynBvSort
 type TermMem = Ty.Term MemSort
 
-newtype StackAlloc = StackAlloc Ty.TermDynBv
+newtype StackAlloc = StackAlloc Ty.TermDynBv deriving (Show)
 type StackAllocId = Int
 
 -- | State for keeping track of Mem-layer information
@@ -147,6 +160,20 @@ data MemState = MemState { pointerSize    :: Int
                          , stackAllocations :: Map.Map StackAllocId StackAlloc
                          , nextStackId :: StackAllocId
                          }
+
+instance Show MemState where
+  show s =
+    unlines
+      $  [ "MemState:"
+         , unwords ["  Pointer Size:", show $ pointerSize s]
+         , unwords ["  MemoryStrategy:", show $ memoryStrategy s]
+         , unwords ["  Next stack allocation id:", show $ nextStackId s]
+         , "  Stack allocations:"
+         ]
+      ++ if Map.null (stackAllocations s)
+           then ["  (empty)"]
+           else map (\(k, v) -> "  - " ++ show k ++ " -> " ++ show v)
+                    (Map.toAscList $ stackAllocations s)
 
 newtype Mem a = Mem (StateT MemState Assert.Assert a)
     deriving (Functor, Applicative, Monad, MonadState MemState, MonadIO)
@@ -211,6 +238,9 @@ takeNextStackId = do
 intCeil :: Int -> Int -> Int
 intCeil x y = 1 + ((x - 1) `div` y)
 
+dumpMem :: Mem ()
+dumpMem = get >>= (liftIO . print)
+
 stackAlloc :: Ty.TermDynBv -> Mem StackAllocId
 stackAlloc bits = do
   i <- takeNextStackId
@@ -252,7 +282,8 @@ stackStore
 stackStore id offset value guard = do
   alloc <- stackGetAlloc id
   let alloc' = StackAlloc $ Ty.Ite guard (setBits value alloc offset) alloc
-  modify $ \s -> s { stackAllocations = Map.insert id alloc' $ stackAllocations s }
+  modify
+    $ \s -> s { stackAllocations = Map.insert id alloc' $ stackAllocations s }
 
 stackIdUnknown :: StackAllocId
 stackIdUnknown = maxBound
