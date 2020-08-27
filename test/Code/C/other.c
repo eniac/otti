@@ -32,6 +32,6 @@ int neg () {
   return -min;
 }
 
-int divzero (int x) {
-  return x / 0;
+int divzero (int x, int y) {
+  return x / y;
 }

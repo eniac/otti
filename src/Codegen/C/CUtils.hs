@@ -505,8 +505,17 @@ cppMul = cppWrapBinArith "*"
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSmulo i i' else Nothing
 -- TODO: div overflow
-cppDiv =
-  cppWrapBinArith "/" Ty.BvUdiv (Ty.FpBinExpr Ty.FpDiv) Nothing True True
+cppDiv = cppWrapBinArith "/"
+                         Ty.BvUdiv
+                         (Ty.FpBinExpr Ty.FpDiv)
+                         (Just divZero)
+                         True
+                         True
+ where
+  divZero _s _i _s' i' =
+    let w = Ty.dynBvWidth i'
+    in  Just $ Ty.mkDynBvEq i' (Ty.DynBvLit (Bv.zeros w))
+
 -- TODO: CPP reference says that % requires integral arguments
 cppRem =
   cppWrapBinArith "%" Ty.BvUrem (Ty.FpBinExpr Ty.FpRem) Nothing False True
