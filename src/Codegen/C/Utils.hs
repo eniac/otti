@@ -2,6 +2,7 @@ module Codegen.C.Utils
   ( ctype
   , cDeclToType
   , baseTypeFromSpecs
+  , nodeText
   )
 where
 import           AST.C
@@ -12,7 +13,14 @@ import           Control.Applicative
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
-import           Data.Maybe                     ( fromJust, isJust, catMaybes )
+import           Language.C.Data.Node
+import           Language.C.Data.Position
+import           Data.Maybe                     ( fromJust
+                                                , isJust
+                                                , catMaybes
+                                                , mapMaybe
+                                                , fromMaybe
+                                                )
 
 -- | When expr appears on the lhs of an assignment, the assignment is actually a store
 isStore :: (Show a) => CExpression a -> Bool
@@ -42,23 +50,23 @@ refTy ty         = error $ unwords ["Expected pointer ty in refTy", show ty]
 
 cParseIntTypeLength :: [CTypeSpecifier a] -> Maybe Int
 cParseIntTypeLength l = case l of
-  [CCharType{}] -> Just 8
-  [CShortType{}] -> Just 16
-  [CShortType{},CIntType{}] -> Just 16
+  [CCharType{} ]             -> Just 8
+  [CShortType{}]             -> Just 16
+  [CShortType{}, CIntType{}] -> Just 16
   -- Not quite right
-  [] -> Just 32
-  [CIntType{}] -> Just 32
-  [CLongType{}] -> Just 32
-  [CLongType{},CIntType{}] -> Just 32
-  [CLongType{},CLongType{}] -> Just 64
-  [CLongType{},CLongType{},CIntType{}] -> Just 64
-  _ -> Nothing
+  []                         -> Just 32
+  [CIntType{} ]              -> Just 32
+  [CLongType{}]              -> Just 32
+  [CLongType{}, CIntType{} ] -> Just 32
+  [CLongType{}, CLongType{}] -> Just 64
+  [CLongType{}, CLongType{}, CIntType{}] -> Just 64
+  _                          -> Nothing
 
 cParseIntType :: [CTypeSpecifier a] -> Maybe Type
 cParseIntType l = case l of
-  CUnsigType {}: r -> flip makeType False <$> cParseIntTypeLength r
-  CSignedType {}: r -> flip makeType True <$> cParseIntTypeLength r
-  r -> flip makeType True <$> cParseIntTypeLength r
+  CUnsigType{}  : r -> flip makeType False <$> cParseIntTypeLength r
+  CSignedType{} : r -> flip makeType True <$> cParseIntTypeLength r
+  r                 -> flip makeType True <$> cParseIntTypeLength r
 
 maybeToEither :: b -> Maybe a -> Either b a
 maybeToEither = flip maybe Right . Left
@@ -68,14 +76,14 @@ ctypeToType ty = case ty of
   [CVoidType{}] -> return $ Right Void
   [CTypeDef (Ident name _ _) _] ->
     maybeToEither "Missing typedef" <$> untypedef name
-  [CBoolType{}]                -> return $ Right Bool
-  [CFloatType{} ]              -> return $ Right Float
-  [CDoubleType{}]              -> return $ Right Double
+  [CBoolType{}] -> return $ Right Bool
+  [CFloatType{}] -> return $ Right Float
+  [CDoubleType{}] -> return $ Right Double
   _ | isJust (cParseIntType ty) -> return $ Right $ fromJust $ cParseIntType ty
   [ty] -> return $ Left $ unwords ["Unexpected type", show ty]
   ty -> return $ Left $ unwords ["Unexpected type", show ty]
 
-getTy :: (Show a) => Type -> [CDerivedDeclarator a] -> (Either String Type)
+getTy :: (Show a) => Type -> [CDerivedDeclarator a] -> Either String Type
 getTy ty []       = Right ty
 getTy ty (d : ds) = case d of
   _ | isPtrDecl d -> getTy (Ptr32 ty) ds
@@ -91,4 +99,21 @@ baseTypeFromSpecs
   :: (Show a) => [CDeclarationSpecifier a] -> Compiler (Either String Type)
 baseTypeFromSpecs all@(elem : rest) = if isTypeQual elem || isAlignSpec elem
   then baseTypeFromSpecs rest
-  else ctypeToType $ catMaybes $ map typeFromSpec all
+  else ctypeToType $ mapMaybe typeFromSpec all
+
+nodeText :: (Show a, CNode a) => a -> IO String
+nodeText n = fromMaybe ("<Missing text>" ++ show n) <$> nodeTextMaybe n
+ where
+  nodeTextMaybe :: (Show a, CNode a) => a -> IO (Maybe String)
+  nodeTextMaybe n = do
+    let pos    = posOfNode $ nodeInfo n
+        file   = posFile pos
+        lineno = posRow pos
+        colno  = posColumn pos
+    case lengthOfNode (nodeInfo n) of
+      Just len -> do
+        lines_ <- lines <$> readFile file
+        let line = lines_ !! (lineno - 1)
+            text = take len $ drop (colno - 1) line
+        return $ Just text
+      Nothing -> return Nothing

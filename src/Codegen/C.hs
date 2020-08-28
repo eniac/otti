@@ -42,8 +42,6 @@ import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
-import           Language.C.Data.Node
-import           Language.C.Data.Position
 import           Util.Log
 --import Debug.Trace
 
@@ -107,23 +105,6 @@ unwrap :: Show l => Either l r -> r
 unwrap e = case e of
   Left  l -> error $ "Either is not right, it is: Left " ++ show l
   Right r -> r
-
-nodeText :: (Show a, CNode a) => a -> IO String
-nodeText n = fromMaybe ("<Missing text>" ++ show n) <$> nodeTextMaybe n
- where
-  nodeTextMaybe :: (Show a, CNode a) => a -> IO (Maybe String)
-  nodeTextMaybe n = do
-    let pos    = posOfNode $ nodeInfo n
-        file   = posFile pos
-        lineno = posRow pos
-        colno  = posColumn pos
-    case lengthOfNode (nodeInfo n) of
-      Just len -> do
-        lines_ <- lines <$> readFile file
-        let line = lines_ !! (lineno - 1)
-            text = take len $ drop (colno - 1) line
-        return $ Just text
-      Nothing -> return Nothing
 
 genExprSMT :: CExpr -> Compiler CTerm
 --genExprSMT expr = liftIO (("Expr: " ++) <$> nodeText expr >>= putStrLn) >> case expr of
