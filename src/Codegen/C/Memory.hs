@@ -11,6 +11,7 @@ import           Data.Maybe                     ( fromJust
 import qualified Data.BitVector                as Bv
 import qualified IR.SMT.TySmt                  as Ty
 import           IR.SMT.Assert                 as Assert
+import           Util.Log
 
 bvNum :: Bool -> Int -> Integer -> Ty.TermDynBv
 bvNum signed width val
@@ -176,7 +177,7 @@ instance Show MemState where
                     (Map.toAscList $ stackAllocations s)
 
 newtype Mem a = Mem (StateT MemState Assert.Assert a)
-    deriving (Functor, Applicative, Monad, MonadState MemState, MonadIO)
+    deriving (Functor, Applicative, Monad, MonadState MemState, MonadIO, MonadLog)
 
 emptyMem :: MemState
 emptyMem = MemState 32 (Flat 32) Nothing [] Map.empty 0
@@ -284,6 +285,12 @@ stackStore id offset value guard = do
   let alloc' = StackAlloc $ Ty.Ite guard (setBits value alloc offset) alloc
   modify
     $ \s -> s { stackAllocations = Map.insert id alloc' $ stackAllocations s }
+
+stackIsLoadable :: StackAllocId -> Ty.TermDynBv -> Mem Ty.TermBool
+stackIsLoadable id offset = do
+  alloc <- stackGetAlloc id
+  let size = Bv.bitVec (Ty.dynBvWidth offset) (Ty.dynBvWidth alloc)
+  return $ Ty.mkDynBvBinPred Ty.BvUlt offset (Ty.DynBvLit size)
 
 stackIdUnknown :: StackAllocId
 stackIdUnknown = maxBound

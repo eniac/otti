@@ -16,9 +16,15 @@ int null (int * p) {
   return *p;
 }
 
-int oob () {
+int oob_load () {
   int x[3] = { 1, 2, 3 };
   return x[5];
+}
+
+int oob_store () {
+  int x[3] = { 1, 2, 3 };
+  x[5] = 5;
+  return x[0];
 }
 
 int str () {

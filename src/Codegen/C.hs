@@ -42,8 +42,9 @@ import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
-import Language.C.Data.Node
-import Language.C.Data.Position
+import           Language.C.Data.Node
+import           Language.C.Data.Position
+import           Util.Log
 --import Debug.Trace
 
 fieldToInt :: Ident -> Int
@@ -84,7 +85,7 @@ data CLVal = CLVar VarName
 evalLVal :: CLVal -> Compiler CTerm
 evalLVal location = case location of
   CLVar  v -> getTerm v
-  CLAddr a -> liftMem $ cppLoad a
+  CLAddr a -> load a
 
 genLValueSMT :: CExpr -> Compiler CLVal
 genLValueSMT expr = case expr of
@@ -100,26 +101,22 @@ genLValueSMT expr = case expr of
 genAssign :: CLVal -> CTerm -> Compiler CTerm
 genAssign location value = case location of
   CLVar  varName -> ssaAssign varName value
-  CLAddr addr    -> do
-    guard <- getGuard
-    liftMem $ cppStore addr value guard
-    return value
+  CLAddr addr    -> store addr value >> return value
 
 unwrap :: Show l => Either l r -> r
 unwrap e = case e of
-  Left l -> error $ "Either is not right, it is: Left " ++ show l
+  Left  l -> error $ "Either is not right, it is: Left " ++ show l
   Right r -> r
 
 nodeText :: (Show a, CNode a) => a -> IO String
-nodeText n =
-  fromMaybe ("<Missing text>" ++ show n) <$> nodeTextMaybe n
+nodeText n = fromMaybe ("<Missing text>" ++ show n) <$> nodeTextMaybe n
  where
   nodeTextMaybe :: (Show a, CNode a) => a -> IO (Maybe String)
   nodeTextMaybe n = do
-    let pos = posOfNode $ nodeInfo n
-        file = posFile pos
+    let pos    = posOfNode $ nodeInfo n
+        file   = posFile pos
         lineno = posRow pos
-        colno = posColumn pos
+        colno  = posColumn pos
     case lengthOfNode (nodeInfo n) of
       Just len -> do
         lines_ <- lines <$> readFile file
@@ -155,7 +152,7 @@ genExprSMT expr = case expr of
     base'  <- genExprSMT base
     index' <- genExprSMT index
     offset <- liftMem $ cppIndex base' index'
-    liftMem $ cppLoad offset
+    load offset
   --CMember struct field _ _ -> do
   --  struct' <- genExprSMT struct
   --  liftMem $ getField struct' $ fieldToInt field
@@ -243,7 +240,7 @@ getUnaryOp op arg = case op of
   -- The '*' operation
   CIndOp -> do
     arg <- genExprSMT arg
-    liftMem $ cppLoad arg
+    load arg
   CPlusOp -> error $ unwords ["Do not understand:", show op]
   CMinOp  -> cppNeg <$> genExprSMT arg
   -- One's complement: NOT CORRECT
@@ -375,10 +372,10 @@ genDeclSMT undef d@(CDecl specs decls _) = do
         lhs <- genVarSMT ident
         case mInit of
           Just init -> do
-            ty  <- ctype baseType ptrType
+            ty <- ctype baseType ptrType
             case ty of
-              Left err -> if skipBadTypes then return () else error err
-              Right ty -> do
+              Left  err -> if skipBadTypes then return () else error err
+              Right ty  -> do
                 rhs <- genInitSMT ty init
                 void $ argAssign name rhs
           Nothing -> whenM (gets findUB) $ forM_
@@ -424,7 +421,7 @@ genFunDef f inVals = do
     CCompound{} -> genStmtSMT body
     _           -> error "Expected C statement block in function definition"
   returnValue <- getReturn
-  whenM (gets findUB) $ liftAssert $ Assert.assert $ udef returnValue
+  whenM (gets findUB) $ bugIf $ udef returnValue
   popFunction
   return (fullInputNames, fromJust $ asVar returnValue)
 
@@ -478,12 +475,13 @@ codegenFn (CTranslUnit decls _) name inVals = do
 -- Returns a string describing it, if so.
 checkFn :: CTranslUnit -> String -> IO (Maybe String)
 checkFn tu name = do
-  assertions <- Assert.execAssert $ evalCodegen True $ codegenFn tu name Nothing
-  Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)
+  assertions <- Assert.execAssert
+    $ evalCodegen True (codegenFn tu name Nothing >> assertBug)
+  liftIO $ Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)
 
 evalFn :: CTranslUnit -> String -> IO (Map.Map String Ty.Val)
 evalFn tu name = do
   assertions <- Assert.execAssert $ evalCodegen False $ codegenFn tu
                                                                   name
                                                                   Nothing
-  Ty.evalZ3Model $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)
+  liftIO $ Ty.evalZ3Model $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)

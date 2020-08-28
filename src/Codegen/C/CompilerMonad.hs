@@ -24,7 +24,6 @@ import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 , fromDyn
                                                 )
-import qualified Util.ShowMap                  as SMap
 import           Language.C.Syntax.AST          ( CFunDef )
 import           Codegen.C.CUtils              as CUtils
 import qualified IR.SMT.TySmt                  as Ty
@@ -33,6 +32,8 @@ import           Codegen.C.Memory               ( Mem )
 import           Targets.SMT                    ( SMTResult )
 import qualified IR.SMT.Assert                 as Assert
 import           IR.SMT.Assert                  ( Assert )
+import           Util.Log
+import qualified Util.ShowMap                  as SMap
 import qualified Z3.Monad                      as Z
 
 {-|
@@ -280,13 +281,14 @@ data CompilerState = CompilerState { callStack         :: [FunctionScope]
                                    , prefix            :: [String]
                                    , fnCtr             :: Int
                                    , findUB            :: Bool
+                                   , bugConditions     :: [Ty.TermBool]
                                    , values            :: Maybe (M.Map String Dynamic)
                                    -- Used for inputs that have no value.
                                    , defaultValue      :: Maybe Integer
                                    }
 
 newtype Compiler a = Compiler (StateT CompilerState Mem a)
-    deriving (Functor, Applicative, Monad, MonadState CompilerState, MonadIO)
+    deriving (Functor, Applicative, Monad, MonadState CompilerState, MonadIO, MonadLog)
 
 
 instance MonadFail Compiler where
@@ -297,16 +299,17 @@ instance MonadFail Compiler where
 ---
 
 emptyCompilerState :: CompilerState
-emptyCompilerState = CompilerState { callStack    = []
-                                   , globals      = lsWithPrefix "global"
-                                   , funs         = M.empty
-                                   , typedefs     = M.empty
-                                   , loopBound    = 4
-                                   , prefix       = []
-                                   , findUB       = True
-                                   , fnCtr        = 0
-                                   , values       = Nothing
-                                   , defaultValue = Nothing
+emptyCompilerState = CompilerState { callStack     = []
+                                   , globals       = lsWithPrefix "global"
+                                   , funs          = M.empty
+                                   , typedefs      = M.empty
+                                   , loopBound     = 4
+                                   , prefix        = []
+                                   , findUB        = True
+                                   , bugConditions = []
+                                   , fnCtr         = 0
+                                   , values        = Nothing
+                                   , defaultValue  = Nothing
                                    }
 
 compilerRunOnTop :: (FunctionScope -> Compiler (a, FunctionScope)) -> Compiler a
@@ -547,6 +550,19 @@ initValues = modify $ \s -> s { values = Just M.empty }
 setDefaultValueZero :: Compiler ()
 setDefaultValueZero = modify $ \s -> s { defaultValue = Just 0 }
 
+-- Not quite right? Returns?  Our return stuff is super hacky anyways. We
+-- should integrate it with the guard machinery.
+bugIf :: Ty.TermBool -> Compiler ()
+bugIf c = do
+  g <- getGuard
+  modify $ \s ->
+    s { bugConditions = Ty.BoolNaryExpr Ty.And [g, c] : bugConditions s }
+
+assertBug :: Compiler ()
+assertBug = do
+  cs <- gets bugConditions
+  liftAssert $ Assert.assert $ Ty.BoolNaryExpr Ty.Or cs
+
 ---
 --- Functions
 ---
@@ -613,3 +629,16 @@ setLoopBound bound = modify (\s -> s { loopBound = bound })
 
 getAssignment :: Compiler (CTerm -> CTerm -> (Ty.TermBool, CTerm))
 getAssignment = cppAssignment <$> gets findUB
+
+-- Load this CTerm, tracking UB
+load :: CTerm -> Compiler CTerm
+load ref = do
+  (oob, val) <- liftMem $ cppLoad ref
+  whenM (gets findUB) $ bugIf oob
+  return val
+
+store :: CTerm -> CTerm -> Compiler ()
+store ref val = do
+  g <- getGuard
+  oob <- liftMem $ cppStore ref val g
+  whenM (gets findUB) $ bugIf oob

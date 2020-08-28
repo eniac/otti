@@ -8,6 +8,7 @@ import           Control.Monad.State.Strict
 import qualified Data.Map.Strict               as M
 import qualified Data.Dynamic                  as Dyn
 import qualified IR.SMT.TySmt                  as Ty
+import           Util.Log
 
 ---
 --- Monad defintions
@@ -20,8 +21,8 @@ data AssertState = AssertState { vars         :: M.Map String Dyn.Dynamic
                                }
                                deriving (Show)
 
-newtype Assert a = Assert (StateT AssertState IO a)
-    deriving (Functor, Applicative, Monad, MonadState AssertState, MonadIO)
+newtype Assert a = Assert (StateT AssertState Log a)
+    deriving (Functor, Applicative, Monad, MonadState AssertState, MonadIO, MonadLog)
 
 ---
 --- Setup and monad getters and setters
@@ -31,7 +32,7 @@ emptyAssertState :: AssertState
 emptyAssertState = AssertState { vars = M.empty, asserted = [] }
 
 runAssert :: Assert a -> IO (a, AssertState)
-runAssert (Assert act) = runStateT act emptyAssertState
+runAssert (Assert act) = evalLog $ runStateT act emptyAssertState
 
 evalAssert :: Assert a -> IO a
 evalAssert act = fst <$> runAssert act
@@ -41,7 +42,7 @@ execAssert act = snd <$> runAssert act
 
 assert :: Ty.Term Ty.BoolSort -> Assert ()
 assert a = do
-  --liftIO $ putStrLn $ "ASSERT" ++ show a
+  liftLog $ logIf "assertions" $ "ASSERT: " ++ show a
   modify (\s -> s { asserted = a : asserted s })
 
 assign :: Ty.SortClass s => Ty.Term s -> Ty.Term s -> Assert ()

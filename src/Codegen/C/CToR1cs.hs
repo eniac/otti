@@ -42,6 +42,7 @@ import           GHC.TypeNats                   ( KnownNat )
 import           Data.Field.Galois              ( Prime
                                                 , toP
                                                 )
+import           Util.Log
 
 data FnTrans = FnTrans { assertions :: [Ty.TermBool]
                        , inputs :: [String]

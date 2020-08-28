@@ -329,23 +329,28 @@ staticPointerValid _ptr = undefined
 staticPointerAccessible :: CTerm -> Ty.TermBool
 staticPointerAccessible _ptr = undefined
 
-cppLoad :: CTerm -> Mem CTerm
+-- Do a load, returning whether is was UB
+cppLoad :: CTerm -> Mem (Ty.TermBool, CTerm)
 cppLoad ptr = case term ptr of
   CStackPtr ty offset id -> do
     bits <- Mem.stackLoad id offset (AST.numBits $ AST.pointeeType ty)
+    oob <- Ty.Not <$> Mem.stackIsLoadable id offset
     let value = deserialize (AST.pointeeType ty) bits
         -- TODO: Check bounds
-        undef = udef ptr
-    return $ mkCTerm value undef
+        undef = Ty.BoolNaryExpr Ty.Or [udef ptr, oob]
+    return $ (oob, mkCTerm value undef)
   _ -> error $ unwords ["The value", show ptr, "cannot be cppLoad'ed"]
 
-cppStore :: CTerm -> CTerm -> Ty.TermBool -> Mem ()
+-- Do a store, returning whether is was UB
+cppStore :: CTerm -> CTerm -> Ty.TermBool -> Mem Ty.TermBool
 cppStore ptr val guard = case term ptr of
   --TODO: serialize the udef bit too.
   CStackPtr ty offset id ->
     let bits = serialize (term $ cppCast (AST.pointeeType ty) val)
     in  if AST.numBits (AST.pointeeType ty) == Ty.dynBvWidth bits
-          then Mem.stackStore id offset bits guard
+          then do
+            Mem.stackStore id offset bits guard
+            Ty.Not <$> Mem.stackIsLoadable id offset
           else error $ unwords
             ["CTerm", show val, "is not", show (AST.numBits ty), "bits wide"]
   _ -> error $ unwords ["The value", show ptr, "cannot be cppStore'd"]
@@ -467,7 +472,7 @@ cppWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
               sign  = max s s'
               l     = intResize s width i
               r     = intResize s' width i'
-          in  ( CInt sign width $ (Ty.mkDynBvBinExpr bvOp) l r
+          in  ( CInt sign width $ Ty.mkDynBvBinExpr bvOp l r
               , ubF >>= (\f -> f s l s' r)
               )
         (_, _) -> cannot $ unwords [show a, "and", show b]
@@ -512,7 +517,8 @@ cppDiv = cppWrapBinArith "/"
                          True
                          True
 isDivZero :: Bool -> Bv -> Bool -> Bv -> Maybe Ty.TermBool
-isDivZero _s _i _s' i' = Just $ Ty.mkDynBvEq i' (Ty.DynBvLit (Bv.zeros (Ty.dynBvWidth i')))
+isDivZero _s _i _s' i' =
+  Just $ Ty.mkDynBvEq i' (Ty.DynBvLit (Bv.zeros (Ty.dynBvWidth i')))
 
 -- TODO: CPP reference says that % requires integral arguments
 cppRem = cppWrapBinArith "%"
