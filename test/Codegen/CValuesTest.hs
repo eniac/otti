@@ -108,6 +108,17 @@ cValueTests = benchTestGroup
   , constraintValueTest "array 5" "main" "test/Code/C/array_5.c" [ ("f0_main__return_v0", i 2) ]
   , constraintValueTest "array 6" "main" "test/Code/C/array_6.c" [ ("f0_main__return_v0", i 5) ]
   , constraintValueTest "array 7" "main" "test/Code/C/array_7.c" [ ("f0_main__return_v0", i 5) ]
+  , constraintValueTest "struct get" "foo" "test/Code/C/struct.c" [ ("f0_foo__return_v0", i 4) ]
+  , constraintValueTest "struct set" "bar" "test/Code/C/struct.c" [ ("f0_bar__return_v0", i 6) ]
+  , constraintValueTest "typedef struct" "baz" "test/Code/C/struct.c" [ ("f0_baz__return_v0", i 6) ]
+  , constraintValueTest "struct get 2" "baz2" "test/Code/C/struct.c" [ ("f0_baz2__return_v0", i 6) ]
+  , constraintValueTest "sizeof struct type" "buffoon" "test/Code/C/struct.c" [ ("f0_buffoon__return_v0", i 8) ]
+  , constraintValueTest "sizeof struct expr" "orangutan" "test/Code/C/struct.c" [ ("f0_orangutan__return_v0", i 8) ]
+  , constraintValueTest "sizeof struct field" "baboon" "test/Code/C/struct.c" [ ("f0_baboon__return_v0", i 4) ]
+  , constraintValueTest "struct loop" "chimp" "test/Code/C/struct.c" [ ("f0_chimp__return_v0", i 10) ]
+  , constraintValueTest "array[struct] get" "zebra" "test/Code/C/struct.c" [ ("f0_zebra__return_v0", i 4) ]
+  , constraintValueTest "array[struct] set" "gazelle" "test/Code/C/struct.c" [ ("f0_gazelle__return_v0", i 23) ]
+  , constraintValueTest "struct[array] set" "cheetah" "test/Code/C/struct.c" [ ("f0_cheetah__return_v0", i 7) ]
   ]
 
 cRealTests :: BenchTest

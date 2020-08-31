@@ -277,6 +277,7 @@ data CompilerState = CompilerState { callStack         :: [FunctionScope]
                                    , globals           :: LexScope
                                    , funs              :: M.Map FunctionName CFunDef
                                    , typedefs          :: M.Map VarName Type
+                                   , structdefs        :: M.Map VarName Type
                                    , loopBound         :: Int
                                    , prefix            :: [String]
                                    , fnCtr             :: Int
@@ -303,6 +304,7 @@ emptyCompilerState = CompilerState { callStack     = []
                                    , globals       = lsWithPrefix "global"
                                    , funs          = M.empty
                                    , typedefs      = M.empty
+                                   , structdefs    = M.empty
                                    , loopBound     = 4
                                    , prefix        = []
                                    , findUB        = True
@@ -443,7 +445,11 @@ setTerm :: VarName -> CTerm -> Compiler ()
 setTerm n v = compilerModifyInScope n (fsSetTerm n v) (lsSetTerm n v)
 
 printComp :: Compiler ()
-printComp = gets callStack >>= liftIO . traverse_ printFs
+printComp = do
+  gets callStack >>= liftIO . traverse_ printFs
+  liftIO $ putStrLn "Typedefs:"
+  gets typedefs >>= liftIO . traverse_ (\(k, v) -> putStrLn ("  " ++ k ++ " -> " ++ show v)) . M.toList
+  gets structdefs >>= liftIO . traverse_ (\(k, v) -> putStrLn ("  " ++ k ++ " -> " ++ show v)) . M.toList
 
 enterLexScope :: Compiler ()
 enterLexScope = compilerModifyTop fsEnterLexScope
@@ -600,12 +606,28 @@ getFunction funName = do
 ---
 
 typedef :: VarName -> Type -> Compiler ()
-typedef name ty = modify $ \s -> case M.lookup name (typedefs s) of
-  Nothing -> s { typedefs = M.insert name ty $ typedefs s }
-  Just t  -> error $ unwords ["Already td'd", name, "to", show t]
+typedef name ty = do
+  liftLog $ logIf "typedef" $ "typedef " ++ name ++ " to " ++ show ty
+  modify $ \s -> case M.lookup name (typedefs s) of
+    Nothing -> s { typedefs = M.insert name ty $ typedefs s }
+    Just t  -> error $ unwords ["Already td'd", name, "to", show t]
 
 untypedef :: VarName -> Compiler (Maybe Type)
 untypedef name = M.lookup name <$> gets typedefs
+
+---
+--- Structdefs
+---
+
+defineStruct :: VarName -> Type -> Compiler ()
+defineStruct name ty = do
+  liftLog $ logIf "typedef" $ "structdef " ++ name ++ " to " ++ show ty
+  modify $ \s -> case M.lookup name (typedefs s) of
+    Nothing -> s { structdefs = M.insert name ty $ structdefs s }
+    Just t  -> error $ unwords ["Already structdef'd", name, "to", show t]
+
+getStruct :: VarName -> Compiler (Maybe Type)
+getStruct name = M.lookup name <$> gets structdefs
 
 ---
 --- If-statements

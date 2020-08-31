@@ -9,6 +9,7 @@ module Util.Log
   , enableStream
   , enableStreams
   , logIf
+  , logIfM
   , MonadLog
   , emptyLogState
   , liftLog
@@ -58,9 +59,14 @@ logIf stream msg = do
   enabled <- gets (S.member stream . _streams)
   when enabled $ liftIO $ putStrLn msg
 
+logIfM :: String -> Log String -> Log ()
+logIfM stream msg = do
+  enabled <- gets (S.member stream . _streams)
+  when enabled $ msg >>= liftIO . putStrLn
+
 evalLog :: Log a -> IO a
 evalLog l = do
   env <- lookupEnv "CLOG"
-  let init = maybe (return ()) (\s -> enableStreams $ splitOn "," s) env
-  let Log io = init >> l
+  let i = maybe (return ()) (enableStreams . splitOn ",") env
+  let Log io = i >> l
   evalStateT io emptyLogState

@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE DataKinds #-}
@@ -55,6 +56,10 @@ module Codegen.C.CUtils
   , cppFloatLit
   , cppDoubleLit
   , cppArrayLit
+  , cppStructLit
+  -- Structs
+  , cppStructGet
+  , cppStructSet
   -- Pointers & Arrays
   , cppIndex
   -- Reflection
@@ -80,10 +85,12 @@ import qualified Codegen.C.Memory              as Mem
 import           Codegen.C.Memory               ( Mem )
 import           Control.Monad                  ( unless
                                                 , when
+                                                , forM
                                                 )
 import qualified Data.BitVector                as Bv
 import           Data.Foldable                 as Fold
 import qualified Data.Map                      as Map
+import           Data.Maybe                     ( fromMaybe )
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
@@ -105,6 +112,7 @@ data CTermData = CInt Bool Int Bv
                -- The type is the pointer (not pointee) type!
                -- Also the offset and the underlying allocation.
                | CStackPtr AST.Type Bv Mem.StackAllocId
+               | CStruct AST.Type [(String, CTerm)]
                deriving (Show, Eq)
 
 ctermDataTy :: CTermData -> AST.Type
@@ -121,7 +129,8 @@ ctermDataTy t = case t of
   CBool{}          -> AST.Bool
   CDouble{}        -> AST.Double
   CFloat{}         -> AST.Float
-  CArray ty _      -> ty
+  CArray  ty _     -> ty
+  CStruct ty _     -> ty
   CStackPtr ty _ _ -> ty
 
 ctermEval :: Map.Map String Dynamic -> CTerm -> Mem Dynamic
@@ -131,7 +140,8 @@ ctermEval env t = case term t of
   CDouble t'       -> return $ toDyn $ Ty.eval env t'
   CFloat  t'       -> return $ toDyn $ Ty.eval env t'
   CStackPtr _ t' _ -> return $ toDyn $ Ty.eval env t'
-  CArray _ i       -> do
+  CStruct _ _t'    -> error "nyi"
+  CArray  _ i      -> do
     array <- Mem.stackGetAlloc i
     return $ toDyn $ Ty.eval env array
 
@@ -203,19 +213,35 @@ instance Bitable CTermData where
     --CStackPtr ty _ _ -> AST.numBits ty
     _          -> error $ "Cannot serialize: " ++ show c
   serialize c = case c of
-    CBool b     -> Ty.Ite b (Mem.bvNum False 1 1) (Mem.bvNum False 1 0)
-    CInt _ _ bv -> bv
-    CDouble d   -> Ty.mkDynamizeBv $ Ty.FpToBv d
-    CFloat  d   -> Ty.mkDynamizeBv $ Ty.FpToBv d
+    CBool b      -> Ty.Ite b (Mem.bvNum False 1 1) (Mem.bvNum False 1 0)
+    CInt _ _ bv  -> bv
+    CDouble d    -> Ty.mkDynamizeBv $ Ty.FpToBv d
+    CFloat  d    -> Ty.mkDynamizeBv $ Ty.FpToBv d
+    -- Need to reverse because concant fives the first element the highest order.
+    CStruct _ fs -> foldl1 Ty.mkDynBvConcat $ reverse $ map (serialize . term . snd) fs
     -- Pointer & Array serialization is hard, b/c you forget which allocation
     -- you refer to.
-    _           -> error $ "Cannot serialize: " ++ show c
+    _            -> error $ "Cannot serialize: " ++ show c
   deserialize ty bv = case ty of
     t | AST.isIntegerType t -> CInt (AST.isSignedInt t) (AST.numBits t) bv
     AST.Double              -> CDouble $ Ty.BvToFp $ Ty.mkStatifyBv @64 bv
     AST.Float               -> CFloat $ Ty.BvToFp $ Ty.mkStatifyBv @32 bv
     AST.Bool                -> CBool $ Ty.mkDynBvEq bv (Mem.bvNum False 1 1)
-    _                       -> error $ unwords ["Cannot deserialize", show ty]
+    AST.Struct fs ->
+      let
+        sizes  = map (AST.numBits . snd) fs
+        starts = 0 : scanl1 (+) sizes
+        chunks =
+          zipWith (\start size -> Ty.mkDynBvExtract start size bv) starts sizes
+          -- TODO: Don't make up undef here!
+      in
+        CStruct ty $ zipWith
+          (\(f, fTy) chunk ->
+            (f, mkCTerm (deserialize fTy chunk) (Ty.BoolLit False))
+          )
+          fs
+          chunks
+    _ -> error $ unwords ["Cannot deserialize", show ty]
 
 
 
@@ -238,38 +264,44 @@ udefName s = s ++ "_undef"
 -- term.
 -- Useful for surfacing abtract terms under an easily identifiable name: `name`.
 alias :: Bool -> String -> CTerm -> Mem CTerm
-alias trackUndef name t = Mem.liftAssert $ do
-  u <- Assert.newVar (udefName name) Ty.SortBool
-  when trackUndef $ Assert.assign (udef t) u
+alias trackUndef name t = do
+  u <- Mem.liftAssert $ Assert.newVar (udefName name) Ty.SortBool
+  when trackUndef $ Mem.liftAssert $ Assert.assign (udef t) u
   d <- case term t of
-    CBool b -> do
+    CBool b -> Mem.liftAssert $ do
       let sort = Ty.SortBool
       v <- Assert.newVar name sort
       Assert.assign v b
       return $ CBool b
-    CInt isNeg width val -> do
+    CInt isNeg width val -> Mem.liftAssert $ do
       let sort = Ty.SortBv width
       v <- Assert.newVar name sort
       Assert.assign v val
       return $ CInt isNeg width v
-    CFloat val -> do
+    CFloat val -> Mem.liftAssert $ do
       let sort = Ty.sortFloat
       v <- Assert.newVar name sort
       Assert.assign v val
       return $ CFloat v
-    CDouble val -> do
+    CDouble val -> Mem.liftAssert $ do
       let sort = Ty.sortDouble
       v <- Assert.newVar name sort
       Assert.assign v val
       return $ CDouble v
-    CStackPtr ty off id -> do
+    CStackPtr ty off id -> Mem.liftAssert $ do
       let sort = Ty.SortBv $ AST.numBits ty
       v <- Assert.newVar name sort
       Assert.assign v off
       return $ CStackPtr ty v id
     -- Arrays have to term-specific SMT variables, so there is nothign to alias.
-    CArray ty id -> return $ CArray ty id
+    CArray  ty id     -> return $ CArray ty id
+    CStruct ty fields -> CStruct ty <$> forM
+      fields
+      (\(f, t) -> (f, ) <$> alias trackUndef (structVarName name f) t)
   return $ mkCTerm d u
+
+structVarName :: String -> String -> String
+structVarName baseName fieldName = baseName ++ "." ++ fieldName
 
 -- Declare a new variable, initialize it to a value.
 cppDeclInitVar :: Bool -> AST.Type -> String -> CTerm -> Mem CTerm
@@ -297,6 +329,9 @@ cppDeclVar ty name = do
     AST.Ptr32 _         -> do
       bv :: Bv <- Mem.liftAssert $ Assert.newVar name (Ty.SortBv 32)
       return $ CStackPtr ty bv Mem.stackIdUnknown
+    AST.Struct fields -> CStruct ty <$> forM
+      fields
+      (\(f, fTy) -> (f, ) <$> cppDeclVar fTy (structVarName name f))
     _ -> nyi $ "cppDeclVar for type " ++ show ty
   return $ mkCTerm t u
 
@@ -321,6 +356,15 @@ cppArrayLit ty vals = do
   return $ mkCTerm (CArray (AST.Array (Just $ length vals) ty) id)
                    (Ty.BoolLit False)
 
+cppStructLit :: AST.Type -> [CTerm] -> Mem CTerm
+cppStructLit ty vals = do
+  let fieldTys = AST.structFieldTypes ty
+  forM_ (zip fieldTys vals) $ \(fTy, v) ->
+    unless (cppType v == fTy) $ error $ unwords
+      ["Type mismatch in cppStructLit:", show ty, "vs", show $ cppType v]
+  return $ mkCTerm (CStruct ty (zip (map fst $ AST.structFieldList ty) vals))
+                   (Ty.BoolLit False)
+
 -- Is a pointer's value valid? (in its allocation or 1 beyond?)
 staticPointerValid :: CTerm -> Ty.TermBool
 staticPointerValid _ptr = undefined
@@ -334,7 +378,7 @@ cppLoad :: CTerm -> Mem (Ty.TermBool, CTerm)
 cppLoad ptr = case term ptr of
   CStackPtr ty offset id -> do
     bits <- Mem.stackLoad id offset (AST.numBits $ AST.pointeeType ty)
-    oob <- Ty.Not <$> Mem.stackIsLoadable id offset
+    oob  <- Ty.Not <$> Mem.stackIsLoadable id offset
     let value = deserialize (AST.pointeeType ty) bits
         -- TODO: Check bounds
         undef = Ty.BoolNaryExpr Ty.Or [udef ptr, oob]
@@ -361,6 +405,25 @@ arrayToPointer arr =
   in  mkCTerm
         (CStackPtr (AST.Ptr32 $ AST.arrayBaseType ty) (Mem.bvNum False 32 0) id)
         (udef arr)
+
+cppStructGet :: CTerm -> String -> CTerm
+cppStructGet struct field = case term struct of
+  CStruct _ fields ->
+    fromMaybe (error $ "There is no '" ++ field ++ "' field in " ++ show struct)
+      $ lookup field fields
+  _ -> error $ "Cannot do a struct-get against " ++ show struct
+
+update :: Eq a => a -> b -> [(a, b)] -> [(a, b)]
+update k v l = case l of
+  []           -> error "Missing key in list"
+  (k', v') : r -> if k' == k then (k, v) : r else (k', v') : update k v r
+
+cppStructSet :: String -> CTerm -> CTerm -> CTerm
+cppStructSet field value struct = case term struct of
+  CStruct ty fields -> mkCTerm
+    (CStruct ty $ update field value fields)
+    (Ty.BoolNaryExpr Ty.Or [udef struct, udef value])
+  _ -> error $ "Cannot do a struct-set against " ++ show struct
 
 cppIndex
   :: CTerm -- ^ Base
@@ -784,6 +847,8 @@ cppCast toTy node = case term node of
     AST.Array Nothing toBaseTy | toBaseTy == AST.arrayBaseType ty ->
       mkCTerm (CArray toTy id) (udef node)
     _ | toTy == ty -> node
+  CStruct ty _ -> case toTy of
+    _ | toTy == ty -> node
     _ -> error $ unwords ["Bad cast from", show node, "to", show toTy]
  where
   boolToBv :: Ty.TermBool -> Int -> Bv
@@ -804,8 +869,11 @@ cppCond cond t f =
             width = max w w'
         in  CInt sign width
               $ Ty.Ite condB (intResize s width i) (intResize s' width i')
-      _ -> error
-        $ unwords ["Cannot construct conditional with", show t, "and", show f]
+      (CStruct aTy a, CStruct bTy b) | aTy == bTy ->
+        CStruct aTy $ zipWith (\(f, aV) (_, bV) -> (f, cppCond cond aV bV)) a b
+      _ ->
+        error $ unwords
+          ["Cannot construct conditional with", show t, "and", show f]
   in
     mkCTerm result (Ty.BoolNaryExpr Ty.Or [udef cond, udef t, udef f])
 

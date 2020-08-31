@@ -78,12 +78,14 @@ genConstSMT c = case c of
 
 data CLVal = CLVar VarName
            | CLAddr CTerm
+           | CLField CLVal String
            deriving (Show)
 
 evalLVal :: CLVal -> Compiler CTerm
 evalLVal location = case location of
   CLVar  v -> getTerm v
   CLAddr a -> load a
+  CLField s f -> flip cppStructGet f <$> evalLVal s
 
 genLValueSMT :: CExpr -> Compiler CLVal
 genLValueSMT expr = case expr of
@@ -94,12 +96,31 @@ genLValueSMT expr = case expr of
     idx'  <- genExprSMT idx
     addr  <- liftMem $ cppIndex base' idx'
     return $ CLAddr addr
+  CMember struct ident _ _ -> flip CLField (identToVarName ident) <$> genLValueSMT struct
   _ -> error $ unwords ["Not yet impled:", show expr]
 
+
+-- TODO: This may be broken
+-- The approach in `modLocation` is the right one, but when run on addresses it
+-- performs accesses to the underlying storage, even when we're doing an
+-- overwrite. This may not agree with our uninit tracking system.
 genAssign :: CLVal -> CTerm -> Compiler CTerm
 genAssign location value = case location of
   CLVar  varName -> ssaAssign varName value
   CLAddr addr    -> store addr value >> return value
+  CLField struct field -> modLocation location (const value)
+   where
+    -- Apply a modification function to a location
+    modLocation :: CLVal -> (CTerm -> CTerm) -> Compiler CTerm
+    modLocation location modFn = case location of
+      CLVar varName -> getTerm varName >>= ssaAssign varName . modFn
+      CLAddr addr   -> do
+        old <- load addr
+        let new = modFn old
+        store addr new
+        return new
+      CLField struct field ->
+        modLocation struct (\t -> cppStructSet field (modFn $ cppStructGet t field) t)
 
 unwrap :: Show l => Either l r -> r
 unwrap e = case e of
@@ -134,9 +155,8 @@ genExprSMT expr = case expr of
     index' <- genExprSMT index
     offset <- liftMem $ cppIndex base' index'
     load offset
-  --CMember struct field _ _ -> do
-  --  struct' <- genExprSMT struct
-  --  liftMem $ getField struct' $ fieldToInt field
+  CMember struct ident _ _ ->
+    flip cppStructGet (identToVarName ident) <$> genExprSMT struct
   CCast decl expr _ -> case decl of
     CDecl specs _ _ -> do
       ty    <- unwrap <$> baseTypeFromSpecs specs
@@ -332,6 +352,8 @@ genStmtSMT stmt = case stmt of
 -- Returns the declaration's variable name
 genDeclSMT :: Maybe Bool -> CDecl -> Compiler [String]
 genDeclSMT undef d@(CDecl specs decls _) = do
+  liftLog $ logIf "decls" "genDeclSMT:"
+  liftLog $ logIfM "decls" $ liftIO $ nodeText d
   -- At the top level, we ignore types we don't understand.
   skipBadTypes <- gets (null . callStack)
   when (null specs) $ error "Expected specifier in declaration"
@@ -340,6 +362,9 @@ genDeclSMT undef d@(CDecl specs decls _) = do
         (isStorageSpec firstSpec) && (isTypedef $ storageFromSpec firstSpec)
       baseType = if isTypedefDecl then tail specs else specs
 
+  -- Even for not declarators, process the type. It may be a struct that needs to be recorded!
+  when (null decls) $ void $ baseTypeFromSpecs baseType
+
   forM decls $ \(Just dec, mInit, _) -> do
     let mName   = identFromDeclr dec
         ident   = fromMaybe (error "Expected identifier in decl") mName
@@ -347,8 +372,12 @@ genDeclSMT undef d@(CDecl specs decls _) = do
         ptrType = derivedFromDeclr dec
 
     if isTypedefDecl
-      then typedefSMT ident baseType ptrType >> return "TYPEDEF"
+      then do
+        typedefSMT ident baseType ptrType
+        return "TYPEDEF"
       else do
+        -- TODO: kick this into the Nothing case below, use better thing in the
+        -- Just case?
         declareVarSMT ident baseType ptrType
         lhs <- genVarSMT ident
         case mInit of
@@ -370,6 +399,9 @@ genInitSMT ty i = case (ty, i) of
   (Array _ innerTy, CInitList is _) -> do
     values <- forM is $ \(_, i) -> genInitSMT innerTy i
     liftMem $ cppArrayLit innerTy values
+  (Struct fields, CInitList is _) -> do
+    values <- forM (zip fields is) $ \((_, fTy), (_, i)) -> genInitSMT fTy i
+    liftMem $ cppStructLit ty values
   _ -> error $ unwords ["Cannot initialize type", show ty, "from", show i]
 
 ---
@@ -411,10 +443,8 @@ genAsm = undefined
 
 registerFns :: [CExtDecl] -> Compiler ()
 registerFns decls = forM_ decls $ \case
-  CFDefExt f -> registerFunction (nameFromFunc f) f
-  CDeclExt d -> do
-    void $ genDeclSMT Nothing d
-    printComp
+  CFDefExt f    -> registerFunction (nameFromFunc f) f
+  CDeclExt d    -> void $ genDeclSMT Nothing d
   CAsmExt asm _ -> genAsm asm
 
 codegenAll :: CTranslUnit -> Compiler ()
