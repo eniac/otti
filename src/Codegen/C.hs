@@ -202,9 +202,7 @@ genExprSMT expr = case expr of
     _ -> error $ unwords ["Fn call of", show fn, "is unsupported"]
   CCond cond mTrueBr falseBr _ -> do
     cond' <- genExprSMT cond
-    true' <- if isJust mTrueBr
-      then genExprSMT $ fromJust mTrueBr
-      else return cond'
+    true' <- maybe (return cond') genExprSMT mTrueBr
     false' <- genExprSMT falseBr
     return $ cppCond cond' true' false'
   CSizeofExpr e _ -> do
@@ -239,14 +237,10 @@ getUnaryOp op arg = case op of
     return rval
   -- CAdrOp ->
   -- The '*' operation
-  CIndOp -> do
-    arg <- genExprSMT arg
-    load arg
+  CIndOp  -> genExprSMT arg >>= load
   CPlusOp -> error $ unwords ["Do not understand:", show op]
   CMinOp  -> cppNeg <$> genExprSMT arg
-  -- One's complement: NOT CORRECT
   CCompOp -> cppBitNot <$> genExprSMT arg
-  -- Logical negation: NOT CORRECT
   CNegOp  -> cppNot <$> genExprSMT arg
   _       -> error $ unwords [show op, "not supported"]
 

@@ -199,7 +199,7 @@ mkCTerm d b = case d of
   CInt _ w bv -> if Ty.dynBvWidth bv == w
     then CTerm d b
     else error $ unwords ["Bad width in CTerm", show d]
-  CStackPtr ty off alloc -> if Ty.dynBvWidth off == AST.numBits ty
+  CStackPtr ty off _alloc -> if Ty.dynBvWidth off == AST.numBits ty
     then CTerm d b
     else error $ unwords ["Bad width in CTerm", show d]
   _ -> CTerm d b
@@ -365,14 +365,6 @@ cppStructLit ty vals = do
   return $ mkCTerm (CStruct ty (zip (map fst $ AST.structFieldList ty) vals))
                    (Ty.BoolLit False)
 
--- Is a pointer's value valid? (in its allocation or 1 beyond?)
-staticPointerValid :: CTerm -> Ty.TermBool
-staticPointerValid _ptr = undefined
-
--- Can a pointer be dereferenced?
-staticPointerAccessible :: CTerm -> Ty.TermBool
-staticPointerAccessible _ptr = undefined
-
 -- Do a load, returning whether is was UB
 cppLoad :: CTerm -> Mem (Ty.TermBool, CTerm)
 cppLoad ptr = case term ptr of
@@ -382,7 +374,7 @@ cppLoad ptr = case term ptr of
     let value = deserialize (AST.pointeeType ty) bits
         -- TODO: Check bounds
         undef = Ty.BoolNaryExpr Ty.Or [udef ptr, oob]
-    return $ (oob, mkCTerm value undef)
+    return (oob, mkCTerm value undef)
   _ -> error $ unwords ["The value", show ptr, "cannot be cppLoad'ed"]
 
 -- Do a store, returning whether is was UB
@@ -739,19 +731,19 @@ cppEq, cppNe, cppLt, cppGt, cppLe, cppGe :: CTerm -> CTerm -> CTerm
 cppEq = cppWrapCmp "==" (const Ty.mkDynBvEq) Ty.Eq
 cppNe = ((.) . (.)) cppNot cppEq
 cppLt = cppWrapCmp
-  "=="
+  "<"
   (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSlt else Ty.BvUlt))
   (Ty.FpBinPred Ty.FpLt)
 cppGt = cppWrapCmp
-  "=="
+  ">"
   (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSgt else Ty.BvUgt))
   (Ty.FpBinPred Ty.FpGt)
 cppLe = cppWrapCmp
-  "=="
+  "<="
   (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSle else Ty.BvUle))
   (Ty.FpBinPred Ty.FpLe)
 cppGe = cppWrapCmp
-  "=="
+  ">="
   (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSge else Ty.BvUge))
   (Ty.FpBinPred Ty.FpGe)
 
@@ -847,6 +839,7 @@ cppCast toTy node = case term node of
     AST.Array Nothing toBaseTy | toBaseTy == AST.arrayBaseType ty ->
       mkCTerm (CArray toTy id) (udef node)
     _ | toTy == ty -> node
+    _ -> error $ unwords ["Bad cast from", show node, "to", show toTy]
   CStruct ty _ -> case toTy of
     _ | toTy == ty -> node
     _ -> error $ unwords ["Bad cast from", show node, "to", show toTy]
@@ -878,6 +871,9 @@ cppCond cond t f =
     mkCTerm result (Ty.BoolNaryExpr Ty.Or [udef cond, udef t, udef f])
 
 
+-- TODO: Rewrite doReturn in terms of the new alias machinery, and then remove
+-- cppAssign/cppAssignment.
+--
 -- Returns an assignment of r to l, as well as the casted version of r
 cppAssignment :: Bool -> CTerm -> CTerm -> (Ty.TermBool, CTerm)
 cppAssignment assignUndef l r =
@@ -888,7 +884,7 @@ cppAssignment assignUndef l r =
       (CDouble lB , CDouble rB ) -> Ty.Eq lB rB
       (CFloat  lB , CFloat rB  ) -> Ty.Eq lB rB
       (CInt _ _ lB, CInt _ _ rB) -> Ty.Eq lB rB
-      (CStackPtr lTy lB lId, CStackPtr rTy rB rId) | lTy == rTy -> Ty.Eq lB rB
+      (CStackPtr lTy lB _, CStackPtr rTy rB _) | lTy == rTy -> Ty.Eq lB rB
       (x, y) ->
         error
           $  "Invalid cppAssign terms, post-cast: \n"
