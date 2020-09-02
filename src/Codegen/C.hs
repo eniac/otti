@@ -45,6 +45,39 @@ import           Language.C.Syntax.Constants
 import           Util.Log
 --import Debug.Trace
 
+-- List some CUtils stuff to the SSA layer
+ssaBool :: SsaVal -> Ty.TermBool
+ssaBool = cppBool . ssaValAsCTerm "cppBool"
+
+ssaType :: SsaVal -> Type
+ssaType = cppType . ssaValAsCTerm "cppType"
+
+load :: CTerm -> Compiler CTerm
+load ref = do
+  (oob, val) <- liftMem $ cppLoad ref
+  whenM (gets findUB) $ bugIf oob
+  return val
+
+ssaLoad :: SsaVal -> Compiler SsaVal
+ssaLoad = liftCFunM "load" load
+
+store :: CTerm -> CTerm -> Compiler ()
+store ref val = do
+  g   <- getGuard
+  oob <- liftMem $ cppStore ref val g
+  whenM (gets findUB) $ bugIf oob
+
+ssaStore :: SsaVal -> SsaVal -> Compiler ()
+ssaStore ref val = case (ref, val) of
+  (Base a, Base b) -> store a b
+  _                -> error $ "Cannot store " ++ show (ref, val)
+
+ssaStructGet :: String -> SsaVal -> SsaVal
+ssaStructGet n = liftCFun "cppStructGet" (`cppStructGet` n)
+
+ssaStructSet :: String -> SsaVal -> SsaVal -> SsaVal
+ssaStructSet n = liftCFun2 "cppStructSet" (cppStructSet n)
+
 fieldToInt :: Ident -> Int
 fieldToInt = undefined
 

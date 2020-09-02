@@ -306,9 +306,10 @@ structVarName baseName fieldName = baseName ++ "." ++ fieldName
 -- Declare a new variable, initialize it to a value.
 cppDeclInitVar :: Bool -> AST.Type -> String -> CTerm -> Mem CTerm
 cppDeclInitVar trackUndef ty name init = do
-  unless (ty == cppType init) $ error $ unwords
-    ["Cannot assign", show init, "to var", name, "of type", show ty]
-  alias trackUndef name init
+  let init' = cppCast ty init
+  unless (ty == cppType init') $ error $ unwords
+    ["Cannot assign", show init', "to var", name, "of type", show ty]
+  alias trackUndef name init'
 
 -- Declare a new variable, do not initialize it.
 cppDeclVar :: AST.Type -> String -> Mem CTerm

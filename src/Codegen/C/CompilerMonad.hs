@@ -3,11 +3,32 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TupleSections #-}
 module Codegen.C.CompilerMonad where
-import           AST.Simple
+
+-- C imports
+import           AST.Simple                     ( Type
+                                                , VarName
+                                                , FunctionName
+                                                )
+import           Language.C.Syntax.AST          ( CFunDef )
+import           Codegen.C.CUtils               ( CTerm(..)
+                                                , cppDeclVar
+                                                , cppDeclInitVar
+                                                , CTermData(CBool)
+                                                , cppCast
+                                                , cppCond
+                                                , ctermInit
+                                                , cppAssignment
+                                                , ctermEval
+                                                )
+import qualified Codegen.C.Memory              as Mem
+import           Codegen.C.Memory               ( Mem )
+
+-- Control imports
 import           Control.Monad.Fail
 import           Control.Monad.Reader
 import           Control.Monad.State.Strict
-import qualified Data.BitVector                as Bv
+
+-- Data imports
 import           Data.List                      ( intercalate
                                                 , isInfixOf
                                                 , findIndex
@@ -25,17 +46,10 @@ import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 , fromDyn
                                                 )
-import           Language.C.Syntax.AST          ( CFunDef )
-import           Codegen.C.CUtils              as CUtils
 import qualified IR.SMT.TySmt                  as Ty
-import qualified Codegen.C.Memory              as Mem
-import           Codegen.C.Memory               ( Mem )
-import           Targets.SMT                    ( SMTResult )
 import qualified IR.SMT.Assert                 as Assert
 import           IR.SMT.Assert                  ( Assert )
 import           Util.Log
-import qualified Util.ShowMap                  as SMap
-import qualified Z3.Monad                      as Z
 
 {-|
 
@@ -398,30 +412,43 @@ compilerRunInScopeIdx scopeIdx fF lF = case scopeIdx of
 ssaValAsCTerm :: String -> SsaVal -> CTerm
 ssaValAsCTerm reason v = case v of
   Base c -> c
-  RefVal {} -> error $ "Cannot unwrap " ++ show v ++ " as a C term. It is a reference. Reason\n" ++ reason
-
-ssaBool :: SsaVal -> Ty.TermBool
-ssaBool = cppBool . ssaValAsCTerm "cppBool"
-
-ssaType :: SsaVal -> Type
-ssaType = cppType . ssaValAsCTerm "cppType"
+  RefVal{} ->
+    error
+      $  "Cannot unwrap "
+      ++ show v
+      ++ " as a C term. It is a reference. Reason\n"
+      ++ reason
 
 liftCFun :: String -> (CTerm -> CTerm) -> SsaVal -> SsaVal
 liftCFun name f x = case x of
   Base c -> Base $ f c
-  RefVal{} -> error $ "Cannot apply c function " ++ name ++ " to reference " ++ show x
+  RefVal{} ->
+    error $ "Cannot apply c function " ++ name ++ " to reference " ++ show x
 
 liftCFun2 :: String -> (CTerm -> CTerm -> CTerm) -> SsaVal -> SsaVal -> SsaVal
 liftCFun2 name f x1 x2 = case (x1, x2) of
   (Base c1, Base c2) -> Base $ f c1 c2
   _ -> error $ "Cannot apply c function " ++ name ++ " to " ++ show (x1, x2)
 
-liftCFun3 :: String -> (CTerm -> CTerm -> CTerm -> CTerm) -> SsaVal -> SsaVal -> SsaVal -> SsaVal
+liftCFun3
+  :: String
+  -> (CTerm -> CTerm -> CTerm -> CTerm)
+  -> SsaVal
+  -> SsaVal
+  -> SsaVal
+  -> SsaVal
 liftCFun3 name f x1 x2 x3 = case (x1, x2, x3) of
   (Base c1, Base c2, Base c3) -> Base $ f c1 c2 c3
-  _ -> error $ "Cannot apply c function " ++ name ++ " to " ++ show (x1, x2, x3)
+  _ ->
+    error $ "Cannot apply c function " ++ name ++ " to " ++ show (x1, x2, x3)
 
-liftCFun2M :: Monad m => String -> (CTerm -> CTerm -> m CTerm) -> SsaVal -> SsaVal -> m SsaVal
+liftCFun2M
+  :: Monad m
+  => String
+  -> (CTerm -> CTerm -> m CTerm)
+  -> SsaVal
+  -> SsaVal
+  -> m SsaVal
 liftCFun2M name f x1 x2 = case (x1, x2) of
   (Base c1, Base c2) -> Base <$> f c1 c2
   _ -> error $ "Cannot apply c function " ++ name ++ " to " ++ show (x1, x2)
@@ -700,7 +727,7 @@ getRef lval = do
 deref :: SsaVal -> SsaLVal
 deref val = case val of
   RefVal r -> SLRef r
-  Base c -> error $ "Cannot derefence base value: " ++ show c
+  Base   c -> error $ "Cannot derefence base value: " ++ show c
 
 -- Not quite right? Returns?  Our return stuff is super hacky anyways. We
 -- should integrate it with the guard machinery.
@@ -811,31 +838,5 @@ getAssignment = cppAssignment <$> gets findUB
 liftCFunM :: Monad m => String -> (CTerm -> m CTerm) -> SsaVal -> m SsaVal
 liftCFunM name f x = case x of
   Base c -> Base <$> f c
-  RefVal{} -> error $ "Cannot apply c function " ++ name ++ " to reference " ++ show x
-
--- Load this CTerm, tracking UB
-load :: CTerm -> Compiler CTerm
-load ref = do
-  (oob, val) <- liftMem $ cppLoad ref
-  whenM (gets findUB) $ bugIf oob
-  return val
-
-ssaLoad :: SsaVal -> Compiler SsaVal
-ssaLoad = liftCFunM "load" load
-
-store :: CTerm -> CTerm -> Compiler ()
-store ref val = do
-  g   <- getGuard
-  oob <- liftMem $ cppStore ref val g
-  whenM (gets findUB) $ bugIf oob
-
-ssaStore :: SsaVal -> SsaVal -> Compiler ()
-ssaStore ref val = case (ref, val) of
-  (Base a, Base b) -> store a b
-  _ -> error $ "Cannot store " ++ show (ref, val)
-
-ssaStructGet :: String -> SsaVal -> SsaVal
-ssaStructGet n = liftCFun "cppStructGet" (`cppStructGet` n)
-
-ssaStructSet :: String -> SsaVal -> SsaVal -> SsaVal
-ssaStructSet n = liftCFun2 "cppStructSet" (cppStructSet n)
+  RefVal{} ->
+    error $ "Cannot apply c function " ++ name ++ " to reference " ++ show x
