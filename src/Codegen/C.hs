@@ -128,11 +128,13 @@ genAssign location value = case location of
     modLocation :: CLVal -> (SsaVal -> SsaVal) -> Compiler SsaVal
     modLocation location modFn = case location of
       CLVar varName -> getTerm varName >>= ssaAssign varName . modFn
-      CLAddr addr   -> do
-        old <- ssaLoad addr
-        let new = modFn old
-        ssaStore addr new
-        return new
+      CLAddr addr   -> case addr of
+        Base c -> do
+          old <- ssaLoad addr
+          let new = modFn old
+          ssaStore addr new
+          return new
+        RefVal r -> let v = SLRef r in getTerm v >>= ssaAssign v . modFn
       CLField struct field ->
         modLocation struct (\t -> ssaStructSet field (modFn $ ssaStructGet field t) t)
 
@@ -146,7 +148,7 @@ genExprSMT :: CExpr -> Compiler SsaVal
 genExprSMT expr = do
   liftLog $ logIfM "expr" $ do
     t <- liftIO $ nodeText expr
-    return $ "Expr: " ++ show expr
+    return $ "Expr: " ++ t
   case expr of
     CVar id _            -> genVarSMT id
     CConst c             -> Base <$> genConstSMT c
