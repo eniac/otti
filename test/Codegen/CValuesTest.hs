@@ -119,6 +119,12 @@ cValueTests = benchTestGroup
   , constraintValueTest "array[struct] get" "zebra" "test/Code/C/struct.c" [ ("f0_zebra__return_v0", i 4) ]
   , constraintValueTest "array[struct] set" "gazelle" "test/Code/C/struct.c" [ ("f0_gazelle__return_v0", i 23) ]
   , constraintValueTest "struct[array] set" "cheetah" "test/Code/C/struct.c" [ ("f0_cheetah__return_v0", i 7) ]
+  , constraintValueTest "read ref" "apple" "test/Code/C/ref.c" [ ("f0_apple__return_v0", i 5) ]
+  , constraintValueTest "write ref" "banana" "test/Code/C/ref.c" [ ("f0_banana__return_v0", i 4) ]
+  , constraintValueTest "write ref in loop" "cherry" "test/Code/C/ref.c" [ ("f0_cherry__return_v0", i 1) ]
+  , constraintValueTest "write ref in fn" "date" "test/Code/C/ref.c" [ ("f0_date__return_v0", i 4) ]
+  , constraintValueTest "ref to global" "elderberry" "test/Code/C/ref.c" [ ("f0_elderberry__return_v0", i 5) ]
+  , constraintValueTest "ref in multiple fns" "fig" "test/Code/C/ref.c" [ ("f0_fig__return_v0", i 0) ]
   ]
 
 cRealTests :: BenchTest

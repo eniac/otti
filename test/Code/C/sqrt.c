@@ -1,42 +1,3 @@
-# 1 "sqrt.c"
-# 1 "<built-in>" 1
-# 1 "<built-in>" 3
-# 346 "<built-in>" 3
-# 1 "<command line>" 1
-# 1 "<built-in>" 2
-# 1 "sqrt.c" 2
-# 1 "/usr/lib/clang/10.0.1/include/stdint.h" 1 3
-# 52 "/usr/lib/clang/10.0.1/include/stdint.h" 3
-# 1 "/usr/include/stdint.h" 1 3 4
-# 26 "/usr/include/stdint.h" 3 4
-# 1 "/usr/include/bits/libc-header-start.h" 1 3 4
-# 33 "/usr/include/bits/libc-header-start.h" 3 4
-# 1 "/usr/include/features.h" 1 3 4
-# 443 "/usr/include/features.h" 3 4
-# 1 "/usr/include/stdc-predef.h" 1 3 4
-# 444 "/usr/include/features.h" 2 3 4
-# 465 "/usr/include/features.h" 3 4
-# 1 "/usr/include/sys/cdefs.h" 1 3 4
-# 452 "/usr/include/sys/cdefs.h" 3 4
-# 1 "/usr/include/bits/wordsize.h" 1 3 4
-# 453 "/usr/include/sys/cdefs.h" 2 3 4
-# 1 "/usr/include/bits/long-double.h" 1 3 4
-# 454 "/usr/include/sys/cdefs.h" 2 3 4
-# 466 "/usr/include/features.h" 2 3 4
-# 489 "/usr/include/features.h" 3 4
-# 1 "/usr/include/gnu/stubs.h" 1 3 4
-# 10 "/usr/include/gnu/stubs.h" 3 4
-# 1 "/usr/include/gnu/stubs-64.h" 1 3 4
-# 11 "/usr/include/gnu/stubs.h" 2 3 4
-# 490 "/usr/include/features.h" 2 3 4
-# 34 "/usr/include/bits/libc-header-start.h" 2 3 4
-# 27 "/usr/include/stdint.h" 2 3 4
-# 1 "/usr/include/bits/types.h" 1 3 4
-# 27 "/usr/include/bits/types.h" 3 4
-# 1 "/usr/include/bits/wordsize.h" 1 3 4
-# 28 "/usr/include/bits/types.h" 2 3 4
-# 1 "/usr/include/bits/timesize.h" 1 3 4
-# 29 "/usr/include/bits/types.h" 2 3 4
 
 
 typedef unsigned char __u_char;
@@ -82,11 +43,6 @@ typedef unsigned long int __u_quad_t;
 
 typedef long int __intmax_t;
 typedef unsigned long int __uintmax_t;
-# 141 "/usr/include/bits/types.h" 3 4
-# 1 "/usr/include/bits/typesizes.h" 1 3 4
-# 142 "/usr/include/bits/types.h" 2 3 4
-# 1 "/usr/include/bits/time64.h" 1 3 4
-# 143 "/usr/include/bits/types.h" 2 3 4
 
 
 typedef unsigned long int __dev_t;
@@ -159,31 +115,20 @@ typedef unsigned int __socklen_t;
 
 
 typedef int __sig_atomic_t;
-# 28 "/usr/include/stdint.h" 2 3 4
-# 1 "/usr/include/bits/wchar.h" 1 3 4
-# 29 "/usr/include/stdint.h" 2 3 4
-# 1 "/usr/include/bits/wordsize.h" 1 3 4
-# 30 "/usr/include/stdint.h" 2 3 4
 
 
 
 
-# 1 "/usr/include/bits/stdint-intn.h" 1 3 4
-# 24 "/usr/include/bits/stdint-intn.h" 3 4
 typedef __int8_t int8_t;
 typedef __int16_t int16_t;
 typedef __int32_t int32_t;
 typedef __int64_t int64_t;
-# 35 "/usr/include/stdint.h" 2 3 4
 
 
-# 1 "/usr/include/bits/stdint-uintn.h" 1 3 4
-# 24 "/usr/include/bits/stdint-uintn.h" 3 4
 typedef __uint8_t uint8_t;
 typedef __uint16_t uint16_t;
 typedef __uint32_t uint32_t;
 typedef __uint64_t uint64_t;
-# 38 "/usr/include/stdint.h" 2 3 4
 
 
 
@@ -209,22 +154,17 @@ typedef signed char int_fast8_t;
 typedef long int int_fast16_t;
 typedef long int int_fast32_t;
 typedef long int int_fast64_t;
-# 71 "/usr/include/stdint.h" 3 4
 typedef unsigned char uint_fast8_t;
 
 typedef unsigned long int uint_fast16_t;
 typedef unsigned long int uint_fast32_t;
 typedef unsigned long int uint_fast64_t;
-# 87 "/usr/include/stdint.h" 3 4
 typedef long int intptr_t;
 
 
 typedef unsigned long int uintptr_t;
-# 101 "/usr/include/stdint.h" 3 4
 typedef __intmax_t intmax_t;
 typedef __uintmax_t uintmax_t;
-# 53 "/usr/lib/clang/10.0.1/include/stdint.h" 2 3
-# 2 "sqrt.c" 2
 
 struct In {
   uint32_t a;
@@ -253,7 +193,6 @@ uint32_t uintsqrt(uint32_t x){
   }
 
   return lo;
-# 52 "sqrt.c"
 }
 
 int compute(struct In* input, struct Out* output){

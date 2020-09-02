@@ -18,6 +18,7 @@ import qualified Data.Map                      as M
 import           Data.Maybe                     ( catMaybes
                                                 , fromMaybe
                                                 , isJust
+                                                , fromJust
                                                 , listToMaybe
                                                 )
 import           Data.Dynamic                   ( Dynamic
@@ -60,7 +61,7 @@ data SsaVar = SsaVar VarName Version
 -- TODO rename
 data LexScope = LexScope { tys :: M.Map VarName Type
                          , vers :: M.Map VarName Version
-                         , terms :: M.Map SsaVar CTerm
+                         , terms :: M.Map SsaVar SsaVal
                          , lsPrefix :: String
                          } deriving (Show)
 printLs :: LexScope -> IO ()
@@ -71,6 +72,23 @@ printLs s =
     ++ [ "     " ++ show var ++ ": " ++ show ver
        | (var, ver) <- M.toList (vers s)
        ]
+
+data ScopeIdx = ScopeGlobal
+              | ScopeIdx { lsIdx :: Int, fsIdx :: Int } deriving (Show)
+
+data Ref = Ref { scopeIdx :: ScopeIdx , refVarName :: VarName } deriving (Show)
+
+-- Something that can be written to in a lexical system.
+-- Either a name in the current scope, or an absolute reference to another scope.
+data SsaLVal = SLVar VarName
+             | SLRef Ref
+             deriving (Show)
+
+-- Something that can be stored.
+-- Either an underlying C value or a reference to a value in a different scope.
+data SsaVal  = Base   CTerm
+             | RefVal Ref
+             deriving (Show)
 
 -- Lexical scope functions
 
@@ -93,7 +111,7 @@ lsDeclareVar var ty scope = case M.lookup var (tys scope) of
                              }
         ssaVar = lsGetSsaVar var withTyAndVer
     -- Now we declare it to the SMT layer
-    term <- cppDeclVar ty (ssaVarAsString ssaVar)
+    term <- Base <$> cppDeclVar ty (ssaVarAsString ssaVar)
     return $ withTyAndVer { terms = M.insert ssaVar term $ terms scope }
   Just actualTy ->
     error $ unwords ["Already declared", var, "to have type", show actualTy]
@@ -121,14 +139,14 @@ lsScopedVar var scope = lsPrefix scope ++ "__" ++ var
 lsGetType :: VarName -> LexScope -> Type
 lsGetType var scope = fromMaybe (unknownVar var) (M.lookup var (tys scope))
 
--- | Get a CTerm for the given var
-lsGetTerm :: VarName -> LexScope -> CTerm
+-- | Get a SsaVal for the given var
+lsGetTerm :: VarName -> LexScope -> SsaVal
 lsGetTerm var scope = fromMaybe
   (error $ unwords ["No term for", var])
   (M.lookup (lsGetSsaVar var scope) (terms scope))
 
-lsSetTerm :: VarName -> CTerm -> LexScope -> LexScope
-lsSetTerm var val scope =
+lsSetTerm :: SsaVal -> VarName -> LexScope -> LexScope
+lsSetTerm val var scope =
   scope { terms = M.insert (lsGetSsaVar var scope) val $ terms scope }
 
 lsNextVer :: VarName -> LexScope -> LexScope
@@ -141,76 +159,79 @@ data FunctionScope = FunctionScope { -- Condition for current path
                                    , returnValueGuards :: [[Ty.TermBool]]
                                      -- Stack of lexical scopes. Innermost first.
                                    , lexicalScopes     :: [LexScope]
+                                   , nCurrentScopes    :: Int
                                      -- number of next ls
                                    , lsCtr             :: Int
                                    , fsPrefix          :: String
                                    , retTerm           :: CTerm
                                    , retTermName       :: String
-                                   }
+                                   } deriving (Show)
 
 listModify :: Functor m => Int -> (a -> m a) -> [a] -> m [a]
 listModify 0 f (x : xs) = (: xs) `fmap` f x
 listModify n f (x : xs) = (x :) `fmap` listModify (n - 1) f xs
 
+-- | Find the scope containing this variable. Indexed from the back.
 fsFindLexScope :: VarName -> FunctionScope -> Int
 fsFindLexScope var scope =
   fromMaybe (error $ unwords ["Cannot find", var, "in current scope"])
     $ fsFindLexScopeOpt var scope
 
+-- | Find the scope containing this variable. Indexed from the back.
 fsFindLexScopeOpt :: VarName -> FunctionScope -> Maybe Int
-fsFindLexScopeOpt var scope =
-  findIndex (M.member var . tys) (lexicalScopes scope)
+fsFindLexScopeOpt var scope = (nCurrentScopes scope - 1 -)
+  <$> findIndex (M.member var . tys) (lexicalScopes scope)
 
--- | Apply a modification function to the first scope containing the variable.
+-- | Apply a modification function to the indexed scope.
 fsModifyLexScope
   :: Monad m
-  => VarName
+  => Int
   -> (LexScope -> m LexScope)
   -> FunctionScope
   -> m FunctionScope
-fsModifyLexScope var f scope = do
-  n <- listModify (fsFindLexScope var scope) f $ lexicalScopes scope
+fsModifyLexScope i f scope = do
+  n <- listModify (nCurrentScopes scope - i - 1) f $ lexicalScopes scope
   return $ scope { lexicalScopes = n }
 
--- | Apply a fetching function to the first scope containing the variable.
-fsGetFromLexScope :: VarName -> (LexScope -> a) -> FunctionScope -> a
-fsGetFromLexScope var f scope =
-  let i  = fsFindLexScope var scope
-      ls = lexicalScopes scope !! i
-  in  f ls
+-- | Apply a fetching function to the indexed scope.
+fsGetFromLexScope :: Int -> (LexScope -> a) -> FunctionScope -> a
+fsGetFromLexScope i f scope = if i < nCurrentScopes scope
+  then f $ lexicalScopes scope !! (nCurrentScopes scope - i - 1)
+  else error $ unwords ["Lexical scope index", show i, "is invalid", show scope]
 
 fsDeclareVar :: VarName -> Type -> FunctionScope -> Mem FunctionScope
 fsDeclareVar var ty scope = do
   head' <- lsDeclareVar var ty (head $ lexicalScopes scope)
   return $ scope { lexicalScopes = head' : tail (lexicalScopes scope) }
 
-fsGetVer :: VarName -> FunctionScope -> Version
-fsGetVer var = fsGetFromLexScope var (lsGetVer var)
+fsGetVer :: VarName -> Int -> FunctionScope -> Version
+fsGetVer var i = fsGetFromLexScope i (lsGetVer var)
 
-fsGetType :: VarName -> FunctionScope -> Type
-fsGetType var = fsGetFromLexScope var (lsGetType var)
+fsGetType :: VarName -> Int -> FunctionScope -> Type
+fsGetType var i = fsGetFromLexScope i (lsGetType var)
 
-fsGetSsaVar :: VarName -> FunctionScope -> SsaVar
-fsGetSsaVar var = fsGetFromLexScope var (lsGetSsaVar var)
+fsGetSsaVar :: VarName -> Int -> FunctionScope -> SsaVar
+fsGetSsaVar var i = fsGetFromLexScope i (lsGetSsaVar var)
 
-fsGetNextSsaVar :: VarName -> FunctionScope -> SsaVar
-fsGetNextSsaVar var = fsGetFromLexScope var (lsGetNextSsaVar var)
+fsGetNextSsaVar :: VarName -> Int -> FunctionScope -> SsaVar
+fsGetNextSsaVar var i = fsGetFromLexScope i (lsGetNextSsaVar var)
 
-fsGetTerm :: VarName -> FunctionScope -> CTerm
-fsGetTerm var = fsGetFromLexScope var (lsGetTerm var)
+fsGetTerm :: VarName -> Int -> FunctionScope -> SsaVal
+fsGetTerm var i = fsGetFromLexScope i (lsGetTerm var)
 
-fsSetTerm :: VarName -> CTerm -> FunctionScope -> FunctionScope
-fsSetTerm var val =
-  runIdentity . fsModifyLexScope var (Identity . lsSetTerm var val)
+fsSetTerm :: SsaVal -> VarName -> Int -> FunctionScope -> FunctionScope
+fsSetTerm val var i =
+  runIdentity . fsModifyLexScope i (Identity . lsSetTerm val var)
 
-fsNextVer :: VarName -> FunctionScope -> FunctionScope
-fsNextVer var = runIdentity . fsModifyLexScope var (Identity . lsNextVer var)
+fsNextVer :: VarName -> Int -> FunctionScope -> FunctionScope
+fsNextVer var i = runIdentity . fsModifyLexScope i (Identity . lsNextVer var)
 
 fsEnterLexScope :: FunctionScope -> FunctionScope
 fsEnterLexScope scope =
   let newLs = lsWithPrefix (fsPrefix scope ++ "_lex" ++ show (lsCtr scope))
-  in  scope { lsCtr         = 1 + lsCtr scope
-            , lexicalScopes = newLs : lexicalScopes scope
+  in  scope { lsCtr          = 1 + lsCtr scope
+            , lexicalScopes  = newLs : lexicalScopes scope
+            , nCurrentScopes = 1 + nCurrentScopes scope
             }
 
 printFs :: FunctionScope -> IO ()
@@ -221,7 +242,9 @@ printFs s = do
   traverse_ printLs (lexicalScopes s)
 
 fsExitLexScope :: FunctionScope -> FunctionScope
-fsExitLexScope scope = scope { lexicalScopes = tail $ lexicalScopes scope }
+fsExitLexScope scope = scope { nCurrentScopes = nCurrentScopes scope - 1
+                             , lexicalScopes  = tail $ lexicalScopes scope
+                             }
 
 fsPushGuard :: Ty.TermBool -> FunctionScope -> FunctionScope
 fsPushGuard guard scope =
@@ -267,6 +290,7 @@ fsWithPrefix prefix ty = do
                          , retTerm           = retTerm
                          , retTermName       = retTermName
                          , lexicalScopes     = []
+                         , nCurrentScopes    = 0
                          , lsCtr             = 0
                          , fsPrefix          = prefix
                          }
@@ -274,6 +298,7 @@ fsWithPrefix prefix ty = do
 
 -- | Internal state of the compiler for code generation
 data CompilerState = CompilerState { callStack         :: [FunctionScope]
+                                   , nFrames           :: Int
                                    , globals           :: LexScope
                                    , funs              :: M.Map FunctionName CFunDef
                                    , typedefs          :: M.Map VarName Type
@@ -301,6 +326,7 @@ instance MonadFail Compiler where
 
 emptyCompilerState :: CompilerState
 emptyCompilerState = CompilerState { callStack     = []
+                                   , nFrames       = 0
                                    , globals       = lsWithPrefix "global"
                                    , funs          = M.empty
                                    , typedefs      = M.empty
@@ -325,39 +351,116 @@ compilerRunOnTop f = do
   modify $ \s -> s { callStack = s' : tail (callStack s) }
   return r
 
-compilerRunInScope
-  :: String
+ssaLValName :: SsaLVal -> VarName
+ssaLValName ssa = case ssa of
+  SLVar n         -> n
+  SLRef (Ref _ n) -> n
+
+compilerFindScope :: SsaLVal -> Compiler ScopeIdx
+compilerFindScope ssa = case ssa of
+  SLVar name -> do
+    stack <- gets callStack
+    case listToMaybe stack >>= fsFindLexScopeOpt name of
+      Just idx -> do
+        n <- gets nFrames
+        return $ ScopeIdx { lsIdx = idx, fsIdx = n - 1 }
+      Nothing -> do
+        global <- gets globals
+        return $ if M.member name $ tys global
+          then ScopeGlobal
+          else error $ "Cannot find the variable `" ++ name ++ "` in scope"
+  SLRef (Ref idx _) -> return idx
+
+-- Runs a modification function on the scope of the provided variable
+compilerRunInScopeIdx
+  :: ScopeIdx
   -> (FunctionScope -> Compiler (a, FunctionScope))
   -> (LexScope -> Compiler (a, LexScope))
   -> Compiler a
-compilerRunInScope var fF lF = do
-  stack <- gets callStack
-  case stack of
-    top : rest | isJust (fsFindLexScopeOpt var top) -> do
-      (r, top') <- fF top
-      modify $ \s -> s { callStack = top' : rest }
-      return r
-    _ -> do
-      global       <- gets globals
-      (r, global') <- lF global
-      modify $ \s -> s { globals = global' }
-      return r
+compilerRunInScopeIdx scopeIdx fF lF = case scopeIdx of
+  ScopeGlobal -> do
+    global       <- gets globals
+    (r, global') <- lF global
+    modify $ \s -> s { globals = global' }
+    return r
+  ScopeIdx { lsIdx = l, fsIdx = f } -> do
+    stack <- gets callStack
+    n     <- gets nFrames
+    let i     = n - f - 1
+    let frame = stack !! i
+    (r, frame') <- fF frame
+    modify $ \s -> s
+      { callStack =
+        runIdentity $ listModify i (Identity . const frame') $ callStack s
+      }
+    return r
+
+ssaValAsCTerm :: String -> SsaVal -> CTerm
+ssaValAsCTerm reason v = case v of
+  Base c -> c
+  RefVal {} -> error $ "Cannot unwrap " ++ show v ++ " as a C term. It is a reference. Reason\n" ++ reason
+
+ssaBool :: SsaVal -> Ty.TermBool
+ssaBool = cppBool . ssaValAsCTerm "cppBool"
+
+ssaType :: SsaVal -> Type
+ssaType = cppType . ssaValAsCTerm "cppType"
+
+liftCFun :: String -> (CTerm -> CTerm) -> SsaVal -> SsaVal
+liftCFun name f x = case x of
+  Base c -> Base $ f c
+  RefVal{} -> error $ "Cannot apply c function " ++ name ++ " to reference " ++ show x
+
+liftCFun2 :: String -> (CTerm -> CTerm -> CTerm) -> SsaVal -> SsaVal -> SsaVal
+liftCFun2 name f x1 x2 = case (x1, x2) of
+  (Base c1, Base c2) -> Base $ f c1 c2
+  _ -> error $ "Cannot apply c function " ++ name ++ " to " ++ show (x1, x2)
+
+liftCFun3 :: String -> (CTerm -> CTerm -> CTerm -> CTerm) -> SsaVal -> SsaVal -> SsaVal -> SsaVal
+liftCFun3 name f x1 x2 x3 = case (x1, x2, x3) of
+  (Base c1, Base c2, Base c3) -> Base $ f c1 c2 c3
+  _ -> error $ "Cannot apply c function " ++ name ++ " to " ++ show (x1, x2, x3)
+
+liftCFun2M :: Monad m => String -> (CTerm -> CTerm -> m CTerm) -> SsaVal -> SsaVal -> m SsaVal
+liftCFun2M name f x1 x2 = case (x1, x2) of
+  (Base c1, Base c2) -> Base <$> f c1 c2
+  _ -> error $ "Cannot apply c function " ++ name ++ " to " ++ show (x1, x2)
+
+compilerRunInLValScope
+  :: SsaLVal
+  -> (FunctionScope -> Compiler (a, FunctionScope))
+  -> (LexScope -> Compiler (a, LexScope))
+  -> Compiler a
+compilerRunInLValScope lval fF lF = do
+  idx <- compilerFindScope lval
+  compilerRunInScopeIdx idx fF lF
 
 compilerModifyInScope
-  :: VarName
-  -> (FunctionScope -> FunctionScope)
-  -> (LexScope -> LexScope)
+  :: SsaLVal
+  -> (VarName -> Int -> FunctionScope -> FunctionScope)
+  -> (VarName -> LexScope -> LexScope)
   -> Compiler ()
-compilerModifyInScope v fF lF =
-  compilerRunInScope v (return . ((), ) . fF) (return . ((), ) . lF)
+compilerModifyInScope v fF lF = do
+  idx <- compilerFindScope v
+  compilerRunInScopeIdx idx
+                        (return . ((), ) . fF (ssaLValName v) (lsIdx idx))
+                        (return . ((), ) . lF (ssaLValName v))
 
 compilerGetsInScope
-  :: String -> (FunctionScope -> a) -> (LexScope -> a) -> Compiler a
-compilerGetsInScope var fF lF = do
-  stack <- gets callStack
-  case stack of
-    top : rest | isJust (fsFindLexScopeOpt var top) -> return $ fF top
-    _ -> lF <$> gets globals
+  :: SsaLVal
+  -> (VarName -> Int -> FunctionScope -> a)
+  -> (VarName -> LexScope -> a)
+  -> Compiler a
+compilerGetsInScope ssa fF lF = do
+  idx <- compilerFindScope ssa
+  case idx of
+    ScopeGlobal                       -> lF (ssaLValName ssa) <$> gets globals
+    ScopeIdx { lsIdx = l, fsIdx = f } -> do
+      stack <- gets callStack
+      n     <- gets nFrames
+      let i     = n - f - 1
+      let frame = stack !! i
+      return $ fF (ssaLValName ssa) l frame
 
 compilerGetsFunction :: (FunctionScope -> a) -> Compiler a
 compilerGetsFunction f = compilerRunOnTop (\s -> return (f s, s))
@@ -382,24 +485,22 @@ declareVar var ty = do
       modify $ \s -> s { globals = g' }
     else compilerModifyTopM $ \s -> liftMem $ fsDeclareVar var ty s
 
-getVer :: VarName -> Compiler Version
-getVer v = compilerGetsInScope v (fsGetVer v) (lsGetVer v)
+getVer :: SsaLVal -> Compiler Version
+getVer v = compilerGetsInScope v fsGetVer lsGetVer
 
-nextVer :: VarName -> Compiler ()
-nextVer v = compilerRunInScope v
-                               (return . ((), ) . fsNextVer v)
-                               (return . ((), ) . lsNextVer v)
+nextVer :: SsaLVal -> Compiler ()
+nextVer v = compilerModifyInScope v fsNextVer lsNextVer
 
-getType :: VarName -> Compiler Type
-getType v = compilerGetsInScope v (fsGetType v) (lsGetType v)
+getType :: SsaLVal -> Compiler Type
+getType v = compilerGetsInScope v fsGetType lsGetType
 
-getSsaVar :: VarName -> Compiler SsaVar
-getSsaVar v = compilerGetsInScope v (fsGetSsaVar v) (lsGetSsaVar v)
+getSsaVar :: SsaLVal -> Compiler SsaVar
+getSsaVar v = compilerGetsInScope v fsGetSsaVar lsGetSsaVar
 
-getNextSsaVar :: VarName -> Compiler SsaVar
-getNextSsaVar v = compilerGetsInScope v (fsGetNextSsaVar v) (lsGetNextSsaVar v)
+getNextSsaVar :: SsaLVal -> Compiler SsaVar
+getNextSsaVar v = compilerGetsInScope v fsGetNextSsaVar lsGetNextSsaVar
 
-getSsaName :: VarName -> Compiler String
+getSsaName :: SsaLVal -> Compiler String
 getSsaName n = ssaVarAsString <$> getSsaVar n
 
 computingValues :: Compiler Bool
@@ -425,31 +526,40 @@ smtEval smt = flip Ty.eval smt <$> getValues
 smtEvalBool :: Ty.TermBool -> Compiler Bool
 smtEvalBool smt = Ty.valAsBool <$> smtEval smt
 
-setValue :: VarName -> CTerm -> Compiler ()
+-- We don not record witness values for references.
+setValue :: SsaLVal -> CTerm -> Compiler ()
 setValue name cterm = modValues $ \vs -> do
-  var <- ssaVarAsString <$> getSsaVar name
-  --liftIO $ putStrLn $ var ++ " -> " ++ show cterm
-  val <- liftMem $ ctermEval vs cterm
-  return $ M.insert var val vs
+  liftLog $ logIf "witness" $ show name ++ " -> " ++ show cterm
+  -- TODO: check getSsaVar
+  var  <- ssaVarAsString <$> getSsaVar name
+  cval <- liftMem $ ctermEval vs cterm
+  return $ M.insert var cval vs
 
+-- We don not record witness values for references.
 setRetValue :: CTerm -> Compiler ()
 setRetValue cterm = modValues $ \vs -> do
-  var <- compilerGetsTop retTermName
-  val <- liftMem $ ctermEval vs cterm
-  return $ M.insert var val vs
+  var  <- compilerGetsTop retTermName
+  cval <- liftMem $ ctermEval vs cterm
+  return $ M.insert var cval vs
 
-getTerm :: VarName -> Compiler CTerm
-getTerm var = compilerGetsInScope var (fsGetTerm var) (lsGetTerm var)
+getTerm :: SsaLVal -> Compiler SsaVal
+getTerm var = compilerGetsInScope var fsGetTerm lsGetTerm
 
-setTerm :: VarName -> CTerm -> Compiler ()
-setTerm n v = compilerModifyInScope n (fsSetTerm n v) (lsSetTerm n v)
+setTerm :: SsaLVal -> SsaVal -> Compiler ()
+setTerm n v = compilerModifyInScope n (fsSetTerm v) (lsSetTerm v)
 
 printComp :: Compiler ()
 printComp = do
   gets callStack >>= liftIO . traverse_ printFs
   liftIO $ putStrLn "Typedefs:"
-  gets typedefs >>= liftIO . traverse_ (\(k, v) -> putStrLn ("  " ++ k ++ " -> " ++ show v)) . M.toList
-  gets structdefs >>= liftIO . traverse_ (\(k, v) -> putStrLn ("  " ++ k ++ " -> " ++ show v)) . M.toList
+  gets typedefs
+    >>= liftIO
+    .   traverse_ (\(k, v) -> putStrLn ("  " ++ k ++ " -> " ++ show v))
+    .   M.toList
+  gets structdefs
+    >>= liftIO
+    .   traverse_ (\(k, v) -> putStrLn ("  " ++ k ++ " -> " ++ show v))
+    .   M.toList
 
 enterLexScope :: Compiler ()
 enterLexScope = compilerModifyTop fsEnterLexScope
@@ -498,8 +608,8 @@ execCodegen checkUB act = snd <$> runCodegen checkUB act
 -- Turning VarNames (the AST's representation of a variable) into other representations
 -- of variables
 
-codegenVar :: VarName -> Compiler SsaVar
-codegenVar var = SsaVar var <$> getVer var
+codegenVar :: SsaLVal -> Compiler SsaVar
+codegenVar var = SsaVar (ssaLValName var) <$> getVer var
 
 -- | Human readable name.
 -- We probably want to replace this with something faster (eg hash) someday, but
@@ -510,42 +620,68 @@ ssaVarAsString (SsaVar varName ver) = varName ++ "_v" ++ show ver
 whenM :: Monad m => m Bool -> m () -> m ()
 whenM condition action = condition >>= flip when action
 
+ifVal :: Monad m => SsaVal -> (CTerm -> m a) -> m ()
+ifVal val f = case val of
+  Base v -> void $ f v
+  _      -> return ()
+
 -- Assert that the current version of `var` is assign `value` to it.
-argAssign :: VarName -> CTerm -> Compiler CTerm
+-- Could return 
+argAssign :: SsaLVal -> SsaVal -> Compiler SsaVal
 argAssign var val = do
   --liftIO $ putStrLn $ "argAssign " ++ var ++ " = " ++ show val
   priorTerm  <- getTerm var
   ty         <- getType var
   trackUndef <- gets findUB
   ssaVar     <- getSsaVar var
-  let castVal = cppCast ty val
-  t <- liftMem $ cppDeclInitVar trackUndef ty (ssaVarAsString ssaVar) castVal
-  setTerm var t
-  whenM computingValues $ setValue var castVal
-  return t
+  case val of
+    Base cval -> do
+      let castVal = cppCast ty cval
+      t <- liftMem
+        $ cppDeclInitVar trackUndef ty (ssaVarAsString ssaVar) castVal
+      setTerm var (Base t)
+      whenM computingValues $ setValue var castVal
+      return (Base t)
+    RefVal r -> do
+      setTerm var val
+      return val
 
 -- Bump the version of `var` and assign `value` to it.
-ssaAssign :: VarName -> CTerm -> Compiler CTerm
+ssaAssign :: SsaLVal -> SsaVal -> Compiler SsaVal
 ssaAssign var val = do
-  --liftIO $ putStrLn $ "ssaAssign " ++ var ++ " = " ++ show val
   priorTerm  <- getTerm var
   ty         <- getType var
   nextSsaVar <- getNextSsaVar var
   guard      <- getGuard
-  let guardTerm = CTerm (CBool guard) (Ty.BoolLit False)
-      castVal   = cppCast ty val
-      guardVal  = cppCond guardTerm castVal priorTerm
-  trackUndef <- gets findUB
-  t          <- liftMem
-    $ cppDeclInitVar trackUndef ty (ssaVarAsString nextSsaVar) guardVal
-  nextVer var
-  setTerm var t
-  whenM computingValues $ do
-    g <- smtEvalBool guard
-    setValue var (if g then castVal else priorTerm)
-  return t
+  case val of
+    Base cval -> do
+      let guardTerm = CTerm (CBool guard) (Ty.BoolLit False)
+          castVal   = cppCast ty cval
+          priorCval = case priorTerm of
+            RefVal r ->
+              error
+                $  "Writing a cterm"
+                ++ show cval
+                ++ "to a location"
+                ++ show var
+                ++ "that held a ref"
+                ++ show r
+            Base c -> c
+          guardVal = cppCond guardTerm castVal priorCval
+      trackUndef <- gets findUB
+      t          <- liftMem
+        $ cppDeclInitVar trackUndef ty (ssaVarAsString nextSsaVar) guardVal
+      nextVer var
+      setTerm var (Base t)
+      whenM computingValues $ do
+        g <- smtEvalBool guard
+        setValue var (if g then castVal else priorCval)
+      return (Base t)
+    RefVal r -> do
+      setTerm var val
+      return val
 
-initAssign :: VarName -> Integer -> Compiler ()
+initAssign :: SsaLVal -> Integer -> Compiler ()
 initAssign name value = do
   ty <- getType name
   setValue name (ctermInit ty value)
@@ -555,6 +691,16 @@ initValues = modify $ \s -> s { values = Just M.empty }
 
 setDefaultValueZero :: Compiler ()
 setDefaultValueZero = modify $ \s -> s { defaultValue = Just 0 }
+
+getRef :: SsaLVal -> Compiler SsaVal
+getRef lval = do
+  idx <- compilerFindScope lval
+  return $ RefVal (Ref idx (ssaLValName lval))
+
+deref :: SsaVal -> SsaLVal
+deref val = case val of
+  RefVal r -> SLRef r
+  Base c -> error $ "Cannot derefence base value: " ++ show c
 
 -- Not quite right? Returns?  Our return stuff is super hacky anyways. We
 -- should integrate it with the guard machinery.
@@ -580,12 +726,22 @@ pushFunction name ty = do
   let p' = name : p
   fs <- liftMem
     $ fsWithPrefix ("f" ++ show c ++ "_" ++ intercalate "_" (reverse p')) ty
-  modify (\s -> s { prefix = p', callStack = fs : callStack s, fnCtr = c + 1 })
+  modify
+    (\s -> s { prefix    = p'
+             , callStack = fs : callStack s
+             , fnCtr     = c + 1
+             , nFrames   = 1 + nFrames s
+             }
+    )
 
 -- Pop a function, returning the return term
 popFunction :: Compiler ()
-popFunction =
-  modify (\s -> s { callStack = tail (callStack s), prefix = tail (prefix s) })
+popFunction = modify
+  (\s -> s { callStack = tail (callStack s)
+           , prefix    = tail (prefix s)
+           , nFrames   = nFrames s - 1
+           }
+  )
 
 registerFunction :: FunctionName -> CFunDef -> Compiler ()
 registerFunction name function = do
@@ -652,6 +808,11 @@ setLoopBound bound = modify (\s -> s { loopBound = bound })
 getAssignment :: Compiler (CTerm -> CTerm -> (Ty.TermBool, CTerm))
 getAssignment = cppAssignment <$> gets findUB
 
+liftCFunM :: Monad m => String -> (CTerm -> m CTerm) -> SsaVal -> m SsaVal
+liftCFunM name f x = case x of
+  Base c -> Base <$> f c
+  RefVal{} -> error $ "Cannot apply c function " ++ name ++ " to reference " ++ show x
+
 -- Load this CTerm, tracking UB
 load :: CTerm -> Compiler CTerm
 load ref = do
@@ -659,8 +820,22 @@ load ref = do
   whenM (gets findUB) $ bugIf oob
   return val
 
+ssaLoad :: SsaVal -> Compiler SsaVal
+ssaLoad = liftCFunM "load" load
+
 store :: CTerm -> CTerm -> Compiler ()
 store ref val = do
-  g <- getGuard
+  g   <- getGuard
   oob <- liftMem $ cppStore ref val g
   whenM (gets findUB) $ bugIf oob
+
+ssaStore :: SsaVal -> SsaVal -> Compiler ()
+ssaStore ref val = case (ref, val) of
+  (Base a, Base b) -> store a b
+  _ -> error $ "Cannot store " ++ show (ref, val)
+
+ssaStructGet :: String -> SsaVal -> SsaVal
+ssaStructGet n = liftCFun "cppStructGet" (`cppStructGet` n)
+
+ssaStructSet :: String -> SsaVal -> SsaVal -> SsaVal
+ssaStructSet n = liftCFun2 "cppStructSet" (cppStructSet n)
