@@ -40,9 +40,6 @@ import           Data.Maybe                     ( catMaybes
                                                 , fromJust
                                                 , listToMaybe
                                                 )
--- Other C dependencies:
---   strutdefs & typedefs
---   findUB
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 , fromDyn
@@ -51,6 +48,11 @@ import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.Assert                 as Assert
 import           IR.SMT.Assert                  ( Assert )
 import           Util.Log
+
+-- Other C dependencies:
+--   strutdefs & typedefs
+--   findUB
+--   bugIf and bugConditions
 
 {-|
 
@@ -189,8 +191,7 @@ data FunctionScope = FunctionScope { -- Condition for current path
                                      -- number of next ls
                                    , lsCtr             :: Int
                                    , fsPrefix          :: String
-                                   , retTerm           :: CTerm
-                                   , retTermName       :: String
+                                   , retTy             :: Maybe Type
                                    } deriving (Show)
 
 listModify :: Functor m => Int -> (a -> m a) -> [a] -> m [a]
@@ -298,34 +299,18 @@ fsDoBreak name scope = scope { guards = go [] $ guards scope }
 fsCurrentGuard :: FunctionScope -> [Ty.TermBool]
 fsCurrentGuard = concatMap guardConditions . guards
 
--- | Conditionally set the return value
--- Add a break the the current return-break-scope.
-fsReturn :: CTerm -> FunctionScope -> Compiler FunctionScope
-fsReturn value scope = do
-  g <- getGuard
-  a <- getAssignment
-  let (retAssertion, retVal) = a (retTerm scope) value
-  liftAssert $ Assert.implies g retAssertion
-  whenM computingValues $ whenM (smtEvalBool g) $ setRetValue
-    retVal
-  return $ fsDoBreak returnBreakName scope
-
 returnBreakName :: String
 returnBreakName = "CompilerMonadReturn"
 
-fsWithPrefix :: String -> Type -> Mem FunctionScope
-fsWithPrefix prefix ty = do
-  let retTermName = ssaVarAsString $ SsaVar (prefix ++ "__return") 0
-  retTerm <- cppDeclVar ty retTermName
-  let fs = FunctionScope { guards = [Break returnBreakName []]
-                         , retTerm           = retTerm
-                         , retTermName       = retTermName
+fsWithPrefix :: String -> Maybe Type -> FunctionScope
+fsWithPrefix prefix ty =
+  FunctionScope { guards = []
+                         , retTy             = ty
                          , lexicalScopes     = []
                          , nCurrentScopes    = 0
                          , lsCtr             = 0
                          , fsPrefix          = prefix
                          }
-  return $ fsEnterLexScope fs
 
 -- | Internal state of the compiler for code generation
 data CompilerState = CompilerState { callStack         :: [FunctionScope]
@@ -525,6 +510,9 @@ declareVar var ty = do
       g' <- liftMem $ lsDeclareVar var ty g
       modify $ \s -> s { globals = g' }
     else compilerModifyTopM $ \s -> liftMem $ fsDeclareVar var ty s
+  -- Kind of weird: we don't know this is the right values, but there's no harm
+  -- in lying to the SMT evaluation layer for now.
+  whenM computingValues $ setValue (SLVar var) $ ctermInit ty 0
 
 getVer :: SsaLVal -> Compiler Version
 getVer v = compilerGetsInScope v fsGetVer lsGetVer
@@ -576,10 +564,8 @@ setValue name cterm = modValues $ \vs -> do
   cval <- liftMem $ ctermEval vs cterm
   return $ M.insert var cval vs
 
--- We don not record witness values for references.
-setRetValue :: CTerm -> Compiler ()
-setRetValue cterm = modValues $ \vs -> do
-  var  <- compilerGetsTop retTermName
+setValueRaw :: String -> CTerm -> Compiler ()
+setValueRaw var cterm = modValues $ \vs -> do
   cval <- liftMem $ ctermEval vs cterm
   return $ M.insert var cval vs
 
@@ -621,10 +607,9 @@ getGuard :: Compiler Ty.TermBool
 getGuard = safeNary Ty.And . concatMap fsCurrentGuard . callStack <$> get
 
 doReturn :: CTerm -> Compiler ()
-doReturn value = compilerModifyTopM (fsReturn value)
-
-getReturn :: Compiler CTerm
-getReturn = compilerGetsTop retTerm
+doReturn value = do
+  ssaAssign (SLVar returnValueName) (Base value)
+  compilerModifyTop (fsDoBreak returnBreakName)
 
 liftMem :: Mem a -> Compiler a
 liftMem = Compiler . lift
@@ -759,13 +744,15 @@ assertBug = do
 --- Functions
 ---
 
-pushFunction :: FunctionName -> Type -> Compiler ()
+returnValueName :: String
+returnValueName = "return"
+
+pushFunction :: FunctionName -> Maybe Type -> Compiler ()
 pushFunction name ty = do
   p <- gets prefix
   c <- gets fnCtr
   let p' = name : p
-  fs <- liftMem
-    $ fsWithPrefix ("f" ++ show c ++ "_" ++ intercalate "_" (reverse p')) ty
+  let fs = fsWithPrefix ("f" ++ show c ++ "_" ++ intercalate "_" (reverse p')) ty
   modify
     (\s -> s { prefix    = p'
              , callStack = fs : callStack s
@@ -773,15 +760,31 @@ pushFunction name ty = do
              , nFrames   = 1 + nFrames s
              }
     )
+  enterLexScope
+  compilerModifyTop $ fsPushBreakable returnBreakName
+  forM_ ty $ \t -> declareVar returnValueName t
 
 -- Pop a function, returning the return term
-popFunction :: Compiler ()
-popFunction = modify
-  (\s -> s { callStack = tail (callStack s)
+popFunction :: Compiler (Maybe CTerm)
+popFunction = do
+  popGuard
+  frame <- gets (head . callStack)
+  retTerm <- case retTy frame of
+    Just ty -> do
+      t <- ssaValAsCTerm "return get" <$> getTerm (SLVar returnValueName)
+      let retName = fsPrefix frame ++ "__" ++ returnValueName
+      ub <- gets findUB
+      t' <- liftMem $ cppDeclInitVar ub ty retName t
+      whenM computingValues $ setValueRaw retName t
+      return $ Just t'
+    Nothing -> return $ Nothing
+  exitLexScope
+  modify (\s -> s { callStack = tail (callStack s)
            , prefix    = tail (prefix s)
            , nFrames   = nFrames s - 1
            }
-  )
+         )
+  return retTerm
 
 registerFunction :: FunctionName -> CFunDef -> Compiler ()
 registerFunction name function = do

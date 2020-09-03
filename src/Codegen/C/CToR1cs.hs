@@ -34,6 +34,7 @@ import           IR.R1cs                        ( R1CS(..)
                                                 )
 import           Data.Maybe                     ( isJust
                                                 , fromJust
+                                                , fromMaybe
                                                 )
 import           Data.Dynamic                   ( Dynamic )
 import qualified Data.Set                      as Set
@@ -60,7 +61,7 @@ fnToSmt inVals tu name = do
     Assert.runAssert $ runCodegen False $ init >> codegenFn tu name inVals
   return $ FnTrans { assertions = Assert.asserted assertState
                    , inputs     = inputs
-                   , output     = output
+                   , output     = fromMaybe (error "No return value in fnToSmt") output
                    , vals       = values compState
                    }
 

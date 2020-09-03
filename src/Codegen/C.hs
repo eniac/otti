@@ -176,6 +176,9 @@ unwrap e = case e of
   Left  l -> error $ "Either is not right, it is: Left " ++ show l
   Right r -> r
 
+noneIfVoid :: Type -> Maybe Type
+noneIfVoid t = if Void == t then Nothing else Just t
+
 genExprSMT :: CExpr -> Compiler SsaVal
 --genExprSMT expr = liftIO (("Expr: " ++) <$> nodeText expr >>= putStrLn) >> case expr of
 genExprSMT expr = do
@@ -227,7 +230,7 @@ genExprSMT expr = do
         actualArgs <- traverse genExprSMT args
         f          <- getFunction fnName
         retTy      <- unwrap <$> ctype (baseTypeFromFunc f) (ptrsFromFunc f)
-        pushFunction fnName retTy
+        pushFunction fnName (noneIfVoid retTy)
         forM_ (argsFromFunc f) (genDeclSMT Nothing)
         let
           formalArgs =
@@ -254,9 +257,8 @@ genExprSMT expr = do
         case body of
           CCompound{} -> genStmtSMT body
           _           -> error "Expected C statement block in function definition"
-        returnValue <- getReturn
-        popFunction
-        return $ Base $ returnValue
+        returnValue <- popFunction
+        return $ Base $ fromMaybe (error "Getting the return value of a void fn") returnValue
       _ -> error $ unwords ["Fn call of", show fn, "is unsupported"]
     CCond cond mTrueBr falseBr _ -> do
       cond' <- genExprSMT cond
@@ -475,14 +477,14 @@ genInitSMT ty i = case (ty, i) of
 
 -- Returns the variable names corresponding to inputs and the return
 genFunDef
-  :: CFunDef -> Maybe (Map.Map String Integer) -> Compiler ([String], String)
+  :: CFunDef -> Maybe (Map.Map String Integer) -> Compiler ([String], Maybe String)
 genFunDef f inVals = do
   -- Declare the function and setup the return value
   let name = nameFromFunc f
       ptrs = ptrsFromFunc f
       tys  = baseTypeFromFunc f
   retTy <- unwrap <$> ctype tys ptrs
-  pushFunction name retTy
+  pushFunction name $ noneIfVoid retTy
   -- Declare the arguments and execute the body
   inputNamesList <- forM (argsFromFunc f) (genDeclSMT (Just False))
   let inputNames = join inputNamesList
@@ -498,11 +500,9 @@ genFunDef f inVals = do
   case body of
     CCompound{} -> genStmtSMT body
     _           -> error "Expected C statement block in function definition"
-  returnValue <- getReturn
-  popGuard
-  whenM (gets findUB) $ bugIf $ udef returnValue
-  popFunction
-  return (fullInputNames, fromJust $ asVar returnValue)
+  returnValue <- popFunction
+  whenM (gets findUB) $ forM_ returnValue $ \r -> bugIf $ udef r
+  return (fullInputNames, fmap (fromJust . asVar) returnValue)
 
 genAsm :: CStringLiteral a -> Compiler ()
 genAsm = undefined
@@ -542,7 +542,7 @@ codegenFn
   :: CTranslUnit
   -> String
   -> Maybe (Map.Map String Integer)
-  -> Compiler ([String], String)
+  -> Compiler ([String], Maybe String)
 codegenFn (CTranslUnit decls _) name inVals = do
   registerFns decls
   genFunDef (findFn name decls) inVals
