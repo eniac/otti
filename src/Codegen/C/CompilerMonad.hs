@@ -24,7 +24,6 @@ import qualified Codegen.C.Memory              as Mem
 import           Codegen.C.Memory               ( Mem )
 
 -- Control imports
-import           Control.Monad.Fail
 import           Control.Monad.Reader
 import           Control.Monad.State.Strict
 
@@ -330,9 +329,6 @@ data CompilerState = CompilerState { callStack         :: [FunctionScope]
 newtype Compiler a = Compiler (StateT CompilerState Mem a)
     deriving (Functor, Applicative, Monad, MonadState CompilerState, MonadIO, MonadLog)
 
-
-instance MonadFail Compiler where
-  fail = error "FAILED"
 
 ---
 --- Setup, monad functions, etc
