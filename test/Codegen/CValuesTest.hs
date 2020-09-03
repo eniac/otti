@@ -90,7 +90,7 @@ cValueTests = benchTestGroup
   , constraintValueTest "do while once" "bar" "test/Code/C/do_while.c" [ ("f0_bar__return_v0", i 5) ]
   , constraintValueTest "while bound" "foo" "test/Code/C/while.c" [ ("f0_foo__return_v0", i 7) ]
   , constraintValueTest "while zero" "bar" "test/Code/C/while.c" [ ("f0_bar__return_v0", i 4) ]
-  , constraintValueTest "memory 0" "foo" "test/Code/C/memory_0.c" [ ("f0_foo__return_v0", i 100) ]
+  , constraintValueTest "memory 0" "foo" "test/Code/C/memory_0.c" [ ("f0_foo__return_v0", i 7) ]
 -- Segfaults everytime
 --  , constraintValueTest "memory 1" "test/Code/C/memory_1.c" [ ("f0_foo__return_v0", 100) ] -- Again, not sure what we want to do here. UC symex vs not UC symex?
   , constraintValueTest "short &&" "short_and" "test/Code/C/short-circuit.c" [ ("f0_short_and__return_v0", i 0) ]
