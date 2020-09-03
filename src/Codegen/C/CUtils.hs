@@ -42,8 +42,10 @@ module Codegen.C.CUtils
   , cppGe
   , cppEq
   , cppNe
-  -- Other
+  -- Ites
   , cppCond
+  , cppIte
+  -- Other
   , cppAssign
   , cppAssignment
   , cppCast
@@ -848,10 +850,17 @@ cppCast toTy node = case term node of
   boolToBv :: Ty.TermBool -> Int -> Bv
   boolToBv b w = Ty.Ite b (Mem.bvNum False w 1) (Mem.bvNum False w 0)
 
+-- A ITE based on a CTerm condition.
 cppCond :: CTerm -> CTerm -> CTerm -> CTerm
 cppCond cond t f =
+  let condB  = asBool $ term $ cppCast AST.Bool cond
+      r      = cppIte condB t f
+  in  mkCTerm (term r) (Ty.BoolNaryExpr Ty.Or [udef cond, udef r])
+
+-- A ITE based on an SMT boolean condition.
+cppIte :: Ty.TermBool -> CTerm -> CTerm -> CTerm
+cppIte condB t f =
   let
-    condB  = asBool $ term $ cppCast AST.Bool cond
     result = case (term t, term f) of
       (CBool   tB, CBool fB  ) -> CBool $ Ty.Ite condB tB fB
       (CDouble tB, CDouble fB) -> CDouble $ Ty.Ite condB tB fB
@@ -864,12 +873,12 @@ cppCond cond t f =
         in  CInt sign width
               $ Ty.Ite condB (intResize s width i) (intResize s' width i')
       (CStruct aTy a, CStruct bTy b) | aTy == bTy ->
-        CStruct aTy $ zipWith (\(f, aV) (_, bV) -> (f, cppCond cond aV bV)) a b
+        CStruct aTy $ zipWith (\(f, aV) (_, bV) -> (f, cppIte condB aV bV)) a b
       _ ->
         error $ unwords
           ["Cannot construct conditional with", show t, "and", show f]
   in
-    mkCTerm result (Ty.BoolNaryExpr Ty.Or [udef cond, udef t, udef f])
+    mkCTerm result (Ty.BoolNaryExpr Ty.Or [udef t, udef f])
 
 
 -- TODO: Rewrite doReturn in terms of the new alias machinery, and then remove

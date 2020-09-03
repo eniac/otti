@@ -10,12 +10,11 @@ import           AST.Simple                     ( Type
                                                 , FunctionName
                                                 )
 import           Language.C.Syntax.AST          ( CFunDef )
-import           Codegen.C.CUtils               ( CTerm(..)
+import           Codegen.C.CUtils               ( CTerm
                                                 , cppDeclVar
                                                 , cppDeclInitVar
-                                                , CTermData(CBool)
                                                 , cppCast
-                                                , cppCond
+                                                , cppIte
                                                 , ctermInit
                                                 , cppAssignment
                                                 , ctermEval
@@ -678,8 +677,7 @@ ssaAssign var val = do
   guard      <- getGuard
   case val of
     Base cval -> do
-      let guardTerm = CTerm (CBool guard) (Ty.BoolLit False)
-          castVal   = cppCast ty cval
+      let castVal   = cppCast ty cval
           priorCval = case priorTerm of
             RefVal r ->
               error
@@ -690,7 +688,7 @@ ssaAssign var val = do
                 ++ "that held a ref"
                 ++ show r
             Base c -> c
-          guardVal = cppCond guardTerm castVal priorCval
+          guardVal = cppIte guard castVal priorCval
       trackUndef <- gets findUB
       t          <- liftMem
         $ cppDeclInitVar trackUndef ty (ssaVarAsString nextSsaVar) guardVal
