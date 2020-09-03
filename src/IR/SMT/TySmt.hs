@@ -30,6 +30,7 @@ module IR.SMT.TySmt
   , Sort(..)
   , BoolBinOp(..)
   , BoolNaryOp(..)
+  , boolNaryId
   , BvBinOp(..)
   , BvBinPred(..)
   , BvUnOp(..)
@@ -257,6 +258,13 @@ sortFloat :: Sort
 sortFloat = SortFp 8 24
 
 data BoolNaryOp = And | Or | Xor deriving (Show,Ord,Eq,Typeable)
+
+-- Return the identity for the associative operator
+boolNaryId :: BoolNaryOp -> TermBool
+boolNaryId o = case o of
+  And -> BoolLit True
+  Or  -> BoolLit False
+  Xor -> BoolLit False
 
 data BoolBinOp = Implies deriving (Show,Ord,Eq,Typeable)
 

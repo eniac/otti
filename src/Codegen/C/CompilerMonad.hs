@@ -40,6 +40,9 @@ import           Data.Maybe                     ( catMaybes
                                                 , fromJust
                                                 , listToMaybe
                                                 )
+-- Other C dependencies:
+--   strutdefs & typedefs
+--   findUB
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 , fromDyn
@@ -165,10 +168,21 @@ lsNextVer :: VarName -> LexScope -> LexScope
 lsNextVer var scope =
   scope { vers = M.insert var (lsGetVer var scope + 1) $ vers scope }
 
+-- A guard restricts effects base on
+-- (a) whether the condition is true or
+-- (b) whether none of the breaks are true.
+-- the breaks have labels
+data Guard = Guard Ty.TermBool
+           | Break String [Ty.TermBool]
+           deriving (Show)
+
+guardConditions :: Guard -> [Ty.TermBool]
+guardConditions g = case g of
+  Guard c -> [c]
+  Break _ cs -> map Ty.Not cs
+
 data FunctionScope = FunctionScope { -- Condition for current path
-                                     conditionalGuards :: [Ty.TermBool]
-                                     -- Conditions for each previous return
-                                   , returnValueGuards :: [[Ty.TermBool]]
+                                     guards :: [Guard]
                                      -- Stack of lexical scopes. Innermost first.
                                    , lexicalScopes     :: [LexScope]
                                    , nCurrentScopes    :: Int
@@ -258,47 +272,52 @@ fsExitLexScope scope = scope { nCurrentScopes = nCurrentScopes scope - 1
                              , lexicalScopes  = tail $ lexicalScopes scope
                              }
 
+fsPushBreakable :: String -> FunctionScope -> FunctionScope
+fsPushBreakable name scope =
+  scope { guards = Break name [] : guards scope }
+
 fsPushGuard :: Ty.TermBool -> FunctionScope -> FunctionScope
 fsPushGuard guard scope =
-  scope { conditionalGuards = guard : conditionalGuards scope }
+  scope { guards = Guard guard : guards scope }
 
 fsPopGuard :: FunctionScope -> FunctionScope
-fsPopGuard scope = scope { conditionalGuards = tail $ conditionalGuards scope }
+fsPopGuard scope = scope { guards = tail $ guards scope }
 
-fsCurrentGuard :: FunctionScope -> Ty.TermBool
-fsCurrentGuard = safeNary (Ty.BoolLit True) Ty.And . conditionalGuards
+-- Walk to the named break point, accumulating conditions.
+-- When you get there, add the accumulated condition.
+fsDoBreak :: String -> FunctionScope -> FunctionScope
+fsDoBreak name scope = scope { guards = go [] $ guards scope }
+ where
+   go acc gs = case gs of
+     Guard g : r -> Guard g : go (g : acc) r
+     Break name' cs : r ->
+       if name == name'
+         then Break name' (safeNary Ty.And acc : cs) : r
+         else Break name' cs : go (map Ty.Not cs ++ acc) r
 
--- | Set the return value if we have not returned, and block future returns
+fsCurrentGuard :: FunctionScope -> [Ty.TermBool]
+fsCurrentGuard = concatMap guardConditions . guards
+
+-- | Conditionally set the return value
+-- Add a break the the current return-break-scope.
 fsReturn :: CTerm -> FunctionScope -> Compiler FunctionScope
-fsReturn value scope =
-  let
-    returnCondition =
-      Ty.BoolNaryExpr Ty.And [fsCurrentGuard scope, fsHasNotReturned scope]
-    newScope = scope
-      { returnValueGuards = conditionalGuards scope : returnValueGuards scope
-      }
-  in
-    do
-      a <- getAssignment
-      let (retAssertion, retVal) = a (retTerm scope) value
-      liftAssert $ Assert.implies returnCondition retAssertion
-      whenM computingValues $ whenM (smtEvalBool returnCondition) $ setRetValue
-        retVal
-      return newScope
+fsReturn value scope = do
+  g <- getGuard
+  a <- getAssignment
+  let (retAssertion, retVal) = a (retTerm scope) value
+  liftAssert $ Assert.implies g retAssertion
+  whenM computingValues $ whenM (smtEvalBool g) $ setRetValue
+    retVal
+  return $ fsDoBreak returnBreakName scope
 
-fsHasNotReturned :: FunctionScope -> Ty.TermBool
-fsHasNotReturned =
-  Ty.Not
-    . safeNary (Ty.BoolLit False) Ty.Or
-    . map (safeNary (Ty.BoolLit True) Ty.And)
-    . returnValueGuards
+returnBreakName :: String
+returnBreakName = "CompilerMonadReturn"
 
 fsWithPrefix :: String -> Type -> Mem FunctionScope
 fsWithPrefix prefix ty = do
   let retTermName = ssaVarAsString $ SsaVar (prefix ++ "__return") 0
   retTerm <- cppDeclVar ty retTermName
-  let fs = FunctionScope { conditionalGuards = []
-                         , returnValueGuards = []
+  let fs = FunctionScope { guards = [Break returnBreakName []]
                          , retTerm           = retTerm
                          , retTermName       = retTermName
                          , lexicalScopes     = []
@@ -599,7 +618,7 @@ guarded :: Ty.TermBool -> Compiler a -> Compiler a
 guarded cond action = pushGuard cond *> action <* popGuard
 
 getGuard :: Compiler Ty.TermBool
-getGuard = compilerGetsTop fsCurrentGuard
+getGuard = safeNary Ty.And . concatMap fsCurrentGuard . callStack <$> get
 
 doReturn :: CTerm -> Compiler ()
 doReturn value = compilerModifyTopM (fsReturn value)
@@ -810,9 +829,9 @@ getStruct name = M.lookup name <$> gets structdefs
 --- If-statements
 ---
 
-safeNary :: Ty.TermBool -> Ty.BoolNaryOp -> [Ty.TermBool] -> Ty.TermBool
-safeNary id op xs = case xs of
-  []  -> id
+safeNary :: Ty.BoolNaryOp -> [Ty.TermBool] -> Ty.TermBool
+safeNary op xs = case xs of
+  []  -> Ty.boolNaryId op
   [s] -> s
   _   -> Ty.BoolNaryExpr op xs
 

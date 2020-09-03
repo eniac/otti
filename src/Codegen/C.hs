@@ -499,6 +499,7 @@ genFunDef f inVals = do
     CCompound{} -> genStmtSMT body
     _           -> error "Expected C statement block in function definition"
   returnValue <- getReturn
+  popGuard
   whenM (gets findUB) $ bugIf $ udef returnValue
   popFunction
   return (fullInputNames, fromJust $ asVar returnValue)
