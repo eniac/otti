@@ -262,32 +262,32 @@ udefName s = s ++ "_undef"
 -- constructs an equiavlent term with these new variables, and returns that new
 -- term.
 -- Useful for surfacing abtract terms under an easily identifiable name: `name`.
-alias :: Bool -> String -> CTerm -> Mem CTerm
+alias :: Bool -> String -> CTerm -> Assert.Assert CTerm
 alias trackUndef name t = do
-  u <- Mem.liftAssert $ Assert.newVar (udefName name) Ty.SortBool
-  when trackUndef $ Mem.liftAssert $ Assert.assign (udef t) u
+  u <- Assert.newVar (udefName name) Ty.SortBool
+  when trackUndef $ Assert.assign (udef t) u
   d <- case term t of
-    CBool b -> Mem.liftAssert $ do
+    CBool b -> do
       let sort = Ty.SortBool
       v <- Assert.newVar name sort
       Assert.assign v b
       return $ CBool b
-    CInt isNeg width val -> Mem.liftAssert $ do
+    CInt isNeg width val -> do
       let sort = Ty.SortBv width
       v <- Assert.newVar name sort
       Assert.assign v val
       return $ CInt isNeg width v
-    CFloat val -> Mem.liftAssert $ do
+    CFloat val -> do
       let sort = Ty.sortFloat
       v <- Assert.newVar name sort
       Assert.assign v val
       return $ CFloat v
-    CDouble val -> Mem.liftAssert $ do
+    CDouble val -> do
       let sort = Ty.sortDouble
       v <- Assert.newVar name sort
       Assert.assign v val
       return $ CDouble v
-    CStackPtr ty off id -> Mem.liftAssert $ do
+    CStackPtr ty off id -> do
       let sort = Ty.SortBv $ AST.numBits ty
       v <- Assert.newVar name sort
       Assert.assign v off
@@ -307,7 +307,7 @@ structVarName baseName fieldName = baseName ++ "." ++ fieldName
 cppDeclInitVar :: Bool -> AST.Type -> String -> CTerm -> Mem (CTerm, CTerm)
 cppDeclInitVar trackUndef ty name init =
   let init' = cppCast ty init
-  in  (,init') <$> alias trackUndef name init'
+  in  Mem.liftAssert $ (,init') <$> alias trackUndef name init'
 
 -- Declare a new variable, do not initialize it.
 cppDeclVar :: AST.Type -> String -> Mem CTerm
