@@ -303,9 +303,11 @@ structVarName :: String -> String -> String
 structVarName baseName fieldName = baseName ++ "." ++ fieldName
 
 -- Declare a new variable, initialize it to a value.
-cppDeclInitVar :: Bool -> AST.Type -> String -> CTerm -> Mem CTerm
+-- Returns the new term, and the old one, casted to be of the right type.
+cppDeclInitVar :: Bool -> AST.Type -> String -> CTerm -> Mem (CTerm, CTerm)
 cppDeclInitVar trackUndef ty name init =
-  alias trackUndef name $ cppCast ty init
+  let init' = cppCast ty init
+  in  (,init') <$> alias trackUndef name init'
 
 -- Declare a new variable, do not initialize it.
 cppDeclVar :: AST.Type -> String -> Mem CTerm

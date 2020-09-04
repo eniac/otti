@@ -655,15 +655,13 @@ ifVal val f = case val of
 argAssign :: SsaLVal -> SsaVal -> Compiler SsaVal
 argAssign var val = do
   --liftIO $ putStrLn $ "argAssign " ++ var ++ " = " ++ show val
-  priorTerm  <- getTerm var
   ty         <- getType var
   trackUndef <- gets findUB
   ssaVar     <- getSsaVar var
   case val of
     Base cval -> do
-      let castVal = cppCast ty cval
-      t <- liftMem
-        $ cppDeclInitVar trackUndef ty (ssaVarAsString ssaVar) castVal
+      (t, castVal) <- liftMem
+        $ cppDeclInitVar trackUndef ty (ssaVarAsString ssaVar) cval
       setTerm var (Base t)
       whenM computingValues $ setValue var castVal
       return (Base t)
@@ -693,7 +691,7 @@ ssaAssign var val = do
             Base c -> c
           guardVal = cppIte guard castVal priorCval
       trackUndef <- gets findUB
-      t          <- liftMem
+      (t, _)     <- liftMem
         $ cppDeclInitVar trackUndef ty (ssaVarAsString nextSsaVar) guardVal
       nextVer var
       setTerm var (Base t)
@@ -768,15 +766,13 @@ popFunction :: Compiler (Maybe CTerm)
 popFunction = do
   popGuard
   frame <- gets (head . callStack)
-  retTerm <- case retTy frame of
-    Just ty -> do
+  retTerm <- forM (retTy frame) $ \ty -> do
       t <- ssaValAsCTerm "return get" <$> getTerm (SLVar returnValueName)
       let retName = fsPrefix frame ++ "__" ++ returnValueName
       ub <- gets findUB
-      t' <- liftMem $ cppDeclInitVar ub ty retName t
-      whenM computingValues $ setValueRaw retName t
-      return $ Just t'
-    Nothing -> return $ Nothing
+      (t', v') <- liftMem $ cppDeclInitVar ub ty retName t
+      whenM computingValues $ setValueRaw retName v'
+      return t'
   exitLexScope
   modify (\s -> s { callStack = tail (callStack s)
            , prefix    = tail (prefix s)
