@@ -7,7 +7,7 @@ where
 import           AST.Simple
 import           BenchUtils
 import           Codegen.C
-import           Codegen.C.CompilerMonad
+import           Codegen.Circify
 import           Control.Monad
 import           Data.Either             (isRight)
 import qualified Data.Map                as M

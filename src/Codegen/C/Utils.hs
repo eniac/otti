@@ -9,7 +9,7 @@ module Codegen.C.Utils
 where
 import           AST.C
 import           AST.Simple
-import           Codegen.C.CompilerMonad
+import           Codegen.Circify
 import           Control.Monad.IO.Class
 import           Control.Monad
 import           Control.Applicative

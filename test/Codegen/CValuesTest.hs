@@ -1,7 +1,7 @@
 module Codegen.CValuesTest where
 import           BenchUtils
 import           Codegen.C
-import           Codegen.C.CompilerMonad
+import           Codegen.Circify
 import           Control.Monad           (forM_)
 import qualified Data.Map                as M
 import           IR.SMT.Assert           (AssertState (..), asserted,

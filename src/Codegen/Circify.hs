@@ -2,7 +2,7 @@
 
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TupleSections #-}
-module Codegen.C.CompilerMonad where
+module Codegen.Circify where
 
 -- C imports
 import           AST.Simple                     ( Type

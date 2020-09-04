@@ -12,7 +12,7 @@ import Control.Monad
 import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.Assert                 as Assert
 import qualified Language.C.Syntax.AST         as AST
-import           Codegen.C.CompilerMonad        ( evalCodegen
+import           Codegen.Circify                ( evalCodegen
                                                 , runCodegen
                                                 , initValues
                                                 , values

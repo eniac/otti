@@ -2,7 +2,7 @@
 module Codegen.C where
 import           AST.C
 import           AST.Simple
-import           Codegen.C.CompilerMonad
+import           Codegen.Circify
 import           Codegen.C.CUtils
 import           Codegen.C.Memory               ( bvNum
                                                 , initMem
