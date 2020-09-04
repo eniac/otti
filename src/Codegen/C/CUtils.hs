@@ -46,8 +46,6 @@ module Codegen.C.CUtils
   , cppCond
   , cppIte
   -- Other
-  , cppAssign
-  , cppAssignment
   , cppCast
   , cppBool
   -- Consts
@@ -82,7 +80,6 @@ where
 import qualified IR.SMT.TySmt                  as Ty
 import qualified AST.Simple                    as AST
 import qualified IR.SMT.Assert                 as Assert
-import           IR.SMT.Assert                  ( Assert )
 import qualified Codegen.C.Memory              as Mem
 import           Codegen.C.Memory               ( Mem )
 import           Control.Monad                  ( unless
@@ -877,37 +874,6 @@ cppIte condB t f =
   in
     mkCTerm result (Ty.Ite condB (udef t) (udef f))
 
-
--- TODO: Rewrite doReturn in terms of the new alias machinery, and then remove
--- cppAssign/cppAssignment.
---
--- Returns an assignment of r to l, as well as the casted version of r
-cppAssignment :: Bool -> CTerm -> CTerm -> (Ty.TermBool, CTerm)
-cppAssignment assignUndef l r =
-  let
-    r'     = cppCast (ctermDataTy $ term l) r
-    valAss = case (term l, term r') of
-      (CBool   lB , CBool rB   ) -> Ty.Eq lB rB
-      (CDouble lB , CDouble rB ) -> Ty.Eq lB rB
-      (CFloat  lB , CFloat rB  ) -> Ty.Eq lB rB
-      (CInt _ _ lB, CInt _ _ rB) -> Ty.Eq lB rB
-      (CStackPtr lTy lB _, CStackPtr rTy rB _) | lTy == rTy -> Ty.Eq lB rB
-      (x, y) ->
-        error
-          $  "Invalid cppAssign terms, post-cast: \n"
-          ++ show x
-          ++ "\nand\n"
-          ++ show y
-    udefAss = Ty.Eq (udef l) (udef r')
-  in
-    ( if assignUndef then Ty.BoolNaryExpr Ty.And [valAss, udefAss] else valAss
-    , r'
-    )
-
-cppAssign :: Bool -> CTerm -> CTerm -> Assert CTerm
-cppAssign assignUndef l r =
-  let r' = cppCast (ctermDataTy $ term l) r
-  in  Assert.assert (fst $ cppAssignment assignUndef l r) *> pure r'
 
 doubleton :: a -> a -> [a]
 doubleton x y = [x, y]

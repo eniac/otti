@@ -16,7 +16,6 @@ import           Codegen.C.CUtils               ( CTerm
                                                 , cppCast
                                                 , cppIte
                                                 , ctermInit
-                                                , cppAssignment
                                                 , ctermEval
                                                 )
 import qualified Codegen.C.Memory              as Mem
@@ -847,9 +846,6 @@ setLoopBound :: Int -> Compiler ()
 setLoopBound bound = modify (\s -> s { loopBound = bound })
 
 -- UB
-
-getAssignment :: Compiler (CTerm -> CTerm -> (Ty.TermBool, CTerm))
-getAssignment = cppAssignment <$> gets findUB
 
 liftCFunM :: Monad m => String -> (CTerm -> m CTerm) -> SsaVal -> m SsaVal
 liftCFunM name f x = case x of
