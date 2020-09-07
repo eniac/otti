@@ -3,6 +3,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TupleSections #-}
+
+-- For MonadCircify
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Codegen.Circify where
 
 -- C imports
@@ -323,6 +328,13 @@ data CircifyState ty term = CircifyState { callStack         :: [FunctionScope t
 newtype Circify ty term a = Circify (StateT (CircifyState ty term) Mem a)
     deriving (Functor, Applicative, Monad, MonadState (CircifyState ty term), MonadIO, MonadLog, MonadMem, MonadAssert)
 
+class Monad m => MonadCircify ty term m | m -> term, m -> ty where
+  liftCircify :: Circify ty term a -> m a
+instance MonadCircify ty term (Circify ty term) where
+  liftCircify = id
+instance (MonadCircify ty term m) => MonadCircify ty term (StateT s m) where
+  liftCircify = lift . liftCircify
+
 
 ---
 --- Setup, monad functions, etc
@@ -591,8 +603,8 @@ pushGuard = compilerModifyTop . fsPushGuard
 popGuard :: Circify ty term ()
 popGuard = compilerModifyTop fsPopGuard
 
---guarded :: MonadCircify ty term m => Ty.TermBool -> m a -> m a
---guarded cond action = liftCircify (pushGuard cond) *> action <* liftCircify popGuard
+guarded :: MonadCircify ty term m => Ty.TermBool -> m a -> m a
+guarded cond action = liftCircify (pushGuard cond) *> action <* liftCircify popGuard
 
 getGuard :: Circify ty term Ty.TermBool
 getGuard = safeNary Ty.And . concatMap fsCurrentGuard . callStack <$> get

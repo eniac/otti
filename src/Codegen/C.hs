@@ -51,7 +51,7 @@ data CState = CState { funs              :: Map.Map FunctionName CFunDef
                      }
 
 newtype C a = C (StateT CState (Circify Type CTerm) a)
-    deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem)
+    deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem, MonadCircify Type CTerm)
 
 emptyCState :: Bool -> CState
 emptyCState findBugs = CState { funs          = Map.empty
@@ -60,12 +60,6 @@ emptyCState findBugs = CState { funs          = Map.empty
                               , bugConditions = []
                               , defaultValue  = Nothing
                               }
-
-liftCircify :: Circify Type CTerm a -> C a
-liftCircify = C . lift
-
-guarded :: Ty.TermBool -> C a -> C a
-guarded cond action = liftCircify (pushGuard cond) *> action <* liftCircify popGuard
 
 -- Loops
 

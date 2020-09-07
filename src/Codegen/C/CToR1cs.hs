@@ -16,13 +16,14 @@ import           Codegen.Circify                ( evalCodegen
                                                 , runCodegen
                                                 , initValues
                                                 , values
+                                                , liftCircify
                                                 )
 import           Codegen.Circom.CompTypes.LowDeg
                                                 ( LC
                                                 , QEQ
                                                 )
 import qualified IR.R1cs.Opt                   as Opt
-import           Codegen.C                      ( codegenFn, runC, liftCircify )
+import           Codegen.C                      ( codegenFn, runC )
 import           IR.SMT.ToPf                    ( toPf
                                                 , toPfWithWit
                                                 )
