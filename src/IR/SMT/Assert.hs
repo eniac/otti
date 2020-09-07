@@ -24,6 +24,13 @@ data AssertState = AssertState { vars         :: M.Map String Dyn.Dynamic
 newtype Assert a = Assert (StateT AssertState Log a)
     deriving (Functor, Applicative, Monad, MonadState AssertState, MonadIO, MonadLog)
 
+class Monad m => MonadAssert m where
+  liftAssert :: Assert a -> m a
+instance MonadAssert Assert where
+  liftAssert = id
+instance (MonadAssert m) => MonadAssert (StateT s m) where
+  liftAssert = lift . liftAssert
+
 ---
 --- Setup and monad getters and setters
 ---

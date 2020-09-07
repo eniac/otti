@@ -81,6 +81,7 @@ where
 import qualified IR.SMT.TySmt                  as Ty
 import qualified AST.Simple                    as AST
 import qualified IR.SMT.Assert                 as Assert
+import           IR.SMT.Assert                  ( liftAssert, MonadAssert )
 import qualified Codegen.C.Memory              as Mem
 import           Codegen.C.Memory               ( Mem )
 import           Control.Monad                  ( unless
@@ -308,7 +309,7 @@ structVarName baseName fieldName = baseName ++ "." ++ fieldName
 cppDeclInitVar :: Bool -> AST.Type -> String -> CTerm -> Mem (CTerm, CTerm)
 cppDeclInitVar trackUndef ty name init =
   let init' = cppCast ty init
-  in  Mem.liftAssert $ (,init') <$> alias trackUndef name init'
+  in  liftAssert $ (,init') <$> alias trackUndef name init'
 
 -- Declare a new variable, initializing it to a value.
 -- Optional argument: a condition and an alternate value in which case this is
@@ -324,27 +325,27 @@ cppCondAssign trackUndef ty name value alternate = case alternate of
   Nothing -> cppDeclInitVar trackUndef ty name (cppCast ty value)
 
 -- Declare a new variable, do not initialize it.
-cppDeclVar :: AST.Type -> String -> Mem CTerm
-cppDeclVar ty name = do
-  u <- Mem.liftAssert $ Assert.newVar (udefName name) Ty.SortBool
-  -- Mem.liftAssert $ Assert.assign u (Ty.BoolLit True)
+cppDeclVar :: Bool -> AST.Type -> String -> Mem CTerm
+cppDeclVar trackUndef ty name = do
+  u <- liftAssert $ if trackUndef then Assert.newVar (udefName name) Ty.SortBool else return (Ty.BoolLit False)
+  -- liftAssert $ Assert.assign u (Ty.BoolLit True)
   t <- case ty of
-    AST.Bool -> Mem.liftAssert $ CBool <$> Assert.newVar name Ty.SortBool
+    AST.Bool -> liftAssert $ CBool <$> Assert.newVar name Ty.SortBool
     _ | AST.isIntegerType ty ->
-      Mem.liftAssert
+      liftAssert
         $   CInt (AST.isSignedInt ty) (AST.numBits ty)
         <$> Assert.newVar name (Ty.SortBv $ AST.numBits ty)
-    AST.Double -> Mem.liftAssert $ CDouble <$> Assert.newVar name Ty.sortDouble
-    AST.Float  -> Mem.liftAssert $ CFloat <$> Assert.newVar name Ty.sortFloat
+    AST.Double -> liftAssert $ CDouble <$> Assert.newVar name Ty.sortDouble
+    AST.Float  -> liftAssert $ CFloat <$> Assert.newVar name Ty.sortFloat
     AST.Array (Just size) innerTy ->
       CArray ty <$> Mem.stackNewAlloc (size * AST.numBits innerTy)
     AST.Array Nothing _ -> return $ CArray ty Mem.stackIdUnknown
     AST.Ptr32 _         -> do
-      bv :: Bv <- Mem.liftAssert $ Assert.newVar name (Ty.SortBv 32)
+      bv :: Bv <- liftAssert $ Assert.newVar name (Ty.SortBv 32)
       return $ CStackPtr ty bv Mem.stackIdUnknown
     AST.Struct fields -> CStruct ty <$> forM
       fields
-      (\(f, fTy) -> (f, ) <$> cppDeclVar fTy (structVarName name f))
+      (\(f, fTy) -> (f, ) <$> cppDeclVar trackUndef fTy (structVarName name f))
     _ -> nyi $ "cppDeclVar for type " ++ show ty
   return $ mkCTerm t u
 

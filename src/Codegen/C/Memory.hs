@@ -177,7 +177,14 @@ instance Show MemState where
                     (Map.toAscList $ stackAllocations s)
 
 newtype Mem a = Mem (StateT MemState Assert.Assert a)
-    deriving (Functor, Applicative, Monad, MonadState MemState, MonadIO, MonadLog)
+    deriving (Functor, Applicative, Monad, MonadState MemState, MonadIO, MonadLog, Assert.MonadAssert)
+
+class Monad m => MonadMem m where
+  liftMem :: Mem a -> m a
+instance MonadMem Mem where
+  liftMem = id
+instance (MonadMem m) => MonadMem (StateT s m) where
+  liftMem = lift . liftMem
 
 emptyMem :: MemState
 emptyMem = MemState 32 (Flat 32) Nothing [] Map.empty 0
@@ -190,9 +197,6 @@ evalMem act = fst <$> runMem act
 
 execMem :: Mem a -> Assert.Assert MemState
 execMem act = snd <$> runMem act
-
-liftAssert :: Assert.Assert a -> Mem a
-liftAssert = Mem . lift
 
 ---
 --- Getters and setters

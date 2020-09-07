@@ -36,7 +36,7 @@ isStore expr = case expr of
 
 --
 
-ctype :: [CDeclSpec] -> [CDerivedDeclr] -> Compiler (Either String Type)
+ctype :: [CDeclSpec] -> [CDerivedDeclr] -> Circify Type term (Either String Type)
 ctype tys ptrs = do
   ty <- baseTypeFromSpecs tys
   return $ ty >>= flip getTy ptrs
@@ -71,7 +71,7 @@ cParseIntType l = case l of
 maybeToEither :: b -> Maybe a -> Either b a
 maybeToEither = flip maybe Right . Left
 
-ctypeToType :: [CTypeSpec] -> Compiler (Either String Type)
+ctypeToType :: [CTypeSpec] -> Circify Type term (Either String Type)
 ctypeToType ty = case ty of
   [CVoidType{}] -> return $ Right Void
   [CTypeDef (Ident name _ _) _] ->
@@ -115,10 +115,10 @@ getTy ty (d : ds) = case d of
   _                            -> Left $ "Do not support type " ++ show d
 
 -- Not really right. Gets pointers wrong?
-cDeclToType :: CDecl -> Compiler (Either String Type)
+cDeclToType :: CDecl -> Circify Type term (Either String Type)
 cDeclToType (CDecl specs _ _) = ctypeToType $ map specToType specs
 
-baseTypeFromSpecs :: [CDeclSpec] -> Compiler (Either String Type)
+baseTypeFromSpecs :: [CDeclSpec] -> Circify Type term (Either String Type)
 baseTypeFromSpecs all@(elem : rest) = if isTypeQual elem || isAlignSpec elem
   then baseTypeFromSpecs rest
   else ctypeToType $ mapMaybe typeFromSpec all
@@ -143,7 +143,7 @@ nodeText n = fromMaybe ("<Missing text>" ++ show n) <$> nodeTextMaybe n
 -- A C declaration can be for many variables, each of which may or may not have an init
 cSplitDeclaration
   :: CDeclaration NodeInfo
-  -> Compiler (Either String [(String, Type, Maybe CInit)])
+  -> Circify Type term (Either String [(String, Type, Maybe CInit)])
 cSplitDeclaration d = case d of
   CDecl specs decls info -> do
     let firstSpec = head specs

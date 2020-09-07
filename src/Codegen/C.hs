@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Codegen.C where
 import           AST.C
 import           AST.Simple
@@ -6,21 +7,16 @@ import           Codegen.Circify
 import           Codegen.C.CUtils
 import           Codegen.C.Memory               ( bvNum
                                                 , initMem
+                                                , MonadMem
+                                                , liftMem
+                                                , evalMem
                                                 )
 import           Codegen.C.Utils
 import           Control.Applicative
 import           Control.Monad                  ( replicateM_
                                                 , join
                                                 )
-import           Control.Monad.State.Strict     ( forM
-                                                , forM_
-                                                , gets
-                                                , liftIO
-                                                , unless
-                                                , void
-                                                , when
-                                                )
---import Control.Monad.Trans.Class
+import           Control.Monad.State.Strict
 import qualified Data.BitVector                as Bv
 import           Data.Char                      ( toLower
                                                 , ord
@@ -37,6 +33,7 @@ import           Data.Maybe                     ( fromJust
                                                 , maybeToList
                                                 )
 import qualified IR.SMT.Assert                 as Assert
+import           IR.SMT.Assert                 (liftAssert, MonadAssert)
 import qualified IR.SMT.TySmt                  as Ty
 import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
@@ -45,57 +42,123 @@ import           Language.C.Syntax.Constants
 import           Util.Log
 --import Debug.Trace
 
+
+data CState = CState { funs              :: Map.Map FunctionName CFunDef
+                     , loopBound         :: Int
+                     , findUB            :: Bool
+                     , bugConditions     :: [Ty.TermBool]
+                     , defaultValue      :: Maybe Integer
+                     }
+
+newtype C a = C (StateT CState (Circify Type CTerm) a)
+    deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem)
+
+emptyCState :: Bool -> CState
+emptyCState findBugs = CState { funs          = Map.empty
+                              , loopBound     = 4
+                              , findUB        = findBugs
+                              , bugConditions = []
+                              , defaultValue  = Nothing
+                              }
+
+liftCircify :: Circify Type CTerm a -> C a
+liftCircify = C . lift
+
+guarded :: Ty.TermBool -> C a -> C a
+guarded cond action = liftCircify (pushGuard cond) *> action <* liftCircify popGuard
+
+-- Loops
+
+getLoopBound :: C Int
+getLoopBound = gets loopBound
+
+setLoopBound :: Int -> C ()
+setLoopBound bound = modify (\s -> s { loopBound = bound })
+
+-- Functions
+
+registerFunction :: FunctionName -> CFunDef -> C ()
+registerFunction name function = do
+  s0 <- get
+  case Map.lookup name $ funs s0 of
+    Nothing -> put $ s0 { funs = Map.insert name function $ funs s0 }
+    _       -> error $ unwords ["Already declared", name]
+
+getFunction :: FunctionName -> C CFunDef
+getFunction funName = do
+  functions <- gets funs
+  case Map.lookup funName functions of
+    Just function -> return function
+    Nothing       -> error $ unwords ["Called undeclared function", funName]
+
+-- Bugs
+-- Not quite right? Returns?  Our return stuff is super hacky anyways. We
+-- should integrate it with the guard machinery.
+bugIf :: Ty.TermBool -> C ()
+bugIf c = do
+  g <- liftCircify getGuard
+  modify $ \s ->
+    s { bugConditions = Ty.BoolNaryExpr Ty.And [g, c] : bugConditions s }
+
+assertBug :: C ()
+assertBug = do
+  cs <- gets bugConditions
+  liftAssert $ Assert.assert $ Ty.BoolNaryExpr Ty.Or cs
+
+-- Default values
+
+setDefaultValueZero :: C ()
+setDefaultValueZero = modify $ \s -> s { defaultValue = Just 0 }
+
+
 -- List some CUtils stuff to the SSA layer
-ssaBool :: SsaVal -> Ty.TermBool
-ssaBool = cppBool . ssaValAsCTerm "cppBool"
+ssaBool :: CSsaVal -> Ty.TermBool
+ssaBool = cppBool . ssaValAsTerm "cppBool"
 
-ssaType :: SsaVal -> Type
-ssaType = cppType . ssaValAsCTerm "cppType"
+ssaType :: CSsaVal -> Type
+ssaType = cppType . ssaValAsTerm "cppType"
 
-load :: CTerm -> Compiler CTerm
+load :: CTerm -> C CTerm
 load ref = do
   (oob, val) <- liftMem $ cppLoad ref
   whenM (gets findUB) $ bugIf oob
   return val
 
-ssaLoad :: SsaVal -> Compiler SsaVal
-ssaLoad = liftCFunM "load" load
+ssaLoad :: CSsaVal -> C CSsaVal
+ssaLoad = liftTermFunM "load" load
 
-store :: CTerm -> CTerm -> Compiler ()
+store :: CTerm -> CTerm -> C ()
 store ref val = do
-  g   <- getGuard
+  g   <- liftCircify getGuard
   oob <- liftMem $ cppStore ref val g
   whenM (gets findUB) $ bugIf oob
 
-ssaStore :: SsaVal -> SsaVal -> Compiler ()
+ssaStore :: CSsaVal -> CSsaVal -> C ()
 ssaStore ref val = case (ref, val) of
   (Base a, Base b) -> store a b
   _                -> error $ "Cannot store " ++ show (ref, val)
 
-ssaStructGet :: String -> SsaVal -> SsaVal
-ssaStructGet n = liftCFun "cppStructGet" (`cppStructGet` n)
+ssaStructGet :: String -> CSsaVal -> CSsaVal
+ssaStructGet n = liftTermFun "cppStructGet" (`cppStructGet` n)
 
-ssaStructSet :: String -> SsaVal -> SsaVal -> SsaVal
-ssaStructSet n = liftCFun2 "cppStructSet" (cppStructSet n)
+ssaStructSet :: String -> CSsaVal -> CSsaVal -> CSsaVal
+ssaStructSet n = liftTermFun2 "cppStructSet" (cppStructSet n)
 
-fieldToInt :: Ident -> Int
-fieldToInt = undefined
-
-typedefSMT :: Ident -> [CDeclSpec] -> [CDerivedDeclr] -> Compiler ()
+typedefSMT :: Ident -> [CDeclSpec] -> [CDerivedDeclr] -> C ()
 typedefSMT (Ident name _ _) tys ptrs = do
-  ty <- ctype tys ptrs
-  forM_ ty $ typedef name
+  ty <- liftCircify $ ctype tys ptrs
+  forM_ ty $ liftCircify . typedef name
 
-declareVarSMT :: Ident -> [CDeclSpec] -> [CDerivedDeclr] -> Compiler (Either String Type)
+declareVarSMT :: Ident -> [CDeclSpec] -> [CDerivedDeclr] -> C (Either String Type)
 declareVarSMT (Ident name _ _) tys ptrs = do
-  ty <- ctype tys ptrs
-  forM_ ty $ declareVar name
+  ty <- liftCircify $ ctype tys ptrs
+  forM_ ty $ liftCircify . declareVar name
   return ty
 
-genVarSMT :: Ident -> Compiler SsaVal
-genVarSMT (Ident name _ _) = getTerm $ SLVar name
+genVarSMT :: Ident -> C CSsaVal
+genVarSMT (Ident name _ _) = liftCircify $ getTerm $ SLVar name
 
-genConstSMT :: CConst -> Compiler CTerm
+genConstSMT :: CConst -> C CTerm
 genConstSMT c = case c of
 --genConstSMT c = liftIO (("Const: " ++) <$> nodeText c >>= putStrLn) >> case c of
   CIntConst (CInteger i _ _) _ -> return $ cppIntLit S32 i
@@ -110,28 +173,30 @@ genConstSMT c = case c of
     S8
     (map (cppIntLit S8 . toInteger . ord) str ++ [cppIntLit S8 0])
 
+type CSsaVal = SsaVal CTerm
+
 data CLVal = CLVar SsaLVal
            -- TODO: SsaVal?
-           | CLAddr SsaVal
+           | CLAddr CSsaVal
            | CLField CLVal String
            deriving (Show)
 
-evalLVal :: CLVal -> Compiler SsaVal
+evalLVal :: CLVal -> C CSsaVal
 evalLVal location = case location of
-  CLVar  v -> getTerm v
+  CLVar  v -> liftCircify $ getTerm v
   CLAddr a -> case a of
     Base c -> Base <$> load c
-    RefVal r -> getTerm (SLRef r)
+    RefVal r -> liftCircify $ getTerm (SLRef r)
   CLField s f -> ssaStructGet f <$> evalLVal s
 
-genLValueSMT :: CExpr -> Compiler CLVal
+genLValueSMT :: CExpr -> C CLVal
 genLValueSMT expr = case expr of
   CVar (Ident name _ _) _ -> return $ CLVar $ SLVar name
   CUnary CIndOp addr _    -> CLAddr <$> genExprSMT addr
   CIndex base   idx  _    -> do
     base' <- genExprSMT base
     idx'  <- genExprSMT idx
-    addr  <- liftMem $ liftCFun2M "cppIndex" cppIndex base' idx'
+    addr  <- liftMem $ liftTermFun2M "cppIndex" cppIndex base' idx'
     return $ CLAddr addr
   CMember struct ident False _ -> flip CLField (identToVarName ident) <$> genLValueSMT struct
   CMember struct ident True _ -> do
@@ -139,9 +204,9 @@ genLValueSMT expr = case expr of
     return $ CLField (CLAddr s) (identToVarName ident)
   _ -> error $ unwords ["Not yet impled:", show expr]
 
-genRefSMT :: CExpr -> Compiler SsaVal
+genRefSMT :: CExpr -> C CSsaVal
 genRefSMT expr = case expr of
-  CVar (Ident name _ _) _ -> getRef $ SLVar name
+  CVar (Ident name _ _) _ -> liftCircify $ getRef $ SLVar name
   _ -> error $ unwords ["Not yet impled:", show expr]
 
 
@@ -149,25 +214,25 @@ genRefSMT expr = case expr of
 -- The approach in `modLocation` is the right one, but when run on addresses it
 -- performs accesses to the underlying storage, even when we're doing an
 -- overwrite. This may not agree with our uninit tracking system.
-genAssign :: CLVal -> SsaVal -> Compiler SsaVal
+genAssign :: CLVal -> CSsaVal -> C CSsaVal
 genAssign location value = case location of
-  CLVar  varName -> ssaAssign varName value
+  CLVar  varName -> liftCircify $ ssaAssign varName value
   CLAddr addr    -> case addr of
     Base a -> ssaStore addr value >> return value
-    RefVal r -> ssaAssign (SLRef r) value
+    RefVal r -> liftCircify $ ssaAssign (SLRef r) value
   CLField struct field -> modLocation location (const value)
    where
     -- Apply a modification function to a location
-    modLocation :: CLVal -> (SsaVal -> SsaVal) -> Compiler SsaVal
+    modLocation :: CLVal -> (CSsaVal -> CSsaVal) -> C CSsaVal
     modLocation location modFn = case location of
-      CLVar varName -> getTerm varName >>= ssaAssign varName . modFn
+      CLVar varName -> liftCircify $ getTerm varName >>= ssaAssign varName . modFn
       CLAddr addr   -> case addr of
         Base c -> do
           old <- ssaLoad addr
           let new = modFn old
           ssaStore addr new
           return new
-        RefVal r -> let v = SLRef r in getTerm v >>= ssaAssign v . modFn
+        RefVal r -> let v = SLRef r in liftCircify $ getTerm v >>= ssaAssign v . modFn
       CLField struct field ->
         modLocation struct (\t -> ssaStructSet field (modFn $ ssaStructGet field t) t)
 
@@ -179,7 +244,7 @@ unwrap e = case e of
 noneIfVoid :: Type -> Maybe Type
 noneIfVoid t = if Void == t then Nothing else Just t
 
-genExprSMT :: CExpr -> Compiler SsaVal
+genExprSMT :: CExpr -> C CSsaVal
 --genExprSMT expr = liftIO (("Expr: " ++) <$> nodeText expr >>= putStrLn) >> case expr of
 genExprSMT expr = do
   liftLog $ logIfM "expr" $ do
@@ -196,11 +261,11 @@ genExprSMT expr = do
       CLndOp -> do
         left'  <- genExprSMT left
         right' <- guarded (ssaBool left') $ genExprSMT right
-        return $ liftCFun2 "cppAnd" cppAnd left' right'
+        return $ liftTermFun2 "cppAnd" cppAnd left' right'
       CLorOp -> do
         left'  <- genExprSMT left
         right' <- guarded (Ty.Not $ ssaBool left') $ genExprSMT right
-        return $ liftCFun2 "cppOr" cppOr left' right'
+        return $ liftTermFun2 "cppOr" cppOr left' right'
       _ -> do
         left'  <- genExprSMT left
         right' <- genExprSMT right
@@ -209,28 +274,28 @@ genExprSMT expr = do
     CIndex base index _ -> do
       base'  <- genExprSMT base
       index' <- genExprSMT index
-      offset <- liftMem $ liftCFun2M "cppIndex" cppIndex base' index'
+      offset <- liftMem $ liftTermFun2M "cppIndex" cppIndex base' index'
       ssaLoad offset
     CMember struct ident isArrow _ -> do
       e <- genExprSMT struct
       -- If this is a ->, then derefence the left first.
       s <- if isArrow
-              then getTerm (deref e)
+              then liftCircify $ getTerm (deref e)
               else return $ e
       return $ ssaStructGet (identToVarName ident) s
     CCast decl expr _ -> case decl of
       CDecl specs _ _ -> do
-        ty    <- unwrap <$> baseTypeFromSpecs specs
+        ty    <- liftCircify $ unwrap <$> baseTypeFromSpecs specs
         expr' <- genExprSMT expr
-        return $ liftCFun "cppCast" (cppCast ty) expr'
+        return $ liftTermFun "cppCast" (cppCast ty) expr'
       _ -> error "Expected type in cast"
     CCall fn args _ -> case fn of
       CVar fnIdent _ -> do
         let fnName = identToVarName fnIdent
         actualArgs <- traverse genExprSMT args
         f          <- getFunction fnName
-        retTy      <- unwrap <$> ctype (baseTypeFromFunc f) (ptrsFromFunc f)
-        pushFunction fnName (noneIfVoid retTy)
+        retTy      <- liftCircify $ unwrap <$> ctype (baseTypeFromFunc f) (ptrsFromFunc f)
+        liftCircify $ pushFunction fnName (noneIfVoid retTy)
         forM_ (argsFromFunc f) (genDeclSMT Nothing)
         let
           formalArgs =
@@ -252,19 +317,19 @@ genExprSMT expr = do
           $  error
           $  "Wrong arg count: "
           ++ show expr
-        forM_ (zip formalArgs actualArgs) (uncurry argAssign)
+        liftCircify $ forM_ (zip formalArgs actualArgs) (uncurry argAssign)
         let body = bodyFromFunc f
         case body of
           CCompound{} -> genStmtSMT body
           _           -> error "Expected C statement block in function definition"
-        returnValue <- popFunction
+        returnValue <- liftCircify popFunction
         return $ Base $ fromMaybe (error "Getting the return value of a void fn") returnValue
       _ -> error $ unwords ["Fn call of", show fn, "is unsupported"]
     CCond cond mTrueBr falseBr _ -> do
       cond' <- genExprSMT cond
       true' <- maybe (return cond') genExprSMT mTrueBr
       false' <- genExprSMT falseBr
-      return $ liftCFun3 "cppCond" cppCond cond' true' false'
+      return $ liftTermFun3 "cppCond" cppCond cond' true' false'
     CSizeofExpr e _ -> do
       -- Evaluate in false context, to get type, but avoid side-effects
       e' <- guarded (Ty.BoolLit False) (genExprSMT e)
@@ -273,7 +338,7 @@ genExprSMT expr = do
                   RefVal {} -> numBits $ Ptr32 U8
       return $ Base $ cppIntLit U32 (toInteger $ bits `div` 8)
     CSizeofType decl _ -> do
-      ty <- unwrap <$> cDeclToType decl
+      ty <- liftCircify $ unwrap <$> cDeclToType decl
       return $ Base $ cppIntLit U32 (toInteger $ numBits ty `div` 8)
     _ -> error $ unwords ["We do not support", show expr, "right now"]
 
@@ -286,13 +351,13 @@ isDec o = o `elem` [CPreDecOp, CPostDecOp]
 isPre :: CUnaryOp -> Bool
 isPre o = o `elem` [CPreDecOp, CPreDecOp]
 
-getUnaryOp :: CUnaryOp -> CExpr -> Compiler SsaVal
+getUnaryOp :: CUnaryOp -> CExpr -> C CSsaVal
 getUnaryOp op arg = case op of
   _ | isIncDec op -> do
     lval <- genLValueSMT arg
     rval <- evalLVal lval
     let one = Base $ cppIntLit (ssaType rval) 1
-    let new = liftCFun2 (show op) (if isDec op then cppSub else cppAdd) rval one
+    let new = liftTermFun2 (show op) (if isDec op then cppSub else cppAdd) rval one
     genAssign lval new
     return $ if isPre op
       then new
@@ -301,15 +366,15 @@ getUnaryOp op arg = case op of
     l <- genExprSMT arg
     case l of
       Base c -> Base <$> load c
-      RefVal r -> getTerm (SLRef r)
+      RefVal r -> liftCircify $ getTerm (SLRef r)
   CPlusOp -> error $ unwords ["Do not understand:", show op]
-  CMinOp  -> liftCFun "cppNeg" cppNeg <$> genExprSMT arg
-  CCompOp -> liftCFun "cppBitNot" cppBitNot <$> genExprSMT arg
-  CNegOp  -> liftCFun "cppNot" cppNot <$> genExprSMT arg
+  CMinOp  -> liftTermFun "cppNeg" cppNeg <$> genExprSMT arg
+  CCompOp -> liftTermFun "cppBitNot" cppBitNot <$> genExprSMT arg
+  CNegOp  -> liftTermFun "cppNot" cppNot <$> genExprSMT arg
   CAdrOp  -> genRefSMT arg
   _       -> error $ unwords [show op, "not supported"]
 
-getBinOp :: CBinaryOp -> SsaVal -> SsaVal -> Compiler SsaVal
+getBinOp :: CBinaryOp -> CSsaVal -> CSsaVal -> C CSsaVal
 getBinOp op left right =
   let f = case op of
         CMulOp -> cppMul
@@ -330,12 +395,12 @@ getBinOp op left right =
         COrOp  -> cppBitOr
         CLndOp -> cppAnd
         CLorOp -> cppOr
-  in  return $ liftCFun2 (show op) f left right
+  in  return $ liftTermFun2 (show op) f left right
 
 -- | Assign operation
 -- eg x += 1
 -- aka x = x + 1
-genAssignOp :: CAssignOp -> CLVal -> SsaVal -> Compiler SsaVal
+genAssignOp :: CAssignOp -> CLVal -> CSsaVal -> C CSsaVal
 genAssignOp op l r = case op of
   CAssignOp -> genAssign l r
   _ ->
@@ -351,22 +416,22 @@ genAssignOp op l r = case op of
           o         -> error $ unwords ["Cannot handle", show o]
     in  do
           lvalue <- evalLVal l
-          genAssign l (liftCFun2 (show op) f lvalue r)
+          genAssign l (liftTermFun2 (show op) f lvalue r)
 
 ---
 --- Statements
 ---
 
-genStmtSMT :: CStat -> Compiler ()
+genStmtSMT :: CStat -> C ()
 genStmtSMT stmt = case stmt of
 --genStmtSMT stmt = case trace ("genStmtSMT " ++ show stmt) stmt of
   CCompound ids items _ -> do
-    enterLexScope
+    liftCircify enterLexScope
     forM_ items $ \case
       CBlockStmt stmt -> genStmtSMT stmt
       CBlockDecl decl -> void $ genDeclSMT (Just True) decl
       CNestedFunDef{} -> error "Nested function definitions not supported"
-    exitLexScope
+    liftCircify exitLexScope
   CExpr e _                 -> when (isJust e) $ void $ genExprSMT $ fromJust e
   CIf cond trueBr falseBr _ -> do
     trueCond <- ssaBool <$> genExprSMT cond
@@ -386,34 +451,34 @@ genStmtSMT stmt = case stmt of
       guard <- case check of
         Just b -> genExprSMT b
         _      -> error "NYI"
-      pushGuard (ssaBool guard)
+      liftCircify $ pushGuard (ssaBool guard)
       genStmtSMT body
       -- increment the variable
       case incr of
         Just inc -> void $ genExprSMT inc
         _        -> error "Not yet supported"
-    replicateM_ (bound + 1) popGuard
+    replicateM_ (bound + 1) (liftCircify popGuard)
     -- TODO: assert end
   CWhile check body isDoWhile _ -> do
     bound <- getLoopBound
-    let addGuard = genExprSMT check >>= pushGuard . ssaBool
+    let addGuard = genExprSMT check >>= liftCircify . pushGuard . ssaBool
     forM_ [0 .. bound] $ \_ -> do
       unless isDoWhile addGuard
       genStmtSMT body
       when isDoWhile addGuard
-    replicateM_ (bound + 1) popGuard
+    replicateM_ (bound + 1) (liftCircify popGuard)
   CReturn expr _ -> when (isJust expr) $ do
     toReturn <- genExprSMT $ fromJust expr
-    doReturn $ ssaValAsCTerm "return" toReturn
+    liftCircify $ doReturn $ ssaValAsTerm "return" toReturn
   _ -> error $ unwords ["Unsupported: ", show stmt]
 
 -- Returns the declaration's variable name
-genDeclSMT :: Maybe Bool -> CDecl -> Compiler [String]
+genDeclSMT :: Maybe Bool -> CDecl -> C [String]
 genDeclSMT undef d@(CDecl specs decls _) = do
   liftLog $ logIf "decls" "genDeclSMT:"
   liftLog $ logIfM "decls" $ liftIO $ nodeText d
   -- At the top level, we ignore types we don't understand.
-  skipBadTypes <- gets (null . callStack)
+  skipBadTypes <- liftCircify $ gets (null . callStack)
   when (null specs) $ error "Expected specifier in declaration"
   let firstSpec = head specs
       isTypedefDecl =
@@ -421,7 +486,7 @@ genDeclSMT undef d@(CDecl specs decls _) = do
       baseType = if isTypedefDecl then tail specs else specs
 
   -- Even for not declarators, process the type. It may be a struct that needs to be recorded!
-  when (null decls) $ void $ baseTypeFromSpecs baseType
+  when (null decls) $ void $ liftCircify $ baseTypeFromSpecs baseType
 
   forM decls $ \(Just dec, mInit, _) -> do
     let mName   = identFromDeclr dec
@@ -442,19 +507,19 @@ genDeclSMT undef d@(CDecl specs decls _) = do
             lhs <- genVarSMT ident
             case mInit of
               Just init -> do
-                ty <- ctype baseType ptrType
+                ty <- liftCircify $ ctype baseType ptrType
                 case ty of
                   Left  err -> if skipBadTypes then return () else error err
                   Right ty  -> do
                     rhs <- genInitSMT ty init
-                    void $ argAssign (SLVar name) rhs
+                    void $ liftCircify $ argAssign (SLVar name) rhs
               Nothing -> whenM (gets findUB) $ forM_
                 undef
-                (liftAssert . Assert.assert . Ty.Eq (udef $ ssaValAsCTerm "undef settting in genDeclSMT" lhs) . Ty.BoolLit)
+                (liftAssert . Assert.assert . Ty.Eq (udef $ ssaValAsTerm "undef settting in genDeclSMT" lhs) . Ty.BoolLit)
           Left {} -> return ()
         return name
 
-genInitSMT :: Type -> CInit -> Compiler SsaVal
+genInitSMT :: Type -> CInit -> C CSsaVal
 genInitSMT ty i = case (ty, i) of
   (tt             , CInitExpr e _ ) -> do
     t <- genExprSMT e
@@ -463,11 +528,11 @@ genInitSMT ty i = case (ty, i) of
       RefVal {} -> t
   (Array _ innerTy, CInitList is _) -> do
     values <- forM is $ \(_, i) -> genInitSMT innerTy i
-    let cvals = map (ssaValAsCTerm "Cannot put refs in arrays") values
+    let cvals = map (ssaValAsTerm "Cannot put refs in arrays") values
     liftMem $ Base <$> cppArrayLit innerTy cvals
   (Struct fields, CInitList is _) -> do
     values <- forM (zip fields is) $ \((_, fTy), (_, i)) -> genInitSMT fTy i
-    let cvals = map (ssaValAsCTerm "Cannot put refs in structs") values
+    let cvals = map (ssaValAsTerm "Cannot put refs in structs") values
     liftMem $ Base <$> cppStructLit ty cvals
   _ -> error $ unwords ["Cannot initialize type", show ty, "from", show i]
 
@@ -477,21 +542,21 @@ genInitSMT ty i = case (ty, i) of
 
 -- Returns the variable names corresponding to inputs and the return
 genFunDef
-  :: CFunDef -> Maybe (Map.Map String Integer) -> Compiler ([String], Maybe String)
+  :: CFunDef -> Maybe (Map.Map String Integer) -> C ([String], Maybe String)
 genFunDef f inVals = do
   -- Declare the function and setup the return value
   let name = nameFromFunc f
       ptrs = ptrsFromFunc f
       tys  = baseTypeFromFunc f
-  retTy <- unwrap <$> ctype tys ptrs
-  pushFunction name $ noneIfVoid retTy
+  retTy <- liftCircify $ unwrap <$> ctype tys ptrs
+  liftCircify $ pushFunction name $ noneIfVoid retTy
   -- Declare the arguments and execute the body
   inputNamesList <- forM (argsFromFunc f) (genDeclSMT (Just False))
   let inputNames = join inputNamesList
-  fullInputNames <- map ssaVarAsString <$> forM inputNames (getSsaVar . SLVar)
+  fullInputNames <- map ssaVarAsString <$> forM inputNames (liftCircify . getSsaVar . SLVar)
   def            <- gets defaultValue
   case inVals of
-    Just i -> forM_ inputNames $ \n -> initAssign (SLVar n) $ fromMaybe
+    Just i -> forM_ inputNames $ \n -> liftCircify $ initAssign (SLVar n) $ fromMaybe
       (error $ "Missing value for input " ++ n)
       ((i Map.!? n) <|> def)
     Nothing -> return ()
@@ -500,20 +565,20 @@ genFunDef f inVals = do
   case body of
     CCompound{} -> genStmtSMT body
     _           -> error "Expected C statement block in function definition"
-  returnValue <- popFunction
+  returnValue <- liftCircify popFunction
   whenM (gets findUB) $ forM_ returnValue $ \r -> bugIf $ udef r
   return (fullInputNames, fmap (fromJust . asVar) returnValue)
 
-genAsm :: CStringLiteral a -> Compiler ()
+genAsm :: CStringLiteral a -> C ()
 genAsm = undefined
 
-registerFns :: [CExtDecl] -> Compiler ()
+registerFns :: [CExtDecl] -> C ()
 registerFns decls = forM_ decls $ \case
   CFDefExt f    -> registerFunction (nameFromFunc f) f
   CDeclExt d    -> void $ genDeclSMT Nothing d
   CAsmExt asm _ -> genAsm asm
 
-codegenAll :: CTranslUnit -> Compiler ()
+codegenAll :: CTranslUnit -> C ()
 codegenAll (CTranslUnit decls _) = do
   liftMem initMem
   registerFns decls
@@ -542,10 +607,28 @@ codegenFn
   :: CTranslUnit
   -> String
   -> Maybe (Map.Map String Integer)
-  -> Compiler ([String], Maybe String)
+  -> C ([String], Maybe String)
 codegenFn (CTranslUnit decls _) name inVals = do
   registerFns decls
   genFunDef (findFn name decls) inVals
+
+cLangDef :: Bool -> LangDef Type CTerm
+cLangDef findBugs = LangDef { declare = cppDeclVar findBugs
+                            , assign = cppCondAssign findBugs
+                            , termInit = ctermInit
+                            , termEval = ctermEval
+                            }
+
+runC :: Bool -> C a -> Assert.Assert (a, CircifyState Type CTerm)
+runC findBugs (C act) =
+  do ((x, cState), circState) <- runCodegen (cLangDef findBugs) $ runStateT act (emptyCState findBugs)
+     return (x, circState)
+
+evalC :: Bool -> C a -> Assert.Assert a
+evalC findBugs act = fst <$> runC findBugs act
+
+execC :: Bool -> C a -> Assert.Assert (CircifyState Type CTerm)
+execC findBugs act = snd <$> runC findBugs act
 
 
 -- Can a fn exhibit undefined behavior?
@@ -553,12 +636,12 @@ codegenFn (CTranslUnit decls _) name inVals = do
 checkFn :: CTranslUnit -> String -> IO (Maybe String)
 checkFn tu name = do
   assertions <- Assert.execAssert
-    $ evalCodegen True (codegenFn tu name Nothing >> assertBug)
+    $ evalC True (codegenFn tu name Nothing >> assertBug)
   liftIO $ Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)
 
 evalFn :: CTranslUnit -> String -> IO (Map.Map String Ty.Val)
 evalFn tu name = do
-  assertions <- Assert.execAssert $ evalCodegen False $ codegenFn tu
+  assertions <- Assert.execAssert $ evalC False $ codegenFn tu
                                                                   name
                                                                   Nothing
   liftIO $ Ty.evalZ3Model $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)

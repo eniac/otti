@@ -34,7 +34,7 @@ cTests = benchTestGroup
 constraintCountTest :: String -> FilePath -> Int -> BenchTest
 constraintCountTest name path constraints = benchTestCase name $ do
   tu         <- parseC path
-  assertions <- execAssert $ evalCodegen True $ codegenAll tu
+  assertions <- execAssert $ evalC True $ codegenAll tu
   unless (constraints == length (asserted assertions)) $ do
     --forM_ (asserted assertions) $ \s -> putStrLn $ name ++ ": " ++ show s
     return ()
@@ -87,10 +87,10 @@ satSmtCircuitTest name fnName path = benchTestCase name $ do
   tu                       <- parseC path
   (compState, assertState) <-
     runAssert
-    $  execCodegen False
-    $  initValues
-    >> setDefaultValueZero
-    >> codegenFn tu fnName (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
+    $  execC False $ do
+      liftCircify initValues
+      setDefaultValueZero
+      codegenFn tu fnName (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
   let assertions = asserted assertState
   let env        = fromJust $ values compState
   forM_ assertions $ \a -> do
@@ -113,12 +113,14 @@ satR1csTestInputs
 satR1csTestInputs name fnName path inputs = benchTestCase name $ do
   tu <- parseC path
   let runIt = case inputs of
-        Just m  -> initValues >> codegenFn tu fnName (Just m) -- Provide an empty map to trigger initialization with default. ew.
-        Nothing -> initValues >> setDefaultValueZero >> codegenFn
-          tu
-          fnName
-          (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
-  (compState, assertState) <- runAssert $ execCodegen False runIt
+        Just m  -> do
+          liftCircify initValues
+          codegenFn tu fnName (Just m) -- Provide an empty map to trigger initialization with default. ew.
+        Nothing -> do
+          liftCircify initValues
+          setDefaultValueZero
+          codegenFn tu fnName (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
+  (compState, assertState) <- runAssert $ execC False runIt
   let assertions = asserted assertState
   let env        = fromJust $ values compState
   forM_ assertions $ \a -> Ty.ValBool True @=? Ty.eval env a

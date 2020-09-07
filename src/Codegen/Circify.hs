@@ -1,23 +1,14 @@
 {-# LANGUAGE GADTs                      #-}
 
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TupleSections #-}
 module Codegen.Circify where
 
 -- C imports
-import           AST.Simple                     ( Type
-                                                , VarName
-                                                , FunctionName
-                                                )
-import           Language.C.Syntax.AST          ( CFunDef )
-import           Codegen.C.CUtils               ( CTerm
-                                                , cppDeclVar
-                                                , cppCondAssign
-                                                , ctermInit
-                                                , ctermEval
-                                                )
+import           AST.Simple                     ( VarName )
 import qualified Codegen.C.Memory              as Mem
-import           Codegen.C.Memory               ( Mem )
+import           Codegen.C.Memory               ( Mem, MonadMem, liftMem )
 
 -- Control imports
 import           Control.Monad.Reader
@@ -43,7 +34,7 @@ import           Data.Dynamic                   ( Dynamic
                                                 )
 import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.Assert                 as Assert
-import           IR.SMT.Assert                  ( Assert )
+import           IR.SMT.Assert                  ( Assert, MonadAssert, liftAssert )
 import           Util.Log
 
 -- Other C dependencies:
@@ -53,7 +44,7 @@ import           Util.Log
 
 {-|
 
-Module that defines the Compiler monad, the monad that keeps track of all internal
+Module that defines the Circify monad, the monad that keeps track of all internal
 state for code generation. This state includes:
 WHAT
 
@@ -64,7 +55,7 @@ such a thing.
 Structure: The compiler monad is defined in terms of three nested notions of state:
   * LexScope
   * FunctionScope
-  * CompilerState
+  * CircifyState
 -}
 
 type Version = Int
@@ -73,12 +64,12 @@ data SsaVar = SsaVar VarName Version
                 deriving (Eq, Ord, Show)
 
 -- TODO rename
-data LexScope = LexScope { tys :: M.Map VarName Type
-                         , vers :: M.Map VarName Version
-                         , terms :: M.Map SsaVar SsaVal
-                         , lsPrefix :: String
-                         } deriving (Show)
-printLs :: LexScope -> IO ()
+data LexScope ty term = LexScope { tys :: M.Map VarName ty
+                                 , vers :: M.Map VarName Version
+                                 , terms :: M.Map SsaVar (SsaVal term)
+                                 , lsPrefix :: String
+                                 } deriving (Show)
+printLs :: LexScope ty term -> IO ()
 printLs s =
   putStr
     $  unlines
@@ -100,23 +91,23 @@ data SsaLVal = SLVar VarName
 
 -- Something that can be stored.
 -- Either an underlying C value or a reference to a value in a different scope.
-data SsaVal  = Base   CTerm
-             | RefVal Ref
-             deriving (Show)
+data SsaVal term  = Base   term
+                  | RefVal Ref
+                  deriving (Show)
 
 -- Lexical scope functions
 
 initialVersion :: Int
 initialVersion = 0
 
-lsWithPrefix :: String -> LexScope
+lsWithPrefix :: String -> LexScope ty term
 lsWithPrefix s =
   LexScope { tys = M.empty, vers = M.empty, terms = M.empty, lsPrefix = s }
 
 unknownVar :: VarName -> a
 unknownVar var = error $ unwords ["Variable", var, "is unknown"]
 
-lsDeclareVar :: VarName -> Type -> LexScope -> Mem LexScope
+lsDeclareVar :: (Show ty) => VarName -> ty -> LexScope ty term -> Circify ty term (LexScope ty term)
 lsDeclareVar var ty scope = case M.lookup var (tys scope) of
   Nothing -> do
     -- First we add type and version entries for this variable
@@ -125,45 +116,46 @@ lsDeclareVar var ty scope = case M.lookup var (tys scope) of
                              }
         ssaVar = lsGetSsaVar var withTyAndVer
     -- Now we declare it to the SMT layer
-    term <- Base <$> cppDeclVar ty (ssaVarAsString ssaVar)
-    return $ withTyAndVer { terms = M.insert ssaVar term $ terms scope }
+    d <- gets (declare . lang)
+    term <- liftMem $ d ty (ssaVarAsString ssaVar)
+    return $ withTyAndVer { terms = M.insert ssaVar (Base term) $ terms scope }
   Just actualTy ->
     error $ unwords ["Already declared", var, "to have type", show actualTy]
 
 
 -- | Get the current version of the variable
-lsGetVer :: VarName -> LexScope -> Version
+lsGetVer :: VarName -> LexScope ty term -> Version
 lsGetVer var scope = fromMaybe (unknownVar var) (lsGetMaybeVer var scope)
 
-lsGetMaybeVer :: VarName -> LexScope -> Maybe Version
+lsGetMaybeVer :: VarName -> LexScope ty term -> Maybe Version
 lsGetMaybeVer var scope = M.lookup var (vers scope)
 
 -- | Get current SsaVar
-lsGetSsaVar :: VarName -> LexScope -> SsaVar
+lsGetSsaVar :: VarName -> LexScope ty term -> SsaVar
 lsGetSsaVar var scope = SsaVar (lsScopedVar var scope) (lsGetVer var scope)
 
-lsGetNextSsaVar :: VarName -> LexScope -> SsaVar
+lsGetNextSsaVar :: VarName -> LexScope ty term -> SsaVar
 lsGetNextSsaVar var scope =
   SsaVar (lsScopedVar var scope) (lsGetVer var scope + 1)
 
-lsScopedVar :: VarName -> LexScope -> String
+lsScopedVar :: VarName -> LexScope ty term -> String
 lsScopedVar var scope = lsPrefix scope ++ "__" ++ var
 
 -- | Get the C++ type of the variable
-lsGetType :: VarName -> LexScope -> Type
+lsGetType :: VarName -> LexScope ty term -> ty
 lsGetType var scope = fromMaybe (unknownVar var) (M.lookup var (tys scope))
 
 -- | Get a SsaVal for the given var
-lsGetTerm :: VarName -> LexScope -> SsaVal
+lsGetTerm :: VarName -> LexScope ty term -> SsaVal term
 lsGetTerm var scope = fromMaybe
   (error $ unwords ["No term for", var])
   (M.lookup (lsGetSsaVar var scope) (terms scope))
 
-lsSetTerm :: SsaVal -> VarName -> LexScope -> LexScope
+lsSetTerm :: SsaVal term -> VarName -> LexScope ty term -> LexScope ty term
 lsSetTerm val var scope =
   scope { terms = M.insert (lsGetSsaVar var scope) val $ terms scope }
 
-lsNextVer :: VarName -> LexScope -> LexScope
+lsNextVer :: VarName -> LexScope ty term -> LexScope ty term
 lsNextVer var scope =
   scope { vers = M.insert var (lsGetVer var scope + 1) $ vers scope }
 
@@ -180,15 +172,15 @@ guardConditions g = case g of
   Guard c -> [c]
   Break _ cs -> map Ty.Not cs
 
-data FunctionScope = FunctionScope { -- Condition for current path
+data FunctionScope ty term = FunctionScope { -- Condition for current path
                                      guards :: [Guard]
                                      -- Stack of lexical scopes. Innermost first.
-                                   , lexicalScopes     :: [LexScope]
+                                   , lexicalScopes     :: [LexScope ty term]
                                    , nCurrentScopes    :: Int
                                      -- number of next ls
                                    , lsCtr             :: Int
                                    , fsPrefix          :: String
-                                   , retTy             :: Maybe Type
+                                   , retTy             :: Maybe ty
                                    } deriving (Show)
 
 listModify :: Functor m => Int -> (a -> m a) -> [a] -> m [a]
@@ -196,13 +188,13 @@ listModify 0 f (x : xs) = (: xs) `fmap` f x
 listModify n f (x : xs) = (x :) `fmap` listModify (n - 1) f xs
 
 -- | Find the scope containing this variable. Indexed from the back.
-fsFindLexScope :: VarName -> FunctionScope -> Int
+fsFindLexScope :: VarName -> FunctionScope ty term -> Int
 fsFindLexScope var scope =
   fromMaybe (error $ unwords ["Cannot find", var, "in current scope"])
     $ fsFindLexScopeOpt var scope
 
 -- | Find the scope containing this variable. Indexed from the back.
-fsFindLexScopeOpt :: VarName -> FunctionScope -> Maybe Int
+fsFindLexScopeOpt :: VarName -> FunctionScope ty term -> Maybe Int
 fsFindLexScopeOpt var scope = (nCurrentScopes scope - 1 -)
   <$> findIndex (M.member var . tys) (lexicalScopes scope)
 
@@ -210,47 +202,47 @@ fsFindLexScopeOpt var scope = (nCurrentScopes scope - 1 -)
 fsModifyLexScope
   :: Monad m
   => Int
-  -> (LexScope -> m LexScope)
-  -> FunctionScope
-  -> m FunctionScope
+  -> (LexScope ty term -> m (LexScope ty term))
+  -> FunctionScope ty term
+  -> m (FunctionScope ty term)
 fsModifyLexScope i f scope = do
   n <- listModify (nCurrentScopes scope - i - 1) f $ lexicalScopes scope
   return $ scope { lexicalScopes = n }
 
 -- | Apply a fetching function to the indexed scope.
-fsGetFromLexScope :: Int -> (LexScope -> a) -> FunctionScope -> a
+fsGetFromLexScope :: Int -> (LexScope ty term -> a) -> FunctionScope ty term -> a
 fsGetFromLexScope i f scope = if i < nCurrentScopes scope
   then f $ lexicalScopes scope !! (nCurrentScopes scope - i - 1)
-  else error $ unwords ["Lexical scope index", show i, "is invalid", show scope]
+  else error $ unwords ["Lexical scope index", show i, "is invalid"]
 
-fsDeclareVar :: VarName -> Type -> FunctionScope -> Mem FunctionScope
+fsDeclareVar :: Show ty => VarName -> ty -> FunctionScope ty term -> Circify ty term (FunctionScope ty term)
 fsDeclareVar var ty scope = do
   head' <- lsDeclareVar var ty (head $ lexicalScopes scope)
   return $ scope { lexicalScopes = head' : tail (lexicalScopes scope) }
 
-fsGetVer :: VarName -> Int -> FunctionScope -> Version
+fsGetVer :: VarName -> Int -> FunctionScope ty term -> Version
 fsGetVer var i = fsGetFromLexScope i (lsGetVer var)
 
-fsGetType :: VarName -> Int -> FunctionScope -> Type
+fsGetType :: VarName -> Int -> FunctionScope ty term -> ty
 fsGetType var i = fsGetFromLexScope i (lsGetType var)
 
-fsGetSsaVar :: VarName -> Int -> FunctionScope -> SsaVar
+fsGetSsaVar :: VarName -> Int -> FunctionScope ty term -> SsaVar
 fsGetSsaVar var i = fsGetFromLexScope i (lsGetSsaVar var)
 
-fsGetNextSsaVar :: VarName -> Int -> FunctionScope -> SsaVar
+fsGetNextSsaVar :: VarName -> Int -> FunctionScope ty term -> SsaVar
 fsGetNextSsaVar var i = fsGetFromLexScope i (lsGetNextSsaVar var)
 
-fsGetTerm :: VarName -> Int -> FunctionScope -> SsaVal
+fsGetTerm :: VarName -> Int -> FunctionScope ty term -> SsaVal term
 fsGetTerm var i = fsGetFromLexScope i (lsGetTerm var)
 
-fsSetTerm :: SsaVal -> VarName -> Int -> FunctionScope -> FunctionScope
+fsSetTerm :: SsaVal term -> VarName -> Int -> FunctionScope ty term -> FunctionScope ty term
 fsSetTerm val var i =
   runIdentity . fsModifyLexScope i (Identity . lsSetTerm val var)
 
-fsNextVer :: VarName -> Int -> FunctionScope -> FunctionScope
+fsNextVer :: VarName -> Int -> FunctionScope ty term -> FunctionScope ty term
 fsNextVer var i = runIdentity . fsModifyLexScope i (Identity . lsNextVer var)
 
-fsEnterLexScope :: FunctionScope -> FunctionScope
+fsEnterLexScope :: FunctionScope ty term -> FunctionScope ty term
 fsEnterLexScope scope =
   let newLs = lsWithPrefix (fsPrefix scope ++ "_lex" ++ show (lsCtr scope))
   in  scope { lsCtr          = 1 + lsCtr scope
@@ -258,32 +250,32 @@ fsEnterLexScope scope =
             , nCurrentScopes = 1 + nCurrentScopes scope
             }
 
-printFs :: FunctionScope -> IO ()
+printFs :: FunctionScope ty term -> IO ()
 printFs s = do
   putStrLn " FunctionScope:"
   putStrLn $ "  Lex counter: " ++ show (lsCtr s)
   putStrLn "  LexicalScopes:"
   traverse_ printLs (lexicalScopes s)
 
-fsExitLexScope :: FunctionScope -> FunctionScope
+fsExitLexScope :: FunctionScope ty term -> FunctionScope ty term
 fsExitLexScope scope = scope { nCurrentScopes = nCurrentScopes scope - 1
                              , lexicalScopes  = tail $ lexicalScopes scope
                              }
 
-fsPushBreakable :: String -> FunctionScope -> FunctionScope
+fsPushBreakable :: String -> FunctionScope ty term -> FunctionScope ty term
 fsPushBreakable name scope =
   scope { guards = Break name [] : guards scope }
 
-fsPushGuard :: Ty.TermBool -> FunctionScope -> FunctionScope
+fsPushGuard :: Ty.TermBool -> FunctionScope ty term -> FunctionScope ty term
 fsPushGuard guard scope =
   scope { guards = Guard guard : guards scope }
 
-fsPopGuard :: FunctionScope -> FunctionScope
+fsPopGuard :: FunctionScope ty term -> FunctionScope ty term
 fsPopGuard scope = scope { guards = tail $ guards scope }
 
 -- Walk to the named break point, accumulating conditions.
 -- When you get there, add the accumulated condition.
-fsDoBreak :: String -> FunctionScope -> FunctionScope
+fsDoBreak :: String -> FunctionScope ty term -> FunctionScope ty term
 fsDoBreak name scope = scope { guards = go [] $ guards scope }
  where
    go acc gs = case gs of
@@ -293,13 +285,13 @@ fsDoBreak name scope = scope { guards = go [] $ guards scope }
          then Break name' (safeNary Ty.And acc : cs) : r
          else Break name' cs : go (map Ty.Not cs ++ acc) r
 
-fsCurrentGuard :: FunctionScope -> [Ty.TermBool]
+fsCurrentGuard :: FunctionScope ty term -> [Ty.TermBool]
 fsCurrentGuard = concatMap guardConditions . guards
 
 returnBreakName :: String
-returnBreakName = "CompilerMonadReturn"
+returnBreakName = "CircifyMonadReturn"
 
-fsWithPrefix :: String -> Maybe Type -> FunctionScope
+fsWithPrefix :: String -> Maybe ty -> FunctionScope ty term
 fsWithPrefix prefix ty =
   FunctionScope { guards = []
                          , retTy             = ty
@@ -309,48 +301,46 @@ fsWithPrefix prefix ty =
                          , fsPrefix          = prefix
                          }
 
--- | Internal state of the compiler for code generation
-data CompilerState = CompilerState { callStack         :: [FunctionScope]
-                                   , nFrames           :: Int
-                                   , globals           :: LexScope
-                                   , funs              :: M.Map FunctionName CFunDef
-                                   , typedefs          :: M.Map VarName Type
-                                   , structdefs        :: M.Map VarName Type
-                                   , loopBound         :: Int
-                                   , prefix            :: [String]
-                                   , fnCtr             :: Int
-                                   , findUB            :: Bool
-                                   , bugConditions     :: [Ty.TermBool]
-                                   , values            :: Maybe (M.Map String Dynamic)
-                                   -- Used for inputs that have no value.
-                                   , defaultValue      :: Maybe Integer
-                                   }
+-- The function which define an SMT-embedded language.
+data LangDef ty term = LangDef { declare :: ty -> String -> Mem term
+                               , assign  :: ty -> String -> term -> Maybe (Ty.TermBool, term) -> Mem (term, term)
+                               , termInit :: ty -> Integer -> term
+                               , termEval :: M.Map String Dynamic -> term -> Mem Dynamic
+                               }
 
-newtype Compiler a = Compiler (StateT CompilerState Mem a)
-    deriving (Functor, Applicative, Monad, MonadState CompilerState, MonadIO, MonadLog)
+-- | Internal state of the compiler for code generation
+data CircifyState ty term = CircifyState { callStack         :: [FunctionScope ty term]
+                                 , nFrames           :: Int
+                                 , globals           :: LexScope ty term
+                                 , typedefs          :: M.Map VarName ty
+                                 , structdefs        :: M.Map VarName ty
+                                 , prefix            :: [String]
+                                 , fnCtr             :: Int
+                                 , values            :: Maybe (M.Map String Dynamic)
+                                 , lang              :: LangDef ty term
+                                 }
+
+newtype Circify ty term a = Circify (StateT (CircifyState ty term) Mem a)
+    deriving (Functor, Applicative, Monad, MonadState (CircifyState ty term), MonadIO, MonadLog, MonadMem, MonadAssert)
 
 
 ---
 --- Setup, monad functions, etc
 ---
 
-emptyCompilerState :: CompilerState
-emptyCompilerState = CompilerState { callStack     = []
-                                   , nFrames       = 0
-                                   , globals       = lsWithPrefix "global"
-                                   , funs          = M.empty
-                                   , typedefs      = M.empty
-                                   , structdefs    = M.empty
-                                   , loopBound     = 4
-                                   , prefix        = []
-                                   , findUB        = True
-                                   , bugConditions = []
-                                   , fnCtr         = 0
-                                   , values        = Nothing
-                                   , defaultValue  = Nothing
-                                   }
+emptyCircifyState :: LangDef ty term -> CircifyState ty term
+emptyCircifyState lang = CircifyState { callStack     = []
+                                 , nFrames       = 0
+                                 , globals       = lsWithPrefix "global"
+                                 , typedefs      = M.empty
+                                 , structdefs    = M.empty
+                                 , prefix        = []
+                                 , fnCtr         = 0
+                                 , values        = Nothing
+                                 , lang = lang
+                                 }
 
-compilerRunOnTop :: (FunctionScope -> Compiler (a, FunctionScope)) -> Compiler a
+compilerRunOnTop :: (FunctionScope ty term -> Circify ty term (a, FunctionScope ty term)) -> Circify ty term a
 compilerRunOnTop f = do
   s       <- get
   (r, s') <-
@@ -366,7 +356,7 @@ ssaLValName ssa = case ssa of
   SLVar n         -> n
   SLRef (Ref _ n) -> n
 
-compilerFindScope :: SsaLVal -> Compiler ScopeIdx
+compilerFindScope :: SsaLVal -> Circify ty term ScopeIdx
 compilerFindScope ssa = case ssa of
   SLVar name -> do
     stack <- gets callStack
@@ -384,9 +374,9 @@ compilerFindScope ssa = case ssa of
 -- Runs a modification function on the scope of the provided variable
 compilerRunInScopeIdx
   :: ScopeIdx
-  -> (FunctionScope -> Compiler (a, FunctionScope))
-  -> (LexScope -> Compiler (a, LexScope))
-  -> Compiler a
+  -> (FunctionScope ty term -> Circify ty term (a, FunctionScope ty term))
+  -> (LexScope ty term -> Circify ty term (a, LexScope ty term))
+  -> Circify ty term a
 compilerRunInScopeIdx scopeIdx fF lF = case scopeIdx of
   ScopeGlobal -> do
     global       <- gets globals
@@ -405,8 +395,8 @@ compilerRunInScopeIdx scopeIdx fF lF = case scopeIdx of
       }
     return r
 
-ssaValAsCTerm :: String -> SsaVal -> CTerm
-ssaValAsCTerm reason v = case v of
+ssaValAsTerm :: Show term => String -> SsaVal term -> term
+ssaValAsTerm reason v = case v of
   Base c -> c
   RefVal{} ->
     error
@@ -415,54 +405,55 @@ ssaValAsCTerm reason v = case v of
       ++ " as a C term. It is a reference. Reason\n"
       ++ reason
 
-liftCFun :: String -> (CTerm -> CTerm) -> SsaVal -> SsaVal
-liftCFun name f x = case x of
+liftTermFun :: Show term => String -> (term -> term) -> SsaVal term -> SsaVal term
+liftTermFun name f x = case x of
   Base c -> Base $ f c
   RefVal{} ->
     error $ "Cannot apply c function " ++ name ++ " to reference " ++ show x
 
-liftCFun2 :: String -> (CTerm -> CTerm -> CTerm) -> SsaVal -> SsaVal -> SsaVal
-liftCFun2 name f x1 x2 = case (x1, x2) of
+liftTermFun2 :: Show term => String -> (term -> term -> term) -> SsaVal term -> SsaVal term -> SsaVal term
+liftTermFun2 name f x1 x2 = case (x1, x2) of
   (Base c1, Base c2) -> Base $ f c1 c2
   _ -> error $ "Cannot apply c function " ++ name ++ " to " ++ show (x1, x2)
 
-liftCFun3
-  :: String
-  -> (CTerm -> CTerm -> CTerm -> CTerm)
-  -> SsaVal
-  -> SsaVal
-  -> SsaVal
-  -> SsaVal
-liftCFun3 name f x1 x2 x3 = case (x1, x2, x3) of
+liftTermFun3
+  :: Show term
+  => String
+  -> (term -> term -> term -> term)
+  -> SsaVal term
+  -> SsaVal term
+  -> SsaVal term
+  -> SsaVal term
+liftTermFun3 name f x1 x2 x3 = case (x1, x2, x3) of
   (Base c1, Base c2, Base c3) -> Base $ f c1 c2 c3
   _ ->
     error $ "Cannot apply c function " ++ name ++ " to " ++ show (x1, x2, x3)
 
-liftCFun2M
-  :: Monad m
+liftTermFun2M
+  :: (Show term, Monad m)
   => String
-  -> (CTerm -> CTerm -> m CTerm)
-  -> SsaVal
-  -> SsaVal
-  -> m SsaVal
-liftCFun2M name f x1 x2 = case (x1, x2) of
+  -> (term -> term -> m term)
+  -> SsaVal term
+  -> SsaVal term
+  -> m (SsaVal term)
+liftTermFun2M name f x1 x2 = case (x1, x2) of
   (Base c1, Base c2) -> Base <$> f c1 c2
   _ -> error $ "Cannot apply c function " ++ name ++ " to " ++ show (x1, x2)
 
 compilerRunInLValScope
   :: SsaLVal
-  -> (FunctionScope -> Compiler (a, FunctionScope))
-  -> (LexScope -> Compiler (a, LexScope))
-  -> Compiler a
+  -> (FunctionScope ty term -> Circify ty term (a, FunctionScope ty term))
+  -> (LexScope ty term -> Circify ty term (a, LexScope ty term))
+  -> Circify ty term a
 compilerRunInLValScope lval fF lF = do
   idx <- compilerFindScope lval
   compilerRunInScopeIdx idx fF lF
 
 compilerModifyInScope
   :: SsaLVal
-  -> (VarName -> Int -> FunctionScope -> FunctionScope)
-  -> (VarName -> LexScope -> LexScope)
-  -> Compiler ()
+  -> (VarName -> Int -> FunctionScope ty term -> FunctionScope ty term)
+  -> (VarName -> LexScope ty term -> LexScope ty term)
+  -> Circify ty term ()
 compilerModifyInScope v fF lF = do
   idx <- compilerFindScope v
   compilerRunInScopeIdx idx
@@ -471,9 +462,9 @@ compilerModifyInScope v fF lF = do
 
 compilerGetsInScope
   :: SsaLVal
-  -> (VarName -> Int -> FunctionScope -> a)
-  -> (VarName -> LexScope -> a)
-  -> Compiler a
+  -> (VarName -> Int -> FunctionScope ty term -> a)
+  -> (VarName -> LexScope ty term -> a)
+  -> Circify ty term a
 compilerGetsInScope ssa fF lF = do
   idx <- compilerFindScope ssa
   case idx of
@@ -485,58 +476,59 @@ compilerGetsInScope ssa fF lF = do
       let frame = stack !! i
       return $ fF (ssaLValName ssa) l frame
 
-compilerGetsFunction :: (FunctionScope -> a) -> Compiler a
+compilerGetsFunction :: (FunctionScope ty term -> a) -> Circify ty term a
 compilerGetsFunction f = compilerRunOnTop (\s -> return (f s, s))
 
-compilerModifyTopM :: (FunctionScope -> Compiler FunctionScope) -> Compiler ()
+compilerModifyTopM :: (FunctionScope ty term -> Circify ty term (FunctionScope ty term)) -> Circify ty term ()
 compilerModifyTopM f = compilerRunOnTop $ fmap ((), ) . f
 
-compilerModifyTop :: (FunctionScope -> FunctionScope) -> Compiler ()
+compilerModifyTop :: (FunctionScope ty term -> FunctionScope ty term) -> Circify ty term ()
 compilerModifyTop f = compilerModifyTopM (return . f)
 
-compilerGetsTop :: (FunctionScope -> a) -> Compiler a
+compilerGetsTop :: (FunctionScope ty term -> a) -> Circify ty term a
 compilerGetsTop f = compilerRunOnTop (\s -> return (f s, s))
 
-declareVar :: VarName -> Type -> Compiler ()
+declareVar :: (Show ty, Show term) => VarName -> ty -> Circify ty term ()
 declareVar var ty = do
   --liftIO $ putStrLn $ "declareVar: " ++ var ++ ": " ++ show ty
   isGlobal <- gets (null . callStack)
   if isGlobal
     then do
       g  <- gets globals
-      g' <- liftMem $ lsDeclareVar var ty g
+      g' <- lsDeclareVar var ty g
       modify $ \s -> s { globals = g' }
-    else compilerModifyTopM $ \s -> liftMem $ fsDeclareVar var ty s
+    else compilerModifyTopM $ \s -> fsDeclareVar var ty s
   -- Kind of weird: we don't know this is the right values, but there's no harm
   -- in lying to the SMT evaluation layer for now.
-  whenM computingValues $ setValue (SLVar var) $ ctermInit ty 0
+  i <- gets (termInit . lang)
+  whenM computingValues $ setValue (SLVar var) $ i ty 0
 
-getVer :: SsaLVal -> Compiler Version
+getVer :: SsaLVal -> Circify ty term Version
 getVer v = compilerGetsInScope v fsGetVer lsGetVer
 
-nextVer :: SsaLVal -> Compiler ()
+nextVer :: SsaLVal -> Circify ty term ()
 nextVer v = compilerModifyInScope v fsNextVer lsNextVer
 
-getType :: SsaLVal -> Compiler Type
+getType :: SsaLVal -> Circify ty term ty
 getType v = compilerGetsInScope v fsGetType lsGetType
 
-getSsaVar :: SsaLVal -> Compiler SsaVar
+getSsaVar :: SsaLVal -> Circify ty term SsaVar
 getSsaVar v = compilerGetsInScope v fsGetSsaVar lsGetSsaVar
 
-getNextSsaVar :: SsaLVal -> Compiler SsaVar
+getNextSsaVar :: SsaLVal -> Circify ty term SsaVar
 getNextSsaVar v = compilerGetsInScope v fsGetNextSsaVar lsGetNextSsaVar
 
-getSsaName :: SsaLVal -> Compiler String
+getSsaName :: SsaLVal -> Circify ty term String
 getSsaName n = ssaVarAsString <$> getSsaVar n
 
-computingValues :: Compiler Bool
+computingValues :: Circify ty term Bool
 computingValues = gets (isJust . values)
 
-getValues :: Compiler (M.Map String Dynamic)
+getValues :: Circify ty term (M.Map String Dynamic)
 getValues = gets $ fromMaybe (error "Not computing values") . values
 
 modValues
-  :: (M.Map String Dynamic -> Compiler (M.Map String Dynamic)) -> Compiler ()
+  :: (M.Map String Dynamic -> Circify ty term (M.Map String Dynamic)) -> Circify ty term ()
 modValues f = do
   s <- get
   case values s of
@@ -546,33 +538,35 @@ modValues f = do
     Nothing -> return ()
 
 
-smtEval :: Ty.SortClass s => Ty.Term s -> Compiler (Ty.Value s)
+smtEval :: Ty.SortClass s => Ty.Term s -> Circify ty term (Ty.Value s)
 smtEval smt = flip Ty.eval smt <$> getValues
 
-smtEvalBool :: Ty.TermBool -> Compiler Bool
+smtEvalBool :: Ty.TermBool -> Circify ty term Bool
 smtEvalBool smt = Ty.valAsBool <$> smtEval smt
 
 -- We don not record witness values for references.
-setValue :: SsaLVal -> CTerm -> Compiler ()
+setValue :: Show term => SsaLVal -> term -> Circify ty term ()
 setValue name cterm = modValues $ \vs -> do
   liftLog $ logIf "witness" $ show name ++ " -> " ++ show cterm
   -- TODO: check getSsaVar
   var  <- ssaVarAsString <$> getSsaVar name
-  cval <- liftMem $ ctermEval vs cterm
+  e <- gets (termEval . lang)
+  cval <- liftMem $ e vs cterm
   return $ M.insert var cval vs
 
-setValueRaw :: String -> CTerm -> Compiler ()
+setValueRaw :: String -> term -> Circify ty term ()
 setValueRaw var cterm = modValues $ \vs -> do
-  cval <- liftMem $ ctermEval vs cterm
+  e <- gets (termEval . lang)
+  cval <- liftMem $ e vs cterm
   return $ M.insert var cval vs
 
-getTerm :: SsaLVal -> Compiler SsaVal
+getTerm :: SsaLVal -> Circify ty term (SsaVal term)
 getTerm var = compilerGetsInScope var fsGetTerm lsGetTerm
 
-setTerm :: SsaLVal -> SsaVal -> Compiler ()
+setTerm :: SsaLVal -> SsaVal term -> Circify ty term ()
 setTerm n v = compilerModifyInScope n (fsSetTerm v) (lsSetTerm v)
 
-printComp :: Compiler ()
+printComp :: Show ty => Circify ty term ()
 printComp = do
   gets callStack >>= liftIO . traverse_ printFs
   liftIO $ putStrLn "Typedefs:"
@@ -585,53 +579,43 @@ printComp = do
     .   traverse_ (\(k, v) -> putStrLn ("  " ++ k ++ " -> " ++ show v))
     .   M.toList
 
-enterLexScope :: Compiler ()
+enterLexScope :: Circify ty term ()
 enterLexScope = compilerModifyTop fsEnterLexScope
 
-exitLexScope :: Compiler ()
+exitLexScope :: Circify ty term ()
 exitLexScope = compilerModifyTop fsExitLexScope
 
-pushGuard :: Ty.TermBool -> Compiler ()
+pushGuard :: Ty.TermBool -> Circify ty term ()
 pushGuard = compilerModifyTop . fsPushGuard
 
-popGuard :: Compiler ()
+popGuard :: Circify ty term ()
 popGuard = compilerModifyTop fsPopGuard
 
-guarded :: Ty.TermBool -> Compiler a -> Compiler a
-guarded cond action = pushGuard cond *> action <* popGuard
+--guarded :: MonadCircify ty term m => Ty.TermBool -> m a -> m a
+--guarded cond action = liftCircify (pushGuard cond) *> action <* liftCircify popGuard
 
-getGuard :: Compiler Ty.TermBool
+getGuard :: Circify ty term Ty.TermBool
 getGuard = safeNary Ty.And . concatMap fsCurrentGuard . callStack <$> get
 
-doReturn :: CTerm -> Compiler ()
+doReturn :: Show term => term -> Circify ty term ()
 doReturn value = do
   ssaAssign (SLVar returnValueName) (Base value)
   compilerModifyTop (fsDoBreak returnBreakName)
 
-liftMem :: Mem a -> Compiler a
-liftMem = Compiler . lift
+runCodegen :: LangDef ty term -> Circify ty term a -> Assert (a, CircifyState ty term)
+runCodegen langDef (Circify act) = Mem.evalMem $ runStateT act $ emptyCircifyState langDef
 
-liftAssert :: Assert a -> Compiler a
-liftAssert = liftMem . Mem.liftAssert
+evalCodegen :: LangDef ty term -> Circify ty term a -> Assert a
+evalCodegen langDef act = fst <$> runCodegen langDef act
 
-runCodegen
-  :: Bool -- ^ wether to check for UB
-  -> Compiler a       -- ^ Codegen computation
-  -> Assert (a, CompilerState)
-runCodegen checkUB (Compiler act) =
-  Mem.evalMem $ runStateT act $ emptyCompilerState { findUB = checkUB }
-
-evalCodegen :: Bool -> Compiler a -> Assert a
-evalCodegen checkUB act = fst <$> runCodegen checkUB act
-
-execCodegen :: Bool -> Compiler a -> Assert CompilerState
-execCodegen checkUB act = snd <$> runCodegen checkUB act
+execCodegen :: LangDef ty term -> Circify ty term a -> Assert (CircifyState ty term)
+execCodegen langDef act = snd <$> runCodegen langDef act
 
 
 -- Turning VarNames (the AST's representation of a variable) into other representations
 -- of variables
 
-codegenVar :: SsaLVal -> Compiler SsaVar
+codegenVar :: SsaLVal -> Circify ty term SsaVar
 codegenVar var = SsaVar (ssaLValName var) <$> getVer var
 
 -- | Human readable name.
@@ -643,23 +627,23 @@ ssaVarAsString (SsaVar varName ver) = varName ++ "_v" ++ show ver
 whenM :: Monad m => m Bool -> m () -> m ()
 whenM condition action = condition >>= flip when action
 
-ifVal :: Monad m => SsaVal -> (CTerm -> m a) -> m ()
+ifVal :: Monad m => SsaVal term -> (term -> m a) -> m ()
 ifVal val f = case val of
   Base v -> void $ f v
   _      -> return ()
 
 -- Assert that the current version of `var` is assign `value` to it.
 -- Could return 
-argAssign :: SsaLVal -> SsaVal -> Compiler SsaVal
+argAssign :: Show term => SsaLVal -> SsaVal term -> Circify ty term (SsaVal term)
 argAssign var val = do
   --liftIO $ putStrLn $ "argAssign " ++ var ++ " = " ++ show val
   ty         <- getType var
-  trackUndef <- gets findUB
   ssaVar     <- getSsaVar var
   case val of
     Base cval -> do
+      a <- gets (assign . lang)
       (t, castVal) <- liftMem
-        $ cppCondAssign trackUndef ty (ssaVarAsString ssaVar) cval Nothing
+        $ a ty (ssaVarAsString ssaVar) cval Nothing
       setTerm var (Base t)
       whenM computingValues $ setValue var castVal
       return (Base t)
@@ -668,7 +652,7 @@ argAssign var val = do
       return val
 
 -- Bump the version of `var` and assign `value` to it.
-ssaAssign :: SsaLVal -> SsaVal -> Compiler SsaVal
+ssaAssign :: Show term => SsaLVal -> SsaVal term -> Circify ty term (SsaVal term)
 ssaAssign var val = do
   priorTerm  <- getTerm var
   ty         <- getType var
@@ -676,8 +660,8 @@ ssaAssign var val = do
   guard      <- getGuard
   case (val, priorTerm) of
     (Base cval, Base priorCval) -> do
-      trackUndef <- gets findUB
-      (t, val') <- liftMem $ cppCondAssign trackUndef ty (ssaVarAsString nextSsaVar) cval (Just (guard, priorCval))
+      a <- gets (assign . lang)
+      (t, val') <- liftMem $ a ty (ssaVarAsString nextSsaVar) cval (Just (guard, priorCval))
       nextVer var
       setTerm var (Base t)
       whenM computingValues $ setValue var val'
@@ -687,39 +671,25 @@ ssaAssign var val = do
       return val
     _ -> error $ unwords ["Cannot assign", show val, "to location", show var, "which held a", show priorTerm]
 
-initAssign :: SsaLVal -> Integer -> Compiler ()
+initAssign :: Show term => SsaLVal -> Integer -> Circify ty term ()
 initAssign name value = do
   ty <- getType name
-  setValue name (ctermInit ty value)
+  i <- gets (termInit . lang)
+  setValue name (i ty value)
 
-initValues :: Compiler ()
+initValues :: Circify ty term ()
 initValues = modify $ \s -> s { values = Just M.empty }
 
-setDefaultValueZero :: Compiler ()
-setDefaultValueZero = modify $ \s -> s { defaultValue = Just 0 }
-
-getRef :: SsaLVal -> Compiler SsaVal
+getRef :: SsaLVal -> Circify ty term (SsaVal term)
 getRef lval = do
   idx <- compilerFindScope lval
   return $ RefVal (Ref idx (ssaLValName lval))
 
-deref :: SsaVal -> SsaLVal
+deref :: Show term => SsaVal term -> SsaLVal
 deref val = case val of
   RefVal r -> SLRef r
   Base   c -> error $ "Cannot derefence base value: " ++ show c
 
--- Not quite right? Returns?  Our return stuff is super hacky anyways. We
--- should integrate it with the guard machinery.
-bugIf :: Ty.TermBool -> Compiler ()
-bugIf c = do
-  g <- getGuard
-  modify $ \s ->
-    s { bugConditions = Ty.BoolNaryExpr Ty.And [g, c] : bugConditions s }
-
-assertBug :: Compiler ()
-assertBug = do
-  cs <- gets bugConditions
-  liftAssert $ Assert.assert $ Ty.BoolNaryExpr Ty.Or cs
 
 ---
 --- Functions
@@ -728,7 +698,7 @@ assertBug = do
 returnValueName :: String
 returnValueName = "return"
 
-pushFunction :: FunctionName -> Maybe Type -> Compiler ()
+pushFunction :: (Show ty, Show term) => String -> Maybe ty -> Circify ty term ()
 pushFunction name ty = do
   p <- gets prefix
   c <- gets fnCtr
@@ -746,15 +716,15 @@ pushFunction name ty = do
   forM_ ty $ \t -> declareVar returnValueName t
 
 -- Pop a function, returning the return term
-popFunction :: Compiler (Maybe CTerm)
+popFunction :: Show term => Circify ty term (Maybe term)
 popFunction = do
   popGuard
   frame <- gets (head . callStack)
   retTerm <- forM (retTy frame) $ \ty -> do
-      t <- ssaValAsCTerm "return get" <$> getTerm (SLVar returnValueName)
+      t <- ssaValAsTerm "return get" <$> getTerm (SLVar returnValueName)
       let retName = fsPrefix frame ++ "__" ++ returnValueName
-      ub <- gets findUB
-      (t', v') <- liftMem $ cppCondAssign ub ty retName t Nothing
+      a <- gets (assign . lang)
+      (t', v') <- liftMem $ a ty retName t Nothing
       whenM computingValues $ setValueRaw retName v'
       return t'
   exitLexScope
@@ -765,46 +735,32 @@ popFunction = do
          )
   return retTerm
 
-registerFunction :: FunctionName -> CFunDef -> Compiler ()
-registerFunction name function = do
-  s0 <- get
-  case M.lookup name $ funs s0 of
-    Nothing -> put $ s0 { funs = M.insert name function $ funs s0 }
-    _       -> error $ unwords ["Already declared", name]
-
-getFunction :: FunctionName -> Compiler CFunDef
-getFunction funName = do
-  functions <- gets funs
-  case M.lookup funName functions of
-    Just function -> return function
-    Nothing       -> error $ unwords ["Called undeclared function", funName]
-
 ---
 --- Typedefs
 ---
 
-typedef :: VarName -> Type -> Compiler ()
+typedef :: Show ty => VarName -> ty -> Circify ty term ()
 typedef name ty = do
   liftLog $ logIf "typedef" $ "typedef " ++ name ++ " to " ++ show ty
   modify $ \s -> case M.lookup name (typedefs s) of
     Nothing -> s { typedefs = M.insert name ty $ typedefs s }
     Just t  -> error $ unwords ["Already td'd", name, "to", show t]
 
-untypedef :: VarName -> Compiler (Maybe Type)
+untypedef :: VarName -> Circify ty term (Maybe ty)
 untypedef name = M.lookup name <$> gets typedefs
 
 ---
 --- Structdefs
 ---
 
-defineStruct :: VarName -> Type -> Compiler ()
+defineStruct :: Show ty => VarName -> ty -> Circify ty term ()
 defineStruct name ty = do
   liftLog $ logIf "typedef" $ "structdef " ++ name ++ " to " ++ show ty
   modify $ \s -> case M.lookup name (typedefs s) of
     Nothing -> s { structdefs = M.insert name ty $ structdefs s }
     Just t  -> error $ unwords ["Already structdef'd", name, "to", show t]
 
-getStruct :: VarName -> Compiler (Maybe Type)
+getStruct :: VarName -> Circify ty term (Maybe ty)
 getStruct name = M.lookup name <$> gets structdefs
 
 ---
@@ -817,18 +773,10 @@ safeNary op xs = case xs of
   [s] -> s
   _   -> Ty.BoolNaryExpr op xs
 
--- Loops
-
-getLoopBound :: Compiler Int
-getLoopBound = gets loopBound
-
-setLoopBound :: Int -> Compiler ()
-setLoopBound bound = modify (\s -> s { loopBound = bound })
-
 -- UB
 
-liftCFunM :: Monad m => String -> (CTerm -> m CTerm) -> SsaVal -> m SsaVal
-liftCFunM name f x = case x of
+liftTermFunM :: Monad m => String -> (term -> m term) -> SsaVal term -> m (SsaVal term)
+liftTermFunM name f x = case x of
   Base c -> Base <$> f c
-  RefVal{} ->
-    error $ "Cannot apply c function " ++ name ++ " to reference " ++ show x
+  RefVal r ->
+    error $ "Cannot apply c function " ++ name ++ " to reference " ++ show r

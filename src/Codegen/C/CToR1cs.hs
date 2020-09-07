@@ -22,7 +22,7 @@ import           Codegen.Circom.CompTypes.LowDeg
                                                 , QEQ
                                                 )
 import qualified IR.R1cs.Opt                   as Opt
-import           Codegen.C                      ( codegenFn )
+import           Codegen.C                      ( codegenFn, runC, liftCircify )
 import           IR.SMT.ToPf                    ( toPf
                                                 , toPfWithWit
                                                 )
@@ -56,9 +56,9 @@ data FnTrans = FnTrans { assertions :: [Ty.TermBool]
 fnToSmt
   :: Maybe (Map.Map String Integer) -> AST.CTranslUnit -> String -> IO FnTrans
 fnToSmt inVals tu name = do
-  let init = if isJust inVals then initValues else return ()
+  let init = when (isJust inVals) $ liftCircify initValues
   (((inputs, output), compState), assertState) <-
-    Assert.runAssert $ runCodegen False $ init >> codegenFn tu name inVals
+    Assert.runAssert $ runC False $ init >> codegenFn tu name inVals
   return $ FnTrans { assertions = Assert.asserted assertState
                    , inputs     = inputs
                    , output     = fromMaybe (error "No return value in fnToSmt") output
