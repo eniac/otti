@@ -12,9 +12,7 @@ import           AST.Simple                     ( Type
 import           Language.C.Syntax.AST          ( CFunDef )
 import           Codegen.C.CUtils               ( CTerm
                                                 , cppDeclVar
-                                                , cppDeclInitVar
-                                                , cppCast
-                                                , cppIte
+                                                , cppCondAssign
                                                 , ctermInit
                                                 , ctermEval
                                                 )
@@ -661,7 +659,7 @@ argAssign var val = do
   case val of
     Base cval -> do
       (t, castVal) <- liftMem
-        $ cppDeclInitVar trackUndef ty (ssaVarAsString ssaVar) cval
+        $ cppCondAssign trackUndef ty (ssaVarAsString ssaVar) cval Nothing
       setTerm var (Base t)
       whenM computingValues $ setValue var castVal
       return (Base t)
@@ -676,32 +674,18 @@ ssaAssign var val = do
   ty         <- getType var
   nextSsaVar <- getNextSsaVar var
   guard      <- getGuard
-  case val of
-    Base cval -> do
-      let castVal   = cppCast ty cval
-          priorCval = case priorTerm of
-            RefVal r ->
-              error
-                $  "Writing a cterm"
-                ++ show cval
-                ++ "to a location"
-                ++ show var
-                ++ "that held a ref"
-                ++ show r
-            Base c -> c
-          guardVal = cppIte guard castVal priorCval
+  case (val, priorTerm) of
+    (Base cval, Base priorCval) -> do
       trackUndef <- gets findUB
-      (t, _)     <- liftMem
-        $ cppDeclInitVar trackUndef ty (ssaVarAsString nextSsaVar) guardVal
+      (t, val') <- liftMem $ cppCondAssign trackUndef ty (ssaVarAsString nextSsaVar) cval (Just (guard, priorCval))
       nextVer var
       setTerm var (Base t)
-      whenM computingValues $ do
-        g <- smtEvalBool guard
-        setValue var (if g then castVal else priorCval)
+      whenM computingValues $ setValue var val'
       return (Base t)
-    RefVal r -> do
+    (RefVal r, _) -> do
       setTerm var val
       return val
+    _ -> error $ unwords ["Cannot assign", show val, "to location", show var, "which held a", show priorTerm]
 
 initAssign :: SsaLVal -> Integer -> Compiler ()
 initAssign name value = do
@@ -770,7 +754,7 @@ popFunction = do
       t <- ssaValAsCTerm "return get" <$> getTerm (SLVar returnValueName)
       let retName = fsPrefix frame ++ "__" ++ returnValueName
       ub <- gets findUB
-      (t', v') <- liftMem $ cppDeclInitVar ub ty retName t
+      (t', v') <- liftMem $ cppCondAssign ub ty retName t Nothing
       whenM computingValues $ setValueRaw retName v'
       return t'
   exitLexScope

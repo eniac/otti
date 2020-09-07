@@ -12,6 +12,7 @@ module Codegen.C.CUtils
   , Bitable(..)
   , cppDeclVar
   , cppDeclInitVar
+  , cppCondAssign
   -- Memory Operations
   , cppLoad
   , cppStore
@@ -308,6 +309,19 @@ cppDeclInitVar :: Bool -> AST.Type -> String -> CTerm -> Mem (CTerm, CTerm)
 cppDeclInitVar trackUndef ty name init =
   let init' = cppCast ty init
   in  Mem.liftAssert $ (,init') <$> alias trackUndef name init'
+
+-- Declare a new variable, initializing it to a value.
+-- Optional argument: a condition and an alternate value in which case this is
+-- an ITE-assignment in which the first value is assigned if the condition is
+-- met, otherwise the second value.
+-- Returns the term corresponding to the new variable and the ITE or cast or
+-- whatever that it was ultimately assigned to.
+cppCondAssign :: Bool -> AST.Type -> String -> CTerm -> Maybe (Ty.TermBool, CTerm) -> Mem (CTerm, CTerm)
+cppCondAssign trackUndef ty name value alternate = case alternate of
+  Just (cond, value') ->
+   let ite = cppIte cond (cppCast ty value) (cppCast ty value')
+   in  cppDeclInitVar trackUndef ty name ite
+  Nothing -> cppDeclInitVar trackUndef ty name (cppCast ty value)
 
 -- Declare a new variable, do not initialize it.
 cppDeclVar :: AST.Type -> String -> Mem CTerm
