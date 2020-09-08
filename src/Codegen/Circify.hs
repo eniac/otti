@@ -313,7 +313,6 @@ data CircifyState ty term = CircifyState { callStack         :: [FunctionScope t
                                  , nFrames           :: Int
                                  , globals           :: LexScope ty term
                                  , typedefs          :: M.Map VarName ty
-                                 , structdefs        :: M.Map VarName ty
                                  , prefix            :: [String]
                                  , fnCtr             :: Int
                                  , values            :: Maybe (M.Map String Dynamic)
@@ -340,7 +339,6 @@ emptyCircifyState lang = CircifyState { callStack     = []
                                  , nFrames       = 0
                                  , globals       = lsWithPrefix "global"
                                  , typedefs      = M.empty
-                                 , structdefs    = M.empty
                                  , prefix        = []
                                  , fnCtr         = 0
                                  , values        = Nothing
@@ -551,18 +549,16 @@ smtEval smt = flip Ty.eval smt <$> getValues
 smtEvalBool :: Ty.TermBool -> Circify ty term Bool
 smtEvalBool smt = Ty.valAsBool <$> smtEval smt
 
--- We don not record witness values for references.
+-- We do not record witness values for references.
 setValue :: Show term => SsaLVal -> term -> Circify ty term ()
-setValue name cterm = modValues $ \vs -> do
-  liftLog $ logIf "witness" $ show name ++ " -> " ++ show cterm
+setValue name cterm = do
   -- TODO: check getSsaVar
   var  <- ssaVarAsString <$> getSsaVar name
-  e <- gets (termEval . lang)
-  cval <- liftMem $ e vs cterm
-  return $ M.insert var cval vs
+  setValueRaw var cterm
 
-setValueRaw :: String -> term -> Circify ty term ()
+setValueRaw :: Show term => String -> term -> Circify ty term ()
 setValueRaw var cterm = modValues $ \vs -> do
+  liftLog $ logIf "witness" $ show var ++ " -> " ++ show cterm
   e <- gets (termEval . lang)
   cval <- liftMem $ e vs cterm
   return $ M.insert var cval vs
@@ -578,10 +574,6 @@ printComp = do
   gets callStack >>= liftIO . traverse_ printFs
   liftIO $ putStrLn "Typedefs:"
   gets typedefs
-    >>= liftIO
-    .   traverse_ (\(k, v) -> putStrLn ("  " ++ k ++ " -> " ++ show v))
-    .   M.toList
-  gets structdefs
     >>= liftIO
     .   traverse_ (\(k, v) -> putStrLn ("  " ++ k ++ " -> " ++ show v))
     .   M.toList
@@ -755,20 +747,6 @@ typedef name ty = do
 
 untypedef :: VarName -> Circify ty term (Maybe ty)
 untypedef name = M.lookup name <$> gets typedefs
-
----
---- Structdefs
----
-
-defineStruct :: Show ty => VarName -> ty -> Circify ty term ()
-defineStruct name ty = do
-  liftLog $ logIf "typedef" $ "structdef " ++ name ++ " to " ++ show ty
-  modify $ \s -> case M.lookup name (typedefs s) of
-    Nothing -> s { structdefs = M.insert name ty $ structdefs s }
-    Just t  -> error $ unwords ["Already structdef'd", name, "to", show t]
-
-getStruct :: VarName -> Circify ty term (Maybe ty)
-getStruct name = M.lookup name <$> gets structdefs
 
 ---
 --- If-statements

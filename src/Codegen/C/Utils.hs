@@ -87,13 +87,13 @@ ctypeToType ty = case ty of
       listMaybeEntryLists <- mapM cSplitDeclaration decls
       let entries = concat <$> sequence listMaybeEntryLists
           s       = Struct . map (\(id, ty, _) -> (id, ty)) <$> entries
-      forM_ s $ \s -> forM_ mIdent $ \i -> defineStruct (identToVarName i) s
+      forM_ s $ \s -> forM_ mIdent $ \i -> typedef ("struct " ++ identToVarName i) s
       return s
     Nothing -> case mIdent of
       Just ident ->
         let n = identToVarName ident
         in  maybeToEither ("Missing struct definition for " ++ n)
-              <$> getStruct n
+              <$> untypedef ("struct " ++ n)
       Nothing -> do
         text <- liftIO $ nodeText $ head ty
         return $ error $ "struct without declaration or name: " ++ text
