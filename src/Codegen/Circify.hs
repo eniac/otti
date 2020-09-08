@@ -11,9 +11,8 @@
 module Codegen.Circify where
 
 -- C imports
-import           AST.Simple                     ( VarName )
-import qualified Codegen.C.Memory              as Mem
-import           Codegen.C.Memory               ( Mem, MonadMem, liftMem )
+import qualified Codegen.Circify.Memory              as Mem
+import           Codegen.Circify.Memory               ( Mem, MonadMem, liftMem )
 
 -- Control imports
 import           Control.Monad.Reader
@@ -42,11 +41,6 @@ import qualified IR.SMT.Assert                 as Assert
 import           IR.SMT.Assert                  ( Assert, MonadAssert, liftAssert )
 import           Util.Log
 
--- Other C dependencies:
---   strutdefs & typedefs
---   findUB
---   bugIf and bugConditions
-
 {-|
 
 Module that defines the Circify monad, the monad that keeps track of all internal
@@ -64,6 +58,7 @@ Structure: The compiler monad is defined in terms of three nested notions of sta
 -}
 
 type Version = Int
+type VarName = String
 
 data SsaVar = SsaVar VarName Version
                 deriving (Eq, Ord, Show)

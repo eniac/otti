@@ -1,6 +1,6 @@
 import           BenchUtils
 import           Codegen.C.CUtilsTest
-import           Codegen.C.MemoryTest
+import           Codegen.Circify.MemoryTest
 import           Codegen.CircomTest
 import           Codegen.CTest
 import           Codegen.CValuesTest

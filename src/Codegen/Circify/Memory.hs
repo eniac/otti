@@ -2,7 +2,7 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeApplications #-}
-module Codegen.C.Memory where
+module Codegen.Circify.Memory where
 import           Control.Monad.State.Strict
 import qualified Data.Map.Strict               as Map
 import           Data.Maybe                     ( fromJust
@@ -399,3 +399,4 @@ memStore addr val mGuard = do
       liftAssert $ Assert.assign next $ foldl writeBlock
                                               mem
                                               [0 .. blocksToRead - 1]
+

@@ -10,61 +10,61 @@ module Codegen.C.CUtils
   ( CTerm(..)
   , CTermData(..)
   , Bitable(..)
-  , cppDeclVar
-  , cppDeclInitVar
-  , cppCondAssign
+  , cDeclVar
+  , cDeclInitVar
+  , cCondAssign
   -- Memory Operations
-  , cppLoad
-  , cppStore
+  , cLoad
+  , cStore
   -- Arith Operations
-  , cppBitOr
-  , cppBitXor
-  , cppBitNot
-  , cppBitAnd
-  , cppSub
-  , cppMul
-  , cppAdd
-  , cppMin
-  , cppMax
-  , cppDiv
-  , cppRem
-  , cppPos
-  , cppNeg
-  , cppShl
-  , cppShr
+  , cBitOr
+  , cBitXor
+  , cBitNot
+  , cBitAnd
+  , cSub
+  , cMul
+  , cAdd
+  , cMin
+  , cMax
+  , cDiv
+  , cRem
+  , cPos
+  , cNeg
+  , cShl
+  , cShr
   -- Logical Operations
-  , cppAnd
-  , cppOr
-  , cppNot
+  , cAnd
+  , cOr
+  , cNot
   -- Comparisons
-  , cppLt
-  , cppLe
-  , cppGt
-  , cppGe
-  , cppEq
-  , cppNe
+  , cLt
+  , cLe
+  , cGt
+  , cGe
+  , cEq
+  , cNe
   -- Ites
-  , cppCond
-  , cppIte
+  , cCond
+  , cIte
   -- Other
-  , cppCast
-  , cppBool
+  , cCast
+  , cBool
   -- Consts
-  , cppTrue
-  , cppFalse
+  , cTrue
+  , cFalse
   -- Literals
-  , cppIntLit
-  , cppFloatLit
-  , cppDoubleLit
-  , cppArrayLit
-  , cppStructLit
+  , cIntLit
+  , cFloatLit
+  , cDoubleLit
+  , cArrayLit
+  , cStructLit
   -- Structs
-  , cppStructGet
-  , cppStructSet
+  , cStructGet
+  , cStructSet
   -- Pointers & Arrays
-  , cppIndex
+  , cIndex
   -- Reflection
-  , cppType
+  , cType
   -- Utilities
   , asBool
   , asInt
@@ -81,9 +81,9 @@ where
 import qualified IR.SMT.TySmt                  as Ty
 import qualified AST.Simple                    as AST
 import qualified IR.SMT.Assert                 as Assert
-import           IR.SMT.Assert                  ( liftAssert, MonadAssert )
-import qualified Codegen.C.Memory              as Mem
-import           Codegen.C.Memory               ( Mem )
+import           IR.SMT.Assert                  ( liftAssert )
+import qualified Codegen.Circify.Memory        as Mem
+import           Codegen.Circify.Memory         ( Mem )
 import           Control.Monad                  ( unless
                                                 , when
                                                 , forM
@@ -214,15 +214,16 @@ instance Bitable CTermData where
     --CStackPtr ty _ _ -> AST.numBits ty
     _          -> error $ "Cannot serialize: " ++ show c
   serialize c = case c of
-    CBool b      -> Ty.Ite b (Mem.bvNum False 1 1) (Mem.bvNum False 1 0)
-    CInt _ _ bv  -> bv
-    CDouble d    -> Ty.mkDynamizeBv $ Ty.FpToBv d
-    CFloat  d    -> Ty.mkDynamizeBv $ Ty.FpToBv d
+    CBool b     -> Ty.Ite b (Mem.bvNum False 1 1) (Mem.bvNum False 1 0)
+    CInt _ _ bv -> bv
+    CDouble d   -> Ty.mkDynamizeBv $ Ty.FpToBv d
+    CFloat  d   -> Ty.mkDynamizeBv $ Ty.FpToBv d
     -- Need to reverse because concant fives the first element the highest order.
-    CStruct _ fs -> foldl1 Ty.mkDynBvConcat $ reverse $ map (serialize . term . snd) fs
+    CStruct _ fs ->
+      foldl1 Ty.mkDynBvConcat $ reverse $ map (serialize . term . snd) fs
     -- Pointer & Array serialization is hard, b/c you forget which allocation
     -- you refer to.
-    _            -> error $ "Cannot serialize: " ++ show c
+    _ -> error $ "Cannot serialize: " ++ show c
   deserialize ty bv = case ty of
     t | AST.isIntegerType t -> CInt (AST.isSignedInt t) (AST.numBits t) bv
     AST.Double              -> CDouble $ Ty.BvToFp $ Ty.mkStatifyBv @64 bv
@@ -246,11 +247,11 @@ instance Bitable CTermData where
 
 
 
-cppType :: CTerm -> AST.Type
-cppType = ctermDataTy . term
+cType :: CTerm -> AST.Type
+cType = ctermDataTy . term
 
-cppBool :: CTerm -> Ty.TermBool
-cppBool = asBool . term . cppCast AST.Bool
+cBool :: CTerm -> Ty.TermBool
+cBool = asBool . term . cCast AST.Bool
 
 nyi :: String -> a
 nyi msg = error $ "Not yet implemented: " ++ msg
@@ -306,10 +307,10 @@ structVarName baseName fieldName = baseName ++ "." ++ fieldName
 
 -- Declare a new variable, initialize it to a value.
 -- Returns the new term, and the old one, casted to be of the right type.
-cppDeclInitVar :: Bool -> AST.Type -> String -> CTerm -> Mem (CTerm, CTerm)
-cppDeclInitVar trackUndef ty name init =
-  let init' = cppCast ty init
-  in  liftAssert $ (,init') <$> alias trackUndef name init'
+cDeclInitVar :: Bool -> AST.Type -> String -> CTerm -> Mem (CTerm, CTerm)
+cDeclInitVar trackUndef ty name init =
+  let init' = cCast ty init
+  in  liftAssert $ (, init') <$> alias trackUndef name init'
 
 -- Declare a new variable, initializing it to a value.
 -- Optional argument: a condition and an alternate value in which case this is
@@ -317,24 +318,32 @@ cppDeclInitVar trackUndef ty name init =
 -- met, otherwise the second value.
 -- Returns the term corresponding to the new variable and the ITE or cast or
 -- whatever that it was ultimately assigned to.
-cppCondAssign :: Bool -> AST.Type -> String -> CTerm -> Maybe (Ty.TermBool, CTerm) -> Mem (CTerm, CTerm)
-cppCondAssign trackUndef ty name value alternate = case alternate of
+cCondAssign
+  :: Bool
+  -> AST.Type
+  -> String
+  -> CTerm
+  -> Maybe (Ty.TermBool, CTerm)
+  -> Mem (CTerm, CTerm)
+cCondAssign trackUndef ty name value alternate = case alternate of
   Just (cond, value') ->
-   let ite = cppIte cond (cppCast ty value) (cppCast ty value')
-   in  cppDeclInitVar trackUndef ty name ite
-  Nothing -> cppDeclInitVar trackUndef ty name (cppCast ty value)
+    let ite = cIte cond (cCast ty value) (cCast ty value')
+    in  cDeclInitVar trackUndef ty name ite
+  Nothing -> cDeclInitVar trackUndef ty name (cCast ty value)
 
 -- Declare a new variable, do not initialize it.
-cppDeclVar :: Bool -> AST.Type -> String -> Mem CTerm
-cppDeclVar trackUndef ty name = do
-  u <- liftAssert $ if trackUndef then Assert.newVar (udefName name) Ty.SortBool else return (Ty.BoolLit False)
+cDeclVar :: Bool -> AST.Type -> String -> Mem CTerm
+cDeclVar trackUndef ty name = do
+  u <- liftAssert $ if trackUndef
+    then Assert.newVar (udefName name) Ty.SortBool
+    else return (Ty.BoolLit False)
   -- liftAssert $ Assert.assign u (Ty.BoolLit True)
   t <- case ty of
     AST.Bool -> liftAssert $ CBool <$> Assert.newVar name Ty.SortBool
     _ | AST.isIntegerType ty ->
-      liftAssert
-        $   CInt (AST.isSignedInt ty) (AST.numBits ty)
-        <$> Assert.newVar name (Ty.SortBv $ AST.numBits ty)
+      liftAssert $ CInt (AST.isSignedInt ty) (AST.numBits ty) <$> Assert.newVar
+        name
+        (Ty.SortBv $ AST.numBits ty)
     AST.Double -> liftAssert $ CDouble <$> Assert.newVar name Ty.sortDouble
     AST.Float  -> liftAssert $ CFloat <$> Assert.newVar name Ty.sortFloat
     AST.Array (Just size) innerTy ->
@@ -345,43 +354,43 @@ cppDeclVar trackUndef ty name = do
       return $ CStackPtr ty bv Mem.stackIdUnknown
     AST.Struct fields -> CStruct ty <$> forM
       fields
-      (\(f, fTy) -> (f, ) <$> cppDeclVar trackUndef fTy (structVarName name f))
-    _ -> nyi $ "cppDeclVar for type " ++ show ty
+      (\(f, fTy) -> (f, ) <$> cDeclVar trackUndef fTy (structVarName name f))
+    _ -> nyi $ "cDeclVar for type " ++ show ty
   return $ mkCTerm t u
 
-cppIntLit :: AST.Type -> Integer -> CTerm
-cppIntLit t v =
+cIntLit :: AST.Type -> Integer -> CTerm
+cIntLit t v =
   let s = AST.isSignedInt t
       w = AST.numBits t
   in  mkCTerm (CInt s w (Ty.IntToDynBv w (Ty.IntLit v))) (Ty.BoolLit False)
 
-cppDoubleLit :: Double -> CTerm
-cppDoubleLit v = mkCTerm (CDouble $ Ty.Fp64Lit v) (Ty.BoolLit False)
+cDoubleLit :: Double -> CTerm
+cDoubleLit v = mkCTerm (CDouble $ Ty.Fp64Lit v) (Ty.BoolLit False)
 
-cppFloatLit :: Float -> CTerm
-cppFloatLit v = mkCTerm (CFloat $ Ty.Fp32Lit v) (Ty.BoolLit False)
+cFloatLit :: Float -> CTerm
+cFloatLit v = mkCTerm (CFloat $ Ty.Fp32Lit v) (Ty.BoolLit False)
 
-cppArrayLit :: AST.Type -> [CTerm] -> Mem CTerm
-cppArrayLit ty vals = do
-  forM_ vals $ \v -> unless (cppType v == ty) $ error $ unwords
-    ["Type mismatch in cppArrayLit:", show ty, "vs", show $ cppType v]
+cArrayLit :: AST.Type -> [CTerm] -> Mem CTerm
+cArrayLit ty vals = do
+  forM_ vals $ \v -> unless (cType v == ty) $ error $ unwords
+    ["Type mismatch in cArrayLit:", show ty, "vs", show $ cType v]
   id <- Mem.stackAlloc
     (foldl1 Ty.mkDynBvConcat $ reverse $ map (serialize . term) vals)
   return $ mkCTerm (CArray (AST.Array (Just $ length vals) ty) id)
                    (Ty.BoolLit False)
 
-cppStructLit :: AST.Type -> [CTerm] -> Mem CTerm
-cppStructLit ty vals = do
+cStructLit :: AST.Type -> [CTerm] -> Mem CTerm
+cStructLit ty vals = do
   let fieldTys = AST.structFieldTypes ty
   forM_ (zip fieldTys vals) $ \(fTy, v) ->
-    unless (cppType v == fTy) $ error $ unwords
-      ["Type mismatch in cppStructLit:", show ty, "vs", show $ cppType v]
+    unless (cType v == fTy) $ error $ unwords
+      ["Type mismatch in cStructLit:", show ty, "vs", show $ cType v]
   return $ mkCTerm (CStruct ty (zip (map fst $ AST.structFieldList ty) vals))
                    (Ty.BoolLit False)
 
 -- Do a load, returning whether is was UB
-cppLoad :: CTerm -> Mem (Ty.TermBool, CTerm)
-cppLoad ptr = case term ptr of
+cLoad :: CTerm -> Mem (Ty.TermBool, CTerm)
+cLoad ptr = case term ptr of
   CStackPtr ty offset id -> do
     bits <- Mem.stackLoad id offset (AST.numBits $ AST.pointeeType ty)
     oob  <- Ty.Not <$> Mem.stackIsLoadable id offset
@@ -389,21 +398,21 @@ cppLoad ptr = case term ptr of
         -- TODO: Check bounds
         undef = Ty.BoolNaryExpr Ty.Or [udef ptr, oob]
     return (oob, mkCTerm value undef)
-  _ -> error $ unwords ["The value", show ptr, "cannot be cppLoad'ed"]
+  _ -> error $ unwords ["The value", show ptr, "cannot be cLoad'ed"]
 
 -- Do a store, returning whether is was UB
-cppStore :: CTerm -> CTerm -> Ty.TermBool -> Mem Ty.TermBool
-cppStore ptr val guard = case term ptr of
+cStore :: CTerm -> CTerm -> Ty.TermBool -> Mem Ty.TermBool
+cStore ptr val guard = case term ptr of
   --TODO: serialize the udef bit too.
   CStackPtr ty offset id ->
-    let bits = serialize (term $ cppCast (AST.pointeeType ty) val)
+    let bits = serialize (term $ cCast (AST.pointeeType ty) val)
     in  if AST.numBits (AST.pointeeType ty) == Ty.dynBvWidth bits
           then do
             Mem.stackStore id offset bits guard
             Ty.Not <$> Mem.stackIsLoadable id offset
           else error $ unwords
             ["CTerm", show val, "is not", show (AST.numBits ty), "bits wide"]
-  _ -> error $ unwords ["The value", show ptr, "cannot be cppStore'd"]
+  _ -> error $ unwords ["The value", show ptr, "cannot be cStore'd"]
 
 arrayToPointer :: CTerm -> CTerm
 arrayToPointer arr =
@@ -412,8 +421,8 @@ arrayToPointer arr =
         (CStackPtr (AST.Ptr32 $ AST.arrayBaseType ty) (Mem.bvNum False 32 0) id)
         (udef arr)
 
-cppStructGet :: CTerm -> String -> CTerm
-cppStructGet struct field = case term struct of
+cStructGet :: CTerm -> String -> CTerm
+cStructGet struct field = case term struct of
   CStruct _ fields ->
     fromMaybe (error $ "There is no '" ++ field ++ "' field in " ++ show struct)
       $ lookup field fields
@@ -424,20 +433,20 @@ update k v l = case l of
   []           -> error "Missing key in list"
   (k', v') : r -> if k' == k then (k, v) : r else (k', v') : update k v r
 
-cppStructSet :: String -> CTerm -> CTerm -> CTerm
-cppStructSet field value struct = case term struct of
+cStructSet :: String -> CTerm -> CTerm -> CTerm
+cStructSet field value struct = case term struct of
   CStruct ty fields -> mkCTerm
     (CStruct ty $ update field value fields)
     (Ty.BoolNaryExpr Ty.Or [udef struct, udef value])
   _ -> error $ "Cannot do a struct-set against " ++ show struct
 
-cppIndex
+cIndex
   :: CTerm -- ^ Base
   -> CTerm -- ^ Index
   -> Mem CTerm -- Pointer
-cppIndex base idx = case term base of
-  CStackPtr{} -> return $ cppAdd base idx
-  CArray{}    -> return $ cppAdd (arrayToPointer base) idx
+cIndex base idx = case term base of
+  CStackPtr{} -> return $ cAdd base idx
+  CArray{}    -> return $ cAdd (arrayToPointer base) idx
   _           -> error $ unwords ["The value", show base, "cannot be indexed"]
 
 
@@ -461,7 +470,7 @@ intResize fromSign toWidth from =
 --    * If there is a pointer, scale the int and do the op
 --    * ow error
 -- 4. Scale the int, do the op.
-cppWrapBinArith
+cWrapBinArith
   :: String
   -> Ty.BvBinOp
   -> (  forall f
@@ -477,7 +486,7 @@ cppWrapBinArith
   -> CTerm
   -> CTerm
   -> CTerm
-cppWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
+cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
   (integralPromotion a)
   (integralPromotion b)
  where
@@ -486,8 +495,8 @@ cppWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
       cannot with = error $ unwords ["Cannot do", name, "with", with]
 
       -- TODO: check bounds!
-      cppPtrPlusInt :: AST.Type -> Bv -> Bool -> Bv -> Bv
-      cppPtrPlusInt pTy ptr signed int =
+      cPtrPlusInt :: AST.Type -> Bv -> Bool -> Bv -> Bv
+      cPtrPlusInt pTy ptr signed int =
         Ty.mkDynBvBinExpr Ty.BvAdd ptr
           $ intResize signed (AST.numBits pTy)
           $ Ty.mkDynBvBinExpr
@@ -501,27 +510,27 @@ cppWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
       (t, u) = case (term a, term b) of
         (CDouble d, _) -> if allowDouble
           then
-            ( CDouble $ doubleF d $ asDouble $ term $ cppCast AST.Double b
+            ( CDouble $ doubleF d $ asDouble $ term $ cCast AST.Double b
             , Nothing
             )
           else cannot "a double"
         (_, CDouble d) -> if allowDouble
           then
-            ( CDouble $ doubleF d $ asDouble $ term $ cppCast AST.Double a
+            ( CDouble $ doubleF d $ asDouble $ term $ cCast AST.Double a
             , Nothing
             )
           else cannot "a double"
         (CFloat d, _) -> if allowDouble
           then
-            (CFloat $ doubleF d $ asFloat $ term $ cppCast AST.Float b, Nothing)
+            (CFloat $ doubleF d $ asFloat $ term $ cCast AST.Float b, Nothing)
           else cannot "a double"
         (_, CFloat d) -> if allowDouble
           then
-            (CFloat $ doubleF d $ asFloat $ term $ cppCast AST.Float a, Nothing)
+            (CFloat $ doubleF d $ asFloat $ term $ cCast AST.Float a, Nothing)
           else cannot "a double"
         (CStackPtr ty off id, CInt s _ i) ->
           if bvOp == Ty.BvAdd || bvOp == Ty.BvSub
-            then (CStackPtr ty (cppPtrPlusInt ty off s i) id, Nothing)
+            then (CStackPtr ty (cPtrPlusInt ty off s i) id, Nothing)
             else cannot "a pointer on the left"
         (CStackPtr ty off id, CStackPtr ty' off' id') ->
           if bvOp == Ty.BvSub && ty == ty' && id == id'
@@ -533,7 +542,7 @@ cppWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
               cannot
                 "two pointers, or two pointers of different types, or pointers to different allocations"
         (CInt s _ i, CStackPtr ty addr id) -> if bvOp == Ty.BvAdd
-          then (CStackPtr ty (cppPtrPlusInt ty addr s i) id, Nothing)
+          then (CStackPtr ty (cPtrPlusInt ty addr s i) id, Nothing)
           else cannot "a pointer on the right"
         -- Ptr diff
         (CInt s w i, CInt s' w' i') ->
@@ -549,9 +558,9 @@ cppWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
     in
       mkCTerm t pUdef
 
-cppBitOr, cppBitXor, cppBitAnd, cppSub, cppMul, cppAdd, cppMin, cppMax, cppDiv, cppRem, cppShl, cppShr
+cBitOr, cBitXor, cBitAnd, cSub, cMul, cAdd, cMin, cMax, cDiv, cRem, cShl, cShr
   :: CTerm -> CTerm -> CTerm
-cppAdd = cppWrapBinArith "+"
+cAdd = cWrapBinArith "+"
                          Ty.BvAdd
                          (Ty.FpBinExpr Ty.FpAdd)
                          (Just overflow)
@@ -560,7 +569,7 @@ cppAdd = cppWrapBinArith "+"
  where
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSaddo i i' else Nothing
-cppSub = cppWrapBinArith "-"
+cSub = cWrapBinArith "-"
                          Ty.BvSub
                          (Ty.FpBinExpr Ty.FpSub)
                          (Just overflow)
@@ -569,7 +578,7 @@ cppSub = cppWrapBinArith "-"
  where
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSsubo i i' else Nothing
-cppMul = cppWrapBinArith "*"
+cMul = cWrapBinArith "*"
                          Ty.BvMul
                          (Ty.FpBinExpr Ty.FpMul)
                          (Just overflow)
@@ -579,7 +588,7 @@ cppMul = cppWrapBinArith "*"
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSmulo i i' else Nothing
 -- TODO: div overflow
-cppDiv = cppWrapBinArith "/"
+cDiv = cWrapBinArith "/"
                          Ty.BvUdiv
                          (Ty.FpBinExpr Ty.FpDiv)
                          (Just isDivZero)
@@ -590,14 +599,14 @@ isDivZero _s _i _s' i' =
   Just $ Ty.mkDynBvEq i' (Ty.DynBvLit (Bv.zeros (Ty.dynBvWidth i')))
 
 -- TODO: CPP reference says that % requires integral arguments
-cppRem = cppWrapBinArith "%"
+cRem = cWrapBinArith "%"
                          Ty.BvUrem
                          (Ty.FpBinExpr Ty.FpRem)
                          (Just isDivZero)
                          False
                          True
-cppMin = undefined
-cppMax = undefined
+cMin = undefined
+cMax = undefined
 noFpError
   :: forall f
    . Ty.ComputableFp f
@@ -605,11 +614,11 @@ noFpError
   -> Ty.Term (Ty.FpSort f)
   -> Ty.Term (Ty.FpSort f)
 noFpError = const $ const $ error "Invalid FP op"
-cppBitOr = cppWrapBinArith "|" Ty.BvOr noFpError Nothing False True
-cppBitAnd = cppWrapBinArith "&" Ty.BvAnd noFpError Nothing False True
-cppBitXor = cppWrapBinArith "^" Ty.BvXor noFpError Nothing False True
+cBitOr = cWrapBinArith "|" Ty.BvOr noFpError Nothing False True
+cBitAnd = cWrapBinArith "&" Ty.BvAnd noFpError Nothing False True
+cBitXor = cWrapBinArith "^" Ty.BvXor noFpError Nothing False True
 -- Not quite right, since we're gonna force these to be equal in size
-cppShl = cppWrapBinArith "<<" Ty.BvShl noFpError (Just overflow) False True
+cShl = cWrapBinArith "<<" Ty.BvShl noFpError (Just overflow) False True
  where
   overflow s i s' i' =
     let baseNonNeg =
@@ -631,7 +640,7 @@ cppShl = cppWrapBinArith "<<" Ty.BvShl noFpError (Just overflow) False True
             ]
     in  Just $ Ty.BoolNaryExpr Ty.Or $ baseNonNeg ++ shftNonNeg ++ shftSmall
 -- Not quite right, since we're gonna force these to be equal in size
-cppShr = cppWrapBinArith ">>" Ty.BvAshr noFpError (Just overflow) False True
+cShr = cWrapBinArith ">>" Ty.BvAshr noFpError (Just overflow) False True
  where
   overflow _s i s' i' =
     let shftNonNeg =
@@ -649,7 +658,7 @@ cppShr = cppWrapBinArith ">>" Ty.BvAshr noFpError (Just overflow) False True
             ]
     in  Just $ Ty.BoolNaryExpr Ty.Or $ shftNonNeg ++ shftSmall
 
-cppWrapUnArith
+cWrapUnArith
   :: String
   -> (Bv -> Bv)
   -> (  forall f
@@ -659,43 +668,43 @@ cppWrapUnArith
      )
   -> CTerm
   -> CTerm
-cppWrapUnArith name bvF doubleF a =
+cWrapUnArith name bvF doubleF a =
   let t = case term $ integralPromotion a of
         CDouble d  -> CDouble $ doubleF d
         CInt _ w i -> CInt True w $ bvF i
         _          -> error $ unwords ["Cannot do", name, "on", show a]
   in  mkCTerm t (udef a)
 
-cppPos, cppNeg, cppBitNot :: CTerm -> CTerm
-cppPos = cppWrapUnArith "unary +" id id
-cppNeg =
-  cppWrapUnArith "unary -" (Ty.mkDynBvUnExpr Ty.BvNeg) (Ty.FpUnExpr Ty.FpNeg)
-cppBitNot =
-  cppWrapUnArith "~" (Ty.mkDynBvUnExpr Ty.BvNot) (Ty.FpUnExpr Ty.FpNeg)
+cPos, cNeg, cBitNot :: CTerm -> CTerm
+cPos = cWrapUnArith "unary +" id id
+cNeg =
+  cWrapUnArith "unary -" (Ty.mkDynBvUnExpr Ty.BvNeg) (Ty.FpUnExpr Ty.FpNeg)
+cBitNot =
+  cWrapUnArith "~" (Ty.mkDynBvUnExpr Ty.BvNot) (Ty.FpUnExpr Ty.FpNeg)
 
-cppWrapBinLogical
+cWrapBinLogical
   :: String
   -> (Ty.TermBool -> Ty.TermBool -> Ty.TermBool)
   -> CTerm
   -> CTerm
   -> CTerm
-cppWrapBinLogical name f a b =
-  case (term $ cppCast AST.Bool a, term $ cppCast AST.Bool b) of
+cWrapBinLogical name f a b =
+  case (term $ cCast AST.Bool a, term $ cCast AST.Bool b) of
     (CBool a', CBool b') ->
       mkCTerm (CBool $ f a' b') (Ty.BoolNaryExpr Ty.Or [udef a, udef b])
     _ -> error $ unwords ["Cannot do", name, "on", show a, "and", show b]
-cppOr, cppAnd :: CTerm -> CTerm -> CTerm
-cppOr = cppWrapBinLogical "||" (((.) . (.)) (Ty.BoolNaryExpr Ty.Or) doubleton)
-cppAnd =
-  cppWrapBinLogical "&&" (((.) . (.)) (Ty.BoolNaryExpr Ty.And) doubleton)
+cOr, cAnd :: CTerm -> CTerm -> CTerm
+cOr = cWrapBinLogical "||" (((.) . (.)) (Ty.BoolNaryExpr Ty.Or) doubleton)
+cAnd =
+  cWrapBinLogical "&&" (((.) . (.)) (Ty.BoolNaryExpr Ty.And) doubleton)
 
-cppWrapUnLogical :: String -> (Ty.TermBool -> Ty.TermBool) -> CTerm -> CTerm
-cppWrapUnLogical name f a = case term $ cppCast AST.Bool a of
+cWrapUnLogical :: String -> (Ty.TermBool -> Ty.TermBool) -> CTerm -> CTerm
+cWrapUnLogical name f a = case term $ cCast AST.Bool a of
   CBool a' -> mkCTerm (CBool $ f a') (udef a)
   _        -> error $ unwords ["Cannot do", name, "on", show a]
 
-cppNot :: CTerm -> CTerm
-cppNot = cppWrapUnLogical "!" Ty.Not
+cNot :: CTerm -> CTerm
+cNot = cWrapUnLogical "!" Ty.Not
 
 -- This is not quite right, but it's a reasonable approximation of C++ arithmetic.
 -- For an expression l (><) r, 
@@ -703,7 +712,7 @@ cppNot = cppWrapUnLogical "!" Ty.Not
 -- 2. If either are floating, the other is cast to that floating type
 --    * Ptrs not castable.
 -- 3. Scale the int, do the op.
-cppWrapCmp
+cWrapCmp
   :: String
   -> (Bool -> Bv -> Bv -> Ty.TermBool) -- ^f(signed, bv_a, bv_b)
   -> (  forall f
@@ -715,17 +724,17 @@ cppWrapCmp
   -> CTerm
   -> CTerm
   -> CTerm
-cppWrapCmp name bvF doubleF a b = convert (integralPromotion a)
+cWrapCmp name bvF doubleF a b = convert (integralPromotion a)
                                           (integralPromotion b)
  where
   convert a b =
     let
       cannot with = error $ unwords ["Cannot do", name, "with", with]
       t = case (term a, term b) of
-        (CDouble d, _) -> doubleF d (asDouble $ term $ cppCast AST.Double b)
-        (_, CDouble d) -> doubleF (asDouble $ term $ cppCast AST.Double a) d
-        (CFloat d, _) -> doubleF d (asFloat $ term $ cppCast AST.Float b)
-        (_, CFloat d) -> doubleF (asFloat $ term $ cppCast AST.Float a) d
+        (CDouble d, _) -> doubleF d (asDouble $ term $ cCast AST.Double b)
+        (_, CDouble d) -> doubleF (asDouble $ term $ cCast AST.Double a) d
+        (CFloat d, _) -> doubleF d (asFloat $ term $ cCast AST.Float b)
+        (_, CFloat d) -> doubleF (asFloat $ term $ cCast AST.Float a) d
         (CStackPtr ty addr id, CStackPtr ty' addr' id') ->
           if ty == ty' && id == id'
             then bvF False addr addr'
@@ -741,22 +750,22 @@ cppWrapCmp name bvF doubleF a b = convert (integralPromotion a)
     in
       mkCTerm (CBool t) pUdef
 
-cppEq, cppNe, cppLt, cppGt, cppLe, cppGe :: CTerm -> CTerm -> CTerm
-cppEq = cppWrapCmp "==" (const Ty.mkDynBvEq) Ty.Eq
-cppNe = ((.) . (.)) cppNot cppEq
-cppLt = cppWrapCmp
+cEq, cNe, cLt, cGt, cLe, cGe :: CTerm -> CTerm -> CTerm
+cEq = cWrapCmp "==" (const Ty.mkDynBvEq) Ty.Eq
+cNe = ((.) . (.)) cNot cEq
+cLt = cWrapCmp
   "<"
   (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSlt else Ty.BvUlt))
   (Ty.FpBinPred Ty.FpLt)
-cppGt = cppWrapCmp
+cGt = cWrapCmp
   ">"
   (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSgt else Ty.BvUgt))
   (Ty.FpBinPred Ty.FpGt)
-cppLe = cppWrapCmp
+cLe = cWrapCmp
   "<="
   (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSle else Ty.BvUle))
   (Ty.FpBinPred Ty.FpLe)
-cppGe = cppWrapCmp
+cGe = cWrapCmp
   ">="
   (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSge else Ty.BvUge))
   (Ty.FpBinPred Ty.FpGe)
@@ -765,11 +774,11 @@ cppGe = cppWrapCmp
 -- Do not mess with pointers
 integralPromotion :: CTerm -> CTerm
 integralPromotion n = case term n of
-  CBool{} -> cppCast AST.S32 n
+  CBool{} -> cCast AST.S32 n
   _       -> n
 
-cppCast :: AST.Type -> CTerm -> CTerm
-cppCast toTy node = case term node of
+cCast :: AST.Type -> CTerm -> CTerm
+cCast toTy node = case term node of
   CBool t -> case toTy of
     _ | AST.isIntegerType toTy ->
       let width = AST.numBits toTy
@@ -837,7 +846,7 @@ cppCast toTy node = case term node of
     AST.Float  -> node
     _          -> error $ unwords ["Bad cast from", show t, "to", show toTy]
   CStackPtr ty t _id -> if AST.isIntegerType toTy
-    then cppCast toTy $ mkCTerm (CInt False (Ty.dynBvWidth t) t) (udef node)
+    then cCast toTy $ mkCTerm (CInt False (Ty.dynBvWidth t) t) (udef node)
     else if toTy == AST.Bool
       then mkCTerm
         (CBool $ Ty.Not $ Ty.Eq (Mem.bvNum False (AST.numBits ty) 0) t)
@@ -862,15 +871,15 @@ cppCast toTy node = case term node of
   boolToBv b w = Ty.Ite b (Mem.bvNum False w 1) (Mem.bvNum False w 0)
 
 -- A ITE based on a CTerm condition.
-cppCond :: CTerm -> CTerm -> CTerm -> CTerm
-cppCond cond t f =
-  let condB  = asBool $ term $ cppCast AST.Bool cond
-      r      = cppIte condB t f
+cCond :: CTerm -> CTerm -> CTerm -> CTerm
+cCond cond t f =
+  let condB = asBool $ term $ cCast AST.Bool cond
+      r     = cIte condB t f
   in  mkCTerm (term r) (Ty.BoolNaryExpr Ty.Or [udef cond, udef r])
 
 -- A ITE based on an SMT boolean condition.
-cppIte :: Ty.TermBool -> CTerm -> CTerm -> CTerm
-cppIte condB t f =
+cIte :: Ty.TermBool -> CTerm -> CTerm -> CTerm
+cIte condB t f =
   let
     result = case (term t, term f) of
       (CBool   tB, CBool fB  ) -> CBool $ Ty.Ite condB tB fB
@@ -884,19 +893,18 @@ cppIte condB t f =
         in  CInt sign width
               $ Ty.Ite condB (intResize s width i) (intResize s' width i')
       (CStruct aTy a, CStruct bTy b) | aTy == bTy ->
-        CStruct aTy $ zipWith (\(f, aV) (_, bV) -> (f, cppIte condB aV bV)) a b
+        CStruct aTy $ zipWith (\(f, aV) (_, bV) -> (f, cIte condB aV bV)) a b
       _ ->
         error $ unwords
           ["Cannot construct conditional with", show t, "and", show f]
-  in
-    mkCTerm result (Ty.Ite condB (udef t) (udef f))
+  in  mkCTerm result (Ty.Ite condB (udef t) (udef f))
 
 
 doubleton :: a -> a -> [a]
 doubleton x y = [x, y]
 
-cppTrue :: CTerm
-cppTrue = mkCTerm (CBool $ Ty.BoolLit True) (Ty.BoolLit False)
+cTrue :: CTerm
+cTrue = mkCTerm (CBool $ Ty.BoolLit True) (Ty.BoolLit False)
 
-cppFalse :: CTerm
-cppFalse = mkCTerm (CBool $ Ty.BoolLit False) (Ty.BoolLit False)
+cFalse :: CTerm
+cFalse = mkCTerm (CBool $ Ty.BoolLit False) (Ty.BoolLit False)

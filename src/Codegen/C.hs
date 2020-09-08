@@ -5,7 +5,7 @@ import           AST.C
 import           AST.Simple
 import           Codegen.Circify
 import           Codegen.C.CUtils
-import           Codegen.C.Memory               ( bvNum
+import           Codegen.Circify.Memory               ( bvNum
                                                 , initMem
                                                 , MonadMem
                                                 , liftMem
@@ -107,14 +107,14 @@ setDefaultValueZero = modify $ \s -> s { defaultValue = Just 0 }
 
 -- List some CUtils stuff to the SSA layer
 ssaBool :: CSsaVal -> Ty.TermBool
-ssaBool = cppBool . ssaValAsTerm "cppBool"
+ssaBool = cBool . ssaValAsTerm "cBool"
 
 ssaType :: CSsaVal -> Type
-ssaType = cppType . ssaValAsTerm "cppType"
+ssaType = cType . ssaValAsTerm "cType"
 
 load :: CTerm -> C CTerm
 load ref = do
-  (oob, val) <- liftMem $ cppLoad ref
+  (oob, val) <- liftMem $ cLoad ref
   whenM (gets findUB) $ bugIf oob
   return val
 
@@ -124,7 +124,7 @@ ssaLoad = liftTermFunM "load" load
 store :: CTerm -> CTerm -> C ()
 store ref val = do
   g   <- liftCircify getGuard
-  oob <- liftMem $ cppStore ref val g
+  oob <- liftMem $ cStore ref val g
   whenM (gets findUB) $ bugIf oob
 
 ssaStore :: CSsaVal -> CSsaVal -> C ()
@@ -133,10 +133,10 @@ ssaStore ref val = case (ref, val) of
   _                -> error $ "Cannot store " ++ show (ref, val)
 
 ssaStructGet :: String -> CSsaVal -> CSsaVal
-ssaStructGet n = liftTermFun "cppStructGet" (`cppStructGet` n)
+ssaStructGet n = liftTermFun "cStructGet" (`cStructGet` n)
 
 ssaStructSet :: String -> CSsaVal -> CSsaVal -> CSsaVal
-ssaStructSet n = liftTermFun2 "cppStructSet" (cppStructSet n)
+ssaStructSet n = liftTermFun2 "cStructSet" (cStructSet n)
 
 typedefSMT :: Ident -> [CDeclSpec] -> [CDerivedDeclr] -> C ()
 typedefSMT (Ident name _ _) tys ptrs = do
@@ -155,17 +155,17 @@ genVarSMT (Ident name _ _) = liftCircify $ getTerm $ SLVar name
 genConstSMT :: CConst -> C CTerm
 genConstSMT c = case c of
 --genConstSMT c = liftIO (("Const: " ++) <$> nodeText c >>= putStrLn) >> case c of
-  CIntConst (CInteger i _ _) _ -> return $ cppIntLit S32 i
-  CCharConst (CChar c _) _ -> return $ cppIntLit S8 $ toInteger $ Char.ord c
+  CIntConst (CInteger i _ _) _ -> return $ cIntLit S32 i
+  CCharConst (CChar c _) _ -> return $ cIntLit S8 $ toInteger $ Char.ord c
   CCharConst (CChars c _) _ -> error "Chars const unsupported"
   CFloatConst (Language.C.Syntax.Constants.CFloat str) _ ->
     case toLower (last str) of
-      'f' -> return $ cppFloatLit (read $ init str)
-      'l' -> return $ cppDoubleLit (read $ init str)
-      _   -> return $ cppDoubleLit (read str)
-  CStrConst (CString str _) _ -> liftMem $ cppArrayLit
+      'f' -> return $ cFloatLit (read $ init str)
+      'l' -> return $ cDoubleLit (read $ init str)
+      _   -> return $ cDoubleLit (read str)
+  CStrConst (CString str _) _ -> liftMem $ cArrayLit
     S8
-    (map (cppIntLit S8 . toInteger . ord) str ++ [cppIntLit S8 0])
+    (map (cIntLit S8 . toInteger . ord) str ++ [cIntLit S8 0])
 
 type CSsaVal = SsaVal CTerm
 
@@ -190,7 +190,7 @@ genLValueSMT expr = case expr of
   CIndex base   idx  _    -> do
     base' <- genExprSMT base
     idx'  <- genExprSMT idx
-    addr  <- liftMem $ liftTermFun2M "cppIndex" cppIndex base' idx'
+    addr  <- liftMem $ liftTermFun2M "cIndex" cIndex base' idx'
     return $ CLAddr addr
   CMember struct ident False _ -> flip CLField (identToVarName ident) <$> genLValueSMT struct
   CMember struct ident True _ -> do
@@ -255,11 +255,11 @@ genExprSMT expr = do
       CLndOp -> do
         left'  <- genExprSMT left
         right' <- guarded (ssaBool left') $ genExprSMT right
-        return $ liftTermFun2 "cppAnd" cppAnd left' right'
+        return $ liftTermFun2 "cAnd" cAnd left' right'
       CLorOp -> do
         left'  <- genExprSMT left
         right' <- guarded (Ty.Not $ ssaBool left') $ genExprSMT right
-        return $ liftTermFun2 "cppOr" cppOr left' right'
+        return $ liftTermFun2 "cOr" cOr left' right'
       _ -> do
         left'  <- genExprSMT left
         right' <- genExprSMT right
@@ -268,7 +268,7 @@ genExprSMT expr = do
     CIndex base index _ -> do
       base'  <- genExprSMT base
       index' <- genExprSMT index
-      offset <- liftMem $ liftTermFun2M "cppIndex" cppIndex base' index'
+      offset <- liftMem $ liftTermFun2M "cIndex" cIndex base' index'
       ssaLoad offset
     CMember struct ident isArrow _ -> do
       e <- genExprSMT struct
@@ -281,7 +281,7 @@ genExprSMT expr = do
       CDecl specs _ _ -> do
         ty    <- liftCircify $ unwrap <$> baseTypeFromSpecs specs
         expr' <- genExprSMT expr
-        return $ liftTermFun "cppCast" (cppCast ty) expr'
+        return $ liftTermFun "cCast" (cCast ty) expr'
       _ -> error "Expected type in cast"
     CCall fn args _ -> case fn of
       CVar fnIdent _ -> do
@@ -323,17 +323,17 @@ genExprSMT expr = do
       cond' <- genExprSMT cond
       true' <- maybe (return cond') genExprSMT mTrueBr
       false' <- genExprSMT falseBr
-      return $ liftTermFun3 "cppCond" cppCond cond' true' false'
+      return $ liftTermFun3 "cCond" cCond cond' true' false'
     CSizeofExpr e _ -> do
       -- Evaluate in false context, to get type, but avoid side-effects
       e' <- guarded (Ty.BoolLit False) (genExprSMT e)
       let bits = case e' of
-                  Base c -> numBits (cppType c)
+                  Base c -> numBits (cType c)
                   RefVal {} -> numBits $ Ptr32 U8
-      return $ Base $ cppIntLit U32 (toInteger $ bits `div` 8)
+      return $ Base $ cIntLit U32 (toInteger $ bits `div` 8)
     CSizeofType decl _ -> do
       ty <- liftCircify $ unwrap <$> cDeclToType decl
-      return $ Base $ cppIntLit U32 (toInteger $ numBits ty `div` 8)
+      return $ Base $ cIntLit U32 (toInteger $ numBits ty `div` 8)
     _ -> error $ unwords ["We do not support", show expr, "right now"]
 
 isIncDec :: CUnaryOp -> Bool
@@ -350,8 +350,8 @@ getUnaryOp op arg = case op of
   _ | isIncDec op -> do
     lval <- genLValueSMT arg
     rval <- evalLVal lval
-    let one = Base $ cppIntLit (ssaType rval) 1
-    let new = liftTermFun2 (show op) (if isDec op then cppSub else cppAdd) rval one
+    let one = Base $ cIntLit (ssaType rval) 1
+    let new = liftTermFun2 (show op) (if isDec op then cSub else cAdd) rval one
     genAssign lval new
     return $ if isPre op
       then new
@@ -362,33 +362,33 @@ getUnaryOp op arg = case op of
       Base c -> Base <$> load c
       RefVal r -> liftCircify $ getTerm (SLRef r)
   CPlusOp -> error $ unwords ["Do not understand:", show op]
-  CMinOp  -> liftTermFun "cppNeg" cppNeg <$> genExprSMT arg
-  CCompOp -> liftTermFun "cppBitNot" cppBitNot <$> genExprSMT arg
-  CNegOp  -> liftTermFun "cppNot" cppNot <$> genExprSMT arg
+  CMinOp  -> liftTermFun "cNeg" cNeg <$> genExprSMT arg
+  CCompOp -> liftTermFun "cBitNot" cBitNot <$> genExprSMT arg
+  CNegOp  -> liftTermFun "cNot" cNot <$> genExprSMT arg
   CAdrOp  -> genRefSMT arg
   _       -> error $ unwords [show op, "not supported"]
 
 getBinOp :: CBinaryOp -> CSsaVal -> CSsaVal -> C CSsaVal
 getBinOp op left right =
   let f = case op of
-        CMulOp -> cppMul
-        CDivOp -> cppDiv
-        CRmdOp -> cppRem
-        CAddOp -> cppAdd
-        CSubOp -> cppSub
-        CShlOp -> cppShl
-        CShrOp -> cppShr
-        CLeOp  -> cppLt
-        CGrOp  -> cppGt
-        CLeqOp -> cppLe
-        CGeqOp -> cppGe
-        CEqOp  -> cppEq
-        CNeqOp -> cppNe
-        CAndOp -> cppBitAnd
-        CXorOp -> cppBitXor
-        COrOp  -> cppBitOr
-        CLndOp -> cppAnd
-        CLorOp -> cppOr
+        CMulOp -> cMul
+        CDivOp -> cDiv
+        CRmdOp -> cRem
+        CAddOp -> cAdd
+        CSubOp -> cSub
+        CShlOp -> cShl
+        CShrOp -> cShr
+        CLeOp  -> cLt
+        CGrOp  -> cGt
+        CLeqOp -> cLe
+        CGeqOp -> cGe
+        CEqOp  -> cEq
+        CNeqOp -> cNe
+        CAndOp -> cBitAnd
+        CXorOp -> cBitXor
+        COrOp  -> cBitOr
+        CLndOp -> cAnd
+        CLorOp -> cOr
   in  return $ liftTermFun2 (show op) f left right
 
 -- | Assign operation
@@ -399,14 +399,14 @@ genAssignOp op l r = case op of
   CAssignOp -> genAssign l r
   _ ->
     let f = case op of
-          CMulAssOp -> cppMul
-          CAddAssOp -> cppAdd
-          CSubAssOp -> cppSub
-          CShlAssOp -> cppShl
-          CShrAssOp -> cppShr
-          CAndAssOp -> cppBitAnd
-          CXorAssOp -> cppBitXor
-          COrAssOp  -> cppBitOr
+          CMulAssOp -> cMul
+          CAddAssOp -> cAdd
+          CSubAssOp -> cSub
+          CShlAssOp -> cShl
+          CShrAssOp -> cShr
+          CAndAssOp -> cBitAnd
+          CXorAssOp -> cBitXor
+          COrAssOp  -> cBitOr
           o         -> error $ unwords ["Cannot handle", show o]
     in  do
           lvalue <- evalLVal l
@@ -518,16 +518,16 @@ genInitSMT ty i = case (ty, i) of
   (tt             , CInitExpr e _ ) -> do
     t <- genExprSMT e
     return $ case t of
-      Base c -> Base $ cppCast ty c
+      Base c -> Base $ cCast ty c
       RefVal {} -> t
   (Array _ innerTy, CInitList is _) -> do
     values <- forM is $ \(_, i) -> genInitSMT innerTy i
     let cvals = map (ssaValAsTerm "Cannot put refs in arrays") values
-    liftMem $ Base <$> cppArrayLit innerTy cvals
+    liftMem $ Base <$> cArrayLit innerTy cvals
   (Struct fields, CInitList is _) -> do
     values <- forM (zip fields is) $ \((_, fTy), (_, i)) -> genInitSMT fTy i
     let cvals = map (ssaValAsTerm "Cannot put refs in structs") values
-    liftMem $ Base <$> cppStructLit ty cvals
+    liftMem $ Base <$> cStructLit ty cvals
   _ -> error $ unwords ["Cannot initialize type", show ty, "from", show i]
 
 ---
@@ -607,8 +607,8 @@ codegenFn (CTranslUnit decls _) name inVals = do
   genFunDef (findFn name decls) inVals
 
 cLangDef :: Bool -> LangDef Type CTerm
-cLangDef findBugs = LangDef { declare = cppDeclVar findBugs
-                            , assign = cppCondAssign findBugs
+cLangDef findBugs = LangDef { declare = cDeclVar findBugs
+                            , assign = cCondAssign findBugs
                             , termInit = ctermInit
                             , termEval = ctermEval
                             }

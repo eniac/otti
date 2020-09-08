@@ -1,9 +1,9 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE GADTs #-}
-module Codegen.C.MemoryTest where
+module Codegen.Circify.MemoryTest where
 import           BenchUtils
 import           Test.Tasty.HUnit
-import qualified Codegen.C.Memory              as Mem
+import qualified Codegen.Circify.Memory              as Mem
 import qualified IR.SMT.TySmt                  as Smt
 import qualified IR.SMT.Assert                 as Assert
 
