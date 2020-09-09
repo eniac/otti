@@ -536,9 +536,8 @@ compilerModifyTop f = compilerModifyTopM (return . f)
 compilerGetsTop :: (FunctionScope ty term -> a) -> Circify ty term a
 compilerGetsTop f = compilerRunOnTop (\s -> return (f s, s))
 
-declareVar :: (Show ty, Show term) => VarName -> ty -> Circify ty term ()
-declareVar var ty = do
-  --liftIO $ putStrLn $ "declareVar: " ++ var ++ ": " ++ show ty
+declCommon :: (Show ty, Show term) => VarName -> ty -> Circify ty term ()
+declCommon var ty = do
   isGlobal <- gets (null . callStack)
   if isGlobal
     then do
@@ -546,6 +545,15 @@ declareVar var ty = do
       g' <- lsDeclareVar var ty g
       modify $ \s -> s { globals = g' }
     else compilerModifyTopM $ \s -> fsDeclareVar var ty s
+
+declareInitVar :: (Show ty, Show term) => VarName -> ty -> SsaVal term -> Circify ty term ()
+declareInitVar var ty term = do
+  declCommon var ty
+  void $ argAssign (SLVar var) term
+
+declareVar :: (Show ty, Show term) => VarName -> ty -> Circify ty term ()
+declareVar var ty = do
+  declCommon var ty
   -- Kind of weird: we don't know this is the right values, but there's no harm
   -- in lying to the SMT evaluation layer for now.
   i <- gets (termInit . lang)

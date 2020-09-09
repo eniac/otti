@@ -153,7 +153,7 @@ ctermInit ty value = mkCTerm
     _ | AST.isIntegerType ty ->
       let n = AST.numBits ty
       in  CInt False n (Ty.IntToDynBv n (Ty.IntLit (value `rem` toInteger n)))
-    _ -> error "Cannot init"
+    _ -> error $ "Cannot init type: " ++ show ty
   )
   (Ty.BoolLit False)
 

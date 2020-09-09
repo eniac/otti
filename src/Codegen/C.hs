@@ -22,7 +22,7 @@ import           Data.Char                      ( toLower
                                                 , ord
                                                 )
 import qualified Data.Char                     as Char
-import           Data.Either                    ( fromRight )
+import           Data.Either                    ( fromRight, isRight )
 import           Data.List                      ( intercalate )
 import qualified Data.Map                      as Map
 import           Data.Maybe                     ( fromJust
@@ -42,7 +42,6 @@ import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
 import           Util.Log
---import Debug.Trace
 
 
 data CState = CState { funs              :: Map.Map FunctionName CFunDef
@@ -236,7 +235,6 @@ noneIfVoid :: Type -> Maybe Type
 noneIfVoid t = if Void == t then Nothing else Just t
 
 genExprSMT :: CExpr -> C CSsaVal
---genExprSMT expr = liftIO (("Expr: " ++) <$> nodeText expr >>= putStrLn) >> case expr of
 genExprSMT expr = do
   liftLog $ logIfM "expr" $ do
     t <- liftIO $ nodeText expr
@@ -412,7 +410,6 @@ genStmtSMT stmt = do
     t <- liftIO $ nodeText stmt
     return $ "Stmt: " ++ t
   case stmt of
-  --genStmtSMT stmt = case trace ("genStmtSMT " ++ show stmt) stmt of
     CCompound ids items _ -> do
       liftCircify enterLexScope
       forM_ items $ \case
@@ -456,7 +453,7 @@ genStmtSMT stmt = do
       liftCircify $ doReturn $ ssaValAsTerm "return" toReturn
     _ -> error $ unwords ["Unsupported: ", show stmt]
 
--- Returns the declaration's variable name
+-- Returns the names of all declared variables
 genDeclSMT :: Maybe Bool -> CDecl -> C [String]
 genDeclSMT undef d@(CDecl specs decls _) = do
   liftLog $ logIf "decls" "genDeclSMT:"
@@ -485,19 +482,19 @@ genDeclSMT undef d@(CDecl specs decls _) = do
       else do
         -- TODO: kick this into the Nothing case below, use better thing in the
         -- Just case?
-        mTy <- declareVarSMT ident baseType ptrType
-        case mTy of
-          Right ty -> do
-            lhs <- genVarSMT ident
-            case mInit of
-              Just init -> do
-                ty <- liftCircify $ ctype baseType ptrType
-                case ty of
-                  Left  err -> if skipBadTypes then return () else error err
-                  Right ty  -> do
-                    rhs <- genInitSMT ty init
-                    void $ liftCircify $ argAssign (SLVar name) rhs
-              Nothing -> whenM (gets findUB) $ forM_
+        case mInit of
+          Just init -> do
+            ty <- liftCircify $ ctype baseType ptrType
+            case ty of
+              Left  err -> if skipBadTypes then return () else error err
+              Right ty  -> do
+                rhs <- genInitSMT ty init
+                liftCircify $ declareInitVar name ty rhs
+          Nothing -> do
+            mTy <- declareVarSMT ident baseType ptrType
+            when (not skipBadTypes || isRight mTy) $ do
+              lhs <- genVarSMT ident
+              whenM (gets findUB) $ forM_
                 undef
                 ( liftAssert
                 . Assert.assert
@@ -505,7 +502,6 @@ genDeclSMT undef d@(CDecl specs decls _) = do
                     (udef $ ssaValAsTerm "undef settting in genDeclSMT" lhs)
                 . Ty.BoolLit
                 )
-          Left{} -> return ()
         return name
 
 genInitSMT :: Type -> CInit -> C CSsaVal
