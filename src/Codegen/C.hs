@@ -57,7 +57,7 @@ newtype C a = C (StateT CState (Circify Type CTerm) a)
 
 emptyCState :: Bool -> CState
 emptyCState findBugs = CState { funs          = Map.empty
-                              , loopBound     = 4
+                              , loopBound     = 5
                               , findUB        = findBugs
                               , bugConditions = []
                               , defaultValue  = Nothing
@@ -407,50 +407,54 @@ genAssignOp op l r = case op of
 ---
 
 genStmtSMT :: CStat -> C ()
-genStmtSMT stmt = case stmt of
---genStmtSMT stmt = case trace ("genStmtSMT " ++ show stmt) stmt of
-  CCompound ids items _ -> do
-    liftCircify enterLexScope
-    forM_ items $ \case
-      CBlockStmt stmt -> genStmtSMT stmt
-      CBlockDecl decl -> void $ genDeclSMT (Just True) decl
-      CNestedFunDef{} -> error "Nested function definitions not supported"
-    liftCircify exitLexScope
-  CExpr e _                 -> when (isJust e) $ void $ genExprSMT $ fromJust e
-  CIf cond trueBr falseBr _ -> do
-    trueCond <- ssaBool <$> genExprSMT cond
-    -- Guard the true branch with the true condition
-    guarded trueCond $ genStmtSMT trueBr
-    -- Guard the false branch with the false condition
-    forM_ falseBr $ \br -> guarded (Ty.Not trueCond) $ genStmtSMT br
-  CFor init check incr body _ -> do
-    case init of
-      Left  (Just expr) -> void $ genExprSMT expr
-      Right decl        -> void $ genDeclSMT (Just True) decl
-      _                 -> return ()
-    -- Make a guard on the bound to guard execution of the loop
-    -- Execute up to the loop bound
-    bound <- getLoopBound
-    replicateM_ bound $ do
-      test <- genExprSMT $ fromMaybe (error "Missing test in for-loop") check
-      liftCircify $ pushGuard (ssaBool test)
-      genStmtSMT body
-      -- increment the variable
-      forM_ incr $ \inc -> genExprSMT inc
-    replicateM_ (bound + 1) (liftCircify popGuard)
-    -- TODO: assert end
-  CWhile check body isDoWhile _ -> do
-    bound <- getLoopBound
-    let addGuard = genExprSMT check >>= liftCircify . pushGuard . ssaBool
-    replicateM_ bound $ do
-      unless isDoWhile addGuard
-      genStmtSMT body
-      when isDoWhile addGuard
-    replicateM_ (bound + 1) (liftCircify popGuard)
-  CReturn expr _ -> when (isJust expr) $ do
-    toReturn <- genExprSMT $ fromJust expr
-    liftCircify $ doReturn $ ssaValAsTerm "return" toReturn
-  _ -> error $ unwords ["Unsupported: ", show stmt]
+genStmtSMT stmt = do
+  liftLog $ logIfM "stmt" $ do
+    t <- liftIO $ nodeText stmt
+    return $ "Stmt: " ++ t
+  case stmt of
+  --genStmtSMT stmt = case trace ("genStmtSMT " ++ show stmt) stmt of
+    CCompound ids items _ -> do
+      liftCircify enterLexScope
+      forM_ items $ \case
+        CBlockStmt stmt -> genStmtSMT stmt
+        CBlockDecl decl -> void $ genDeclSMT (Just True) decl
+        CNestedFunDef{} -> error "Nested function definitions not supported"
+      liftCircify exitLexScope
+    CExpr e _                 -> when (isJust e) $ void $ genExprSMT $ fromJust e
+    CIf cond trueBr falseBr _ -> do
+      trueCond <- ssaBool <$> genExprSMT cond
+      -- Guard the true branch with the true condition
+      guarded trueCond $ genStmtSMT trueBr
+      -- Guard the false branch with the false condition
+      forM_ falseBr $ \br -> guarded (Ty.Not trueCond) $ genStmtSMT br
+    CFor init check incr body _ -> do
+      case init of
+        Left  (Just expr) -> void $ genExprSMT expr
+        Right decl        -> void $ genDeclSMT (Just True) decl
+        _                 -> return ()
+      -- Make a guard on the bound to guard execution of the loop
+      -- Execute up to the loop bound
+      bound <- getLoopBound
+      replicateM_ bound $ do
+        test <- genExprSMT $ fromMaybe (error "Missing test in for-loop") check
+        liftCircify $ pushGuard (ssaBool test)
+        genStmtSMT body
+        -- increment the variable
+        forM_ incr $ \inc -> genExprSMT inc
+      replicateM_ bound (liftCircify popGuard)
+      -- TODO: assert end
+    CWhile check body isDoWhile _ -> do
+      bound <- getLoopBound
+      let addGuard = genExprSMT check >>= liftCircify . pushGuard . ssaBool
+      replicateM_ bound $ do
+        unless isDoWhile addGuard
+        genStmtSMT body
+        when isDoWhile addGuard
+      replicateM_ bound (liftCircify popGuard)
+    CReturn expr _ -> when (isJust expr) $ do
+      toReturn <- genExprSMT $ fromJust expr
+      liftCircify $ doReturn $ ssaValAsTerm "return" toReturn
+    _ -> error $ unwords ["Unsupported: ", show stmt]
 
 -- Returns the declaration's variable name
 genDeclSMT :: Maybe Bool -> CDecl -> C [String]

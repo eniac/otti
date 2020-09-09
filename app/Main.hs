@@ -45,7 +45,6 @@ import           System.IO.Error                ( isDoesNotExistError )
 import qualified System.IO                      ( openFile )
 import           System.Console.Docopt
 import           System.Process
-import           Util.Log
 
 openFile :: FilePath -> IOMode -> IO Handle
 openFile path mode =

@@ -1,8 +1,7 @@
-#define LEN 3
 int main() {
-  int v[LEN];
-  for (int i = 0; i < LEN; ++i) v[i] = i + 1;
+  int v[3];
+  for (int i = 0; i < 3; ++i) v[i] = i + 1;
   int acc = 0;
-  for (int j = 0; j < LEN; ++j) acc += v[j];
+  for (int j = 0; j < 3; ++j) acc += v[j];
   return acc;
 }
