@@ -1,7 +1,6 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Util.Log
   ( LogState(..)
@@ -16,10 +15,8 @@ module Util.Log
   , evalLog
   )
 where
-import           Control.Lens            hiding ( element )
 import           Control.Monad                  ( )
 import           Control.Monad.State.Strict
-import           Control.Monad.Trans
 import qualified Data.Set                      as S
 import Data.List.Split (splitOn)
 import           System.Environment           (lookupEnv)
@@ -29,11 +26,9 @@ import           System.Environment           (lookupEnv)
 ---
 
 -- | State for keeping track of SMT-layer information
-data LogState = LogState { _streams         :: S.Set String
+data LogState = LogState { streams         :: S.Set String
                          } deriving (Show)
 
-
-$(makeLenses ''LogState)
 
 newtype Log a = Log (StateT LogState IO a)
     deriving (Functor, Applicative, Monad, MonadState LogState, MonadIO)
@@ -46,22 +41,22 @@ instance (MonadLog m) => MonadLog (StateT s m) where
   liftLog = lift . liftLog
 
 emptyLogState :: LogState
-emptyLogState = LogState { _streams = S.fromList [] }
+emptyLogState = LogState { streams = S.fromList [] }
 
 enableStream :: String -> Log ()
-enableStream s = modify $ over streams (S.insert s)
+enableStream s = modify $ \l -> l { streams = S.insert s $ streams l }
 
 enableStreams :: Foldable f => f String -> Log ()
 enableStreams ss = forM_ ss enableStream
 
 logIf :: String -> String -> Log ()
 logIf stream msg = do
-  enabled <- gets (S.member stream . _streams)
+  enabled <- gets (S.member stream . streams)
   when enabled $ liftIO $ putStrLn msg
 
 logIfM :: String -> Log String -> Log ()
 logIfM stream msg = do
-  enabled <- gets (S.member stream . _streams)
+  enabled <- gets (S.member stream . streams)
   when enabled $ msg >>= liftIO . putStrLn
 
 evalLog :: Log a -> IO a

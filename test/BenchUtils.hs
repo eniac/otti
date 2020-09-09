@@ -1,7 +1,6 @@
 module BenchUtils where
 
 import           Criterion.Main
-import           Data.ByteString.Lazy  (ByteString)
 import           Test.Tasty
 import           Test.Tasty.Golden
 import           Test.Tasty.HUnit
@@ -35,11 +34,11 @@ benchTestProperty name prop = BenchTest {
   , getBench = bench (replaceDoubleQuotes name) $ nfIO $ return ()
 }
 
-benchGoldenVsString :: String -> FilePath -> IO ByteString -> BenchTest
-benchGoldenVsString name path act = BenchTest {
-    getTest = goldenVsString name path act
-  , getBench = bench (replaceDoubleQuotes name) $ nfIO act
-}
+--benchGoldenVsString :: String -> FilePath -> IO ByteString -> BenchTest
+--benchGoldenVsString name path act = BenchTest {
+--    getTest = goldenVsString name path act
+--  , getBench = bench (replaceDoubleQuotes name) $ nfIO act
+--}
 
 benchTestGroup :: String -> [BenchTest] -> BenchTest
 benchTestGroup name bts = BenchTest {
