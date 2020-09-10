@@ -5,8 +5,8 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE Rank2Types #-}
 module IR.SMT.Opt
-  ( constantFold
-  , sub
+  ( opt
+  , constantFold
   , eqElim
   )
 where
@@ -14,15 +14,17 @@ where
 import           IR.SMT.TySmt
 
 import           Control.Monad.State.Strict
-import qualified Data.Map.Strict               as Map
-import qualified Data.Set                      as Set
-import           Data.Functor.Identity
+import qualified Data.BitVector                as Bv
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 , fromDyn
                                                 , dynTypeRep
                                                 )
+import           Data.Functor.Identity
+import qualified Data.Map.Strict               as Map
+import qualified Data.Set                      as Set
 import           Data.Typeable                  ( typeOf )
+import           Util.Log
 
 
 -- Folds constants (literals) away.
@@ -66,6 +68,63 @@ constantFold = mapTerm visit
       xfm Or  = const (BoolLit True)
       xfm And = const (BoolLit False)
       xfm Xor = negateBool
+    Eq a b ->
+      let a' = constantFold a
+          b' = constantFold b
+      in  case (a', b') of
+            (BoolLit a'', BoolLit b'') -> Just $ BoolLit (a'' == b'')
+            _                          -> Just $ Eq a' b'
+    IntToDynBv w i ->
+      let i' = constantFold i
+      in  Just $ case i' of
+            IntLit i'' -> DynBvLit $ Bv.bitVec w i''
+            _          -> IntToDynBv w i'
+    DynBvBinExpr op w a b ->
+      let a' = constantFold a
+          b' = constantFold b
+      in  case (a', b') of
+            (DynBvLit a'', DynBvLit b'') -> Just $ DynBvLit $ o a'' b''
+            _                            -> Just $ DynBvBinExpr op w a' b'
+     where
+      bvizeIntOp f x y = Bv.bitVec (Bv.size x) $ f (Bv.uint x) (Bv.uint y)
+      o = case op of
+        BvAdd  -> bvizeIntOp (+)
+        BvSub  -> bvizeIntOp (-)
+        BvMul  -> bvizeIntOp (*)
+        BvUdiv -> bvizeIntOp div
+        BvUrem -> bvizeIntOp rem
+        BvShl  -> Bv.shl
+        BvAshr -> Bv.ashr
+        BvLshr -> Bv.shr
+        BvOr   -> (Bv..|.)
+        BvAnd  -> (Bv..&.)
+        BvXor  -> Bv.xor
+    DynBvBinPred op w a b ->
+      let a' = constantFold a
+          b' = constantFold b
+      in  case (a', b') of
+            (DynBvLit a'', DynBvLit b'') -> Just $ BoolLit $ o a'' b''
+            _                            -> Just $ DynBvBinPred op w a' b'
+     where
+      outOfRangeAfter
+        :: (Integer -> Integer -> Integer) -> Bv.BV -> Bv.BV -> Bool
+      outOfRangeAfter f x y =
+        let s     = f (Bv.int x) (Bv.int y)
+            big   = 2 ^ (Bv.size x - 1)
+            small = negate $ 2 ^ (Bv.size x - 1)
+        in  not (small <= s && s < big)
+      o = case op of
+        BvUgt   -> (Bv.>.)
+        BvUlt   -> (Bv.<.)
+        BvUge   -> (Bv.>=.)
+        BvUle   -> (Bv.<=.)
+        BvSgt   -> Bv.sgt
+        BvSlt   -> Bv.slt
+        BvSge   -> Bv.sge
+        BvSle   -> Bv.sle
+        BvSaddo -> outOfRangeAfter (+)
+        BvSsubo -> outOfRangeAfter (-)
+        BvSmulo -> outOfRangeAfter (*)
     Ite c t f ->
       Just
         $ let c' = constantFold c
@@ -180,3 +239,21 @@ eqElim protected terms =
           { assertions = map (sub v t') $ assertions s
           , subs = Map.insert v t' $ Map.map (dynamize $ sub v t') $ subs s
           }
+
+logAssertions :: String -> [TermBool] -> Log ()
+logAssertions context as = logIfM "opt" $ do
+  liftIO $ putStrLn $ context ++ ":"
+  forM_ as $ \a -> liftIO $ putStrLn $ "  " ++ show a
+  return $ show (length as) ++ " assertions"
+
+opt :: Set.Set String -> [TermBool] -> Log [TermBool]
+opt protected terms = do
+  liftIO $ putStrLn "hi"
+  logAssertions "initial" terms
+  let folded = map constantFold terms
+  logAssertions "post fold" folded
+  let elimed = eqElim protected folded
+  logAssertions "post elim" elimed
+  let refolded = map constantFold elimed
+  logAssertions "post refold" refolded
+  return refolded

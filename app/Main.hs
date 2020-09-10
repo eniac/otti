@@ -45,6 +45,7 @@ import           System.IO.Error                ( isDoesNotExistError )
 import qualified System.IO                      ( openFile )
 import           System.Console.Docopt
 import           System.Process
+import           Util.Log
 
 openFile :: FilePath -> IOMode -> IO Handle
 openFile path mode =
@@ -194,30 +195,27 @@ cmdProve
   -> FilePath
   -> FilePath
   -> IO ()
-cmdProve opt libsnark pkPath vkPath inPath xPath wPath pfPath circomPath =
-  do
-    m             <- loadMain circomPath
-    inputFile     <- openFile inPath ReadMode
-    inputsSignals <- Link.parseSignalsFromFile (Proxy @Order) inputFile
-    let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
-    let optFn      = if opt then Opt.opt else id
-    let r1cs       = optFn $ Link.linkMain @Order m
-    let getOr m_ k =
-          Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
-    let getOrI m_ k =
-          Maybe.fromMaybe (error $ "Missing sig num: " ++ show k)
-            $         m_
-            IntMap.!? k
-    let lookupSignalVal :: Int -> Integer =
-          getOr allSignals . getOrI (Link.numSigs r1cs)
-    emitAssignment (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
-                   xPath
-    emitAssignment
-      (map lookupSignalVal
-           [(2 + Link.nPublicInputs r1cs) .. (Link.nextSigNum r1cs - 1)]
-      )
-      wPath
-    runProve libsnark pkPath vkPath xPath wPath pfPath
+cmdProve opt libsnark pkPath vkPath inPath xPath wPath pfPath circomPath = do
+  m             <- loadMain circomPath
+  inputFile     <- openFile inPath ReadMode
+  inputsSignals <- Link.parseSignalsFromFile (Proxy @Order) inputFile
+  let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
+  let optFn      = if opt then Opt.opt else id
+  let r1cs       = optFn $ Link.linkMain @Order m
+  let getOr m_ k =
+        Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
+  let getOrI m_ k =
+        Maybe.fromMaybe (error $ "Missing sig num: " ++ show k) $ m_ IntMap.!? k
+  let lookupSignalVal :: Int -> Integer =
+        getOr allSignals . getOrI (Link.numSigs r1cs)
+  emitAssignment (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
+                 xPath
+  emitAssignment
+    (map lookupSignalVal
+         [(2 + Link.nPublicInputs r1cs) .. (Link.nextSigNum r1cs - 1)]
+    )
+    wPath
+  runProve libsnark pkPath vkPath xPath wPath pfPath
 
 cmdVerify :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdVerify = ((.) . (.) . (.) . (.)) liftIO runVerify
@@ -239,7 +237,7 @@ cmdCEval name path = do
 cmdCEmitR1cs :: Bool -> String -> FilePath -> FilePath -> IO ()
 cmdCEmitR1cs opt fnName cPath r1csPath = do
   tu   <- parseC cPath
-  r1cs <- fnToR1cs @Order opt tu fnName
+  r1cs <- evalLog $ fnToR1cs @Order opt tu fnName
   R1cs.writeToR1csFile r1cs r1csPath
 
 cmdCSetup
@@ -272,7 +270,7 @@ cmdCProve opt libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath =
     tu            <- parseC cPath
     inputFile     <- openFile inPath ReadMode
     inputsSignals <- Link.parseIntsFromFile inputFile
-    (r1cs, w)     <- fnToR1csWithWit @Order inputsSignals opt tu fnName
+    (r1cs, w)     <- evalLog $ fnToR1csWithWit @Order inputsSignals opt tu fnName
     let getOr m_ k =
           Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
     let getOrI m_ k =
@@ -281,9 +279,8 @@ cmdCProve opt libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath =
             IntMap.!? k
     let lookupSignalVal :: Int -> Integer
         lookupSignalVal i = fromP $ getOr w $ getOrI (Link.numSigs r1cs) i
-    emitAssignment
-      (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
-      xPath
+    emitAssignment (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
+                   xPath
     emitAssignment
       (map lookupSignalVal
            [(2 + Link.nPublicInputs r1cs) .. (Link.nextSigNum r1cs - 1)]

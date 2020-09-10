@@ -9,6 +9,7 @@ module Codegen.C.CToR1cs
 where
 
 import Control.Monad
+import Control.Monad.IO.Class
 import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.Assert                 as Assert
 import qualified Language.C.Syntax.AST         as AST
@@ -27,8 +28,7 @@ import           Codegen.C                      ( codegenFn, runC )
 import           IR.SMT.ToPf                    ( toPf
                                                 , toPfWithWit
                                                 )
-import           IR.SMT.Opt                     ( constantFold
-                                                , eqElim
+import           IR.SMT.Opt                     ( opt
                                                 )
 import           IR.R1cs                        ( R1CS(..)
                                                 , r1csStats
@@ -55,16 +55,21 @@ data FnTrans = FnTrans { assertions :: [Ty.TermBool]
 -- Can a fn exhibit undefined behavior?
 -- Returns a string describing it, if so.
 fnToSmt
-  :: Maybe (Map.Map String Integer) -> AST.CTranslUnit -> String -> IO FnTrans
+  :: Maybe (Map.Map String Integer) -> AST.CTranslUnit -> String -> Log FnTrans
 fnToSmt inVals tu name = do
   let init = when (isJust inVals) $ liftCircify initValues
   (((inputs, output), compState), assertState) <-
-    Assert.runAssert $ runC False $ init >> codegenFn tu name inVals
+    liftIO $ Assert.runAssert $ runC False $ init >> codegenFn tu name inVals
   return $ FnTrans { assertions = Assert.asserted assertState
                    , inputs     = inputs
                    , output     = fromMaybe (error "No return value in fnToSmt") output
                    , vals       = values compState
                    }
+
+smtMaybeOpt :: Bool -> Set.Set String -> [Ty.TermBool] -> Log [Ty.TermBool]
+smtMaybeOpt doOpt protect assertions =
+  if doOpt then opt protect assertions
+           else return assertions
 
 fnToR1cs
   :: forall n
@@ -72,14 +77,14 @@ fnToR1cs
   => Bool
   -> AST.CTranslUnit
   -> String
-  -> IO (R1CS String n)
+  -> Log (R1CS String n)
 fnToR1cs opt tu fnName = do
   fn <- fnToSmt Nothing tu fnName
   let pubVars   = Set.insert (output fn) $ Set.fromList $ inputs fn
-  let smtOptFn  = if opt then eqElim pubVars . map constantFold else id
   let r1csOptFn = if opt then Opt.opt else id
+  newSmt <- smtMaybeOpt opt pubVars $ assertions fn
   -- TODO: Use R1CS for optimization
-  r <- toPf @n pubVars $ smtOptFn $ assertions fn
+  r <- liftIO $ toPf @n pubVars newSmt
   return $ r1csOptFn r
 
 fnToR1csWithWit
@@ -89,7 +94,7 @@ fnToR1csWithWit
   -> Bool
   -> AST.CTranslUnit
   -> String
-  -> IO (R1CS String n, Map.Map String (Prime n))
+  -> Log (R1CS String n, Map.Map String (Prime n))
 fnToR1csWithWit inVals opt tu fnName = do
   fn <- fnToSmt (Just inVals) tu fnName
   let vs        = fromJust $ vals fn
@@ -98,8 +103,8 @@ fnToR1csWithWit inVals opt tu fnName = do
     unless (Ty.ValBool True == v) $
       error $ "eval " ++ show a ++ " gave False"
   let pubVars = Set.insert (output fn) $ Set.fromList $ inputs fn
-  let smtOptFn = if opt then eqElim pubVars . map constantFold else id
   let r1csOptFn = if opt then Opt.opt else id
+  newSmt <- smtMaybeOpt opt pubVars $ assertions fn
   -- TODO: Use R1CS for optimization
-  (r, w) <- toPfWithWit @n vs pubVars $ smtOptFn $ assertions fn
+  (r, w) <- liftIO $ toPfWithWit @n vs pubVars newSmt
   return (r1csOptFn r, w)

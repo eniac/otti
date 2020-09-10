@@ -14,7 +14,7 @@ where
 
 import           IR.SMT.TySmt
 import           Control.Monad.State.Strict
-import           Control.Monad                  ( )
+import           Control.Monad                  ( join )
 import           Control.Applicative
 import           GHC.TypeNats
 import           Codegen.Circom.CompTypes.LowDeg
@@ -52,6 +52,7 @@ import qualified Data.Map.Strict               as Map
 import           Data.Proxy                     ( Proxy(..) )
 import qualified Data.Set                      as Set
 import           Data.Typeable                  ( cast )
+import           System.Environment             ( lookupEnv )
 
 type PfVar = String
 type SmtVals = Map.Map String Dynamic
@@ -59,12 +60,15 @@ type PfVals n = Map.Map PfVar (Prime n)
 
 type LSig n = (LC PfVar (Prime n), Maybe (Prime n))
 
+data ToPfConfig = ToPfConfig { assumeNoBvOverflow :: Bool
+                             }
 
 data ToPfState n = ToPfState { r1cs :: R1CS PfVar n
                              , bools :: ShowMap TermBool (LSig n)
                              , ints :: ShowMap TermDynBv (BvEntry n)
                              , vals :: PfVals n
                              , next :: Int
+                             , cfg  :: ToPfConfig
                              }
 
 newtype ToPf n a = ToPf (StateT (ToPfState n) IO a)
@@ -76,7 +80,14 @@ emptyState = ToPfState { r1cs  = emptyR1cs
                        , ints  = SMap.empty
                        , vals  = Map.empty
                        , next  = 0
+                       , cfg   = ToPfConfig { assumeNoBvOverflow = False }
                        }
+
+configureFromEnv :: ToPf n ()
+configureFromEnv = do
+  env <- liftIO $ lookupEnv "CRELAX"
+  forM_ env
+    $ \_ -> modify $ \s -> s { cfg = (cfg s) { assumeNoBvOverflow = True } }
 
 -- # Constraints
 
@@ -322,6 +333,7 @@ bitsize x = if x == 0 then 0 else 1 + bitsize (x `div` 2)
 -- # Arith constraints and storage
 
 -- The integer entry holds a (signal, width) pair
+-- The bits list has low order bits at low indices
 data BvEntry n = BvEntry { int :: Maybe (LSig n, Int)
                          , bits :: Maybe [LSig n]
                          }
@@ -336,6 +348,21 @@ initIntEntry t =
   modify $ \s -> s { ints = SMap.insertWith (const id) t bvEntryEmpty $ ints s }
 
 -- Saving transalations
+saveConstBv :: KnownNat n => TermDynBv -> Bv.BV -> ToPf n ()
+saveConstBv term bv = do
+  initIntEntry term
+  modify $ \s -> s
+    { ints =
+      SMap.adjust
+          (\e -> e
+            { int  = Just (lcConst $ Bv.uint bv, Bv.size bv)
+            , bits = Just $ map (lcConst . toInteger . fromEnum) $ reverse $ Bv.toBits bv
+            }
+          )
+          term
+        $ ints s
+    }
+
 saveInt :: TermDynBv -> (LSig n, Int) -> ToPf n ()
 saveInt term sig = initIntEntry term >> modify
   (\s -> s { ints = SMap.adjust (\e -> e { int = Just sig }) term $ ints s })
@@ -398,6 +425,9 @@ asBits width i = case i of
     in  map (Just . Bits.testBit bv) [0 .. (width - 1)]
   Nothing -> replicate width Nothing
 
+lazyInt :: KnownNat n => ToPf n Bool
+lazyInt = gets (assumeNoBvOverflow . cfg)
+
 -- Require `x` to fit in `width` unsigned bits
 bitify :: KnownNat n => String -> LSig n -> Int -> ToPf n [LSig n]
 bitify ctx x width = do
@@ -453,8 +483,9 @@ bvToPf env term = do
   -- Uncached
   bvToPfUncached :: KnownNat n => TermDynBv -> ToPf n ()
   bvToPfUncached bv = case bv of
-    IntToDynBv w    (IntLit i) -> saveInt bv (lcShift (toP i) lcZero, w)
-    Var        name (SortBv w) -> do
+    IntToDynBv w (IntLit i) -> saveConstBv bv (Bv.bitVec w i)
+    DynBvLit l              -> saveConstBv bv l
+    Var name (SortBv w)     -> do
       i  <- asVar name $ lookupIntVal name
       bs <- bitify name i w
       saveIntBits bv bs
@@ -517,8 +548,12 @@ bvToPf env term = do
               pure (lcShift (twoPow $ fromIntegral w) $ lcSub l' r', w + 1)
             BvMul -> (, 2 * w) <$> lcMul "mul" l' r'
             _     -> unhandledOp op
-          bs <- bitify "arith" res w'
-          saveIntBits bv (take w bs)
+          lazy <- lazyInt
+          if lazy
+            then saveInt bv (res, w)
+            else do
+              bs <- bitify "arith" res w'
+              saveIntBits bv (take w bs)
         Bit -> do
           l' <- getIntBits l
           r' <- getIntBits r
@@ -639,8 +674,11 @@ publicizeInputs is = do
 
 toPf :: KnownNat n => Set.Set PfVar -> [TermBool] -> IO (R1CS PfVar n)
 toPf inputs bs = do
-  s <- runToPf (publicizeInputs inputs >> forM_ bs (enforceAsPf Nothing))
-               emptyState
+  s <- runToPf
+    (configureFromEnv >> publicizeInputs inputs >> forM_ bs
+                                                         (enforceAsPf Nothing)
+    )
+    emptyState
   return $ r1cs $ snd s
 
 toPfWithWit
@@ -650,6 +688,10 @@ toPfWithWit
   -> [TermBool]
   -> IO (R1CS PfVar n, PfVals n)
 toPfWithWit env inputs bs = do
-  s <- runToPf (publicizeInputs inputs >> forM_ bs (enforceAsPf $ Just env))
-               emptyState
+  s <- runToPf
+    (configureFromEnv >> publicizeInputs inputs >> forM_
+      bs
+      (enforceAsPf $ Just env)
+    )
+    emptyState
   return (r1cs $ snd s, vals $ snd s)
