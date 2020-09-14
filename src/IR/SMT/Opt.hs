@@ -8,6 +8,8 @@ module IR.SMT.Opt
   ( opt
   , constantFold
   , eqElim
+  , OptMetadata(..)
+  , newOptMetadata
   )
 where
 
@@ -21,11 +23,26 @@ import           Data.Dynamic                   ( Dynamic
                                                 , dynTypeRep
                                                 )
 import           Data.Functor.Identity
+import           Data.List                      ( intercalate )
 import qualified Data.Map.Strict               as Map
+import           Data.Maybe                     ( fromMaybe )
 import qualified Data.Set                      as Set
 import           Data.Typeable                  ( typeOf )
+import           Util.Cfg
 import           Util.Log
 
+data OptMetadata = OptMetadata { protected :: Set.Set String
+                               , eqElimNoBlowup :: Bool
+                               , cFoldInEqElim    :: Bool
+                               }
+newOptMetadata :: Set.Set String -> OptMetadata
+newOptMetadata p =
+  OptMetadata { protected = p, eqElimNoBlowup = False, cFoldInEqElim = False }
+
+data Opt = Opt { fn :: OptMetadata -> [TermBool] -> Log [TermBool]
+               , name :: String
+               , cfg  :: OptMetadata -> IO OptMetadata
+               }
 
 -- Folds constants (literals) away.
 -- The end result is either
@@ -148,6 +165,81 @@ constantFold = mapTerm visit
   negateBool (Not a) = a
   negateBool a       = Not a
 
+constantFoldOpt :: Opt
+constantFoldOpt =
+  Opt { fn = const (return . map constantFold), name = "cf", cfg = return }
+
+data ConstFoldEqState = ConstFoldEqState { terms :: [TermBool]
+                                         , consts :: Map.Map String Dynamic
+                                         }
+
+newtype ConstFoldEq a = ConstFoldEq (StateT ConstFoldEqState Log a)
+    deriving (Functor, Applicative, Monad, MonadState ConstFoldEqState)
+
+
+isConst :: SortClass s => Term s -> Bool
+isConst t = case t of
+  BoolLit{}  -> True
+  DynBvLit{} -> True
+  IntLit{}   -> True
+  _          -> False
+
+constFoldEq :: OptMetadata -> [TermBool] -> Log [TermBool]
+constFoldEq meta ts = go ts
+ where
+  -- While processing makes progress, process.
+  go ts' = do
+    (continue, ts'') <- processAll ts'
+    if continue then go ts'' else return ts'
+  noElim = protected meta
+
+  -- Returns the result of one pass of constant folding and eq-elim. Also
+  -- returns whether any progress was made.
+  processAll :: [TermBool] -> Log (Bool, [TermBool])
+  processAll allTerms = do
+    let ConstFoldEq action = forM_ allTerms process
+    result <- execStateT action (ConstFoldEqState [] Map.empty)
+    logIf "cfee" $ "Substs:\n  " ++ intercalate
+      "\n  "
+      (map show $ Map.toList $ consts result)
+    return (not $ Map.null $ consts result, terms result)
+
+  process :: TermBool -> ConstFoldEq ()
+  process assertion = do
+    a' <- applyStoredSubs assertion
+    let subst = case a' of
+          Eq (Var v _s) t | v `Set.notMember` noElim && isConst t ->
+            Just (v, toDyn t)
+          Eq t (Var v _s) | v `Set.notMember` noElim && isConst t ->
+            Just (v, toDyn t)
+          _ -> Nothing
+    case subst of
+      Just (v, t) -> do
+        knownConsts <- gets consts
+        case Map.lookup v knownConsts of
+          Just{} ->
+            error $ "Internal error: variable " ++ v ++ " present after subst"
+          Nothing -> addSub v t
+      Nothing -> addAssertion a'
+
+
+  applyStoredSubs :: SortClass s => Term s -> ConstFoldEq (Term s)
+  applyStoredSubs term = do
+    allSubFn <- gets $ foldr (.) id . map (uncurry sub) . Map.toList . consts
+    return $ constantFold $ allSubFn term
+
+  addAssertion :: TermBool -> ConstFoldEq ()
+  addAssertion a = modify $ \s -> s { terms = a : terms s }
+
+  addSub :: String -> Dynamic -> ConstFoldEq ()
+  addSub v t = modify $ \s -> s
+          { terms = map (sub v t) $ terms s
+          , consts = Map.insert v t $ Map.map (dynamize $ sub v t) $ consts s
+          }
+
+constantFoldEqOpt :: Opt
+constantFoldEqOpt = Opt { fn = constFoldEq, name = "cfee", cfg = return }
+
 
 -- The equality elimination algorithm is a one-pass sweep over a list of
 -- assertions which seeks to eliminate equalities like x = y + z by replacing
@@ -183,11 +275,11 @@ newtype EqElim a = EqElim (StateT EqElimState Identity a)
 
 
 sub :: SortClass s => String -> Dynamic -> Term s -> Term s
-sub name value = mapTerm visit
+sub name_ value = mapTerm visit
  where
   visit :: forall t . SortClass t => Term t -> Maybe (Term t)
   visit term = case term of
-    Var name' _ -> if name' == name
+    Var name' _ -> if name' == name_
       then Just $ fromDyn @(Term t) value (error "wrong sort")
       else Nothing
     _ -> Nothing
@@ -202,43 +294,64 @@ dynamize f t
   where ty = dynTypeRep t
 
 inTerm :: SortClass s => String -> Term s -> Bool
-inTerm name = reduceTerm visit False (||)
+inTerm name_ = reduceTerm visit False (||)
  where
   visit :: SortClass t => Term t -> Maybe Bool
   visit term = case term of
-    Var name' _ -> Just $ name' == name
+    Var name' _ -> Just $ name' == name_
     _           -> Nothing
 
-eqElim :: Set.Set String -> [TermBool] -> [TermBool]
-eqElim protected terms =
-  let EqElim   action = forM_ terms process
+eqElim :: OptMetadata -> [TermBool] -> [TermBool]
+eqElim meta ts =
+  let EqElim   action = forM_ ts process
       Identity result = execStateT action (EqElimState [] Map.empty)
   in  assertions result
  where
+  subbable :: SortClass s => Term s -> Bool
+  subbable term = not (eqElimNoBlowup meta) || nNodes term == 1
+  noElim = protected meta
+  cFoldFn :: SortClass s => Term s -> Term s
+  cFoldFn = if cFoldInEqElim meta then constantFold else id
+
   process :: TermBool -> EqElim ()
   process assertion = do
     a' <- applyStoredSubs assertion
     case a' of
-      Eq (Var v s) t | v `Set.notMember` protected ->
+      -- Removing the isConst condition makes this more aggressive
+      Eq (Var v s) t | v `Set.notMember` noElim && subbable t ->
         if v `inTerm` t then addAssertion (Eq (Var v s) t) else addSub v t
-      Eq t (Var v s) | v `Set.notMember` protected ->
+      Eq t (Var v s) | v `Set.notMember` noElim && subbable t ->
         if v `inTerm` t then addAssertion (Eq (Var v s) t) else addSub v t
       _ -> addAssertion a'
 
   applyStoredSubs :: SortClass s => Term s -> EqElim (Term s)
-  applyStoredSubs term =
-    gets (foldr (.) id . map (uncurry sub) . Map.toList . subs) <*> pure term
+  applyStoredSubs term = do
+    allSubFn <- gets $ foldr (.) id . map (uncurry sub) . Map.toList . subs
+    return $ cFoldFn $ allSubFn term
 
   addAssertion :: TermBool -> EqElim ()
   addAssertion a = modify $ \s -> s { assertions = a : assertions s }
 
   addSub :: SortClass s => String -> Term s -> EqElim ()
   addSub v t =
-    let t' = toDyn t
+    let t' = toDyn $ cFoldFn t
     in  modify $ \s -> s
           { assertions = map (sub v t') $ assertions s
           , subs = Map.insert v t' $ Map.map (dynamize $ sub v t') $ subs s
           }
+
+eqElimCfg :: OptMetadata -> IO OptMetadata
+eqElimCfg m = do
+  o <- readCfgDefault "noBlowup" True
+  c <- readCfgDefault "cFoldInEqElim" True
+  return $ m { eqElimNoBlowup = o, cFoldInEqElim = c }
+
+eqElimOpt :: Opt
+eqElimOpt = Opt { fn = ((.).(.)) return eqElim, name = "ee", cfg = eqElimCfg }
+
+opts :: Map.Map String Opt
+opts = Map.fromList
+  [ (name o, o) | o <- [eqElimOpt, constantFoldOpt, constantFoldEqOpt] ]
 
 logAssertions :: String -> [TermBool] -> Log ()
 logAssertions context as = logIfM "opt" $ do
@@ -246,14 +359,24 @@ logAssertions context as = logIfM "opt" $ do
   forM_ as $ \a -> liftIO $ putStrLn $ "  " ++ show a
   return $ show (length as) ++ " assertions"
 
+-- Optimize, ensuring that the variables in `p` continue to exist.
 opt :: Set.Set String -> [TermBool] -> Log [TermBool]
-opt protected terms = do
-  liftIO $ putStrLn "hi"
-  logAssertions "initial" terms
-  let folded = map constantFold terms
-  logAssertions "post fold" folded
-  let elimed = eqElim protected folded
-  logAssertions "post elim" elimed
-  let refolded = map constantFold elimed
-  logAssertions "post refold" refolded
-  return refolded
+opt p ts = do
+  let m0 = OptMetadata { protected        = p
+                       , eqElimNoBlowup = False
+                       , cFoldInEqElim    = False
+                       }
+  m'        <- liftIO $ foldM (flip cfg) m0 (Map.elems opts)
+  optsToRun <- liftIO $ cfgStrList "opts"
+  logAssertions "initial" ts
+  foldM
+    (\a oname -> do
+      let o =
+            fromMaybe (error $ "No optimization named: " ++ oname)
+              $ Map.lookup oname opts
+      a' <- fn o m' a
+      logAssertions ("Post " ++ show oname) a'
+      return a'
+    )
+    ts
+    optsToRun

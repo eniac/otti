@@ -52,7 +52,7 @@ import qualified Data.Map.Strict               as Map
 import           Data.Proxy                     ( Proxy(..) )
 import qualified Data.Set                      as Set
 import           Data.Typeable                  ( cast )
-import           System.Environment             ( lookupEnv )
+import           Util.Cfg ( readCfgDefault )
 
 type PfVar = String
 type SmtVals = Map.Map String Dynamic
@@ -85,9 +85,8 @@ emptyState = ToPfState { r1cs  = emptyR1cs
 
 configureFromEnv :: ToPf n ()
 configureFromEnv = do
-  env <- liftIO $ lookupEnv "CRELAX"
-  forM_ env
-    $ \_ -> modify $ \s -> s { cfg = (cfg s) { assumeNoBvOverflow = True } }
+  a <- liftIO $ readCfgDefault "noOverflow" False
+  modify $ \s -> s { cfg = (cfg s) { assumeNoBvOverflow = a } }
 
 -- # Constraints
 

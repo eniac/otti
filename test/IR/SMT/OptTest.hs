@@ -17,16 +17,16 @@ constantFree = reduceTerm visit True (&&)
  where
   visit :: SortClass s => Term s -> Maybe Bool
   visit t = case t of
-    BoolLit{} -> Just False
-    IntLit{}  -> Just False
-    DynBvLit{}  -> Just False
-    _         -> Nothing
+    BoolLit{}  -> Just False
+    IntLit{}   -> Just False
+    DynBvLit{} -> Just False
+    _          -> Nothing
 
 isConst :: SortClass s => Term s -> Bool
 isConst t = case t of
   BoolLit{}  -> True
   DynBvLit{} -> True
-  IntLit{} -> True
+  IntLit{}   -> True
   _          -> False
 
 isReduced :: SortClass s => Term s -> Bool
@@ -44,7 +44,7 @@ mkCFoldTest name original mExpected =
 mkEqElimTest :: String -> Set.Set String -> [TermBool] -> Int -> BenchTest
 mkEqElimTest name protected original nExpected =
   benchTestCase (if null name then show original else name) $ do
-    let actual = eqElim protected original
+    let actual = eqElim (newOptMetadata protected) original
     when (nExpected /= length actual) $ forM_ actual print
     nExpected @=? length actual
 

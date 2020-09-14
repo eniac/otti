@@ -22,7 +22,9 @@ import           Data.Char                      ( toLower
                                                 , ord
                                                 )
 import qualified Data.Char                     as Char
-import           Data.Either                    ( fromRight, isRight )
+import           Data.Either                    ( fromRight
+                                                , isRight
+                                                )
 import           Data.List                      ( intercalate )
 import qualified Data.Map                      as Map
 import           Data.Maybe                     ( fromJust
@@ -41,6 +43,7 @@ import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
+import           Util.Cfg
 import           Util.Log
 
 
@@ -61,6 +64,12 @@ emptyCState findBugs = CState { funs          = Map.empty
                               , bugConditions = []
                               , defaultValue  = Nothing
                               }
+
+cfgFromEnv :: C ()
+cfgFromEnv = do
+  bound <- liftIO $ readCfgDefault "loopBound" 5
+  modify $ \s -> s { loopBound = bound }
+  liftLog $ logIf "loop" $ "Setting loop bound to " ++ show bound
 
 -- Loops
 
@@ -126,7 +135,7 @@ ssaStore ref val = case (ref, val) of
     g   <- liftCircify getGuard
     oob <- liftMem $ cStore addr cval g
     whenM (gets findUB) $ bugIf oob
-  _                -> error $ "Cannot store " ++ show (ref, val)
+  _ -> error $ "Cannot store " ++ show (ref, val)
 
 ssaStructGet :: String -> CSsaVal -> CSsaVal
 ssaStructGet n = liftTermFun "cStructGet" (`cStructGet` n)
@@ -171,8 +180,8 @@ data CLVal = CLVar SsaLVal
 
 evalLVal :: CLVal -> C CSsaVal
 evalLVal location = case location of
-  CLVar  v -> liftCircify $ getTerm v
-  CLAddr a -> ssaLoad a
+  CLVar  v    -> liftCircify $ getTerm v
+  CLAddr a    -> ssaLoad a
   CLField s f -> ssaStructGet f <$> evalLVal s
 
 genLValueSMT :: CExpr -> C CLVal
@@ -417,7 +426,7 @@ genStmtSMT stmt = do
         CBlockDecl decl -> void $ genDeclSMT (Just True) decl
         CNestedFunDef{} -> error "Nested function definitions not supported"
       liftCircify exitLexScope
-    CExpr e _                 -> when (isJust e) $ void $ genExprSMT $ fromJust e
+    CExpr e _ -> when (isJust e) $ void $ genExprSMT $ fromJust e
     CIf cond trueBr falseBr _ -> do
       trueCond <- ssaBool <$> genExprSMT cond
       -- Guard the true branch with the true condition
@@ -536,7 +545,7 @@ genFunDef f inVals = do
   retTy <- liftCircify $ unwrap <$> ctype tys ptrs
   liftCircify $ pushFunction name $ noneIfVoid retTy
   -- Declare the arguments and execute the body
-  inputNames <- join <$> forM (argsFromFunc f) (genDeclSMT (Just False))
+  inputNames     <- join <$> forM (argsFromFunc f) (genDeclSMT (Just False))
   fullInputNames <- map ssaVarAsString
     <$> forM inputNames (liftCircify . getSsaVar . SLVar)
   def <- gets defaultValue
@@ -605,7 +614,8 @@ cLangDef findBugs = LangDef { declare  = cDeclVar findBugs
                             }
 
 runC :: Bool -> C a -> Assert.Assert (a, CircifyState Type CTerm)
-runC findBugs (C act) = do
+runC findBugs c = do
+  let (C act) = cfgFromEnv >> c
   ((x, cState), circState) <- runCodegen (cLangDef findBugs)
     $ runStateT act (emptyCState findBugs)
   return (x, circState)

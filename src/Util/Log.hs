@@ -18,8 +18,7 @@ where
 import           Control.Monad                  ( )
 import           Control.Monad.State.Strict
 import qualified Data.Set                      as S
-import Data.List.Split (splitOn)
-import           System.Environment           (lookupEnv)
+import           Util.Cfg                       ( cfgStrList )
 
 ---
 --- Monad defintions
@@ -61,7 +60,6 @@ logIfM stream msg = do
 
 evalLog :: Log a -> IO a
 evalLog l = do
-  env <- lookupEnv "CLOG"
-  let i = maybe (return ()) (enableStreams . splitOn ",") env
-  let Log io = i >> l
+  strms <- cfgStrList "log"
+  let Log io = enableStreams strms >> l
   evalStateT io emptyLogState
