@@ -84,7 +84,7 @@ fnToR1cs opt tu fnName = do
   let r1csOptFn = if opt then Opt.opt else id
   newSmt <- smtMaybeOpt opt pubVars $ assertions fn
   -- TODO: Use R1CS for optimization
-  r <- liftIO $ toPf @n pubVars newSmt
+  r <- toPf @n pubVars newSmt
   return $ r1csOptFn r
 
 fnToR1csWithWit
@@ -106,5 +106,5 @@ fnToR1csWithWit inVals opt tu fnName = do
   let r1csOptFn = if opt then Opt.opt else id
   newSmt <- smtMaybeOpt opt pubVars $ assertions fn
   -- TODO: Use R1CS for optimization
-  (r, w) <- liftIO $ toPfWithWit @n vs pubVars newSmt
+  (r, w) <- toPfWithWit @n vs pubVars newSmt
   return (r1csOptFn r, w)

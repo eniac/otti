@@ -6,6 +6,7 @@ module Util.ShowMap
   , lookup
   , (!?)
   , adjust
+  , member
   )
 where
 
@@ -15,7 +16,7 @@ where
 
 import qualified Data.Map                      as Map
 import           Data.Map                       ( Map )
-import           Data.Maybe                     ( isJust )
+import           Data.Maybe                     ( isJust, fromMaybe)
 
 import           Prelude                 hiding ( lookup )
 import qualified Prelude
@@ -62,3 +63,8 @@ lookup k (ShowMap m) = Map.lookup (show k) m >>= Prelude.lookup k
 
 adjust :: (Show k, Eq k) => (v -> v) -> k -> ShowMap k v -> ShowMap k v
 adjust f k = ShowMap . Map.adjust (entryAdjust f k) (show k) . inner
+
+member :: (Show k, Eq k) => k -> ShowMap k v -> Bool
+member k m = fromMaybe False $ do
+  e <- Map.lookup (show k) $ inner m
+  return $ elem k $ map fst e

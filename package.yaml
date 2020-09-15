@@ -70,6 +70,7 @@ tests:
     - filepath
     - tasty
     - tasty-golden
+    - ghc >= 8.3
     - tasty-hunit
     - QuickCheck
     - tasty-quickcheck

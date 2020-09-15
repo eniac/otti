@@ -50,6 +50,7 @@ module IR.SMT.TySmt
   , depth
   , eval
   , nNodes
+  , vars
   , nChars
   , toZ3
   , sortToZ3
@@ -106,6 +107,8 @@ import           Data.Map            (Map)
 import qualified Data.Map            as Map
 import qualified Data.Maybe          as Maybe
 import           Data.Proxy          (Proxy (..))
+import           Data.Set            (Set)
+import qualified Data.Set            as Set
 import           Data.Typeable       (cast)
 import           GHC.TypeLits
 import           Prelude             hiding (exp)
@@ -706,6 +709,13 @@ depth = reduceTerm (const Nothing) 0 (\a b -> 1 + max a b)
 
 nNodes :: SortClass s => Term s -> Int
 nNodes = reduceTerm (const Nothing) 1 ((+) . (1 +))
+
+vars :: SortClass s => Term s -> Set String
+vars = reduceTerm visit Set.empty Set.union
+ where
+  visit t = case t of
+    Var s _ -> Just $ Set.singleton s
+    _       -> Nothing
 
 nChars :: SortClass s => Term s -> Int
 nChars = reduceTerm visit 0 (+)

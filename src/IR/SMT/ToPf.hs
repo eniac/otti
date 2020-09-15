@@ -52,7 +52,8 @@ import qualified Data.Map.Strict               as Map
 import           Data.Proxy                     ( Proxy(..) )
 import qualified Data.Set                      as Set
 import           Data.Typeable                  ( cast )
-import           Util.Cfg ( readCfgDefault )
+import           Util.Cfg                       ( readCfgDefault )
+import           Util.Log
 
 type PfVar = String
 type SmtVals = Map.Map String Dynamic
@@ -61,6 +62,7 @@ type PfVals n = Map.Map PfVar (Prime n)
 type LSig n = (LC PfVar (Prime n), Maybe (Prime n))
 
 data ToPfConfig = ToPfConfig { assumeNoBvOverflow :: Bool
+                             , optEq :: Bool
                              }
 
 data ToPfState n = ToPfState { r1cs :: R1CS PfVar n
@@ -71,22 +73,24 @@ data ToPfState n = ToPfState { r1cs :: R1CS PfVar n
                              , cfg  :: ToPfConfig
                              }
 
-newtype ToPf n a = ToPf (StateT (ToPfState n) IO a)
-    deriving (Functor, Applicative, Monad, MonadState (ToPfState n), MonadIO)
+newtype ToPf n a = ToPf (StateT (ToPfState n) Log a)
+    deriving (Functor, Applicative, Monad, MonadState (ToPfState n), MonadIO, MonadLog)
 
 emptyState :: ToPfState n
-emptyState = ToPfState { r1cs  = emptyR1cs
-                       , bools = SMap.empty
-                       , ints  = SMap.empty
-                       , vals  = Map.empty
-                       , next  = 0
-                       , cfg   = ToPfConfig { assumeNoBvOverflow = False }
-                       }
+emptyState = ToPfState
+  { r1cs  = emptyR1cs
+  , bools = SMap.empty
+  , ints  = SMap.empty
+  , vals  = Map.empty
+  , next  = 0
+  , cfg   = ToPfConfig { assumeNoBvOverflow = False, optEq = False }
+  }
 
 configureFromEnv :: ToPf n ()
 configureFromEnv = do
   a <- liftIO $ readCfgDefault "noOverflow" False
-  modify $ \s -> s { cfg = (cfg s) { assumeNoBvOverflow = a } }
+  b <- liftIO $ readCfgDefault "toPfOptEq" True
+  modify $ \s -> s { cfg = (cfg s) { assumeNoBvOverflow = a, optEq = b } }
 
 -- # Constraints
 
@@ -196,6 +200,22 @@ lcSub x y = lcAdd x $ lcNeg y
 lcNot :: KnownNat n => LSig n -> LSig n
 lcNot = lcSub lcOne
 
+-- Returns true if we're optimizing away equalities *and* this term is
+-- (yet) untranslated
+optIntEq :: ToPf n (TermDynBv -> Bool)
+optIntEq = do
+  i     <- gets ints
+  doOpt <- gets (optEq . cfg)
+  return $ \s -> doOpt && not (SMap.member s i)
+
+-- Returns true if we're optimizing away equalities *and* this term is
+-- (yet) untranslated
+optBoolEq :: ToPf n (TermBool -> Bool)
+optBoolEq = do
+  i     <- gets bools
+  doOpt <- gets (optEq . cfg)
+  return $ \s -> doOpt && not (SMap.member s i)
+
 boolToPf
   :: forall n . KnownNat n => Maybe SmtVals -> TermBool -> ToPf n (LSig n)
 boolToPf env term = do
@@ -217,46 +237,62 @@ boolToPf env term = do
       <$> (env >>= (Map.!? name))
   -- Uncached
   boolToPfUncached :: KnownNat n => TermBool -> ToPf n (LSig n)
-  boolToPfUncached t = case t of
-    Eq a b -> case cast a of
-      -- Bool
-      Just abool -> do
-        a' <- boolToPf env abool
-        b' <- boolToPf env $ fromJust $ cast b
-        bitEq a' b'
-      -- Bv
-      Nothing -> do
-        let abv = fromJust $ cast a
-            bbv = fromJust $ cast b
-        a' <- bvToPf env abv >> getInt abv
-        b' <- bvToPf env bbv >> getInt bbv
-        binEq a' b'
-    BoolLit b -> return $ lcShift (toP $ fromIntegral $ fromEnum b) lcZero
-    Not     a            -> lcNot <$> boolToPf env a
-    Var          name _  -> asBit =<< asVar name (lookupBitVal name)
-    BoolNaryExpr o    xs -> do
-      xs' <- traverse (boolToPf env) xs
-      case xs' of
-        []  -> pure $ lcShift (toP $ fromIntegral $ fromEnum $ opId o) lcZero
-        [a] -> pure a
-        _   -> case o of
-          Or  -> naryOr xs'
-          And -> naryAnd xs'
-          Xor -> naryXor xs'
-    BoolBinExpr Implies a b -> do
-      a' <- boolToPf env a
-      b' <- boolToPf env b
-      impl a' b'
-    Ite c t_ f -> do
-      c' <- boolToPf env c
-      t' <- boolToPf env t_
-      f' <- boolToPf env f
-      v  <- nextVar "ite" $ liftA3 (?) ((/= toP 0) <$> snd c') (snd t') (snd f')
-      enforceCheck (c', lcSub v t', lcZero)
-      enforceCheck (lcNot c', lcSub v f', lcZero)
-      return v
-    DynBvBinPred p w l r -> bvPredToPf env p w l r
-    _                    -> unhandled "in boolToPf" t
+  boolToPfUncached t = do
+    optBool <- optBoolEq
+    optInt  <- optIntEq
+    case t of
+      Eq a b -> case cast a of
+        -- Bool
+        Just abool -> do
+          b' <- boolToPf env $ fromJust $ cast b
+          case abool of
+            Var name _s | optBool abool -> do
+              liftLog $ logIf "toPf" $ "Variable eq: " ++ show name
+              saveBool abool b'
+              return lcOne
+            _ -> do
+              a' <- boolToPf env abool
+              bitEq a' b'
+        -- Bv
+        Nothing -> do
+          let abv = fromJust $ cast a
+              bbv = fromJust $ cast b
+          b' <- bvToPf env bbv >> getInt bbv
+          case abv of
+            Var name _s | optInt bbv -> do
+              liftLog $ logIf "toPf" $ "Variable eq: " ++ show name
+              saveInt abv (b', dynBvWidth bbv)
+              return lcOne
+            _ -> do
+              a' <- bvToPf env abv >> getInt abv
+              binEq a' b'
+      BoolLit b -> return $ lcShift (toP $ fromIntegral $ fromEnum b) lcZero
+      Not     a            -> lcNot <$> boolToPf env a
+      Var          name _  -> asBit =<< asVar name (lookupBitVal name)
+      BoolNaryExpr o    xs -> do
+        xs' <- traverse (boolToPf env) xs
+        case xs' of
+          []  -> pure $ lcShift (toP $ fromIntegral $ fromEnum $ opId o) lcZero
+          [a] -> pure a
+          _   -> case o of
+            Or  -> naryOr xs'
+            And -> naryAnd xs'
+            Xor -> naryXor xs'
+      BoolBinExpr Implies a b -> do
+        a' <- boolToPf env a
+        b' <- boolToPf env b
+        impl a' b'
+      Ite c t_ f -> do
+        c' <- boolToPf env c
+        t' <- boolToPf env t_
+        f' <- boolToPf env f
+        v  <- nextVar "ite"
+          $ liftA3 (?) ((/= toP 0) <$> snd c') (snd t') (snd f')
+        enforceCheck (c', lcSub v t', lcZero)
+        enforceCheck (lcNot c', lcSub v f', lcZero)
+        return v
+      DynBvBinPred p w l r -> bvPredToPf env p w l r
+      _                    -> unhandled "in boolToPf" t
 
 (?) :: Bool -> a -> a -> a
 (?) c t f = if c then t else f
@@ -355,7 +391,9 @@ saveConstBv term bv = do
       SMap.adjust
           (\e -> e
             { int  = Just (lcConst $ Bv.uint bv, Bv.size bv)
-            , bits = Just $ map (lcConst . toInteger . fromEnum) $ reverse $ Bv.toBits bv
+            , bits =
+              Just $ map (lcConst . toInteger . fromEnum) $ reverse $ Bv.toBits
+                bv
             }
           )
           term
@@ -661,9 +699,11 @@ lcGt width x y = inBits False width (lcSub x y)
 -- # Top Level
 
 enforceAsPf :: KnownNat n => Maybe SmtVals -> TermBool -> ToPf n ()
-enforceAsPf env b = boolToPf env b >>= enforceTrue
+enforceAsPf env b = do
+  liftLog $ logIf "toPf" $ "enforce: " ++ show b
+  boolToPf env b >>= enforceTrue
 
-runToPf :: KnownNat n => ToPf n a -> ToPfState n -> IO (a, ToPfState n)
+runToPf :: KnownNat n => ToPf n a -> ToPfState n -> Log (a, ToPfState n)
 runToPf (ToPf f) = runStateT f
 
 publicizeInputs :: Set.Set PfVar -> ToPf n ()
@@ -671,7 +711,7 @@ publicizeInputs is = do
   modify $ \s -> s { r1cs = r1csAddSignals (Set.toList is) $ r1cs s }
   forM_ is $ \i -> modify $ \s -> s { r1cs = r1csPublicizeSignal i $ r1cs s }
 
-toPf :: KnownNat n => Set.Set PfVar -> [TermBool] -> IO (R1CS PfVar n)
+toPf :: KnownNat n => Set.Set PfVar -> [TermBool] -> Log (R1CS PfVar n)
 toPf inputs bs = do
   s <- runToPf
     (configureFromEnv >> publicizeInputs inputs >> forM_ bs
@@ -685,7 +725,7 @@ toPfWithWit
   => SmtVals
   -> Set.Set PfVar
   -> [TermBool]
-  -> IO (R1CS PfVar n, PfVals n)
+  -> Log (R1CS PfVar n, PfVals n)
 toPfWithWit env inputs bs = do
   s <- runToPf
     (configureFromEnv >> publicizeInputs inputs >> forM_

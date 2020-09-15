@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module IR.SMT.ToPfTest
   ( toPfTests
   )
@@ -23,6 +24,7 @@ import           Data.Either                    ( isRight )
 import qualified Data.Map.Strict               as Map
 import qualified Data.Set                      as Set
 import           IR.SMT.TySmt
+import           Util.Log
 
 type Order
   = 113890009193798365449144652900867294558768981710660728242748762258461992583217
@@ -30,7 +32,7 @@ type Order
 constraintCountTest :: String -> [TermBool] -> Int -> BenchTest
 constraintCountTest name terms nConstraints =
   benchTestCase (nameWithConstraints name nConstraints) $ do
-    cs <- toPf @Order Set.empty terms
+    cs <- evalLog $ toPf @Order Set.empty terms
     when (nConstraints /= length (constraints cs)) $ putStrLn "" >> putStrLn
       (r1csShow cs)
     nConstraints @=? length (constraints cs)
@@ -73,7 +75,7 @@ satTest name env assertions = benchTestCase name $ do
     let v = eval e a
     ValBool True == v @? "eval " ++ show a ++ " gave False"
   -- Compute R1CS translation
-  (cs, wit) <- toPfWithWit @Order e Set.empty assertions
+  (cs, wit) <- evalLog $ toPfWithWit @Order e Set.empty assertions
   -- Check R1CS satisfaction
   let checkResult = r1csCheck wit cs
   isRight checkResult @? show checkResult
@@ -99,8 +101,9 @@ toPfTests = benchTestGroup
                           [BoolNaryExpr And [bv "a", bv "b", bv "a", bv "a"]]
                           6
     , constraintCountTest "ite" [Ite (bv "a") (bv "b") (bv "c")] 6
-    -- Thre bit constraints, one const constraint, two for Eq
-    , constraintCountTest "eq"  [Eq (bv "a") (bv "b")]           5
+    -- A bit constraint, and one for the assertion.
+    -- Note: exploits eq optimization
+    , constraintCountTest "eq"  [Eq (bv "a") (bv "b")]           2
     ]
   , benchTestGroup
     "bvToPf constraint counts"

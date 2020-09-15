@@ -21,6 +21,7 @@ import qualified IR.SMT.TySmt            as Ty
 import           Parser.C
 import           Test.Tasty.HUnit
 import           Utils
+import           Util.Log
 
 type Order
   = 113890009193798365449144652900867294558768981710660728242748762258461992583217
@@ -124,7 +125,7 @@ satR1csTestInputs name fnName path inputs = benchTestCase name $ do
   let assertions = asserted assertState
   let env        = fromJust $ values compState
   forM_ assertions $ \a -> Ty.ValBool True @=? Ty.eval env a
-  (cs, wit) <- toPfWithWit @Order env Set.empty assertions
+  (cs, wit) <- evalLog $ toPfWithWit @Order env Set.empty assertions
   -- Check R1CS satisfaction
   let checkResult = r1csCheck wit cs
   isRight checkResult @? show checkResult
