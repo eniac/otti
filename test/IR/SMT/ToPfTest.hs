@@ -20,6 +20,7 @@ import qualified Data.BitVector                as Bv
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
+import qualified Data.Foldable as Fold
 import           Data.Either                    ( isRight )
 import qualified Data.Map.Strict               as Map
 import qualified Data.Set                      as Set
@@ -32,9 +33,10 @@ type Order
 constraintCountTest :: String -> [TermBool] -> Int -> BenchTest
 constraintCountTest name terms nConstraints =
   benchTestCase (nameWithConstraints name nConstraints) $ do
-    cs <- evalLog $ toPf @Order Set.empty terms
-    when (nConstraints /= length (constraints cs)) $ putStrLn "" >> putStrLn
-      (r1csShow cs)
+    -- Regard all variables as public: not eliminatable.
+    cs <- evalLog $ toPf @Order (Fold.foldMap vars terms) terms
+    when (nConstraints /= length (constraints cs)) $
+      putStrLn ("\n\n" ++name ++ ":\n" ++ r1csShow cs)
     nConstraints @=? length (constraints cs)
 
 nameWithConstraints :: String -> Int -> String
@@ -56,7 +58,7 @@ andOrScalingTest op arity =
         -- arity - 1 is the cost of doing this with multiplication-ANDs
         -- 3 is the cost of doing this with addition/inverse-ORs
         else min (arity - 1) 3
-      nC = nOpConstraints + arity + 1
+      nC = nOpConstraints + 1
   in  constraintCountTest (show op ++ show arity)
                           [BoolNaryExpr op (bvs arity)]
                           nC
@@ -87,53 +89,38 @@ toPfTests = benchTestGroup
     "boolToPf constraint counts"
     [ constraintCountTest "true lit"    [BoolLit True]             1
     -- One bit constraint, one const constraint
-    , constraintCountTest "var is true" [bv "a"]                   2
-    -- Three bit constraints, one const constraint, two for XOR
-    , constraintCountTest "xor2"        [BoolNaryExpr Xor (bvs 2)] 6
-    -- Two bit constraints, one const constraint, one for IMPLIES (an AND) v
-    -- return b
-    , constraintCountTest "implies" [BoolBinExpr Implies (bv "a") (bv "b")] 4
-    -- Two bit constraints, one const constraint, one for AND
+    , constraintCountTest "var is true" [bv "a"]                   1
+    -- one const constraint, two for XOR
+    , constraintCountTest "xor2"        [BoolNaryExpr Xor (bvs 2)] 4
+    -- one const constraint, one for IMPLIES (an AND) v return b
+    , constraintCountTest "implies" [BoolBinExpr Implies (bv "a") (bv "b")] 2
+    -- one const constraint, one for AND
     , benchTestGroup "and" (map (andOrScalingTest And) [0 .. 6])
     , benchTestGroup "or"  (map (andOrScalingTest And) [0 .. 6])
-    -- Three bit constraints, one const constraint, two for AND
+    -- , one const constraint, two for AND
     , constraintCountTest "and4 3 repeats"
                           [BoolNaryExpr And [bv "a", bv "b", bv "a", bv "a"]]
-                          6
-    , constraintCountTest "ite" [Ite (bv "a") (bv "b") (bv "c")] 6
-    -- A bit constraint, and one for the assertion.
-    -- Note: exploits eq optimization
-    , constraintCountTest "eq"  [Eq (bv "a") (bv "b")]           2
+                          4
+    , constraintCountTest "ite" [Ite (bv "a") (bv "b") (bv "c")] 3
+    -- two for EQ, one to force
+    , constraintCountTest "eq"  [Eq (bv "a") (bv "b")]           3
     ]
   , benchTestGroup
     "bvToPf constraint counts"
     [ constraintCountTest "5"
                           [mkDynBvEq (int "a" 4) (IntToDynBv 4 $ IntLit 5)]
-                          1
+                          4
     , constraintCountTest
       "5 = x + y"
       [ mkDynBvEq (mkDynBvBinExpr BvAdd (int "x" 4) (int "y" 4))
                   (IntToDynBv 4 $ IntLit 5)
       ]
-      20
+      10
     , constraintCountTest "x < y"
                           [mkDynBvBinPred BvUlt (int "x" 4) (int "y" 4)]
-                          -- Two 5bvs + 4 bits in the comparison difference + 3
+                          -- 4 bits in the comparison difference + 3
                           -- bits in the comparison logic + 1 assertion bit
-                          (2 * 5 + 4 + 3 + 1)
-    , constraintCountTest
-      "17 = x << y"
-      [ mkDynBvEq (mkDynBvBinExpr BvShl (int "x" 16) (int "y" 16))
-                  (IntToDynBv 16 $ IntLit 17)
-      ]
-      (let inputBounds = 17 * 2
-           shiftRBound = 1
-           shiftMults  = 4
-           sumSplit    = 16 * 2
-           eq          = 3
-           forceBool   = 1
-       in  inputBounds + shiftRBound + shiftMults + sumSplit + eq + forceBool
-      )
+                          (4 + 3 + 1)
     , constraintCountTest
       "17 = x >> y (logical)"
       [ mkDynBvEq (mkDynBvBinExpr BvLshr (int "x" 16) (int "y" 16))

@@ -18,6 +18,7 @@ module IR.R1cs
   , r1csEnsureSignal
   , r1csAddSignals
   , r1csPublicizeSignal
+  , r1csIsPublicSignal
   , r1csAddConstraint
   , r1csAddConstraints
   , r1csShow
@@ -98,7 +99,7 @@ qeqShift k (a2, b2, c2) = (lcShift k a2, lcShift k b2, lcShift k c2)
 
 
 data R1CS s n = R1CS { sigNums :: !(Map.Map s Int)
-                     , numSigs :: !(IntMap.IntMap s)
+                     , numSigs :: !(IntMap.IntMap [s])
                      , constraints :: !(Seq.Seq (QEQ Int (Prime n)))
                      , nextSigNum :: !Int
                      , publicInputs :: !IntSet.IntSet
@@ -113,11 +114,8 @@ r1csStats r = unlines
 
 r1csShow :: (KnownNat n, Show s, Ord s) => R1CS s n -> String
 r1csShow r1cs =
-  List.intercalate ""
-    $ map (\qeq -> "  " ++ qeqShow qeq ++ "\n")
-    $ map (sigMapQeq (numSigs r1cs IntMap.!))
-    $ Fold.toList
-    $ constraints r1cs
+  List.intercalate "" $ map (\qeq -> "  " ++ qeqShow qeq ++ "\n") $ r1csQeqs
+    r1cs
 
 primeShow :: forall n . KnownNat n => Prime n -> String
 primeShow p =
@@ -127,7 +125,8 @@ primeShow p =
   in  if v < ho then show v else show (v - o)
 
 qeqShow :: (KnownNat n, Show s) => QEQ s (Prime n) -> String
-qeqShow (a, b, c) = unwords [lcShow a, "*", lcShow b, "=", lcShow c]
+qeqShow (a, b, c) =
+  unwords ["(" ++ lcShow a ++ ")", "*", "(" ++ lcShow b ++ ")", "=", lcShow c]
 
 lcShow :: (KnownNat n, Show s) => LC s (Prime n) -> String
 lcShow (m, c) =
@@ -148,8 +147,9 @@ sigNumLookup r1cs s = Map.findWithDefault
   m
   where m = sigNums r1cs
 
+-- TODO: get the "best" signal
 r1csExternLc :: Ord s => R1CS s n -> LC Int (Prime n) -> LC s (Prime n)
-r1csExternLc r1cs (m, c) = (Map.mapKeys (numSigs r1cs IntMap.!) m, c)
+r1csExternLc r1cs (m, c) = (Map.mapKeys (head . (numSigs r1cs IntMap.!)) m, c)
 
 r1csExternQeq :: Ord s => R1CS s n -> QEQ Int (Prime n) -> QEQ s (Prime n)
 r1csExternQeq r1cs (a, b, c) = let e = r1csExternLc r1cs in (e a, e b, e c)
@@ -162,8 +162,9 @@ r1csAddSignals sigs r1cs =
   let zipped = zip sigs [(nextSigNum r1cs) ..]
   in  r1cs
         { sigNums    = Map.union (Map.fromList zipped) (sigNums r1cs)
-        , numSigs    = IntMap.union (IntMap.fromAscList $ map Tuple.swap zipped)
-                                    (numSigs r1cs)
+        , numSigs    = IntMap.union
+                         (IntMap.fromAscList $ map (\(a, b) -> (b, [a])) zipped)
+                         (numSigs r1cs)
         , nextSigNum = length zipped + nextSigNum r1cs
         }
 
@@ -178,6 +179,26 @@ r1csPublicizeSignal :: (Show s, Ord s) => s -> R1CS s n -> R1CS s n
 r1csPublicizeSignal sig r1cs = r1cs
   { publicInputs = IntSet.insert (sigNumLookup r1cs sig) $ publicInputs r1cs
   }
+
+-- Replace `b` with `a`
+r1csMergeSignals :: (Show s, Ord s) => s -> s -> R1CS s n -> R1CS s n
+r1csMergeSignals a b r1cs = 
+  let aN = sigNums r1cs Map.! a
+      bN = sigNums r1cs Map.! b
+      bSigs = numSigs r1cs IntMap.! bN
+      numSigs' = IntMap.adjust (++ bSigs) aN (numSigs r1cs)
+      sigNums' = Map.insert b aN (sigNums r1cs)
+      constraints' = fmap (sigMapQeq (\i -> if i == bN then aN else i)) (constraints r1cs)
+  in r1cs
+     {  numSigs = numSigs'
+     , sigNums = sigNums'
+     , constraints = constraints'
+     }
+
+r1csIsPublicSignal :: (Show s, Ord s) => s -> R1CS s n -> Bool
+r1csIsPublicSignal sig r1cs = case Map.lookup sig (sigNums r1cs) of
+  Just n  -> IntSet.member n (publicInputs r1cs)
+  Nothing -> False
 
 r1csAddConstraint
   :: (Show s, Ord s, KnownNat n) => QEQ s (Prime n) -> R1CS s n -> R1CS s n

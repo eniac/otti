@@ -7,6 +7,7 @@ module Util.ShowMap
   , (!?)
   , adjust
   , member
+  , toList
   )
 where
 
@@ -68,3 +69,6 @@ member :: (Show k, Eq k) => k -> ShowMap k v -> Bool
 member k m = fromMaybe False $ do
   e <- Map.lookup (show k) $ inner m
   return $ elem k $ map fst e
+
+toList :: ShowMap k v -> [(k, v)]
+toList (ShowMap a) = concat $ Map.elems a

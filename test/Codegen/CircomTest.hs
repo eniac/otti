@@ -66,7 +66,7 @@ checkWitComp circuitPath inputs = benchTestCase circuitPath $ do
                 Maybe.fromMaybe (error $ "Missing sig num: " ++ show k)
                   $         m_
                   IntMap.!? k
-          let lookupSignalVal = getOr allSignals . getOrI (Link.numSigs r1cs)
+          let lookupSignalVal = getOr allSignals . head . getOrI (Link.numSigs r1cs)
           emitAssignment
             (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
             xPath

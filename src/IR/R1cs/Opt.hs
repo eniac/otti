@@ -92,12 +92,24 @@ accumulateSubs r1cs = do
   applyStoredSubs :: KnownNat n => Assertion n -> Sub n (Assertion n)
   applyStoredSubs qeq = flip subLcsInQeq qeq <$> gets subs
 
+constantLc :: LC s n -> Maybe n
+constantLc (map, constant) = if Map.null map then Just constant else Nothing
+
+-- Is this QEQ constraint true, regardless of variable values.
+constantlyTrue :: (Eq n, Num n) => QEQ s n -> Bool
+constantlyTrue (a, b, c) =
+  case (constantLc a, constantLc b, constantLc c) of
+    (Just a', _, Just c') | isZero a' && isZero c' -> True
+    (_, Just b', Just c') | isZero b' && isZero c' -> True
+    (Just a', Just b', Just c') | a' * b' == c' -> True
+    _ -> False
+ where isZero = (fromInteger 0 ==)
+
 applyLinearSubs :: KnownNat n => Subs n -> R1CS s n -> R1CS s n
 applyLinearSubs subs r1cs =
   let removed = IntSet.fromAscList $ Map.keys subs
-      qeqZero = (lcZero, lcZero, lcZero)
   in  r1cs
-        { constraints = Seq.filter (/= qeqZero) $ subLcsInQeq subs <$> constraints r1cs
+        { constraints = Seq.filter (not . constantlyTrue) $ subLcsInQeq subs <$> constraints r1cs
         , numSigs = numSigs r1cs IntMap.\\ IntMap.fromDistinctAscList
                       (map (, SigLocal ("", [])) $ IntSet.toAscList removed)
         , sigNums = Map.filter (not . (`IntSet.member` removed)) $ sigNums r1cs
@@ -126,12 +138,19 @@ reduceLinearities r1cs =
       m     = subs $ execState s emptySub
   in  applyLinearSubs m r1cs
 
-opt :: (KnownNat n, Show s) => R1CS s n -> Log (R1CS s n)
+opt :: (KnownNat n, Ord s, Show s) => R1CS s n -> Log (R1CS s n)
 opt r1cs = do
   doOpt <- liftIO $ cfgGetDef "r1csOpt" True
-  return $ if doOpt
-    then compactifySigNums $ removeDeadSignals $ reduceLinearities r1cs
-    else r1cs
+  if doOpt
+    then do
+      logIf "r1csOpt" $ "Constraints before r1csOpt: " ++ show (Seq.length $ constraints r1cs)
+      logIf "r1csOpt" $ "public inputs: " ++ show (publicInputs r1cs)
+      logIf "r1csOpt" $ "r1cs: " ++ r1csShow r1cs
+      let r1cs' = compactifySigNums $ removeDeadSignals $ reduceLinearities r1cs
+      logIf "r1csOpt" $ "Constraints  after r1csOpt: " ++ show (Seq.length $ constraints r1cs')
+      logIf "r1csOpt" $ "r1cs: " ++ r1csShow r1cs'
+      return r1cs'
+    else return r1cs
 
 
 -- Remove signals not involved in constraints

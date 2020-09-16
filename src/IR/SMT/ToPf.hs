@@ -26,15 +26,17 @@ import qualified Codegen.Circom.CompTypes.LowDeg
 import           IR.R1cs                        ( R1CS
                                                 , emptyR1cs
                                                 , r1csAddConstraint
+                                                , r1csStats
                                                 , r1csEnsureSignal
                                                 , r1csAddSignals
                                                 , r1csPublicizeSignal
+                                                , r1csIsPublicSignal
                                                 , qeqShow
                                                 , primeShow
                                                 )
 import qualified IR.R1cs                       as R1cs
-import qualified Util.ShowMap                  as SMap
-import           Util.ShowMap                   ( ShowMap )
+import qualified Util.AliasMap                 as AMap
+import           Util.AliasMap                  ( AliasMap )
 import qualified Data.Bits                     as Bits
 import qualified Data.BitVector                as Bv
 import           Data.Dynamic                   ( Dynamic
@@ -63,11 +65,12 @@ type LSig n = (LC PfVar (Prime n), Maybe (Prime n))
 
 data ToPfConfig = ToPfConfig { assumeNoBvOverflow :: Bool
                              , optEq :: Bool
+                             , assumeInputsInRange :: Bool
                              }
 
 data ToPfState n = ToPfState { r1cs :: R1CS PfVar n
-                             , bools :: ShowMap TermBool (LSig n)
-                             , ints :: ShowMap TermDynBv (BvEntry n)
+                             , bools :: AliasMap TermBool (LSig n)
+                             , ints :: AliasMap TermDynBv (BvEntry n)
                              , vals :: PfVals n
                              , next :: Int
                              , cfg  :: ToPfConfig
@@ -79,18 +82,27 @@ newtype ToPf n a = ToPf (StateT (ToPfState n) Log a)
 emptyState :: ToPfState n
 emptyState = ToPfState
   { r1cs  = emptyR1cs
-  , bools = SMap.empty
-  , ints  = SMap.empty
+  , bools = AMap.empty
+  , ints  = AMap.empty
   , vals  = Map.empty
   , next  = 0
-  , cfg   = ToPfConfig { assumeNoBvOverflow = False, optEq = False }
+  , cfg   = ToPfConfig { assumeNoBvOverflow  = False
+                       , optEq               = False
+                       , assumeInputsInRange = True
+                       }
   }
 
 configureFromEnv :: ToPf n ()
 configureFromEnv = do
   a <- liftIO $ cfgGetDef "noOverflow" False
   b <- liftIO $ cfgGetDef "toPfOptEq" True
-  modify $ \s -> s { cfg = (cfg s) { assumeNoBvOverflow = a, optEq = b } }
+  c <- liftIO $ cfgGetDef "assumeInputsInRange" True
+  modify $ \s -> s
+    { cfg = (cfg s) { assumeNoBvOverflow  = a
+                    , optEq               = b
+                    , assumeInputsInRange = c
+                    }
+    }
 
 -- # Constraints
 
@@ -132,8 +144,7 @@ asVar :: KnownNat n => String -> Maybe (Prime n) -> ToPf n (LSig n)
 asVar var value = do
   case value of
     Just v -> do
-      -- Uncomment to see all variable assignments in ToPf
-      --liftIO $ putStrLn $ var ++ " -> " ++ primeShow v
+      liftLog $ logIf "toPfVal" $ var ++ " -> " ++ primeShow v
       modify $ \s -> s { vals = Map.insert var v $ vals s }
     _ -> return ()
   return (LD.lcSig var, value)
@@ -162,10 +173,10 @@ unhandled description thing =
   error $ unwords ["Unhandled", description, ":", show thing]
 
 saveBool :: KnownNat n => TermBool -> LSig n -> ToPf n ()
-saveBool b x = modify (\s -> s { bools = SMap.insert b x $ bools s })
+saveBool b x = modify (\s -> s { bools = AMap.insert b x $ bools s })
 
 lookupBool :: KnownNat n => TermBool -> ToPf n (Maybe (LSig n))
-lookupBool b = gets (SMap.lookup b . bools)
+lookupBool b = gets $ AMap.lookup b . bools
 
 lcConst :: KnownNat n => Integer -> LSig n
 lcConst c = lcShift (toP c) lcZero
@@ -200,21 +211,10 @@ lcSub x y = lcAdd x $ lcNeg y
 lcNot :: KnownNat n => LSig n -> LSig n
 lcNot = lcSub lcOne
 
--- Returns true if we're optimizing away equalities *and* this term is
--- (yet) untranslated
-optIntEq :: ToPf n (TermDynBv -> Bool)
-optIntEq = do
-  i     <- gets ints
-  doOpt <- gets (optEq . cfg)
-  return $ \s -> doOpt && not (SMap.member s i)
-
--- Returns true if we're optimizing away equalities *and* this term is
--- (yet) untranslated
-optBoolEq :: ToPf n (TermBool -> Bool)
-optBoolEq = do
-  i     <- gets bools
-  doOpt <- gets (optEq . cfg)
-  return $ \s -> doOpt && not (SMap.member s i)
+isPublicSignal :: ToPf n (String -> Bool)
+isPublicSignal = do
+  r <- gets r1cs
+  return $ flip r1csIsPublicSignal r
 
 boolToPf
   :: forall n . KnownNat n => Maybe SmtVals -> TermBool -> ToPf n (LSig n)
@@ -238,38 +238,30 @@ boolToPf env term = do
   -- Uncached
   boolToPfUncached :: KnownNat n => TermBool -> ToPf n (LSig n)
   boolToPfUncached t = do
-    optBool <- optBoolEq
-    optInt  <- optIntEq
+    r1cs'                <- gets r1cs
+    assumeInputsInRange' <- gets (assumeInputsInRange . cfg)
+    let omitRangeCheck input =
+          assumeInputsInRange' && R1cs.r1csIsPublicSignal input r1cs'
     case t of
       Eq a b -> case cast a of
         -- Bool
         Just abool -> do
           b' <- boolToPf env $ fromJust $ cast b
-          case abool of
-            Var name _s | optBool abool -> do
-              liftLog $ logIf "toPf" $ "Variable eq: " ++ show name
-              saveBool abool b'
-              return lcOne
-            _ -> do
-              a' <- boolToPf env abool
-              bitEq a' b'
+          a' <- boolToPf env abool
+          bitEq a' b'
         -- Bv
         Nothing -> do
           let abv = fromJust $ cast a
               bbv = fromJust $ cast b
           b' <- bvToPf env bbv >> getInt bbv
-          case abv of
-            Var name _s | optInt bbv -> do
-              liftLog $ logIf "toPf" $ "Variable eq: " ++ show name
-              saveInt abv (b', dynBvWidth bbv)
-              return lcOne
-            _ -> do
-              a' <- bvToPf env abv >> getInt abv
-              binEq a' b'
-      BoolLit b -> return $ lcShift (toP $ fromIntegral $ fromEnum b) lcZero
-      Not     a            -> lcNot <$> boolToPf env a
-      Var          name _  -> asBit =<< asVar name (lookupBitVal name)
-      BoolNaryExpr o    xs -> do
+          a' <- bvToPf env abv >> getInt abv
+          binEq a' b'
+      BoolLit b  -> return $ lcShift (toP $ fromIntegral $ fromEnum b) lcZero
+      Not     a  -> lcNot <$> boolToPf env a
+      Var name _ -> do
+        v <- asVar name (lookupBitVal name)
+        if omitRangeCheck name then return v else asBit v
+      BoolNaryExpr o xs -> do
         xs' <- traverse (boolToPf env) xs
         case xs' of
           []  -> pure $ lcShift (toP $ fromIntegral $ fromEnum $ opId o) lcZero
@@ -371,7 +363,7 @@ bitsize x = if x == 0 then 0 else 1 + bitsize (x `div` 2)
 -- The bits list has low order bits at low indices
 data BvEntry n = BvEntry { int :: Maybe (LSig n, Int)
                          , bits :: Maybe [LSig n]
-                         }
+                         } deriving (Show)
 
 bvEntryEmpty :: BvEntry n
 bvEntryEmpty = BvEntry { int = Nothing, bits = Nothing }
@@ -380,7 +372,7 @@ bvEntryEmpty = BvEntry { int = Nothing, bits = Nothing }
 -- Initialize an empty entry
 initIntEntry :: TermDynBv -> ToPf n ()
 initIntEntry t =
-  modify $ \s -> s { ints = SMap.insertWith (const id) t bvEntryEmpty $ ints s }
+  modify $ \s -> s { ints = AMap.insertWith (const id) t bvEntryEmpty $ ints s }
 
 -- Saving transalations
 saveConstBv :: KnownNat n => TermDynBv -> Bv.BV -> ToPf n ()
@@ -388,7 +380,7 @@ saveConstBv term bv = do
   initIntEntry term
   modify $ \s -> s
     { ints =
-      SMap.adjust
+      AMap.adjust
           (\e -> e
             { int  = Just (lcConst $ Bv.uint bv, Bv.size bv)
             , bits =
@@ -402,11 +394,11 @@ saveConstBv term bv = do
 
 saveInt :: TermDynBv -> (LSig n, Int) -> ToPf n ()
 saveInt term sig = initIntEntry term >> modify
-  (\s -> s { ints = SMap.adjust (\e -> e { int = Just sig }) term $ ints s })
+  (\s -> s { ints = AMap.adjust (\e -> e { int = Just sig }) term $ ints s })
 
 saveIntBits :: TermDynBv -> [LSig n] -> ToPf n ()
 saveIntBits term bits_ = initIntEntry term >> modify
-  (\s -> s { ints = SMap.adjust (\e -> e { bits = Just bits_ }) term $ ints s })
+  (\s -> s { ints = AMap.adjust (\e -> e { bits = Just bits_ }) term $ ints s })
 
 -- Fetching transalations
 getInt :: KnownNat n => TermDynBv -> ToPf n (LSig n)
@@ -417,7 +409,7 @@ getSignedInt term = deBitify True <$> getIntBits term
 
 getIntM :: KnownNat n => TermDynBv -> ToPf n (Maybe (LSig n))
 getIntM term = do
-  e <- gets (SMap.lookup term . ints)
+  e <- gets (AMap.lookup term . ints)
   case e >>= int of
     Just i  -> return $ Just $ fst i
     Nothing -> case e >>= bits of
@@ -429,12 +421,12 @@ getIntM term = do
 
 getIntBits :: KnownNat n => TermDynBv -> ToPf n [LSig n]
 getIntBits term = fromMaybe (error $ "No bits for " ++ show term) <$> do
-  e <- gets (SMap.lookup term . ints)
+  e <- gets (AMap.lookup term . ints)
   case e >>= bits of
     Just bs -> return $ Just bs
     Nothing -> case e >>= int of
       Just (i, width) -> do
-        bs <- bitify "get" i width
+        bs <- bitify "getBits" i width
         saveIntBits term bs
         return $ Just bs
       Nothing -> return Nothing
@@ -468,6 +460,7 @@ lazyInt = gets (assumeNoBvOverflow . cfg)
 -- Require `x` to fit in `width` unsigned bits
 bitify :: KnownNat n => String -> LSig n -> Int -> ToPf n [LSig n]
 bitify ctx x width = do
+  liftLog $ logIf "toPf" $ "bitify: " ++ ctx
   sigs <- nbits ctx $ asBits width $ snd x
   let sum' = foldr1 lcAdd $ zipWith lcScale (map twoPow [0 ..]) sigs
   enforceCheck (lcZero, lcZero, lcSub sum' x)
@@ -476,6 +469,7 @@ bitify ctx x width = do
 -- Does `number` fit in `w` `signed` bits?
 inBits :: KnownNat n => Bool -> Int -> LSig n -> ToPf n (LSig n)
 inBits signed w number = do
+  liftLog $ logIf "toPf" "inBits"
   bs <- nbits "inBits" $ asBits w $ snd number
   binEq number $ deBitify signed bs
 
@@ -491,7 +485,13 @@ data BvOpKind = Division | Arith | Bit | Shift
 bvToPf :: forall n . KnownNat n => Maybe SmtVals -> TermDynBv -> ToPf n ()
 bvToPf env term = do
   entry <- getIntM term
-  when (isNothing entry) $ bvToPfUncached term
+  s <- get
+  when (isNothing entry) $ do
+    liftLog $ logIf "toPf::cache" $ "Cache " ++ show (ints s)
+    liftLog $ logIf "toPf" $ "Cache miss " ++ show term
+    bvToPfUncached term
+  unless (isNothing entry) $
+    liftLog $ logIf "toPf" $ "Cache hit " ++ show term
  where
   unhandledOp = unhandled "bv operator in bvToPf"
   bvOpKind :: BvBinOp -> BvOpKind
@@ -519,131 +519,140 @@ bvToPf env term = do
 
   -- Uncached
   bvToPfUncached :: KnownNat n => TermDynBv -> ToPf n ()
-  bvToPfUncached bv = case bv of
-    IntToDynBv w (IntLit i) -> saveConstBv bv (Bv.bitVec w i)
-    DynBvLit l              -> saveConstBv bv l
-    Var name (SortBv w)     -> do
-      i  <- asVar name $ lookupIntVal name
-      bs <- bitify name i w
-      saveIntBits bv bs
-      saveInt bv (i, w)
-    Ite c t_ f -> do
-      c' <- boolToPf env c
-      bvToPf env t_
-      t' <- getInt t_
-      bvToPf env f
-      f' <- getInt f
-      v  <- nextVar "ite" $ liftA3 (?) ((/= toP 0) <$> snd c') (snd t') (snd f')
-      enforceCheck (c', lcSub v t', lcZero)
-      enforceCheck (lcNot c', lcSub v f', lcZero)
-      saveInt bv (v, dynBvWidth t_)
-    DynBvUnExpr BvNeg w x -> do
-      bvToPf env x
-      x' <- getInt x
-      saveInt bv (lcSub (lcConst $ 2 ^ w) x', w)
-    DynBvUnExpr BvNot _ x -> do
-      bvToPf env x
-      x' <- getIntBits x
-      saveIntBits bv $ map lcNeg x'
-    DynBvSext _ deltaW i -> do
-      bvToPf env i
-      i' <- getIntBits i
-      saveIntBits bv $ replicate deltaW (head i')
-    DynBvUext w _ i -> do
-      bvToPf env i
-      i' <- getInt i
-      saveInt bv (i', w)
-    DynBvExtract start w i -> do
-      bvToPf env i
-      i' <- getIntBits i
-      saveIntBits bv $ take w (drop start i')
-    DynBvBinExpr op w l r -> do
-      bvToPf env l
-      bvToPf env r
-      case bvOpKind op of
-        Division -> do
-          d <- getInt l
-          m <- getInt r
-          let dv = fromP <$> snd d
-          let mv = fromP <$> snd m
-          q  <- nextVar "div_q" $ toP <$> liftA2 div dv mv
-          r' <- nextVar "div_r" $ toP <$> liftA2 rem dv mv
-          enforceCheck (m, q, lcSub d r')
-          qb <- bitify "quotient" q w
-          rb <- bitify "remainder" r' w
-          enforceTrue =<< lcGt w (lcSub m lcOne) r'
-          saveIntBits bv $ case op of
-            BvUdiv -> qb
-            BvUrem -> rb
-            _      -> unhandledOp op
-        Arith -> do
-          l'        <- getInt l
-          r'        <- getInt r
-          (res, w') <- case op of
-            BvAdd -> pure (lcAdd l' r', w + 1)
-            BvSub ->
-              pure (lcShift (twoPow $ fromIntegral w) $ lcSub l' r', w + 1)
-            BvMul -> (, 2 * w) <$> lcMul "mul" l' r'
-            _     -> unhandledOp op
-          lazy <- lazyInt
-          if lazy
-            then saveInt bv (res, w)
-            else do
-              bs <- bitify "arith" res w'
-              saveIntBits bv (take w bs)
-        Bit -> do
-          l' <- getIntBits l
-          r' <- getIntBits r
-          bs <- case op of
-            BvOr  -> traverse id $ zipWith binOr l' r'
-            BvAnd -> traverse id $ zipWith binAnd l' r'
-            BvXor -> traverse id $ zipWith binXor l' r'
-            _     -> unhandledOp op
+  bvToPfUncached bv = do
+    r1cs'                <- gets r1cs
+    assumeInputsInRange' <- gets (assumeInputsInRange . cfg)
+    let omitRangeCheck input =
+          assumeInputsInRange' && R1cs.r1csIsPublicSignal input r1cs'
+    case bv of
+      IntToDynBv w (IntLit i) -> saveConstBv bv (Bv.bitVec w i)
+      DynBvLit l              -> saveConstBv bv l
+      Var name (SortBv w)     -> do
+        i <- asVar name $ lookupIntVal name
+        saveInt bv (i, w)
+        unless (omitRangeCheck name) $ do
+          bs <- bitify name i w
           saveIntBits bv bs
-        Shift -> do
-          rightInt  <- getInt r
-          rightBits <- getIntBits r
-          let b = bitsize $ w - 1
-          unless (2 ^ b == w) $ error $ unwords
-            ["width", show w, "is not a power of 2: bitsize is", show b]
-          let rightBits' = take b rightBits
-          -- Fits in log w bits
-          enforceCheck
-            (lcZero, lcZero, lcSub (deBitify False rightBits') rightInt)
-          -- Shift `x` left by (2 ^ `n`) if bit `b` is true
-          -- Done by computing
-          --   s = (2 ^ (2 ^ n) - 1) b + 1
-          --   output = s * x
-          let optPowerShift x (n :: Integer, bit) =
-                let label m = m ++ show n
-                    s = lcAdd lcOne $ lcScale (twoPow (2 ^ n) - toP 1) bit
-                in  lcMul (label "shift") s x
-          -- Shift `leftInt` left by `rightInt`, above.
-          -- If `lowBit` is not Nothing, extend it over the shift
-          let shiftInt lowBit leftInt = do
-                let shiftByR v = foldM optPowerShift v (zip [0 ..] rightBits')
-                shifted        <- shiftByR leftInt
-                shiftedWithExt <- case lowBit of
-                  Just lowBit' -> do
-                    -- The ones to add in
-                    extensionPart <- lcAdd (lcNeg lcOne) <$> shiftByR lowBit'
-                    -- Adding them in, if appropriate
-                    lcAdd shifted <$> lcMul "shiftExtMask" extensionPart lowBit'
-                  Nothing -> return shifted
-                resultBits <- bitify "shift" shiftedWithExt (2 * w - 1)
-                return $ take w resultBits
-          bs <- case op of
-            BvShl  -> getInt l >>= shiftInt Nothing
-            BvLshr -> do
-              l' <- getIntBits l
-              reverse <$> shiftInt Nothing (deBitify False $ reverse l')
-            BvAshr -> do
-              l' <- getIntBits l
-              reverse
-                <$> shiftInt (Just $ last l') (deBitify False $ reverse l')
-            _ -> unhandledOp op
-          saveIntBits bv bs
-    _ -> error $ unwords ["Cannot translate", show bv]
+      Ite c t_ f -> do
+        c' <- boolToPf env c
+        bvToPf env t_
+        t' <- getInt t_
+        bvToPf env f
+        f' <- getInt f
+        v  <- nextVar "ite"
+          $ liftA3 (?) ((/= toP 0) <$> snd c') (snd t') (snd f')
+        enforceCheck (c', lcSub v t', lcZero)
+        enforceCheck (lcNot c', lcSub v f', lcZero)
+        saveInt bv (v, dynBvWidth t_)
+      DynBvUnExpr BvNeg w x -> do
+        bvToPf env x
+        x' <- getInt x
+        saveInt bv (lcSub (lcConst $ 2 ^ w) x', w)
+      DynBvUnExpr BvNot _ x -> do
+        bvToPf env x
+        x' <- getIntBits x
+        saveIntBits bv $ map lcNeg x'
+      DynBvSext _ deltaW i -> do
+        bvToPf env i
+        i' <- getIntBits i
+        saveIntBits bv $ replicate deltaW (head i')
+      DynBvUext w _ i -> do
+        bvToPf env i
+        i' <- getInt i
+        saveInt bv (i', w)
+      DynBvExtract start w i -> do
+        bvToPf env i
+        i' <- getIntBits i
+        saveIntBits bv $ take w (drop start i')
+      DynBvBinExpr op w l r -> do
+        bvToPf env l
+        bvToPf env r
+        case bvOpKind op of
+          Division -> do
+            d <- getInt l
+            m <- getInt r
+            let dv = fromP <$> snd d
+            let mv = fromP <$> snd m
+            q  <- nextVar "div_q" $ toP <$> liftA2 div dv mv
+            r' <- nextVar "div_r" $ toP <$> liftA2 rem dv mv
+            enforceCheck (m, q, lcSub d r')
+            qb <- bitify "quotient" q w
+            rb <- bitify "remainder" r' w
+            enforceTrue =<< lcGt w (lcSub m lcOne) r'
+            saveIntBits bv $ case op of
+              BvUdiv -> qb
+              BvUrem -> rb
+              _      -> unhandledOp op
+          Arith -> do
+            l'        <- getInt l
+            r'        <- getInt r
+            (res, w') <- case op of
+              BvAdd -> pure (lcAdd l' r', w + 1)
+              BvSub ->
+                pure (lcShift (twoPow $ fromIntegral w) $ lcSub l' r', w + 1)
+              BvMul -> (, 2 * w) <$> lcMul "mul" l' r'
+              _     -> unhandledOp op
+            lazy <- lazyInt
+            if lazy
+              then saveInt bv (res, w)
+              else do
+                bs <- bitify ("arith" ++ show op) res w'
+                saveIntBits bv (take w bs)
+          Bit -> do
+            l' <- getIntBits l
+            r' <- getIntBits r
+            bs <- case op of
+              BvOr  -> traverse id $ zipWith binOr l' r'
+              BvAnd -> traverse id $ zipWith binAnd l' r'
+              BvXor -> traverse id $ zipWith binXor l' r'
+              _     -> unhandledOp op
+            saveIntBits bv bs
+          Shift -> do
+            rightInt  <- getInt r
+            rightBits <- getIntBits r
+            let b = bitsize $ w - 1
+            unless (2 ^ b == w) $ error $ unwords
+              ["width", show w, "is not a power of 2: bitsize is", show b]
+            let rightBits' = take b rightBits
+            -- Fits in log w bits
+            enforceCheck
+              (lcZero, lcZero, lcSub (deBitify False rightBits') rightInt)
+            -- Shift `x` left by (2 ^ `n`) if bit `b` is true
+            -- Done by computing
+            --   s = (2 ^ (2 ^ n) - 1) b + 1
+            --   output = s * x
+            let optPowerShift x (n :: Integer, bit) =
+                  let label m = m ++ show n
+                      s = lcAdd lcOne $ lcScale (twoPow (2 ^ n) - toP 1) bit
+                  in  lcMul (label "shift") s x
+            -- Shift `leftInt` left by `rightInt`, above.
+            -- If `lowBit` is not Nothing, extend it over the shift
+            let shiftInt lowBit leftInt = do
+                  let shiftByR v =
+                        foldM optPowerShift v (zip [0 ..] rightBits')
+                  shifted        <- shiftByR leftInt
+                  shiftedWithExt <- case lowBit of
+                    Just lowBit' -> do
+                      -- The ones to add in
+                      extensionPart <- lcAdd (lcNeg lcOne) <$> shiftByR lowBit'
+                      -- Adding them in, if appropriate
+                      lcAdd shifted
+                        <$> lcMul "shiftExtMask" extensionPart lowBit'
+                    Nothing -> return shifted
+                  resultBits <- bitify "shift" shiftedWithExt (2 * w - 1)
+                  return $ take w resultBits
+            bs <- case op of
+              BvShl  -> getInt l >>= shiftInt Nothing
+              BvLshr -> do
+                l' <- getIntBits l
+                reverse <$> shiftInt Nothing (deBitify False $ reverse l')
+              BvAshr -> do
+                l' <- getIntBits l
+                reverse
+                  <$> shiftInt (Just $ last l') (deBitify False $ reverse l')
+              _ -> unhandledOp op
+            saveIntBits bv bs
+      _ -> error $ unwords ["Cannot translate", show bv]
 
 -- Embed this (dynamic) bit-vector predicate in the constraint system,
 -- returning a signal which is 1 if the predicate is satisfied, and 0
@@ -696,12 +705,46 @@ greater width signed strict a b =
 lcGt :: KnownNat n => Int -> LSig n -> LSig n -> ToPf n (LSig n)
 lcGt width x y = inBits False width (lcSub x y)
 
+-- If this term is an alias, translate it, returning true.
+-- o.w. do not translate it, return false
+handleAlias :: KnownNat n => Maybe SmtVals -> TermBool -> ToPf n Bool
+handleAlias env a = case a of
+  Eq v@(Var name _s) t -> do
+    s <- get
+    if r1csIsPublicSignal name (r1cs s)
+      then return False
+      else case cast v of
+        Just boolV -> if AMap.memberOrAlias boolV (bools s)
+          then return False
+          else do
+            let rBool = fromJust $ cast t
+            _ <- boolToPf env rBool
+            liftLog $ logIf "toPf" $ "Alias " ++ show boolV ++ " to " ++ show rBool
+            modify $ \st -> st { bools = AMap.alias boolV rBool $ bools st }
+            return True
+        Nothing ->
+          let intV = fromJust (cast v)
+          in  if AMap.memberOrAlias intV (ints s)
+                then return False
+                else do
+                  let rInt = fromJust $ cast t
+                  bvToPf env rInt
+                  liftLog $ logIf "toPf" $ "Alias " ++ show intV ++ " to " ++ show rInt
+                  modify $ \st -> st { ints = AMap.alias intV rInt $ ints st }
+                  return True
+  _ -> return False
+
 -- # Top Level
 
 enforceAsPf :: KnownNat n => Maybe SmtVals -> TermBool -> ToPf n ()
 enforceAsPf env b = do
   liftLog $ logIf "toPf" $ "enforce: " ++ show b
-  boolToPf env b >>= enforceTrue
+  doOpt    <- gets (optEq . cfg)
+  wasAlias <- if doOpt then handleAlias env b else return False
+  liftLog $ logIf "toPf" $ "wasAlias: " ++ show wasAlias
+  unless wasAlias $ boolToPf env b >>= enforceTrue
+  r <- gets $ r1csStats . r1cs
+  liftLog $ logIf "toPf" $ "R1cs: " ++ r
 
 runToPf :: KnownNat n => ToPf n a -> ToPfState n -> Log (a, ToPfState n)
 runToPf (ToPf f) = runStateT f

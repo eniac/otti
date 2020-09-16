@@ -203,7 +203,7 @@ cmdProve libsnark pkPath vkPath inPath xPath wPath pfPath circomPath = do
   let getOrI m_ k =
         Maybe.fromMaybe (error $ "Missing sig num: " ++ show k) $ m_ IntMap.!? k
   let lookupSignalVal :: Int -> Integer =
-        getOr allSignals . getOrI (Link.numSigs r1cs)
+        getOr allSignals . head . getOrI (Link.numSigs r1cs)
   emitAssignment (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
                  xPath
   emitAssignment
@@ -272,7 +272,7 @@ cmdCProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath =
             $         m_
             IntMap.!? k
     let lookupSignalVal :: Int -> Integer
-        lookupSignalVal i = fromP $ getOr w $ getOrI (Link.numSigs r1cs) i
+        lookupSignalVal i = fromP $ getOr w $ head $ getOrI (Link.numSigs r1cs) i
     emitAssignment (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
                    xPath
     emitAssignment
