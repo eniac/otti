@@ -82,7 +82,6 @@ Options:
   -w <path>          Write the the auxiliary input to this path [default: w]
   -p <path>          Write/Read the proof at this path [default: pf]
   --libsnark <path>  Location of the libsnark binary [default: libsnark-frontend/build/src/main]
-  -O --opt           Optimize the circuit
 
 Commands:
   prove            Run the prover
@@ -231,28 +230,26 @@ cmdCEval name path = do
   r  <- evalFn tu name
   forM_ (Map.toList r) $ \(k, v) -> putStrLn $ unwords [k, ":", show v]
 
-cmdCEmitR1cs :: Bool -> String -> FilePath -> FilePath -> IO ()
-cmdCEmitR1cs opt fnName cPath r1csPath = do
+cmdCEmitR1cs :: String -> FilePath -> FilePath -> IO ()
+cmdCEmitR1cs fnName cPath r1csPath = do
   tu   <- parseC cPath
-  r1cs <- evalLog $ fnToR1cs @Order opt tu fnName
+  r1cs <- evalLog $ fnToR1cs @Order tu fnName
   R1cs.writeToR1csFile r1cs r1csPath
 
 cmdCSetup
-  :: Bool
-  -> FilePath
+  :: FilePath
   -> String
   -> FilePath
   -> FilePath
   -> FilePath
   -> FilePath
   -> IO ()
-cmdCSetup opt libsnark fnName cPath r1csPath pkPath vkPath = do
-  cmdCEmitR1cs opt fnName cPath r1csPath
+cmdCSetup libsnark fnName cPath r1csPath pkPath vkPath = do
+  cmdCEmitR1cs fnName cPath r1csPath
   runSetup libsnark r1csPath pkPath vkPath
 
 cmdCProve
-  :: Bool
-  -> FilePath
+  :: FilePath
   -> FilePath
   -> FilePath
   -> FilePath
@@ -262,12 +259,12 @@ cmdCProve
   -> String
   -> FilePath
   -> IO ()
-cmdCProve opt libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath =
+cmdCProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath =
   do
     tu            <- parseC cPath
     inputFile     <- openFile inPath ReadMode
     inputsSignals <- Link.parseIntsFromFile inputFile
-    (r1cs, w)     <- evalLog $ fnToR1csWithWit @Order inputsSignals opt tu fnName
+    (r1cs, w)     <- evalLog $ fnToR1csWithWit @Order inputsSignals tu fnName
     let getOr m_ k =
           Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
     let getOrI m_ k =
@@ -291,7 +288,6 @@ defaultR1cs = "C"
 main :: IO ()
 main = do
   args <- parseArgsOrExit patterns =<< getArgs
-  let opt = args `isPresent` longOption "opt"
   let
     cmd :: IO () = case True of
       _ | args `isPresent` command "emit-r1cs" -> do
@@ -336,7 +332,7 @@ main = do
         fnName   <- args `getArgOrExit` argument "fn-name"
         path     <- args `getArgOrExit` argument "path"
         r1csPath <- args `getArgOrExit` shortOption 'C'
-        cmdCEmitR1cs opt fnName path r1csPath
+        cmdCEmitR1cs fnName path r1csPath
       _ | args `isPresent` command "c-setup" -> do
         libsnark <- args `getArgOrExit` longOption "libsnark"
         fnName   <- args `getArgOrExit` argument "fn-name"
@@ -344,7 +340,7 @@ main = do
         r1csPath <- args `getArgOrExit` shortOption 'C'
         pkPath   <- args `getArgOrExit` shortOption 'P'
         vkPath   <- args `getArgOrExit` shortOption 'V'
-        cmdCSetup opt libsnark fnName cPath r1csPath pkPath vkPath
+        cmdCSetup libsnark fnName cPath r1csPath pkPath vkPath
       _ | args `isPresent` command "c-prove" -> do
         libsnark <- args `getArgOrExit` longOption "libsnark"
         fnName   <- args `getArgOrExit` argument "fn-name"
@@ -355,8 +351,7 @@ main = do
         xPath    <- args `getArgOrExit` shortOption 'x'
         wPath    <- args `getArgOrExit` shortOption 'w'
         pfPath   <- args `getArgOrExit` shortOption 'p'
-        cmdCProve opt
-                  libsnark
+        cmdCProve libsnark
                   pkPath
                   vkPath
                   inPath

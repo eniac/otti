@@ -23,13 +23,12 @@ import           Codegen.Circom.CompTypes.LowDeg
                                                 ( LC
                                                 , QEQ
                                                 )
-import qualified IR.R1cs.Opt                   as Opt
+import qualified IR.R1cs.Opt                   as R1csOpt
 import           Codegen.C                      ( codegenFn, runC )
 import           IR.SMT.ToPf                    ( toPf
                                                 , toPfWithWit
                                                 )
-import           IR.SMT.Opt                     ( opt
-                                                )
+import qualified IR.SMT.Opt                    as SmtOpt
 import           IR.R1cs                        ( R1CS(..)
                                                 , r1csStats
                                                 )
@@ -66,40 +65,27 @@ fnToSmt inVals tu name = do
                    , vals       = values compState
                    }
 
-smtMaybeOpt :: Bool -> Set.Set String -> [Ty.TermBool] -> Log [Ty.TermBool]
-smtMaybeOpt doOpt protect assertions =
-  if doOpt then opt protect assertions
-           else return assertions
-
-r1csMaybeOpt :: KnownNat n => Bool -> R1CS String n -> Log (R1CS String n)
-r1csMaybeOpt doOpt r1cs =
-  if doOpt then Opt.opt r1cs
-           else return r1cs
-
 fnToR1cs
   :: forall n
    . KnownNat n
-  => Bool
-  -> AST.CTranslUnit
+  => AST.CTranslUnit
   -> String
   -> Log (R1CS String n)
-fnToR1cs opt tu fnName = do
+fnToR1cs tu fnName = do
   fn <- fnToSmt Nothing tu fnName
   let pubVars   = Set.insert (output fn) $ Set.fromList $ inputs fn
-  newSmt <- smtMaybeOpt opt pubVars $ assertions fn
-  -- TODO: Use R1CS for optimization
+  newSmt <- SmtOpt.opt pubVars (assertions fn)
   r <- toPf @n pubVars newSmt
-  r1csMaybeOpt opt r
+  R1csOpt.opt r
 
 fnToR1csWithWit
   :: forall n
    . KnownNat n
   => Map.Map String Integer
-  -> Bool
   -> AST.CTranslUnit
   -> String
   -> Log (R1CS String n, Map.Map String (Prime n))
-fnToR1csWithWit inVals opt tu fnName = do
+fnToR1csWithWit inVals tu fnName = do
   fn <- fnToSmt (Just inVals) tu fnName
   let vs        = fromJust $ vals fn
   forM_ (assertions fn) $ \a -> do
@@ -107,8 +93,7 @@ fnToR1csWithWit inVals opt tu fnName = do
     unless (Ty.ValBool True == v) $
       error $ "eval " ++ show a ++ " gave False"
   let pubVars = Set.insert (output fn) $ Set.fromList $ inputs fn
-  newSmt <- smtMaybeOpt opt pubVars $ assertions fn
-  -- TODO: Use R1CS for optimization
+  newSmt <- SmtOpt.opt pubVars (assertions fn)
   (r, w) <- toPfWithWit @n vs pubVars newSmt
-  r' <- r1csMaybeOpt opt r
+  r' <- R1csOpt.opt r
   return (r', w)
