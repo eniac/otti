@@ -342,8 +342,8 @@ eqElim meta ts =
 
 eqElimCfg :: OptMetadata -> IO OptMetadata
 eqElimCfg m = do
-  o <- readCfgDefault "noBlowup" True
-  c <- readCfgDefault "cFoldInEqElim" True
+  o <- cfgGetDef "noBlowup" True
+  c <- cfgGetDef "cFoldInEqElim" True
   return $ m { eqElimNoBlowup = o, cFoldInEqElim = c }
 
 eqElimOpt :: Opt
@@ -367,7 +367,7 @@ opt p ts = do
                        , cFoldInEqElim    = False
                        }
   m'        <- liftIO $ foldM (flip cfg) m0 (Map.elems opts)
-  optsToRun <- liftIO $ cfgStrList "opts"
+  optsToRun <- liftIO $ cfgGetListDef "opts" ["cfee", "ee"]
   logAssertions "initial" ts
   foldM
     (\a oname -> do

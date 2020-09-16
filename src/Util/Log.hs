@@ -18,7 +18,7 @@ where
 import           Control.Monad                  ( )
 import           Control.Monad.State.Strict
 import qualified Data.Set                      as S
-import           Util.Cfg                       ( cfgStrList )
+import           Util.Cfg                       ( cfgGetList )
 
 ---
 --- Monad defintions
@@ -60,6 +60,6 @@ logIfM stream msg = do
 
 evalLog :: Log a -> IO a
 evalLog l = do
-  strms <- cfgStrList "log"
+  strms <- cfgGetList "log"
   let Log io = enableStreams strms >> l
   evalStateT io emptyLogState

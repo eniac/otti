@@ -67,7 +67,7 @@ emptyCState findBugs = CState { funs          = Map.empty
 
 cfgFromEnv :: C ()
 cfgFromEnv = do
-  bound <- liftIO $ readCfgDefault "loopBound" 5
+  bound <- liftIO $ cfgGetDef "loopBound" 5
   modify $ \s -> s { loopBound = bound }
   liftLog $ logIf "loop" $ "Setting loop bound to " ++ show bound
 

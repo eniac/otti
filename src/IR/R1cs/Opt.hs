@@ -128,7 +128,7 @@ reduceLinearities r1cs =
 
 opt :: (KnownNat n, Show s) => R1CS s n -> Log (R1CS s n)
 opt r1cs = do
-  doOpt <- liftIO $ readCfgDefault "r1csOpt" True
+  doOpt <- liftIO $ cfgGetDef "r1csOpt" True
   return $ if doOpt
     then compactifySigNums $ removeDeadSignals $ reduceLinearities r1cs
     else r1cs

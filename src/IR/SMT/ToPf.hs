@@ -52,7 +52,7 @@ import qualified Data.Map.Strict               as Map
 import           Data.Proxy                     ( Proxy(..) )
 import qualified Data.Set                      as Set
 import           Data.Typeable                  ( cast )
-import           Util.Cfg                       ( readCfgDefault )
+import           Util.Cfg                       ( cfgGetDef )
 import           Util.Log
 
 type PfVar = String
@@ -88,8 +88,8 @@ emptyState = ToPfState
 
 configureFromEnv :: ToPf n ()
 configureFromEnv = do
-  a <- liftIO $ readCfgDefault "noOverflow" False
-  b <- liftIO $ readCfgDefault "toPfOptEq" True
+  a <- liftIO $ cfgGetDef "noOverflow" False
+  b <- liftIO $ cfgGetDef "toPfOptEq" True
   modify $ \s -> s { cfg = (cfg s) { assumeNoBvOverflow = a, optEq = b } }
 
 -- # Constraints

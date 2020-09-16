@@ -1,6 +1,7 @@
 module Util.Cfg
-  ( readCfgDefault
-  , cfgStrList
+  ( cfgGetDef
+  , cfgGetList
+  , cfgGetListDef
   )
 where
 
@@ -13,8 +14,8 @@ import           Data.List.Split                ( splitOn )
 
 -- Gets the value of an environment-configurable option name "name" with
 -- default value "default_"
-readCfgDefault :: (Read a, Typeable a) => String -> a -> IO a
-readCfgDefault name default_ = do
+cfgGetDef :: (Read a, Typeable a) => String -> a -> IO a
+cfgGetDef name default_ = do
   mS <- lookupEnv $ "C_" ++ name
   case mS of
     Just s -> case readMaybe s of
@@ -29,9 +30,16 @@ readCfgDefault name default_ = do
           ++ show (typeOf default_)
     Nothing -> return default_
 
-cfgStrList :: String -> IO [String]
-cfgStrList name = do
+-- Gets a comma-separated list of non-empty strings from the named cfg
+-- variable, defaulting to the given value.
+cfgGetListDef :: String -> [String] -> IO [String]
+cfgGetListDef name default_ = do
   mS <- lookupEnv $ "C_" ++ name
   return $ case mS of
     Just s  -> filter (not . null) $ splitOn "," s
-    Nothing -> []
+    Nothing -> default_
+
+-- Gets a comma-separated list of non-empty strings from the named cfg
+-- variable, defaulting to empty
+cfgGetList :: String -> IO [String]
+cfgGetList = flip cfgGetListDef []
