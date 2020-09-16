@@ -159,12 +159,11 @@ type Order
 -- type Order = 17
 -- type OrderCtx = Ctx Order
 
-cmdEmitR1cs :: Bool -> FilePath -> FilePath -> IO ()
-cmdEmitR1cs opt circomPath r1csPath = do
+cmdEmitR1cs :: FilePath -> FilePath -> IO ()
+cmdEmitR1cs circomPath r1csPath = do
   print "Loading circuit"
   m <- loadMain circomPath
-  let optFn = if opt then Opt.opt else id
-  let r1cs  = optFn $ Link.linkMain @Order m
+  r1cs  <- evalLog  $ Opt.opt $ Link.linkMain @Order m
   putStrLn $ R1cs.r1csStats r1cs
   putStrLn $ R1cs.r1csShow r1cs
   R1cs.writeToR1csFile r1cs r1csPath
@@ -179,14 +178,13 @@ cmdCountTerms circomPath = do
 
 
 cmdSetup
-  :: Bool -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
-cmdSetup opt libsnark circomPath r1csPath pkPath vkPath = do
-  cmdEmitR1cs opt circomPath r1csPath
+  :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
+cmdSetup libsnark circomPath r1csPath pkPath vkPath = do
+  cmdEmitR1cs circomPath r1csPath
   runSetup libsnark r1csPath pkPath vkPath
 
 cmdProve
-  :: Bool
-  -> FilePath
+  :: FilePath
   -> FilePath
   -> FilePath
   -> FilePath
@@ -195,13 +193,12 @@ cmdProve
   -> FilePath
   -> FilePath
   -> IO ()
-cmdProve opt libsnark pkPath vkPath inPath xPath wPath pfPath circomPath = do
+cmdProve libsnark pkPath vkPath inPath xPath wPath pfPath circomPath = do
   m             <- loadMain circomPath
   inputFile     <- openFile inPath ReadMode
   inputsSignals <- Link.parseSignalsFromFile (Proxy @Order) inputFile
   let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
-  let optFn      = if opt then Opt.opt else id
-  let r1cs       = optFn $ Link.linkMain @Order m
+  r1cs  <- evalLog  $ Opt.opt $ Link.linkMain @Order m
   let getOr m_ k =
         Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
   let getOrI m_ k =
@@ -300,7 +297,7 @@ main = do
       _ | args `isPresent` command "emit-r1cs" -> do
         circomPath <- args `getArgOrExit` longOption "circom"
         r1csPath   <- args `getArgOrExit` shortOption 'C'
-        cmdEmitR1cs opt circomPath r1csPath
+        cmdEmitR1cs circomPath r1csPath
       _ | args `isPresent` command "count-terms" -> do
         circomPath <- args `getArgOrExit` longOption "circom"
         cmdCountTerms circomPath
@@ -310,7 +307,7 @@ main = do
         r1csPath   <- args `getArgOrExit` shortOption 'C'
         pkPath     <- args `getArgOrExit` shortOption 'P'
         vkPath     <- args `getArgOrExit` shortOption 'V'
-        cmdSetup opt libsnark circomPath r1csPath pkPath vkPath
+        cmdSetup libsnark circomPath r1csPath pkPath vkPath
       _ | args `isPresent` command "prove" -> do
         libsnark   <- args `getArgOrExit` longOption "libsnark"
         circomPath <- args `getArgOrExit` longOption "circom"
@@ -320,7 +317,7 @@ main = do
         xPath      <- args `getArgOrExit` shortOption 'x'
         wPath      <- args `getArgOrExit` shortOption 'w'
         pfPath     <- args `getArgOrExit` shortOption 'p'
-        cmdProve opt libsnark pkPath vkPath inPath xPath wPath pfPath circomPath
+        cmdProve libsnark pkPath vkPath inPath xPath wPath pfPath circomPath
       _ | args `isPresent` command "verify" -> do
         libsnark <- args `getArgOrExit` longOption "libsnark"
         vkPath   <- args `getArgOrExit` shortOption 'V'

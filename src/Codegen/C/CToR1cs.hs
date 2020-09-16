@@ -71,6 +71,11 @@ smtMaybeOpt doOpt protect assertions =
   if doOpt then opt protect assertions
            else return assertions
 
+r1csMaybeOpt :: KnownNat n => Bool -> R1CS String n -> Log (R1CS String n)
+r1csMaybeOpt doOpt r1cs =
+  if doOpt then Opt.opt r1cs
+           else return r1cs
+
 fnToR1cs
   :: forall n
    . KnownNat n
@@ -81,11 +86,10 @@ fnToR1cs
 fnToR1cs opt tu fnName = do
   fn <- fnToSmt Nothing tu fnName
   let pubVars   = Set.insert (output fn) $ Set.fromList $ inputs fn
-  let r1csOptFn = if opt then Opt.opt else id
   newSmt <- smtMaybeOpt opt pubVars $ assertions fn
   -- TODO: Use R1CS for optimization
   r <- toPf @n pubVars newSmt
-  return $ r1csOptFn r
+  r1csMaybeOpt opt r
 
 fnToR1csWithWit
   :: forall n
@@ -103,8 +107,8 @@ fnToR1csWithWit inVals opt tu fnName = do
     unless (Ty.ValBool True == v) $
       error $ "eval " ++ show a ++ " gave False"
   let pubVars = Set.insert (output fn) $ Set.fromList $ inputs fn
-  let r1csOptFn = if opt then Opt.opt else id
   newSmt <- smtMaybeOpt opt pubVars $ assertions fn
   -- TODO: Use R1CS for optimization
   (r, w) <- toPfWithWit @n vs pubVars newSmt
-  return (r1csOptFn r, w)
+  r' <- r1csMaybeOpt opt r
+  return (r', w)

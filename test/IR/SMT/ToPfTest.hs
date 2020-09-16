@@ -109,7 +109,7 @@ toPfTests = benchTestGroup
     "bvToPf constraint counts"
     [ constraintCountTest "5"
                           [mkDynBvEq (int "a" 4) (IntToDynBv 4 $ IntLit 5)]
-                          9
+                          1
     , constraintCountTest
       "5 = x + y"
       [ mkDynBvEq (mkDynBvBinExpr BvAdd (int "x" 4) (int "y" 4))

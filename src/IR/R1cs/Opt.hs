@@ -33,6 +33,8 @@ import qualified Data.Maybe                    as Maybe
 import qualified Data.Foldable                 as Fold
 import qualified Data.List                     as List
 import qualified Data.Sequence                 as Seq
+import           Util.Cfg
+import           Util.Log
 import           Debug.Trace
 
 -- TODO: this would all be a lot fast if the constraints used IntMaps...
@@ -124,8 +126,12 @@ reduceLinearities r1cs =
       m     = subs $ execState s emptySub
   in  applyLinearSubs m r1cs
 
-opt :: (KnownNat n, Show s) => R1CS s n -> R1CS s n
-opt = compactifySigNums . removeDeadSignals . reduceLinearities
+opt :: (KnownNat n, Show s) => R1CS s n -> Log (R1CS s n)
+opt r1cs = do
+  doOpt <- liftIO $ readCfgDefault "r1csOpt" True
+  return $ if doOpt
+    then compactifySigNums $ removeDeadSignals $ reduceLinearities r1cs
+    else r1cs
 
 
 -- Remove signals not involved in constraints

@@ -24,6 +24,7 @@ import           Data.Field.Galois              ( Prime
                                                 , toP
                                                 )
 import           GHC.TypeLits                   ( KnownNat )
+import           Util.Log
 
 
 order :: Integer
@@ -57,8 +58,8 @@ buildR1cs cs public =
 
 mkR1csOptTest :: String -> [StringQEQ] -> [String] -> Int -> BenchTest
 mkR1csOptTest name cs public expectedConstraints = benchTestCase name $ do
-  let r1cs  = buildR1cs cs public
-  let r1cs' = opt r1cs
+  let r1cs = buildR1cs cs public
+  r1cs' <- evalLog $ opt r1cs
   unless (expectedConstraints == length (constraints r1cs')) $ do
     putStrLn "R1cs:"
     print r1cs'
@@ -78,36 +79,12 @@ r1csOptTests = benchTestGroup
     ]
     []
     2
-  , mkR1csOptTest
-    "bit opt 2, no public"
-    bit2
-    []
-    2
-  , mkR1csOptTest
-    "bit opt 2, public bits"
-    bit2
-    ["b1", "b2"]
-    2
-  , mkR1csOptTest
-    "bit opt 2, public sum"
-    bit2
-    ["x"]
-    2
-  , mkR1csOptTest
-    "chain, no public"
-    chain
-    []
-    1
-  , mkR1csOptTest
-    "chain, end public"
-    chain
-    ["z5"]
-    1
-  , mkR1csOptTest
-    "chain, mid public"
-    chain
-    ["z3"]
-    1
+  , mkR1csOptTest "bit opt 2, no public"   bit2  []           2
+  , mkR1csOptTest "bit opt 2, public bits" bit2  ["b1", "b2"] 2
+  , mkR1csOptTest "bit opt 2, public sum"  bit2  ["x"]        2
+  , mkR1csOptTest "chain, no public"       chain []           1
+  , mkR1csOptTest "chain, end public"      chain ["z5"]       1
+  , mkR1csOptTest "chain, mid public"      chain ["z3"]       1
   ]
  where
   m = Map.fromList
@@ -118,8 +95,8 @@ r1csOptTests = benchTestGroup
     ]
   chain =
     [ ((m [("x", 1)], 0), (m [("y", 1)], 0), (m [("z", 1)], 0))
-    , ((m [], 0), (m [], 0), (m [("z", 1), ("z2", -1)], 0))
-    , ((m [], 0), (m [], 0), (m [("z2", 1), ("z3", -1)], 0))
-    , ((m [], 0), (m [], 0), (m [("z3", 1), ("z4", -1)], 0))
-    , ((m [], 0), (m [], 0), (m [("z4", 1), ("z5", -1)], 0))
+    , ((m [], 0)        , (m [], 0)        , (m [("z", 1), ("z2", -1)], 0))
+    , ((m [], 0)        , (m [], 0)        , (m [("z2", 1), ("z3", -1)], 0))
+    , ((m [], 0)        , (m [], 0)        , (m [("z3", 1), ("z4", -1)], 0))
+    , ((m [], 0)        , (m [], 0)        , (m [("z4", 1), ("z5", -1)], 0))
     ]
