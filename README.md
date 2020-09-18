@@ -34,10 +34,10 @@ stack test --ta '-p C value test'
 
 # Run
 
-Eventually, you will run the compiler with some command line options using the command:
+For usage information:
 
 ```
-stack exec compiler
+stack exec compiler-exe -- -h
 ```
 
 # Directory structure
