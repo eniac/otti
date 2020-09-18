@@ -277,6 +277,6 @@ parseSignalsFromFile
   -> IO (Map.Map IndexedIdent (Prime n))
 parseSignalsFromFile _order path =
   Map.fromList
-    . map (bimap parseIndexedIdent toP)
-    . Map.toAscList
+    .   map (bimap parseIndexedIdent toP)
+    .   Map.toAscList
     <$> parseIntsFromFile path

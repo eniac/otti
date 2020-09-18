@@ -161,8 +161,8 @@ type Order
 cmdEmitR1cs :: FilePath -> FilePath -> IO ()
 cmdEmitR1cs circomPath r1csPath = do
   print "Loading circuit"
-  m <- loadMain circomPath
-  r1cs  <- evalLog  $ Opt.opt $ Link.linkMain @Order m
+  m    <- loadMain circomPath
+  r1cs <- evalLog $ Opt.opt $ Link.linkMain @Order m
   putStrLn $ R1cs.r1csStats r1cs
   putStrLn $ R1cs.r1csShow r1cs
   R1cs.writeToR1csFile r1cs r1csPath
@@ -176,8 +176,7 @@ cmdCountTerms circomPath = do
   where count = Wit.nSmtNodes . CompT.baseCtx
 
 
-cmdSetup
-  :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
+cmdSetup :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdSetup libsnark circomPath r1csPath pkPath vkPath = do
   cmdEmitR1cs circomPath r1csPath
   runSetup libsnark r1csPath pkPath vkPath
@@ -197,7 +196,7 @@ cmdProve libsnark pkPath vkPath inPath xPath wPath pfPath circomPath = do
   inputFile     <- openFile inPath ReadMode
   inputsSignals <- Link.parseSignalsFromFile (Proxy @Order) inputFile
   let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
-  r1cs  <- evalLog  $ Opt.opt $ Link.linkMain @Order m
+  r1cs <- evalLog $ Opt.opt $ Link.linkMain @Order m
   let getOr m_ k =
         Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
   let getOrI m_ k =
@@ -237,13 +236,7 @@ cmdCEmitR1cs fnName cPath r1csPath = do
   R1cs.writeToR1csFile r1cs r1csPath
 
 cmdCSetup
-  :: FilePath
-  -> String
-  -> FilePath
-  -> FilePath
-  -> FilePath
-  -> FilePath
-  -> IO ()
+  :: FilePath -> String -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 cmdCSetup libsnark fnName cPath r1csPath pkPath vkPath = do
   cmdCEmitR1cs fnName cPath r1csPath
   runSetup libsnark r1csPath pkPath vkPath
@@ -259,28 +252,25 @@ cmdCProve
   -> String
   -> FilePath
   -> IO ()
-cmdCProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath =
-  do
-    tu            <- parseC cPath
-    inputFile     <- openFile inPath ReadMode
-    inputsSignals <- Link.parseIntsFromFile inputFile
-    (r1cs, w)     <- evalLog $ fnToR1csWithWit @Order inputsSignals tu fnName
-    let getOr m_ k =
-          Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
-    let getOrI m_ k =
-          Maybe.fromMaybe (error $ "Missing sig num: " ++ show k)
-            $         m_
-            IntMap.!? k
-    let lookupSignalVal :: Int -> Integer
-        lookupSignalVal i = fromP $ getOr w $ head $ getOrI (Link.numSigs r1cs) i
-    emitAssignment (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
-                   xPath
-    emitAssignment
-      (map lookupSignalVal
-           [(2 + Link.nPublicInputs r1cs) .. (Link.nextSigNum r1cs - 1)]
-      )
-      wPath
-    runProve libsnark pkPath vkPath xPath wPath pfPath
+cmdCProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath = do
+  tu            <- parseC cPath
+  inputFile     <- openFile inPath ReadMode
+  inputsSignals <- Link.parseIntsFromFile inputFile
+  (r1cs, w)     <- evalLog $ fnToR1csWithWit @Order inputsSignals tu fnName
+  let getOr m_ k =
+        Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
+  let getOrI m_ k =
+        Maybe.fromMaybe (error $ "Missing sig num: " ++ show k) $ m_ IntMap.!? k
+  let lookupSignalVal :: Int -> Integer
+      lookupSignalVal i = fromP $ getOr w $ head $ getOrI (Link.numSigs r1cs) i
+  emitAssignment (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
+                 xPath
+  emitAssignment
+    (map lookupSignalVal
+         [(2 + Link.nPublicInputs r1cs) .. (Link.nextSigNum r1cs - 1)]
+    )
+    wPath
+  runProve libsnark pkPath vkPath xPath wPath pfPath
 
 defaultR1cs :: String
 defaultR1cs = "C"
@@ -351,14 +341,6 @@ main = do
         xPath    <- args `getArgOrExit` shortOption 'x'
         wPath    <- args `getArgOrExit` shortOption 'w'
         pfPath   <- args `getArgOrExit` shortOption 'p'
-        cmdCProve libsnark
-                  pkPath
-                  vkPath
-                  inPath
-                  xPath
-                  wPath
-                  pfPath
-                  fnName
-                  cPath
+        cmdCProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath
       _ -> exitWithUsageMessage patterns "Missing command!"
   cmd

@@ -47,7 +47,7 @@ asLinearSub
 asLinearSub protected (a, b, (m, c)) = if a == lcZero && b == lcZero
   then
     -- TODO: First or last?
-    let here = IntSet.fromDistinctAscList $ Map.keys m
+    let here     = IntSet.fromDistinctAscList $ Map.keys m
         disjoint = here IntSet.\\ protected
     in  case IntSet.toList disjoint of
           [] -> Nothing
@@ -97,19 +97,20 @@ constantLc (map, constant) = if Map.null map then Just constant else Nothing
 
 -- Is this QEQ constraint true, regardless of variable values.
 constantlyTrue :: (Eq n, Num n) => QEQ s n -> Bool
-constantlyTrue (a, b, c) =
-  case (constantLc a, constantLc b, constantLc c) of
-    (Just a', _, Just c') | isZero a' && isZero c' -> True
-    (_, Just b', Just c') | isZero b' && isZero c' -> True
-    (Just a', Just b', Just c') | a' * b' == c' -> True
-    _ -> False
- where isZero = (fromInteger 0 ==)
+constantlyTrue (a, b, c) = case (constantLc a, constantLc b, constantLc c) of
+  (Just a', _, Just c') | isZero a' && isZero c' -> True
+  (_, Just b', Just c') | isZero b' && isZero c' -> True
+  (Just a', Just b', Just c') | a' * b' == c' -> True
+  _ -> False
+  where isZero = (fromInteger 0 ==)
 
 applyLinearSubs :: KnownNat n => Subs n -> R1CS s n -> R1CS s n
 applyLinearSubs subs r1cs =
   let removed = IntSet.fromAscList $ Map.keys subs
   in  r1cs
-        { constraints = Seq.filter (not . constantlyTrue) $ subLcsInQeq subs <$> constraints r1cs
+        { constraints = Seq.filter (not . constantlyTrue)
+                        $   subLcsInQeq subs
+                        <$> constraints r1cs
         , numSigs = numSigs r1cs IntMap.\\ IntMap.fromDistinctAscList
                       (map (, SigLocal ("", [])) $ IntSet.toAscList removed)
         , sigNums = Map.filter (not . (`IntSet.member` removed)) $ sigNums r1cs
@@ -143,11 +144,14 @@ opt r1cs = do
   doOpt <- liftIO $ cfgGetDef "r1csOpt" True
   if doOpt
     then do
-      logIf "r1csOpt" $ "Constraints before r1csOpt: " ++ show (Seq.length $ constraints r1cs)
+      logIf "r1csOpt" $ "Constraints before r1csOpt: " ++ show
+        (Seq.length $ constraints r1cs)
       logIf "r1csOpt" $ "public inputs: " ++ show (publicInputs r1cs)
       logIf "r1csOpt" $ "r1cs: " ++ r1csShow r1cs
-      let r1cs' = compactifySigNums $ removeDeadSignals $ reduceLinearities r1cs
-      logIf "r1csOpt" $ "Constraints  after r1csOpt: " ++ show (Seq.length $ constraints r1cs')
+      let r1cs' =
+            compactifySigNums $ removeDeadSignals $ reduceLinearities r1cs
+      logIf "r1csOpt" $ "Constraints  after r1csOpt: " ++ show
+        (Seq.length $ constraints r1cs')
       logIf "r1csOpt" $ "r1cs: " ++ r1csShow r1cs'
       return r1cs'
     else return r1cs

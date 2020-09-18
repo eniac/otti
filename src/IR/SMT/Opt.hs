@@ -233,9 +233,9 @@ constFoldEq meta ts = go ts
 
   addSub :: String -> Dynamic -> ConstFoldEq ()
   addSub v t = modify $ \s -> s
-          { terms = map (sub v t) $ terms s
-          , consts = Map.insert v t $ Map.map (dynamize $ sub v t) $ consts s
-          }
+    { terms  = map (sub v t) $ terms s
+    , consts = Map.insert v t $ Map.map (dynamize $ sub v t) $ consts s
+    }
 
 constantFoldEqOpt :: Opt
 constantFoldEqOpt = Opt { fn = constFoldEq, name = "cfee", cfg = return }
@@ -347,7 +347,8 @@ eqElimCfg m = do
   return $ m { eqElimNoBlowup = o, cFoldInEqElim = c }
 
 eqElimOpt :: Opt
-eqElimOpt = Opt { fn = ((.).(.)) return eqElim, name = "ee", cfg = eqElimCfg }
+eqElimOpt =
+  Opt { fn = ((.) . (.)) return eqElim, name = "ee", cfg = eqElimCfg }
 
 opts :: Map.Map String Opt
 opts = Map.fromList
@@ -362,9 +363,9 @@ logAssertions context as = logIfM "opt" $ do
 -- Optimize, ensuring that the variables in `p` continue to exist.
 opt :: Set.Set String -> [TermBool] -> Log [TermBool]
 opt p ts = do
-  let m0 = OptMetadata { protected        = p
+  let m0 = OptMetadata { protected      = p
                        , eqElimNoBlowup = False
-                       , cFoldInEqElim    = False
+                       , cFoldInEqElim  = False
                        }
   m'        <- liftIO $ foldM (flip cfg) m0 (Map.elems opts)
   optsToRun <- liftIO $ cfgGetListDef "opts" ["cfee", "ee"]

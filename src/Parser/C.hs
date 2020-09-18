@@ -7,7 +7,8 @@ parseCE :: String -> IO (Either ParseError CTranslUnit)
 parseCE file = parseCFile (newGCC "gcc") Nothing [] file
 
 parseC :: String -> IO CTranslUnit
-parseC file = either (\e -> error $ "parse error: " ++ show e) id <$> parseCE file
+parseC file =
+  either (\e -> error $ "parse error: " ++ show e) id <$> parseCE file
 
 
 

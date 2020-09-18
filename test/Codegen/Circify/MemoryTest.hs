@@ -3,7 +3,7 @@
 module Codegen.Circify.MemoryTest where
 import           BenchUtils
 import           Test.Tasty.HUnit
-import qualified Codegen.Circify.Memory              as Mem
+import qualified Codegen.Circify.Memory        as Mem
 import qualified IR.SMT.TySmt                  as Smt
 import qualified IR.SMT.Assert                 as Assert
 
@@ -46,7 +46,7 @@ countStores :: Smt.SortClass s => Smt.Term s -> Int
 countStores = Smt.reduceTerm
   (\t -> case t of
     Smt.Store a i v -> Just $ 1 + countStores a + countStores i + countStores v
-    _ -> Nothing
+    _               -> Nothing
   )
   0
   (+)

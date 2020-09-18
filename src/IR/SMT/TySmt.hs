@@ -93,34 +93,41 @@ module IR.SMT.TySmt
   )
 where
 
-import           Control.Monad       (foldM, forM, liftM2)
-import           Data.Binary.IEEE754 (wordToDouble)
-import qualified Data.Binary.IEEE754 as IEEE754
-import           Data.Bits           as Bits
-import qualified Data.BitVector      as Bv
-import           Data.Char           (digitToInt)
-import           Data.Dynamic        (Dynamic, Typeable, fromDyn, toDyn)
-import           Data.Fixed          (mod')
-import           Data.List           (foldl')
-import           Data.List.Split     (splitOn)
-import           Data.Map            (Map)
-import qualified Data.Map            as Map
-import qualified Data.Maybe          as Maybe
-import           Data.Proxy          (Proxy (..))
-import           Data.Set            (Set)
-import qualified Data.Set            as Set
-import           Data.Typeable       (cast)
+import           Control.Monad                  ( foldM
+                                                , forM
+                                                , liftM2
+                                                )
+import           Data.Binary.IEEE754            ( wordToDouble )
+import qualified Data.Binary.IEEE754           as IEEE754
+import           Data.Bits                     as Bits
+import qualified Data.BitVector                as Bv
+import           Data.Char                      ( digitToInt )
+import           Data.Dynamic                   ( Dynamic
+                                                , Typeable
+                                                , fromDyn
+                                                , toDyn
+                                                )
+import           Data.Fixed                     ( mod' )
+import           Data.List                      ( foldl' )
+import           Data.List.Split                ( splitOn )
+import           Data.Map                       ( Map )
+import qualified Data.Map                      as Map
+import qualified Data.Maybe                    as Maybe
+import           Data.Proxy                     ( Proxy(..) )
+import           Data.Set                       ( Set )
+import qualified Data.Set                      as Set
+import           Data.Typeable                  ( cast )
 import           GHC.TypeLits
-import           Prelude             hiding (exp)
-import           Z3.Monad            (MonadZ3)
-import qualified Z3.Monad            as Z
+import           Prelude                 hiding ( exp )
+import           Z3.Monad                       ( MonadZ3 )
+import qualified Z3.Monad                      as Z
 
 data IntSort = IntSort deriving (Show,Ord,Eq,Typeable)
 data BoolSort = BoolSort deriving (Show,Ord,Eq,Typeable)
 data DynBvSort = DynBvSort Int deriving (Show,Ord,Eq,Typeable)
 data BvSort (n :: Nat) = BvSort Int deriving (Show,Ord,Eq,Typeable)
 data PfSort (n :: Nat) = PfSort Integer deriving (Show,Ord,Eq,Typeable)
-data ComputableFp f => FpSort f = FpSort Int Int deriving (Show,Ord,Eq,Typeable)
+data FpSort f = FpSort Int Int deriving (Show,Ord,Eq,Typeable)
 data ArraySort k v = ArraySort deriving (Show,Ord,Eq,Typeable)
 
 class (Show n, Typeable n, Ord n, Eq n) => SortClass n where
@@ -365,11 +372,11 @@ data Term s where
     Var    ::String -> Sort -> Term s
     Let    ::(SortClass s) => String -> Term s -> Term t -> Term t
     Exists ::String -> Sort -> Term t -> Term t
-    Eq     :: SortClass s => Term s -> Term s -> TermBool
+    Eq     ::SortClass s => Term s -> Term s -> TermBool
 
     -- Bit-vector terms
     BvConcat  ::(KnownNat n, KnownNat m) => TermBv n -> TermBv m -> TermBv (n + m)
-    BvExtract :: forall n i. (KnownNat n, KnownNat i, i <= n) => Int -> TermBv n -> TermBv i
+    BvExtract ::(KnownNat n, KnownNat i, i <= n) => Int -> TermBv n -> TermBv i
     BvBinExpr ::KnownNat n => BvBinOp -> TermBv n -> TermBv n -> TermBv n
     BvUnExpr  ::KnownNat n => BvUnOp -> TermBv n -> TermBv n
     BvBinPred ::KnownNat n => BvBinPred -> TermBv n -> TermBv n -> TermBool
@@ -384,13 +391,13 @@ data Term s where
     DynBvUnExpr  ::BvUnOp -> Int -> TermDynBv -> TermDynBv
     DynBvLit     ::Bv.BV -> TermDynBv
     -- width, extension amount, inner
-    DynBvUext    :: Int -> Int -> TermDynBv -> TermDynBv
+    DynBvUext    ::Int -> Int -> TermDynBv -> TermDynBv
     -- width, extension amount, inner
-    DynBvSext    :: Int -> Int -> TermDynBv -> TermDynBv
-    IntToDynBv   :: Int -> TermInt -> TermDynBv
+    DynBvSext    ::Int -> Int -> TermDynBv -> TermDynBv
+    IntToDynBv   ::Int -> TermInt -> TermDynBv
     StatifyBv ::KnownNat n => TermDynBv -> TermBv n
     -- width, signedness, floating point number
-    RoundFpToDynBv :: (ComputableFp f) => Int -> Bool -> Term (FpSort f) -> TermDynBv
+    RoundFpToDynBv ::(ComputableFp f) => Int -> Bool -> Term (FpSort f) -> TermDynBv
 
     -- Integer terms
     IntLit        ::Integer -> TermInt
@@ -436,33 +443,55 @@ deriving instance Typeable (Term s)
 --     (BoolLit l, BoolLit r) -> l == r
 
 
-mkVar :: forall s. SortClass s => String -> Term s
+mkVar :: forall s . SortClass s => String -> Term s
 mkVar name = Var name (Maybe.fromJust (sorted @s))
 
 
 widthErr :: Term s -> Maybe String -> Int -> Int -> a
-widthErr term width expected actual =
-  error $ unwords [ "In", show term, "a width", Maybe.maybe "" (\s -> "(" ++ s ++ ")") width, "should have been", show expected, "but was", show actual]
+widthErr term width expected actual = error $ unwords
+  [ "In"
+  , show term
+  , "a width"
+  , Maybe.maybe "" (\s -> "(" ++ s ++ ")") width
+  , "should have been"
+  , show expected
+  , "but was"
+  , show actual
+  ]
 
-mkDynamizeBv :: forall n. KnownNat n => TermBv n -> TermDynBv
+mkDynamizeBv :: forall n . KnownNat n => TermBv n -> TermDynBv
 mkDynamizeBv t = DynamizeBv (fromIntegral $ natVal $ Proxy @n) t
 
-mkStatifyBv :: forall n. KnownNat n => TermDynBv -> TermBv n
+mkStatifyBv :: forall n . KnownNat n => TermDynBv -> TermBv n
 mkStatifyBv t =
   let width = dynBvWidth t
-      w = fromIntegral $ natVal $ Proxy @n
-  in  if width == w then StatifyBv t else widthErr (StatifyBv @n t) Nothing width w
+      w     = fromIntegral $ natVal $ Proxy @n
+  in  if width == w
+        then StatifyBv t
+        else widthErr (StatifyBv @n t) Nothing width w
 
 mkDynBvExtract :: Int -> Int -> TermDynBv -> TermDynBv
 mkDynBvExtract start width t =
   let w = dynBvWidth t
-  in  if start + width <= w then DynBvExtract start width t else error $ unwords ["DynBvExtract too long!", "start =", show start, "width =", show width, "acutal width =", show w]
+  in  if start + width <= w
+        then DynBvExtract start width t
+        else error $ unwords
+          [ "DynBvExtract too long!"
+          , "start ="
+          , show start
+          , "width ="
+          , show width
+          , "acutal width ="
+          , show w
+          ]
 
 mkDynBvBinExpr :: BvBinOp -> TermDynBv -> TermDynBv -> TermDynBv
 mkDynBvBinExpr o a b =
   let aw = dynBvWidth a
       bw = dynBvWidth b
-  in  if aw == bw then DynBvBinExpr o aw a b else widthErr (DynBvBinExpr o aw a b) (Just "the second width") aw bw
+  in  if aw == bw
+        then DynBvBinExpr o aw a b
+        else widthErr (DynBvBinExpr o aw a b) (Just "the second width") aw bw
 
 mkDynBvConcat :: TermDynBv -> TermDynBv -> TermDynBv
 mkDynBvConcat a b =
@@ -474,42 +503,54 @@ mkDynBvBinPred :: BvBinPred -> TermDynBv -> TermDynBv -> TermBool
 mkDynBvBinPred o a b =
   let aw = dynBvWidth a
       bw = dynBvWidth b
-  in  if aw == bw then DynBvBinPred o aw a b else widthErr (DynBvBinPred o aw a b) (Just "the second width") aw bw
+  in  if aw == bw
+        then DynBvBinPred o aw a b
+        else widthErr (DynBvBinPred o aw a b) (Just "the second width") aw bw
 
 mkDynBvUnExpr :: BvUnOp -> TermDynBv -> TermDynBv
 mkDynBvUnExpr o a = DynBvUnExpr o (dynBvWidth a) a
 
 mkDynBvSext :: Int -> TermDynBv -> TermDynBv
-mkDynBvSext newW a = let oldW = dynBvWidth a in if newW >= oldW then DynBvSext newW (newW - oldW) a else error "bv_sext shrink"
+mkDynBvSext newW a =
+  let oldW = dynBvWidth a
+  in  if newW >= oldW
+        then DynBvSext newW (newW - oldW) a
+        else error "bv_sext shrink"
 
 mkDynBvUext :: Int -> TermDynBv -> TermDynBv
-mkDynBvUext newW a = let oldW = dynBvWidth a in if newW >= oldW then DynBvUext newW (newW - oldW) a else error "bv_uext shrink"
+mkDynBvUext newW a =
+  let oldW = dynBvWidth a
+  in  if newW >= oldW
+        then DynBvUext newW (newW - oldW) a
+        else error "bv_uext shrink"
 
 mkDynBvEq :: TermDynBv -> TermDynBv -> TermBool
 mkDynBvEq a b =
   let aw = dynBvWidth a
       bw = dynBvWidth b
-  in  if aw == bw then Eq a b else widthErr (Eq a b) (Just "the second width") aw bw
+  in  if aw == bw
+        then Eq a b
+        else widthErr (Eq a b) (Just "the second width") aw bw
 
 dynBvWidth :: TermDynBv -> Int
 dynBvWidth t = case t of
-  DynBvConcat w _ _ -> w
-  DynBvExtract _ w _ -> w
+  DynBvConcat  w _ _   -> w
+  DynBvExtract _ w _   -> w
   DynBvBinExpr _ w _ _ -> w
-  DynBvUnExpr _ w _ -> w
-  DynBvLit l -> Bv.size l
-  DynBvSext w _ _ -> w
-  DynBvUext w _ _ -> w
-  DynamizeBv w _ -> w
+  DynBvUnExpr _ w _    -> w
+  DynBvLit l           -> Bv.size l
+  DynBvSext w _ _      -> w
+  DynBvUext w _ _      -> w
+  DynamizeBv w _       -> w
   RoundFpToDynBv w _ _ -> w
-  IntToDynBv w _ -> w
-  Ite _ tt _ -> dynBvWidth tt
-  Var _ s -> case s of
+  IntToDynBv w _       -> w
+  Ite _ tt _           -> dynBvWidth tt
+  Var _ s              -> case s of
     SortBv w -> w
     _        -> error "Can't deduce vare bitwidth"
   Exists _ _ tt -> dynBvWidth tt
-  Let _ _ tt -> dynBvWidth tt
-  Select a _ -> case sort a of
+  Let    _ _ tt -> dynBvWidth tt
+  Select a _    -> case sort a of
     SortArray _ (SortBv w) -> w
     _                      -> error "Invalid array sort"
 
@@ -521,19 +562,19 @@ sort t = case sorted @s of
     Var _ s              -> s
     Exists _ _ tt        -> sort tt
     Eq _ tt              -> sort tt
-    Let    _ _ e         -> sort e
+    Let            _ _ e -> sort e
 
     RoundFpToDynBv w _ _ -> SortBv w
-    DynBvUnExpr _ w _ -> SortBv w
-    DynBvLit bv -> SortBv (Bv.size bv)
-    DynBvSext w _ _ -> SortBv w
-    DynBvUext w _ _ -> SortBv w
+    DynBvUnExpr    _ w _ -> SortBv w
+    DynBvLit bv          -> SortBv (Bv.size bv)
+    DynBvSext w _ _      -> SortBv w
+    DynBvUext w _ _      -> SortBv w
     DynBvBinExpr _ w _ _ -> SortBv w
-    DynBvConcat w _ _    -> SortBv w
+    DynBvConcat  w _ _   -> SortBv w
     DynBvExtract _ w _   -> SortBv w
     DynamizeBv w _       -> SortBv w
-    IntToDynBv w _ -> SortBv w
-    Select a _ -> case sort a of
+    IntToDynBv w _       -> SortBv w
+    Select     a _       -> case sort a of
       SortArray _ s' -> s'
       _              -> error "Invalid array sort"
 
@@ -543,7 +584,11 @@ sort t = case sorted @s of
 -- applying that function at every stage. When the function returns something,
 -- this is the transformation. When the function does not, the transformation
 -- recurses.
-mapTerm :: SortClass s => (forall t . SortClass t => Term t -> Maybe (Term t)) -> Term s -> Term s
+mapTerm
+  :: SortClass s
+  => (forall t . SortClass t => Term t -> Maybe (Term t))
+  -> Term s
+  -> Term s
 mapTerm f t = case f t of
   Nothing -> case t of
     BoolLit{}             -> t
@@ -555,7 +600,7 @@ mapTerm f t = case f t of
     Var{}                 -> t
     Exists v s tt         -> Exists v s (mapTerm f tt)
     Let    v s e          -> Let v (mapTerm f s) (mapTerm f e)
-    Eq a b                -> Eq (mapTerm f a) (mapTerm f b)
+    Eq        a b         -> Eq (mapTerm f a) (mapTerm f b)
 
     BvConcat  a b         -> BvConcat (mapTerm f a) (mapTerm f b)
     BvExtract i s         -> BvExtract i (mapTerm f s)
@@ -571,7 +616,7 @@ mapTerm f t = case f t of
     DynBvConcat w a b     -> DynBvConcat w (mapTerm f a) (mapTerm f b)
     DynBvBinPred o w a b  -> DynBvBinPred o w (mapTerm f a) (mapTerm f b)
     DynBvExtract s l b    -> DynBvExtract s l (mapTerm f b)
-    DynBvUnExpr o w r     -> DynBvUnExpr o w (mapTerm f r)
+    DynBvUnExpr  o w r    -> DynBvUnExpr o w (mapTerm f r)
     DynBvLit bv           -> DynBvLit bv
     DynBvSext w w' r      -> DynBvSext w w' (mapTerm f r)
     DynBvUext w w' r      -> DynBvUext w w' (mapTerm f r)
@@ -596,9 +641,9 @@ mapTerm f t = case f t of
     FpBinPred o l r       -> FpBinPred o (mapTerm f l) (mapTerm f r)
     FpUnPred o l          -> FpUnPred o (mapTerm f l)
     FpFma a b c           -> FpFma (mapTerm f a) (mapTerm f b) (mapTerm f c)
-    IntToFp tt            -> IntToFp (mapTerm f tt)
-    FpToFp  tt            -> FpToFp (mapTerm f tt)
-    BvToFp  tt            -> BvToFp (mapTerm f tt)
+    IntToFp    tt         -> IntToFp (mapTerm f tt)
+    FpToFp     tt         -> FpToFp (mapTerm f tt)
+    BvToFp     tt         -> BvToFp (mapTerm f tt)
     DynUbvToFp tt         -> DynUbvToFp (mapTerm f tt)
     DynSbvToFp tt         -> DynSbvToFp (mapTerm f tt)
 
@@ -613,7 +658,12 @@ mapTerm f t = case f t of
 
 
 reduceTerm
-  :: SortClass s => (forall t . SortClass t => Term t -> Maybe k) -> k -> (k -> k -> k) -> Term s -> k
+  :: SortClass s
+  => (forall t . SortClass t => Term t -> Maybe k)
+  -> k
+  -> (k -> k -> k)
+  -> Term s
+  -> k
 reduceTerm mapF i foldF t = case mapF t of
   Nothing -> case t of
     BoolLit{} -> i
@@ -628,22 +678,20 @@ reduceTerm mapF i foldF t = case mapF t of
     Var{} -> i
     Exists _ _ tt -> reduceTerm mapF i foldF tt
     Let _ s e -> foldF (reduceTerm mapF i foldF s) (reduceTerm mapF i foldF e)
-    Eq tt ff       -> foldF
-      (reduceTerm mapF i foldF tt)
-      (reduceTerm mapF i foldF ff)
+    Eq tt ff -> foldF (reduceTerm mapF i foldF tt) (reduceTerm mapF i foldF ff)
 
     BvConcat a b ->
       foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF b)
-    BvUnExpr _ s -> reduceTerm mapF i foldF s
+    BvUnExpr  _ s -> reduceTerm mapF i foldF s
     BvExtract _ s -> reduceTerm mapF i foldF s
     BvBinExpr _ l r ->
       foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
     BvBinPred _ l r ->
       foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
-    IntToBv   tt -> reduceTerm mapF i foldF tt
-    FpToBv    tt -> reduceTerm mapF i foldF tt
+    IntToBv   tt          -> reduceTerm mapF i foldF tt
+    FpToBv    tt          -> reduceTerm mapF i foldF tt
 
-    StatifyBv t' -> reduceTerm mapF i foldF t'
+    StatifyBv t'          -> reduceTerm mapF i foldF t'
     RoundFpToDynBv _ _ t' -> reduceTerm mapF i foldF t'
     DynBvBinExpr _ _ a b ->
       foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF b)
@@ -652,12 +700,12 @@ reduceTerm mapF i foldF t = case mapF t of
     DynBvBinPred _ _ a b ->
       foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF b)
     DynBvExtract _ _ b -> reduceTerm mapF i foldF b
-    DynBvUnExpr _ _ b -> reduceTerm mapF i foldF b
-    DynBvLit {}       -> i
-    DynBvSext _ _ b -> reduceTerm mapF i foldF b
-    DynBvUext _ _ b -> reduceTerm mapF i foldF b
+    DynBvUnExpr  _ _ b -> reduceTerm mapF i foldF b
+    DynBvLit{}         -> i
+    DynBvSext _ _ b    -> reduceTerm mapF i foldF b
+    DynBvUext _ _ b    -> reduceTerm mapF i foldF b
     DynamizeBv _ b     -> reduceTerm mapF i foldF b
-    IntToDynBv _ i'      -> reduceTerm mapF i foldF i'
+    IntToDynBv _ i'    -> reduceTerm mapF i foldF i'
 
 
     IntLit{}           -> i
@@ -683,18 +731,18 @@ reduceTerm mapF i foldF t = case mapF t of
     FpFma a b c  -> foldF
       (foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF b))
       (reduceTerm mapF i foldF c)
-    IntToFp tt      -> reduceTerm mapF i foldF tt
-    FpToFp  tt      -> reduceTerm mapF i foldF tt
-    BvToFp  tt      -> reduceTerm mapF i foldF tt
+    IntToFp    tt   -> reduceTerm mapF i foldF tt
+    FpToFp     tt   -> reduceTerm mapF i foldF tt
+    BvToFp     tt   -> reduceTerm mapF i foldF tt
     DynUbvToFp tt   -> reduceTerm mapF i foldF tt
     DynSbvToFp tt   -> reduceTerm mapF i foldF tt
 
     PfNaryExpr _ as -> foldr foldF i (map (reduceTerm mapF i foldF) as)
     PfUnExpr   _ l  -> reduceTerm mapF i foldF l
-    IntToPf tt  -> reduceTerm mapF i foldF tt
+    IntToPf tt      -> reduceTerm mapF i foldF tt
 
-    Select a k  -> foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF k)
-    Store a k v -> foldF
+    Select a k -> foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF k)
+    Store a k v     -> foldF
       (foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF k))
       (reduceTerm mapF i foldF v)
     NewArray -> i
@@ -805,26 +853,26 @@ bvBinFn op = case op of
 
 bvBinPredFn :: BvBinPred -> Bv.BV -> Bv.BV -> Bool
 bvBinPredFn op = case op of
-  BvUgt -> (Bv.>.)
-  BvUge -> (Bv.>=.)
-  BvUlt -> (Bv.<.)
-  BvUle -> (Bv.<=.)
-  BvSgt -> Bv.sgt
-  BvSge -> Bv.sge
-  BvSlt -> Bv.slt
-  BvSle -> Bv.sle
-  BvSaddo -> \a b -> let
-    s = Bv.size a
-    v = Bv.int a + Bv.int b
-    in v < -2 ^ (s - 1) || 2 ^ (s - 1) - 1 < v
-  BvSsubo -> \a b -> let
-    s = Bv.size a
-    v = Bv.int a - Bv.int b
-    in v < -2 ^ (s - 1) || 2 ^ (s - 1) - 1 < v
-  BvSmulo -> \a b -> let
-    s = Bv.size a
-    v = Bv.int a * Bv.int b
-    in v < -2 ^ (s - 1) || 2 ^ (s - 1) - 1 < v
+  BvUgt   -> (Bv.>.)
+  BvUge   -> (Bv.>=.)
+  BvUlt   -> (Bv.<.)
+  BvUle   -> (Bv.<=.)
+  BvSgt   -> Bv.sgt
+  BvSge   -> Bv.sge
+  BvSlt   -> Bv.slt
+  BvSle   -> Bv.sle
+  BvSaddo -> \a b ->
+    let s = Bv.size a
+        v = Bv.int a + Bv.int b
+    in  v < -2 ^ (s - 1) || 2 ^ (s - 1) - 1 < v
+  BvSsubo -> \a b ->
+    let s = Bv.size a
+        v = Bv.int a - Bv.int b
+    in  v < -2 ^ (s - 1) || 2 ^ (s - 1) - 1 < v
+  BvSmulo -> \a b ->
+    let s = Bv.size a
+        v = Bv.int a * Bv.int b
+    in  v < -2 ^ (s - 1) || 2 ^ (s - 1) - 1 < v
 
 valAsBool :: Value BoolSort -> Bool
 valAsBool (ValBool b) = b
@@ -869,11 +917,13 @@ eval e t = case t of
   Not s             -> (ValBool . not . valAsBool . eval e) s
 
   Ite c tt ff       -> if valAsBool $ eval e c then eval e tt else eval e ff
-  Eq tt ff       -> ValBool $ eval e tt == eval e ff
-  Var s _           -> typed
+  Eq  tt ff         -> ValBool $ eval e tt == eval e ff
+  Var s  _          -> typed
    where
-    entry =
-      Map.findWithDefault (error $ "Unknown identifier '" ++ s ++ "'" ++ show e) s e
+    entry = Map.findWithDefault
+      (error $ "Unknown identifier '" ++ s ++ "'" ++ show e)
+      s
+      e
     typed = fromDyn
       entry
       (  error
@@ -889,7 +939,7 @@ eval e t = case t of
     e' = Map.insert x (toDyn v) e
 
   BvConcat  a      b  -> ValBv $ valAsBv (eval e a) `mappend` valAsBv (eval e b)
-  BvUnExpr o t' -> ValBv $ bvUnFn o $ valAsBv (eval e t')
+  BvUnExpr  o      t' -> ValBv $ bvUnFn o $ valAsBv (eval e t')
   BvExtract start' t' -> bvExtract e start' t'
    where
     bvExtract
@@ -921,16 +971,17 @@ eval e t = case t of
           else error $ "bitwidth mis-match while evaluating " ++ show t
   -- TODO: check this
   RoundFpToDynBv w _ t' ->
-    let i :: Integer = round $ asRepr $ eval e t'
-    in  ValDynBv $ Bv.bitVec w i
+    let i :: Integer = round $ asRepr $ eval e t' in ValDynBv $ Bv.bitVec w i
   DynBvUnExpr o w t' ->
     let inner = valAsDynBv $ eval e t'
     in  if Bv.width inner == w
           then ValDynBv $ bvUnFn o inner
           else error $ "bitwidth mis-match while evaluating " ++ show t
   DynBvLit bv -> ValDynBv bv
-  DynBvUext _ wDelta t' -> ValDynBv $ Bv.zeroExtend wDelta $ valAsDynBv $ eval e t'
-  DynBvSext _ wDelta t' -> ValDynBv $ Bv.signExtend wDelta $ valAsDynBv $ eval e t'
+  DynBvUext _ wDelta t' ->
+    ValDynBv $ Bv.zeroExtend wDelta $ valAsDynBv $ eval e t'
+  DynBvSext _ wDelta t' ->
+    ValDynBv $ Bv.signExtend wDelta $ valAsDynBv $ eval e t'
   DynBvExtract s w a ->
     let a' = valAsDynBv $ eval e a
     in  if s + w <= Bv.width a'
@@ -942,7 +993,8 @@ eval e t = case t of
     in  if w == Bv.width a' && w == Bv.width b'
           then ValDynBv $ bvBinFn o a' b'
           else error $ "bitwidth mis-match while evaluating " ++ show t
-  DynBvConcat _ a b -> ValDynBv $ Bv.concat [valAsDynBv $ eval e a, valAsDynBv $ eval e b]
+  DynBvConcat _ a b ->
+    ValDynBv $ Bv.concat [valAsDynBv $ eval e a, valAsDynBv $ eval e b]
   DynBvBinPred o w a b ->
     let a' = valAsDynBv $ eval e a
         b' = valAsDynBv $ eval e b
@@ -954,7 +1006,7 @@ eval e t = case t of
     in  if w == Bv.width a'
           then ValDynBv a'
           else error $ "bitwidth mis-match while evaluating " ++ show t
-  IntToDynBv w i  -> ValDynBv $ Bv.bitVec w $ valAsInt $ eval e i
+  IntToDynBv w i -> ValDynBv $ Bv.bitVec w $ valAsInt $ eval e i
 
   IntLit i       -> ValInt i
   IntUnExpr o t' -> ValInt $ intUnFn o (valAsInt $ eval e t')
@@ -975,11 +1027,11 @@ eval e t = case t of
   FpBinPred o l r  -> evalBinPred o (eval e l) (eval e r)
   FpUnPred o l     -> evalUnPred o (eval e l)
   FpFma a b c      -> eval e (FpBinExpr FpAdd (FpBinExpr FpMul a b) c)
-  IntToFp tt       -> evalFromInt (eval e tt)
-  FpToFp  tt       -> (fromRepr . asOther . asRepr) (eval e tt)
-  BvToFp  tt       -> fromRepr $ fromBits $ valAsBv (eval e tt)
-  DynUbvToFp  tt   -> fromRepr $ fromIntegral $ Bv.nat $ valAsDynBv (eval e tt)
-  DynSbvToFp  tt   -> fromRepr $ fromIntegral $ Bv.nat $ valAsDynBv (eval e tt)
+  IntToFp    tt    -> evalFromInt (eval e tt)
+  FpToFp     tt    -> (fromRepr . asOther . asRepr) (eval e tt)
+  BvToFp     tt    -> fromRepr $ fromBits $ valAsBv (eval e tt)
+  DynUbvToFp tt    -> fromRepr $ fromIntegral $ Bv.nat $ valAsDynBv (eval e tt)
+  DynSbvToFp tt    -> fromRepr $ fromIntegral $ Bv.nat $ valAsDynBv (eval e tt)
 
   PfUnExpr   o t'  -> ValPf $ pfUnFn o (modulus t') (valAsPf $ eval e t')
   PfNaryExpr o as  -> ValPf $ pfNaryFn o m (map (valAsPf . eval e) as)
@@ -999,14 +1051,14 @@ eval e t = case t of
 
 sortToZ3 :: forall z . MonadZ3 z => Sort -> z Z.Sort
 sortToZ3 s = case s of
-  SortBool -> Z.mkBoolSort
-  SortInt -> Z.mkIntSort
-  SortBv w -> Z.mkBvSort w
-  SortPf _ -> error "Prime fields"
-  SortFp 11 53 -> Z.mkDoubleSort
-  SortFp 8 24 -> Z.mkFloatSort
-  SortFp e si -> error $ unwords ["Fp" , show e, show si, "unsupported"]
-  SortArray k v -> do
+  SortBool        -> Z.mkBoolSort
+  SortInt         -> Z.mkIntSort
+  SortBv w        -> Z.mkBvSort w
+  SortPf _        -> error "Prime fields"
+  SortFp    11 53 -> Z.mkDoubleSort
+  SortFp    8  24 -> Z.mkFloatSort
+  SortFp    e  si -> error $ unwords ["Fp", show e, show si, "unsupported"]
+  SortArray k  v  -> do
     k' <- sortToZ3 k
     v' <- sortToZ3 v
     Z.mkArraySort k' v'
@@ -1019,19 +1071,19 @@ toZ3 t = case t of
     Xor -> tyNaryZ3Bin Z.mkXor a
     And -> tyNaryZ3Nary Z.mkAnd a
     Or  -> tyNaryZ3Nary Z.mkOr a
-  Not s               -> toZ3 s >>= Z.mkNot
+  Not s       -> toZ3 s >>= Z.mkNot
 
-  Ite c tt ff         -> tyTernZ3Tern Z.mkIte c tt ff
-  Var name s'         -> do
-    s'' <- sortToZ3 s'
+  Ite c tt ff -> tyTernZ3Tern Z.mkIte c tt ff
+  Var name s' -> do
+    s''   <- sortToZ3 s'
     name' <- Z.mkStringSymbol name
     Z.mkVar name' s''
-  Exists{}            -> error "NYI"
-  Let _x _s _t'       -> error "NYI"
-  Eq tt ff         -> tyBinZ3Bin Z.mkEq tt ff
+  Exists{}       -> error "NYI"
+  Let _x _s _t'  -> error "NYI"
+  Eq       tt ff -> tyBinZ3Bin Z.mkEq tt ff
 
-  BvConcat  a      b  -> tyBinZ3Bin Z.mkConcat a b
-  BvUnExpr o b  -> toZ3 b >>= case o of
+  BvConcat a  b  -> tyBinZ3Bin Z.mkConcat a b
+  BvUnExpr o  b  -> toZ3 b >>= case o of
     BvNeg -> Z.mkBvneg
     BvNot -> Z.mkBvnot
   BvExtract start' t' -> bvExtract start' t t'
@@ -1050,33 +1102,33 @@ toZ3 t = case t of
       newSize = fromInteger $ natVal (Proxy :: Proxy i)
   BvBinExpr o l r -> tyBinZ3Bin (bvBinOpToZ3 o) l r
   BvBinPred o l r -> tyBinZ3Bin (bvBinPredToZ3 o) l r
-  IntToBv i -> toZ3 i >>= Z.mkInt2bv (width t)
+  IntToBv i       -> toZ3 i >>= Z.mkInt2bv (width t)
    where
     width :: forall n . KnownNat n => TermBv n -> Int
     width _ = fromInteger $ natVal (Proxy @n)
-  FpToBv tt      -> toZ3 tt >>= Z.mkFpIEEEBv
+  FpToBv tt            -> toZ3 tt >>= Z.mkFpIEEEBv
 
-  DynamizeBv _ i -> toZ3 i
-  StatifyBv i -> toZ3 i
+  DynamizeBv _ i       -> toZ3 i
+  StatifyBv i          -> toZ3 i
   RoundFpToDynBv w s i -> do
     let w' = fromIntegral w
     i' <- toZ3 i
     rm <- Z.mkFpRoundToNearestTiesToEven
     if s then Z.mkFpToBv rm i' w' else Z.mkFpToUbv rm i' w'
   DynBvBinExpr o _ l r -> tyBinZ3Bin (bvBinOpToZ3 o) l r
-  DynBvUnExpr o _ b  -> toZ3 b >>= case o of
+  DynBvUnExpr o _ b    -> toZ3 b >>= case o of
     BvNeg -> Z.mkBvneg
     BvNot -> Z.mkBvnot
-  DynBvLit bv -> Z.mkBvNum (Bv.size bv) bv
-  DynBvSext _ wDelta b  -> toZ3 b >>= Z.mkSignExt wDelta
-  DynBvUext _ wDelta b  -> toZ3 b >>= Z.mkZeroExt wDelta
-  DynBvConcat _ l r -> tyBinZ3Bin Z.mkConcat l r
-  DynBvBinPred o _ l r -> tyBinZ3Bin (bvBinPredToZ3 o) l r
-  DynBvExtract s w i -> toZ3 i >>= Z.mkExtract (w + s - 1) s
-  IntToDynBv w i -> toZ3 i >>= Z.mkInt2bv w
+  DynBvLit bv            -> Z.mkBvNum (Bv.size bv) bv
+  DynBvSext   _ wDelta b -> toZ3 b >>= Z.mkSignExt wDelta
+  DynBvUext   _ wDelta b -> toZ3 b >>= Z.mkZeroExt wDelta
+  DynBvConcat _ l      r -> tyBinZ3Bin Z.mkConcat l r
+  DynBvBinPred o _ l r   -> tyBinZ3Bin (bvBinPredToZ3 o) l r
+  DynBvExtract s w i     -> toZ3 i >>= Z.mkExtract (w + s - 1) s
+  IntToDynBv w i         -> toZ3 i >>= Z.mkInt2bv w
 
-  IntLit i       -> Z.mkInteger i
-  IntUnExpr o t' -> case o of
+  IntLit i               -> Z.mkInteger i
+  IntUnExpr o t'         -> case o of
     IntNeg -> toZ3 t' >>= Z.mkUnaryMinus
     IntAbs -> nyi o
   IntBinExpr o l r -> case o of
@@ -1107,8 +1159,8 @@ toZ3 t = case t of
   FpBinExpr o l r ->
 
     let wrapRound g a b = do
-           m <- Z.mkFpRoundToNearestTiesToEven
-           g m a b
+          m <- Z.mkFpRoundToNearestTiesToEven
+          g m a b
         f :: Z.AST -> Z.AST -> z Z.AST = case o of
           FpAdd -> wrapRound Z.mkFpAdd
           FpSub -> wrapRound Z.mkFpSub
@@ -1145,23 +1197,23 @@ toZ3 t = case t of
           FpIsPositive  -> Z.mkFpIsPos
     in  toZ3 l >>= f
 
-  FpFma{}      -> nyi "fused multiply-add"
-  IntToFp{}    -> nyi "IntToFp"
-  FpToFp i     -> do
+  FpFma{}   -> nyi "fused multiply-add"
+  IntToFp{} -> nyi "IntToFp"
+  FpToFp i  -> do
     i' <- toZ3 i
     rm <- Z.mkFpRoundToNearestTiesToEven
-    s <- sortToZ3 (sort t)
+    s  <- sortToZ3 (sort t)
     Z.mkFpToFp rm i' s
   BvToFp{}     -> nyi "BvToFp"
   DynUbvToFp i -> do
     i' <- toZ3 i
     rm <- Z.mkFpRoundToNearestTiesToEven
-    s <- sortToZ3 (sort t)
+    s  <- sortToZ3 (sort t)
     Z.mkUBvToFp rm i' s
   DynSbvToFp i -> do
     i' <- toZ3 i
     rm <- Z.mkFpRoundToNearestTiesToEven
-    s <- sortToZ3 (sort t)
+    s  <- sortToZ3 (sort t)
     Z.mkSBvToFp rm i' s
 
   PfUnExpr{}   -> nyi "Prime fields"
@@ -1172,16 +1224,24 @@ toZ3 t = case t of
   Store a k v  -> tyTernZ3Tern Z.mkStore a k v
   NewArray     -> nyi "Need to define default values..."
  where
-  tyNaryZ3Nary :: (SortClass s', MonadZ3 z) => ([Z.AST] -> z Z.AST) -> [Term s'] -> z Z.AST
+  tyNaryZ3Nary
+    :: (SortClass s', MonadZ3 z) => ([Z.AST] -> z Z.AST) -> [Term s'] -> z Z.AST
   tyNaryZ3Nary f a = mapM toZ3 a >>= f
   tyBinZ3Nary
-    :: (SortClass s', MonadZ3 z) => ([Z.AST] -> z Z.AST) -> Term s' -> Term s' -> z Z.AST
+    :: (SortClass s', MonadZ3 z)
+    => ([Z.AST] -> z Z.AST)
+    -> Term s'
+    -> Term s'
+    -> z Z.AST
   tyBinZ3Nary f a b = do
     a' <- toZ3 a
     b' <- toZ3 b
     f [a', b']
   tyNaryZ3Bin
-    :: (SortClass s', MonadZ3 z) => (Z.AST -> Z.AST -> z Z.AST) -> [Term s'] -> z Z.AST
+    :: (SortClass s', MonadZ3 z)
+    => (Z.AST -> Z.AST -> z Z.AST)
+    -> [Term s']
+    -> z Z.AST
   tyNaryZ3Bin f a = do
     a' <- mapM toZ3 a
     foldM f (head a') (tail a')
@@ -1207,52 +1267,51 @@ toZ3 t = case t of
     tyBinZ3Bin (f a') b c
   nyi x = error $ unwords ["Not yet implemented in toZ3:", show x]
   bvBinOpToZ3 o = case o of
-          BvShl  -> Z.mkBvshl
-          BvLshr -> Z.mkBvlshr
-          BvAshr -> Z.mkBvashr
-          BvUrem -> Z.mkBvurem
-          BvUdiv -> Z.mkBvudiv
-          BvAdd  -> Z.mkBvadd
-          BvMul  -> Z.mkBvmul
-          BvSub  -> Z.mkBvsub
-          BvOr   -> Z.mkBvor
-          BvAnd  -> Z.mkBvand
-          BvXor  -> Z.mkBvxor
+    BvShl  -> Z.mkBvshl
+    BvLshr -> Z.mkBvlshr
+    BvAshr -> Z.mkBvashr
+    BvUrem -> Z.mkBvurem
+    BvUdiv -> Z.mkBvudiv
+    BvAdd  -> Z.mkBvadd
+    BvMul  -> Z.mkBvmul
+    BvSub  -> Z.mkBvsub
+    BvOr   -> Z.mkBvor
+    BvAnd  -> Z.mkBvand
+    BvXor  -> Z.mkBvxor
   bvBinPredToZ3 o = case o of
-          BvUgt -> Z.mkBvugt
-          BvUlt -> Z.mkBvult
-          BvUge -> Z.mkBvuge
-          BvUle -> Z.mkBvule
-          BvSgt -> Z.mkBvsgt
-          BvSlt -> Z.mkBvslt
-          BvSge -> Z.mkBvsge
-          BvSle -> Z.mkBvsle
-          -- TODO: underflow?
-          BvSaddo -> \a b -> do
-            x <- Z.mkBvaddNoOverflow a b True
-            y <- Z.mkBvaddNoUnderflow a b
-            Z.mkAnd [x, y] >>= Z.mkNot
-          BvSsubo -> \a b -> do
-            x <- Z.mkBvsubNoOverflow a b
-            y <- Z.mkBvsubNoUnderflow a b
-            Z.mkAnd [x, y] >>= Z.mkNot
-          BvSmulo -> \a b -> do
-            x <- Z.mkBvmulNoOverflow a b True
-            y <- Z.mkBvmulNoUnderflow a b
-            Z.mkAnd [x, y] >>= Z.mkNot
+    BvUgt   -> Z.mkBvugt
+    BvUlt   -> Z.mkBvult
+    BvUge   -> Z.mkBvuge
+    BvUle   -> Z.mkBvule
+    BvSgt   -> Z.mkBvsgt
+    BvSlt   -> Z.mkBvslt
+    BvSge   -> Z.mkBvsge
+    BvSle   -> Z.mkBvsle
+    -- TODO: underflow?
+    BvSaddo -> \a b -> do
+      x <- Z.mkBvaddNoOverflow a b True
+      y <- Z.mkBvaddNoUnderflow a b
+      Z.mkAnd [x, y] >>= Z.mkNot
+    BvSsubo -> \a b -> do
+      x <- Z.mkBvsubNoOverflow a b
+      y <- Z.mkBvsubNoUnderflow a b
+      Z.mkAnd [x, y] >>= Z.mkNot
+    BvSmulo -> \a b -> do
+      x <- Z.mkBvmulNoOverflow a b True
+      y <- Z.mkBvmulNoUnderflow a b
+      Z.mkAnd [x, y] >>= Z.mkNot
 
 -- Returns Nothing if UNSAT, or a string description of the model.
 evalZ3 :: TermBool -> IO (Maybe String)
-evalZ3 term =
-  Z.evalZ3 $ do
-    assertion <- toZ3 term
-    Z.assert assertion
-    m <- Z.getModel
-    case snd m of
-      Just model -> do
-        s <- Z.modelToString model
-        return $ Just s
-      Nothing -> return Nothing
+evalZ3 term = Z.evalZ3 $ do
+  assertion <- toZ3 term
+  Z.assert assertion
+  m <- Z.getModel
+  case snd m of
+    Just model -> do
+      s <- Z.modelToString model
+      return $ Just s
+    Nothing -> return Nothing
 
 -- For generating a numerical description of the model
 
@@ -1279,11 +1338,11 @@ nan :: Val
 nan = NaN
 
 instance Show Val where
-    show (IVal i) = show i
-    show (BVal b) = show b
-    show (DVal d) = show d
-    show NegZ     = "-0"
-    show NaN      = "NaN"
+  show (IVal i) = show i
+  show (BVal b) = show b
+  show (DVal d) = show d
+  show NegZ     = "-0"
+  show NaN      = "NaN"
 
 -- | Returns Nothing if UNSAT, or an association between variables and string if SAT
 evalZ3Model :: TermBool -> IO (Map String Val)
@@ -1292,37 +1351,51 @@ evalZ3Model term = do
   -- Eventually we will just fix the bindings
   model <- evalZ3 term
   case model of
-    Nothing -> return Map.empty
+    Nothing  -> return Map.empty
     Just str -> do
       let modelLines = splitOn "\n" str
-      vs <- forM (init modelLines) $ \line -> return $ case splitOn " -> " line of
-        [var, "true"]  -> (var, BVal True)
-        [var, "false"] -> (var, BVal False)
-        [var, strVal]  -> let maybeVal = drop 1 strVal
-                          in case maybeVal of
-                            -- Special values
-                            '_':' ':'-':'z':'e':'r':'o':_ -> (var, NegZ)
-                            '_':' ':'+':'z':'e':'r':'o':_ -> (var, DVal 0)
-                            '_':' ':'N':'a':'N':_         -> (var, NaN)
-                             -- Binary
-                            'b':n -> (var, IVal $ readBin n)
-                             -- Hex
-                            'x':_ -> (var, IVal (read ('0':maybeVal) :: Int))
-                            -- Non-special floating point
-                            'f':'p':' ':rest              ->
-                              let components = splitOn " " rest
-                                  sign = read (drop 2 $ components !! 0) :: Integer
-                                  exp = toDec $ drop 2 $ components !! 1
-                                  sig = read ('0':(drop 1 $ init $ components !! 2)) :: Integer
-                                  result = (sig .&. 0xfffffffffffff) .|. ((exp .&. 0x7ff) `shiftL` 52) .|. ((sign .&. 0x1) `shiftL` 63)
-                              in (var, DVal $ wordToDouble $ fromIntegral $ result)
-                            -- Did not recognize the pattern
-                            _     -> error $ unwords ["Bad line", show line]
-        _              -> error $ unwords ["Bad model", show model]
+      vs <- forM (init modelLines) $ \line ->
+        return $ case splitOn " -> " line of
+          [var, "true" ] -> (var, BVal True)
+          [var, "false"] -> (var, BVal False)
+          [var, strVal] ->
+            let maybeVal = drop 1 strVal
+            in
+              case maybeVal of
+              -- Special values
+                '_' : ' ' : '-' : 'z' : 'e' : 'r' : 'o' : _ -> (var, NegZ)
+                '_' : ' ' : '+' : 'z' : 'e' : 'r' : 'o' : _ -> (var, DVal 0)
+                '_' : ' ' : 'N' : 'a' : 'N' : _ -> (var, NaN)
+                 -- Binary
+                'b' : n -> (var, IVal $ readBin n)
+                 -- Hex
+                'x' : _ -> (var, IVal (read ('0' : maybeVal) :: Int))
+                -- Non-special floating point
+                'f' : 'p' : ' ' : rest ->
+                  let
+                    components = splitOn " " rest
+                    sign       = read (drop 2 $ components !! 0) :: Integer
+                    exp        = toDec $ drop 2 $ components !! 1
+                    sig =
+                      read ('0' : (drop 1 $ init $ components !! 2)) :: Integer
+                    result =
+                      (sig .&. 0xfffffffffffff)
+                        .|. ((exp .&. 0x7ff) `shiftL` 52)
+                        .|. ((sign .&. 0x1) `shiftL` 63)
+                  in
+                    (var, DVal $ wordToDouble $ fromIntegral $ result)
+                -- Did not recognize the pattern
+                _ -> error $ unwords ["Bad line", show line]
+          _ -> error $ unwords ["Bad model", show model]
       return $ Map.fromList vs
  where
   readBin :: String -> Int
-  readBin = foldr (\d a -> if d `elem` "01" then digitToInt d + 2 * a else error $ "invalid binary character: " ++ [d]) 0
+  readBin = foldr
+    (\d a -> if d `elem` "01"
+      then digitToInt d + 2 * a
+      else error $ "invalid binary character: " ++ [d]
+    )
+    0
   toDec :: String -> Integer
   toDec = foldl' (\acc x -> acc * 2 + (fromIntegral $ digitToInt x)) 0
 
@@ -1334,299 +1407,137 @@ dynEq a b = Just a == cast b
 -- Most of this comes from GHC's derive implementation of Eq
 -- I've replaced == with `dynEq` in strategic places.
 instance Eq (Term s) where
-  (==)
-    (BoolLit a1_abUE)
-    (BoolLit b1_abUF)
-    = ((a1_abUE == b1_abUF))
-  (==)
-    (BoolBinExpr a1_abUG a2_abUH a3_abUI)
-    (BoolBinExpr b1_abUJ b2_abUK b3_abUL)
-    = (((a1_abUG == b1_abUJ))
-         &&
-           (((a2_abUH == b2_abUK))
-              && ((a3_abUI == b3_abUL))))
-  (==)
-    (BoolNaryExpr a1_abUM a2_abUN)
-    (BoolNaryExpr b1_abUO b2_abUP)
-    = (((a1_abUM == b1_abUO))
-         && ((a2_abUN == b2_abUP)))
-  (==) (Not a1_abUQ) (Not b1_abUR)
-    = ((a1_abUQ == b1_abUR))
-  (==)
-    (Ite a1_abUS a2_abUT a3_abUU)
-    (Ite b1_abUV b2_abUW b3_abUX)
-    = (((a1_abUS == b1_abUV))
-         &&
-           (((a2_abUT == b2_abUW))
-              && ((a3_abUU == b3_abUX))))
-  (==)
-    (Var a1_abUY a2_abUZ)
-    (Var b1_abV0 b2_abV1)
-    = (((a1_abUY == b1_abV0))
-         && ((a2_abUZ == b2_abV1)))
-  (==)
-    (Let a1_abV2 a2_abV3 a3_abV4)
-    (Let b1_abV5 b2_abV6 b3_abV7)
-    = (((a1_abV2 == b1_abV5))
-         &&
-           (((dynEq a2_abV3 b2_abV6))
-              && ((a3_abV4 == b3_abV7))))
-  (==)
-    (Exists a1_abV8 a2_abV9 a3_abVa)
-    (Exists b1_abVb b2_abVc b3_abVd)
-    = (((a1_abV8 == b1_abVb))
-         &&
-           (((a2_abV9 == b2_abVc))
-              && ((a3_abVa == b3_abVd))))
-  (==)
-    (Eq a1_abVe a2_abVf)
-    (Eq b1_abVg b2_abVh)
-    = (((a1_abVe `dynEq` b1_abVg))
-         && ((a2_abVf `dynEq` b2_abVh)))
-  (==)
-    (BvConcat a1_abVi a2_abVj)
-    (BvConcat b1_abVk b2_abVl)
-    = (((a1_abVi `dynEq` b1_abVk))
-         && ((a2_abVj `dynEq` b2_abVl)))
-  (==)
-    (BvExtract a1_abVm a2_abVn)
-    (BvExtract b1_abVo b2_abVp)
-    = (((a1_abVm == b1_abVo))
-         && ((a2_abVn `dynEq` b2_abVp)))
-  (==)
-    (BvBinExpr a1_abVq a2_abVr a3_abVs)
-    (BvBinExpr b1_abVt b2_abVu b3_abVv)
-    = (((a1_abVq == b1_abVt))
-         &&
-           (((a2_abVr == b2_abVu))
-              && ((a3_abVs == b3_abVv))))
-  (==)
-    (BvUnExpr a1_abVw a2_abVx)
-    (BvUnExpr b1_abVy b2_abVz)
-    = (((a1_abVw == b1_abVy))
-         && ((a2_abVx == b2_abVz)))
-  (==)
-    (BvBinPred a1_abVA a2_abVB a3_abVC)
-    (BvBinPred b1_abVD b2_abVE b3_abVF)
-    = (((a1_abVA == b1_abVD))
-         &&
-           (((a2_abVB `dynEq` b2_abVE))
-              && ((a3_abVC `dynEq` b3_abVF))))
-  (==)
-    (IntToBv a1_abVG)
-    (IntToBv b1_abVH)
-    = ((a1_abVG == b1_abVH))
-  (==)
-    (FpToBv a1_abVI)
-    (FpToBv b1_abVJ)
-    = ((a1_abVI `dynEq` b1_abVJ))
-  (==)
-    (DynamizeBv a1_abVK a2_abVL)
-    (DynamizeBv b1_abVM b2_abVN)
-    = (((a1_abVK == b1_abVM))
-         && ((a2_abVL `dynEq` b2_abVN)))
-  (==)
-    (DynBvExtract a1_abVO a2_abVP a3_abVQ)
-    (DynBvExtract b1_abVR b2_abVS b3_abVT)
-    = (((a1_abVO == b1_abVR))
-         &&
-           (((a2_abVP == b2_abVS))
-              && ((a3_abVQ == b3_abVT))))
-  (==)
-    (DynBvConcat a1_abVU a2_abVV a3_abVW)
-    (DynBvConcat b1_abVX b2_abVY b3_abVZ)
-    = (((a1_abVU == b1_abVX))
-         &&
-           (((a2_abVV == b2_abVY))
-              && ((a3_abVW == b3_abVZ))))
-  (==)
-    (DynBvBinExpr a1_abW0 a2_abW1 a3_abW2 a4_abW3)
-    (DynBvBinExpr b1_abW4 b2_abW5 b3_abW6 b4_abW7)
-    = (((a1_abW0 == b1_abW4))
-         &&
-           (((a2_abW1 == b2_abW5))
-              &&
-                (((a3_abW2 == b3_abW6))
-                   && ((a4_abW3 == b4_abW7)))))
-  (==)
-    (DynBvBinPred a1_abW8 a2_abW9 a3_abWa a4_abWb)
-    (DynBvBinPred b1_abWc b2_abWd b3_abWe b4_abWf)
-    = (((a1_abW8 == b1_abWc))
-         &&
-           (((a2_abW9 == b2_abWd))
-              &&
-                (((a3_abWa == b3_abWe))
-                   && ((a4_abWb == b4_abWf)))))
-  (==)
-    (DynBvUnExpr a1_abWg a2_abWh a3_abWi)
-    (DynBvUnExpr b1_abWj b2_abWk b3_abWl)
-    = (((a1_abWg == b1_abWj))
-         &&
-           (((a2_abWh == b2_abWk))
-              && ((a3_abWi == b3_abWl))))
-  (==)
-    (DynBvLit a1_abWg)
-    (DynBvLit b1_abWj)
-    = (a1_abWg == b1_abWj)
-  (==)
-    (DynBvUext a1_abWm a2_abWn a)
-    (DynBvUext b1_abWo b2_abWp b)
-    = (((a1_abWm == b1_abWo))
-         && ((a2_abWn == b2_abWp))
-         && (a == b))
-  (==)
-    (DynBvSext a1_abWq a2_abWr a)
-    (DynBvSext b1_abWs b2_abWt b)
-    = (((a1_abWq == b1_abWs))
-         && ((a2_abWr == b2_abWt))
-         && (a == b))
-  (==)
-    (IntToDynBv a1_abWu a2_abWv)
-    (IntToDynBv b1_abWw b2_abWx)
-    = (((a1_abWu == b1_abWw))
-         && ((a2_abWv == b2_abWx)))
-  (==)
-    (StatifyBv a1_abWy)
-    (StatifyBv b1_abWz)
-    = ((a1_abWy == b1_abWz))
-  (==)
-    (RoundFpToDynBv a1_abWA a2_abWB a3_abWC)
-    (RoundFpToDynBv b1_abWD b2_abWE b3_abWF)
-    = (((a1_abWA == b1_abWD))
-         &&
-           (((a2_abWB == b2_abWE))
-              && ((a3_abWC `dynEq` b3_abWF))))
-  (==)
-    (IntLit a1_abWG)
-    (IntLit b1_abWH)
-    = ((a1_abWG == b1_abWH))
-  (==)
-    (IntUnExpr a1_abWI a2_abWJ)
-    (IntUnExpr b1_abWK b2_abWL)
-    = (((a1_abWI == b1_abWK))
-         && ((a2_abWJ == b2_abWL)))
-  (==)
-    (IntBinExpr a1_abWM a2_abWN a3_abWO)
-    (IntBinExpr b1_abWP b2_abWQ b3_abWR)
-    = (((a1_abWM == b1_abWP))
-         &&
-           (((a2_abWN == b2_abWQ))
-              && ((a3_abWO == b3_abWR))))
-  (==)
-    (IntNaryExpr a1_abWS a2_abWT)
-    (IntNaryExpr b1_abWU b2_abWV)
-    = (((a1_abWS == b1_abWU))
-         && ((a2_abWT == b2_abWV)))
-  (==)
-    (IntBinPred a1_abWW a2_abWX a3_abWY)
-    (IntBinPred b1_abWZ b2_abX0 b3_abX1)
-    = (((a1_abWW == b1_abWZ))
-         &&
-           (((a2_abWX == b2_abX0))
-              && ((a3_abWY == b3_abX1))))
-  (==)
-    (PfToInt a1_abX2)
-    (PfToInt b1_abX3)
-    = ((a1_abX2 `dynEq` b1_abX3))
-  (==)
-    (BvToInt a1_abX4)
-    (BvToInt b1_abX5)
-    = ((a1_abX4 `dynEq` b1_abX5))
-  (==)
-    (SignedBvToInt a1_abX6)
-    (SignedBvToInt b1_abX7)
-    = ((a1_abX6 `dynEq` b1_abX7))
-  (==)
-    (BoolToInt a1_abX8)
-    (BoolToInt b1_abX9)
-    = ((a1_abX8 == b1_abX9))
-  (==)
-    (Fp64Lit a1_abXa)
-    (Fp64Lit b1_abXb)
-    = ((a1_abXa == b1_abXb))
-  (==)
-    (Fp32Lit a1_abXc)
-    (Fp32Lit b1_abXd)
-    = ((a1_abXc == b1_abXd))
-  (==)
-    (FpUnExpr a1_abXe a2_abXf)
-    (FpUnExpr b1_abXg b2_abXh)
-    = (((a1_abXe == b1_abXg))
-         && ((a2_abXf == b2_abXh)))
-  (==)
-    (FpBinExpr a1_abXi a2_abXj a3_abXk)
-    (FpBinExpr b1_abXl b2_abXm b3_abXn)
-    = (((a1_abXi == b1_abXl))
-         &&
-           (((a2_abXj == b2_abXm))
-              && ((a3_abXk == b3_abXn))))
-  (==)
-    (FpFma a1_abXo a2_abXp a3_abXq)
-    (FpFma b1_abXr b2_abXs b3_abXt)
-    = (((a1_abXo == b1_abXr))
-         &&
-           (((a2_abXp == b2_abXs))
-              && ((a3_abXq == b3_abXt))))
-  (==)
-    (FpBinPred a1_abXu a2_abXv a3_abXw)
-    (FpBinPred b1_abXx b2_abXy b3_abXz)
-    = (((a1_abXu == b1_abXx))
-         &&
-           (((a2_abXv `dynEq` b2_abXy))
-              && ((a3_abXw `dynEq` b3_abXz))))
-  (==)
-    (FpUnPred a1_abXA a2_abXB)
-    (FpUnPred b1_abXC b2_abXD)
-    = (((a1_abXA == b1_abXC))
-         && ((a2_abXB `dynEq` b2_abXD)))
-  (==)
-    (IntToFp a1_abXE)
-    (IntToFp b1_abXF)
-    = ((a1_abXE == b1_abXF))
-  (==)
-    (BvToFp a1_abXG)
-    (BvToFp b1_abXH)
-    = ((a1_abXG == b1_abXH))
-  (==)
-    (FpToFp a1_abXI)
-    (FpToFp b1_abXJ)
-    = ((a1_abXI `dynEq` b1_abXJ))
-  (==)
-    (DynUbvToFp a1_abXK)
-    (DynUbvToFp b1_abXL)
-    = ((a1_abXK == b1_abXL))
-  (==)
-    (DynSbvToFp a1_abXM)
-    (DynSbvToFp b1_abXN)
-    = ((a1_abXM == b1_abXN))
-  (==)
-    (PfUnExpr a1_abXO a2_abXP)
-    (PfUnExpr b1_abXQ b2_abXR)
-    = (((a1_abXO == b1_abXQ))
-         && ((a2_abXP == b2_abXR)))
-  (==)
-    (PfNaryExpr a1_abXS a2_abXT)
-    (PfNaryExpr b1_abXU b2_abXV)
-    = (((a1_abXS == b1_abXU))
-         && ((a2_abXT == b2_abXV)))
-  (==)
-    (IntToPf a1_abXW)
-    (IntToPf b1_abXX)
-    = ((a1_abXW == b1_abXX))
-  (==)
-    (Select a1_abXY a2_abXZ)
-    (Select b1_abY0 b2_abY1)
-    = (((a1_abXY `dynEq` b1_abY0))
-         && ((a2_abXZ `dynEq` b2_abY1)))
-  (==)
-    (Store a1_abY2 a2_abY3 a3_abY4)
-    (Store b1_abY5 b2_abY6 b3_abY7)
-    = (((a1_abY2 == b1_abY5))
-         &&
-           (((a2_abY3 == b2_abY6))
-              && ((a3_abY4 == b3_abY7))))
-  (==) (NewArray) (NewArray)
-    = True
-  (==) _ _ = False
+  (==) (BoolLit a1_abUE) (BoolLit b1_abUF) = ((a1_abUE == b1_abUF))
+  (==) (BoolBinExpr a1_abUG a2_abUH a3_abUI) (BoolBinExpr b1_abUJ b2_abUK b3_abUL)
+    = (  ((a1_abUG == b1_abUJ))
+      && (((a2_abUH == b2_abUK)) && ((a3_abUI == b3_abUL)))
+      )
+  (==) (BoolNaryExpr a1_abUM a2_abUN) (BoolNaryExpr b1_abUO b2_abUP) =
+    (((a1_abUM == b1_abUO)) && ((a2_abUN == b2_abUP)))
+  (==) (Not a1_abUQ) (Not b1_abUR) = ((a1_abUQ == b1_abUR))
+  (==) (Ite a1_abUS a2_abUT a3_abUU) (Ite b1_abUV b2_abUW b3_abUX) =
+    (  ((a1_abUS == b1_abUV))
+    && (((a2_abUT == b2_abUW)) && ((a3_abUU == b3_abUX)))
+    )
+  (==) (Var a1_abUY a2_abUZ) (Var b1_abV0 b2_abV1) =
+    (((a1_abUY == b1_abV0)) && ((a2_abUZ == b2_abV1)))
+  (==) (Let a1_abV2 a2_abV3 a3_abV4) (Let b1_abV5 b2_abV6 b3_abV7) =
+    (  ((a1_abV2 == b1_abV5))
+    && (((dynEq a2_abV3 b2_abV6)) && ((a3_abV4 == b3_abV7)))
+    )
+  (==) (Exists a1_abV8 a2_abV9 a3_abVa) (Exists b1_abVb b2_abVc b3_abVd) =
+    (  ((a1_abV8 == b1_abVb))
+    && (((a2_abV9 == b2_abVc)) && ((a3_abVa == b3_abVd)))
+    )
+  (==) (Eq a1_abVe a2_abVf) (Eq b1_abVg b2_abVh) =
+    (((a1_abVe `dynEq` b1_abVg)) && ((a2_abVf `dynEq` b2_abVh)))
+  (==) (BvConcat a1_abVi a2_abVj) (BvConcat b1_abVk b2_abVl) =
+    (((a1_abVi `dynEq` b1_abVk)) && ((a2_abVj `dynEq` b2_abVl)))
+  (==) (BvExtract a1_abVm a2_abVn) (BvExtract b1_abVo b2_abVp) =
+    (((a1_abVm == b1_abVo)) && ((a2_abVn `dynEq` b2_abVp)))
+  (==) (BvBinExpr a1_abVq a2_abVr a3_abVs) (BvBinExpr b1_abVt b2_abVu b3_abVv)
+    = (  ((a1_abVq == b1_abVt))
+      && (((a2_abVr == b2_abVu)) && ((a3_abVs == b3_abVv)))
+      )
+  (==) (BvUnExpr a1_abVw a2_abVx) (BvUnExpr b1_abVy b2_abVz) =
+    (((a1_abVw == b1_abVy)) && ((a2_abVx == b2_abVz)))
+  (==) (BvBinPred a1_abVA a2_abVB a3_abVC) (BvBinPred b1_abVD b2_abVE b3_abVF)
+    = (  ((a1_abVA == b1_abVD))
+      && (((a2_abVB `dynEq` b2_abVE)) && ((a3_abVC `dynEq` b3_abVF)))
+      )
+  (==) (IntToBv a1_abVG) (IntToBv b1_abVH) = ((a1_abVG == b1_abVH))
+  (==) (FpToBv  a1_abVI) (FpToBv  b1_abVJ) = ((a1_abVI `dynEq` b1_abVJ))
+  (==) (DynamizeBv a1_abVK a2_abVL) (DynamizeBv b1_abVM b2_abVN) =
+    (((a1_abVK == b1_abVM)) && ((a2_abVL `dynEq` b2_abVN)))
+  (==) (DynBvExtract a1_abVO a2_abVP a3_abVQ) (DynBvExtract b1_abVR b2_abVS b3_abVT)
+    = (  ((a1_abVO == b1_abVR))
+      && (((a2_abVP == b2_abVS)) && ((a3_abVQ == b3_abVT)))
+      )
+  (==) (DynBvConcat a1_abVU a2_abVV a3_abVW) (DynBvConcat b1_abVX b2_abVY b3_abVZ)
+    = (  ((a1_abVU == b1_abVX))
+      && (((a2_abVV == b2_abVY)) && ((a3_abVW == b3_abVZ)))
+      )
+  (==) (DynBvBinExpr a1_abW0 a2_abW1 a3_abW2 a4_abW3) (DynBvBinExpr b1_abW4 b2_abW5 b3_abW6 b4_abW7)
+    = (  ((a1_abW0 == b1_abW4))
+      && (  ((a2_abW1 == b2_abW5))
+         && (((a3_abW2 == b3_abW6)) && ((a4_abW3 == b4_abW7)))
+         )
+      )
+  (==) (DynBvBinPred a1_abW8 a2_abW9 a3_abWa a4_abWb) (DynBvBinPred b1_abWc b2_abWd b3_abWe b4_abWf)
+    = (  ((a1_abW8 == b1_abWc))
+      && (  ((a2_abW9 == b2_abWd))
+         && (((a3_abWa == b3_abWe)) && ((a4_abWb == b4_abWf)))
+         )
+      )
+  (==) (DynBvUnExpr a1_abWg a2_abWh a3_abWi) (DynBvUnExpr b1_abWj b2_abWk b3_abWl)
+    = (  ((a1_abWg == b1_abWj))
+      && (((a2_abWh == b2_abWk)) && ((a3_abWi == b3_abWl)))
+      )
+  (==) (DynBvLit a1_abWg) (DynBvLit b1_abWj) = (a1_abWg == b1_abWj)
+  (==) (DynBvUext a1_abWm a2_abWn a) (DynBvUext b1_abWo b2_abWp b) =
+    (((a1_abWm == b1_abWo)) && ((a2_abWn == b2_abWp)) && (a == b))
+  (==) (DynBvSext a1_abWq a2_abWr a) (DynBvSext b1_abWs b2_abWt b) =
+    (((a1_abWq == b1_abWs)) && ((a2_abWr == b2_abWt)) && (a == b))
+  (==) (IntToDynBv a1_abWu a2_abWv) (IntToDynBv b1_abWw b2_abWx) =
+    (((a1_abWu == b1_abWw)) && ((a2_abWv == b2_abWx)))
+  (==) (StatifyBv a1_abWy) (StatifyBv b1_abWz) = ((a1_abWy == b1_abWz))
+  (==) (RoundFpToDynBv a1_abWA a2_abWB a3_abWC) (RoundFpToDynBv b1_abWD b2_abWE b3_abWF)
+    = (  ((a1_abWA == b1_abWD))
+      && (((a2_abWB == b2_abWE)) && ((a3_abWC `dynEq` b3_abWF)))
+      )
+  (==) (IntLit a1_abWG) (IntLit b1_abWH) = ((a1_abWG == b1_abWH))
+  (==) (IntUnExpr a1_abWI a2_abWJ) (IntUnExpr b1_abWK b2_abWL) =
+    (((a1_abWI == b1_abWK)) && ((a2_abWJ == b2_abWL)))
+  (==) (IntBinExpr a1_abWM a2_abWN a3_abWO) (IntBinExpr b1_abWP b2_abWQ b3_abWR)
+    = (  ((a1_abWM == b1_abWP))
+      && (((a2_abWN == b2_abWQ)) && ((a3_abWO == b3_abWR)))
+      )
+  (==) (IntNaryExpr a1_abWS a2_abWT) (IntNaryExpr b1_abWU b2_abWV) =
+    (((a1_abWS == b1_abWU)) && ((a2_abWT == b2_abWV)))
+  (==) (IntBinPred a1_abWW a2_abWX a3_abWY) (IntBinPred b1_abWZ b2_abX0 b3_abX1)
+    = (  ((a1_abWW == b1_abWZ))
+      && (((a2_abWX == b2_abX0)) && ((a3_abWY == b3_abX1)))
+      )
+  (==) (PfToInt a1_abX2) (PfToInt b1_abX3) = ((a1_abX2 `dynEq` b1_abX3))
+  (==) (BvToInt a1_abX4) (BvToInt b1_abX5) = ((a1_abX4 `dynEq` b1_abX5))
+  (==) (SignedBvToInt a1_abX6) (SignedBvToInt b1_abX7) =
+    ((a1_abX6 `dynEq` b1_abX7))
+  (==) (BoolToInt a1_abX8) (BoolToInt b1_abX9) = ((a1_abX8 == b1_abX9))
+  (==) (Fp64Lit   a1_abXa) (Fp64Lit   b1_abXb) = ((a1_abXa == b1_abXb))
+  (==) (Fp32Lit   a1_abXc) (Fp32Lit   b1_abXd) = ((a1_abXc == b1_abXd))
+  (==) (FpUnExpr a1_abXe a2_abXf) (FpUnExpr b1_abXg b2_abXh) =
+    (((a1_abXe == b1_abXg)) && ((a2_abXf == b2_abXh)))
+  (==) (FpBinExpr a1_abXi a2_abXj a3_abXk) (FpBinExpr b1_abXl b2_abXm b3_abXn)
+    = (  ((a1_abXi == b1_abXl))
+      && (((a2_abXj == b2_abXm)) && ((a3_abXk == b3_abXn)))
+      )
+  (==) (FpFma a1_abXo a2_abXp a3_abXq) (FpFma b1_abXr b2_abXs b3_abXt) =
+    (  ((a1_abXo == b1_abXr))
+    && (((a2_abXp == b2_abXs)) && ((a3_abXq == b3_abXt)))
+    )
+  (==) (FpBinPred a1_abXu a2_abXv a3_abXw) (FpBinPred b1_abXx b2_abXy b3_abXz)
+    = (  ((a1_abXu == b1_abXx))
+      && (((a2_abXv `dynEq` b2_abXy)) && ((a3_abXw `dynEq` b3_abXz)))
+      )
+  (==) (FpUnPred a1_abXA a2_abXB) (FpUnPred b1_abXC b2_abXD) =
+    (((a1_abXA == b1_abXC)) && ((a2_abXB `dynEq` b2_abXD)))
+  (==) (IntToFp    a1_abXE) (IntToFp    b1_abXF) = ((a1_abXE == b1_abXF))
+  (==) (BvToFp     a1_abXG) (BvToFp     b1_abXH) = ((a1_abXG == b1_abXH))
+  (==) (FpToFp     a1_abXI) (FpToFp     b1_abXJ) = ((a1_abXI `dynEq` b1_abXJ))
+  (==) (DynUbvToFp a1_abXK) (DynUbvToFp b1_abXL) = ((a1_abXK == b1_abXL))
+  (==) (DynSbvToFp a1_abXM) (DynSbvToFp b1_abXN) = ((a1_abXM == b1_abXN))
+  (==) (PfUnExpr a1_abXO a2_abXP) (PfUnExpr b1_abXQ b2_abXR) =
+    (((a1_abXO == b1_abXQ)) && ((a2_abXP == b2_abXR)))
+  (==) (PfNaryExpr a1_abXS a2_abXT) (PfNaryExpr b1_abXU b2_abXV) =
+    (((a1_abXS == b1_abXU)) && ((a2_abXT == b2_abXV)))
+  (==) (IntToPf a1_abXW) (IntToPf b1_abXX) = ((a1_abXW == b1_abXX))
+  (==) (Select a1_abXY a2_abXZ) (Select b1_abY0 b2_abY1) =
+    (((a1_abXY `dynEq` b1_abY0)) && ((a2_abXZ `dynEq` b2_abY1)))
+  (==) (Store a1_abY2 a2_abY3 a3_abY4) (Store b1_abY5 b2_abY6 b3_abY7) =
+    (  ((a1_abY2 == b1_abY5))
+    && (((a2_abY3 == b2_abY6)) && ((a3_abY4 == b3_abY7)))
+    )
+  (==) (NewArray) (NewArray) = True
+  (==) _          _          = False
 -- END (MOSTLY) AUTOGENERATED
 

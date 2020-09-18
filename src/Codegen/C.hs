@@ -5,23 +5,39 @@ import           AST.C
 import           Codegen.C.CUtils
 import           Codegen.C.Utils
 import           Codegen.Circify
-import           Codegen.Circify.Memory          (MonadMem, bvNum, evalMem,
-                                                  initMem, liftMem)
+import           Codegen.Circify.Memory         ( MonadMem
+                                                , bvNum
+                                                , evalMem
+                                                , initMem
+                                                , liftMem
+                                                )
 import           Control.Applicative
-import           Control.Monad                   (join, replicateM_)
+import           Control.Monad                  ( join
+                                                , replicateM_
+                                                )
 import           Control.Monad.State.Strict
-import qualified Data.BitVector                  as Bv
-import           Data.Char                       (ord, toLower)
-import qualified Data.Char                       as Char
-import           Data.Either                     (fromRight, isRight)
-import           Data.List                       (intercalate)
-import qualified Data.Map                        as Map
-import           Data.Maybe                      (fromJust, fromMaybe, isJust,
-                                                  isNothing, listToMaybe,
-                                                  maybeToList)
-import           IR.SMT.Assert                   (MonadAssert, liftAssert)
-import qualified IR.SMT.Assert                   as Assert
-import qualified IR.SMT.TySmt                    as Ty
+import qualified Data.BitVector                as Bv
+import           Data.Char                      ( ord
+                                                , toLower
+                                                )
+import qualified Data.Char                     as Char
+import           Data.Either                    ( fromRight
+                                                , isRight
+                                                )
+import           Data.List                      ( intercalate )
+import qualified Data.Map                      as Map
+import           Data.Maybe                     ( fromJust
+                                                , fromMaybe
+                                                , isJust
+                                                , isNothing
+                                                , listToMaybe
+                                                , maybeToList
+                                                )
+import           IR.SMT.Assert                  ( MonadAssert
+                                                , liftAssert
+                                                )
+import qualified IR.SMT.Assert                 as Assert
+import qualified IR.SMT.TySmt                  as Ty
 import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST

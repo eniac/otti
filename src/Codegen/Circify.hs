@@ -180,7 +180,7 @@ data Guard = Guard Ty.TermBool
 
 printGuard :: Guard -> IO ()
 printGuard g = case g of
-  Guard b -> putStrLn $ "   " ++ show b
+  Guard b   -> putStrLn $ "   " ++ show b
   Break n b -> putStrLn $ "   " ++ n ++ ": " ++ show b
 
 guardConditions :: Guard -> [Ty.TermBool]
@@ -546,7 +546,8 @@ declCommon var ty = do
       modify $ \s -> s { globals = g' }
     else compilerModifyTopM $ \s -> fsDeclareVar var ty s
 
-declareInitVar :: (Show ty, Show term) => VarName -> ty -> SsaVal term -> Circify ty term ()
+declareInitVar
+  :: (Show ty, Show term) => VarName -> ty -> SsaVal term -> Circify ty term ()
 declareInitVar var ty term = do
   declCommon var ty
   void $ argAssign (SLVar var) term

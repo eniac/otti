@@ -78,18 +78,23 @@ module Codegen.C.CUtils
   )
 where
 
-import qualified AST.C                  as AST
-import           Codegen.Circify.Memory (Mem)
-import qualified Codegen.Circify.Memory as Mem
-import           Control.Monad          (forM, unless, when)
-import qualified Data.BitVector         as Bv
-import           Data.Dynamic           (Dynamic, toDyn)
-import           Data.Foldable          as Fold
-import qualified Data.Map               as Map
-import           Data.Maybe             (fromMaybe)
-import           IR.SMT.Assert          (liftAssert)
-import qualified IR.SMT.Assert          as Assert
-import qualified IR.SMT.TySmt           as Ty
+import qualified AST.C                         as AST
+import           Codegen.Circify.Memory         ( Mem )
+import qualified Codegen.Circify.Memory        as Mem
+import           Control.Monad                  ( forM
+                                                , unless
+                                                , when
+                                                )
+import qualified Data.BitVector                as Bv
+import           Data.Dynamic                   ( Dynamic
+                                                , toDyn
+                                                )
+import           Data.Foldable                 as Fold
+import qualified Data.Map                      as Map
+import           Data.Maybe                     ( fromMaybe )
+import           IR.SMT.Assert                  ( liftAssert )
+import qualified IR.SMT.Assert                 as Assert
+import qualified IR.SMT.TySmt                  as Ty
 
 
 type Bv = Ty.TermDynBv
@@ -556,50 +561,46 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
 cBitOr, cBitXor, cBitAnd, cSub, cMul, cAdd, cMin, cMax, cDiv, cRem, cShl, cShr
   :: CTerm -> CTerm -> CTerm
 cAdd = cWrapBinArith "+"
-                         Ty.BvAdd
-                         (Ty.FpBinExpr Ty.FpAdd)
-                         (Just overflow)
-                         True
-                         True
+                     Ty.BvAdd
+                     (Ty.FpBinExpr Ty.FpAdd)
+                     (Just overflow)
+                     True
+                     True
  where
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSaddo i i' else Nothing
 cSub = cWrapBinArith "-"
-                         Ty.BvSub
-                         (Ty.FpBinExpr Ty.FpSub)
-                         (Just overflow)
-                         True
-                         True
+                     Ty.BvSub
+                     (Ty.FpBinExpr Ty.FpSub)
+                     (Just overflow)
+                     True
+                     True
  where
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSsubo i i' else Nothing
 cMul = cWrapBinArith "*"
-                         Ty.BvMul
-                         (Ty.FpBinExpr Ty.FpMul)
-                         (Just overflow)
-                         True
-                         True
+                     Ty.BvMul
+                     (Ty.FpBinExpr Ty.FpMul)
+                     (Just overflow)
+                     True
+                     True
  where
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSmulo i i' else Nothing
 -- TODO: div overflow
-cDiv = cWrapBinArith "/"
-                         Ty.BvUdiv
-                         (Ty.FpBinExpr Ty.FpDiv)
-                         (Just isDivZero)
-                         True
-                         True
+cDiv =
+  cWrapBinArith "/" Ty.BvUdiv (Ty.FpBinExpr Ty.FpDiv) (Just isDivZero) True True
 isDivZero :: Bool -> Bv -> Bool -> Bv -> Maybe Ty.TermBool
 isDivZero _s _i _s' i' =
   Just $ Ty.mkDynBvEq i' (Ty.DynBvLit (Bv.zeros (Ty.dynBvWidth i')))
 
 -- TODO: CPP reference says that % requires integral arguments
 cRem = cWrapBinArith "%"
-                         Ty.BvUrem
-                         (Ty.FpBinExpr Ty.FpRem)
-                         (Just isDivZero)
-                         False
-                         True
+                     Ty.BvUrem
+                     (Ty.FpBinExpr Ty.FpRem)
+                     (Just isDivZero)
+                     False
+                     True
 cMin = undefined
 cMax = undefined
 noFpError
@@ -674,8 +675,7 @@ cPos, cNeg, cBitNot :: CTerm -> CTerm
 cPos = cWrapUnArith "unary +" id id
 cNeg =
   cWrapUnArith "unary -" (Ty.mkDynBvUnExpr Ty.BvNeg) (Ty.FpUnExpr Ty.FpNeg)
-cBitNot =
-  cWrapUnArith "~" (Ty.mkDynBvUnExpr Ty.BvNot) (Ty.FpUnExpr Ty.FpNeg)
+cBitNot = cWrapUnArith "~" (Ty.mkDynBvUnExpr Ty.BvNot) (Ty.FpUnExpr Ty.FpNeg)
 
 cWrapBinLogical
   :: String
@@ -690,8 +690,7 @@ cWrapBinLogical name f a b =
     _ -> error $ unwords ["Cannot do", name, "on", show a, "and", show b]
 cOr, cAnd :: CTerm -> CTerm -> CTerm
 cOr = cWrapBinLogical "||" (((.) . (.)) (Ty.BoolNaryExpr Ty.Or) doubleton)
-cAnd =
-  cWrapBinLogical "&&" (((.) . (.)) (Ty.BoolNaryExpr Ty.And) doubleton)
+cAnd = cWrapBinLogical "&&" (((.) . (.)) (Ty.BoolNaryExpr Ty.And) doubleton)
 
 cWrapUnLogical :: String -> (Ty.TermBool -> Ty.TermBool) -> CTerm -> CTerm
 cWrapUnLogical name f a = case term $ cCast AST.Bool a of
@@ -720,7 +719,7 @@ cWrapCmp
   -> CTerm
   -> CTerm
 cWrapCmp name bvF doubleF a b = convert (integralPromotion a)
-                                          (integralPromotion b)
+                                        (integralPromotion b)
  where
   convert a b =
     let
@@ -748,22 +747,18 @@ cWrapCmp name bvF doubleF a b = convert (integralPromotion a)
 cEq, cNe, cLt, cGt, cLe, cGe :: CTerm -> CTerm -> CTerm
 cEq = cWrapCmp "==" (const Ty.mkDynBvEq) Ty.Eq
 cNe = ((.) . (.)) cNot cEq
-cLt = cWrapCmp
-  "<"
-  (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSlt else Ty.BvUlt))
-  (Ty.FpBinPred Ty.FpLt)
-cGt = cWrapCmp
-  ">"
-  (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSgt else Ty.BvUgt))
-  (Ty.FpBinPred Ty.FpGt)
-cLe = cWrapCmp
-  "<="
-  (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSle else Ty.BvUle))
-  (Ty.FpBinPred Ty.FpLe)
-cGe = cWrapCmp
-  ">="
-  (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSge else Ty.BvUge))
-  (Ty.FpBinPred Ty.FpGe)
+cLt = cWrapCmp "<"
+               (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSlt else Ty.BvUlt))
+               (Ty.FpBinPred Ty.FpLt)
+cGt = cWrapCmp ">"
+               (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSgt else Ty.BvUgt))
+               (Ty.FpBinPred Ty.FpGt)
+cLe = cWrapCmp "<="
+               (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSle else Ty.BvUle))
+               (Ty.FpBinPred Ty.FpLe)
+cGe = cWrapCmp ">="
+               (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSge else Ty.BvUge))
+               (Ty.FpBinPred Ty.FpGe)
 
 -- Promote integral types
 -- Do not mess with pointers

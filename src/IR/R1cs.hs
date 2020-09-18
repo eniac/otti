@@ -182,18 +182,18 @@ r1csPublicizeSignal sig r1cs = r1cs
 
 -- Replace `b` with `a`
 r1csMergeSignals :: (Show s, Ord s) => s -> s -> R1CS s n -> R1CS s n
-r1csMergeSignals a b r1cs = 
-  let aN = sigNums r1cs Map.! a
-      bN = sigNums r1cs Map.! b
-      bSigs = numSigs r1cs IntMap.! bN
+r1csMergeSignals a b r1cs =
+  let aN       = sigNums r1cs Map.! a
+      bN       = sigNums r1cs Map.! b
+      bSigs    = numSigs r1cs IntMap.! bN
       numSigs' = IntMap.adjust (++ bSigs) aN (numSigs r1cs)
       sigNums' = Map.insert b aN (sigNums r1cs)
-      constraints' = fmap (sigMapQeq (\i -> if i == bN then aN else i)) (constraints r1cs)
-  in r1cs
-     {  numSigs = numSigs'
-     , sigNums = sigNums'
-     , constraints = constraints'
-     }
+      constraints' =
+          fmap (sigMapQeq (\i -> if i == bN then aN else i)) (constraints r1cs)
+  in  r1cs { numSigs     = numSigs'
+           , sigNums     = sigNums'
+           , constraints = constraints'
+           }
 
 r1csIsPublicSignal :: (Show s, Ord s) => s -> R1CS s n -> Bool
 r1csIsPublicSignal sig r1cs = case Map.lookup sig (sigNums r1cs) of

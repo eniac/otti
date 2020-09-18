@@ -17,7 +17,9 @@ where
 
 import qualified Data.Map                      as Map
 import           Data.Map                       ( Map )
-import           Data.Maybe                     ( isJust, fromMaybe)
+import           Data.Maybe                     ( isJust
+                                                , fromMaybe
+                                                )
 
 import           Prelude                 hiding ( lookup )
 import qualified Prelude

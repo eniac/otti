@@ -12,8 +12,12 @@ import           Codegen.Circify
 import           Control.Applicative
 import           Control.Monad
 import           Control.Monad.IO.Class
-import           Data.Maybe                  (catMaybes, fromJust, fromMaybe,
-                                              isJust, mapMaybe)
+import           Data.Maybe                     ( catMaybes
+                                                , fromJust
+                                                , fromMaybe
+                                                , isJust
+                                                , mapMaybe
+                                                )
 import           Language.C.Data.Ident
 import           Language.C.Data.Node
 import           Language.C.Data.Position
@@ -31,7 +35,8 @@ isStore expr = case expr of
 
 --
 
-ctype :: [CDeclSpec] -> [CDerivedDeclr] -> Circify Type term (Either String Type)
+ctype
+  :: [CDeclSpec] -> [CDerivedDeclr] -> Circify Type term (Either String Type)
 ctype tys ptrs = do
   ty <- baseTypeFromSpecs tys
   return $ ty >>= flip getTy ptrs
@@ -45,17 +50,17 @@ refTy ty         = error $ unwords ["Expected pointer ty in refTy", show ty]
 
 cParseIntTypeLength :: [CTypeSpecifier a] -> Maybe Int
 cParseIntTypeLength l = case l of
-  [CCharType{} ]                         -> Just 8
-  [CShortType{}]                         -> Just 16
-  [CShortType{}, CIntType{}]             -> Just 16
+  [CCharType{} ]             -> Just 8
+  [CShortType{}]             -> Just 16
+  [CShortType{}, CIntType{}] -> Just 16
   -- Not quite right
-  []                                     -> Just 32
-  [CIntType{} ]                          -> Just 32
-  [CLongType{}]                          -> Just 32
-  [CLongType{}, CIntType{} ]             -> Just 32
-  [CLongType{}, CLongType{}]             -> Just 64
+  []                         -> Just 32
+  [CIntType{} ]              -> Just 32
+  [CLongType{}]              -> Just 32
+  [CLongType{}, CIntType{} ] -> Just 32
+  [CLongType{}, CLongType{}] -> Just 64
   [CLongType{}, CLongType{}, CIntType{}] -> Just 64
-  _                                      -> Nothing
+  _                          -> Nothing
 
 cParseIntType :: [CTypeSpecifier a] -> Maybe Type
 cParseIntType l = case l of
@@ -82,7 +87,8 @@ ctypeToType ty = case ty of
       listMaybeEntryLists <- mapM cSplitDeclaration decls
       let entries = concat <$> sequence listMaybeEntryLists
           s       = Struct . map (\(id, ty, _) -> (id, ty)) <$> entries
-      forM_ s $ \s -> forM_ mIdent $ \i -> typedef ("struct " ++ identToVarName i) s
+      forM_ s
+        $ \s -> forM_ mIdent $ \i -> typedef ("struct " ++ identToVarName i) s
       return s
     Nothing -> case mIdent of
       Just ident ->

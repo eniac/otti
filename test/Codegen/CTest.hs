@@ -9,15 +9,23 @@ import           BenchUtils
 import           Codegen.C
 import           Codegen.Circify
 import           Control.Monad
-import           Data.Either      (isRight)
-import qualified Data.Map         as M
-import           Data.Maybe       (fromJust, isJust)
-import qualified Data.Set         as Set
-import           IR.R1cs          (R1CS (..), r1csCheck, r1csShow)
-import           IR.SMT.Assert    (AssertState (..), asserted, execAssert,
-                                   runAssert)
-import           IR.SMT.ToPf      (toPfWithWit)
-import qualified IR.SMT.TySmt     as Ty
+import           Data.Either                    ( isRight )
+import qualified Data.Map                      as M
+import           Data.Maybe                     ( fromJust
+                                                , isJust
+                                                )
+import qualified Data.Set                      as Set
+import           IR.R1cs                        ( R1CS(..)
+                                                , r1csCheck
+                                                , r1csShow
+                                                )
+import           IR.SMT.Assert                  ( AssertState(..)
+                                                , asserted
+                                                , execAssert
+                                                , runAssert
+                                                )
+import           IR.SMT.ToPf                    ( toPfWithWit )
+import qualified IR.SMT.TySmt                  as Ty
 import           Parser.C
 import           Test.Tasty.HUnit
 import           Util.Log
@@ -41,8 +49,7 @@ constraintCountTest name path constraints = benchTestCase name $ do
     return ()
   constraints @=? length (asserted assertions)
 
-toSmtTests = benchTestGroup
-  "SMT conversion" []
+toSmtTests = benchTestGroup "SMT conversion" []
   -- These tests area just too brittle.
   -- [ constraintCountTest "basic"         "test/Code/C/add.c"     9
   -- , constraintCountTest "loop"          "test/Code/C/loop.c"    36
@@ -53,8 +60,8 @@ toSmtTests = benchTestGroup
 
 ubCheckTest :: String -> String -> FilePath -> Bool -> BenchTest
 ubCheckTest name fnName path undef = benchTestCase name $ do
-  tu         <- parseC path
-  r          <- checkFn tu fnName
+  tu <- parseC path
+  r  <- checkFn tu fnName
   undef @=? isJust r
 
 ubTests = benchTestGroup
@@ -89,12 +96,10 @@ ubTests = benchTestGroup
 satSmtCircuitTest :: String -> String -> FilePath -> BenchTest
 satSmtCircuitTest name fnName path = benchTestCase name $ do
   tu                       <- parseC path
-  (compState, assertState) <-
-    runAssert
-    $  execC False $ do
-      liftCircify initValues
-      setDefaultValueZero
-      codegenFn tu fnName (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
+  (compState, assertState) <- runAssert $ execC False $ do
+    liftCircify initValues
+    setDefaultValueZero
+    codegenFn tu fnName (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
   let assertions = asserted assertState
   let env        = fromJust $ values compState
   forM_ assertions $ \a -> do
@@ -117,7 +122,7 @@ satR1csTestInputs
 satR1csTestInputs name fnName path inputs = benchTestCase name $ do
   tu <- parseC path
   let runIt = case inputs of
-        Just m  -> do
+        Just m -> do
           liftCircify initValues
           codegenFn tu fnName (Just m) -- Provide an empty map to trigger initialization with default. ew.
         Nothing -> do

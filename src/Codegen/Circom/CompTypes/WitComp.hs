@@ -57,8 +57,11 @@ instance KnownNat x => KnownNat1 $(nameToSymbol ''Log2) x where
 newtype WitBaseTerm n = WitBaseTerm (Smt.Term (Smt.PfSort n)) deriving (Show)
 
 instance KnownNat n => BaseTerm (WitBaseTerm n) (Prime n) where
-  fromConst  = WitBaseTerm . Smt.IntToPf . Smt.IntLit . fromP
-  fromSignal = WitBaseTerm . flip Smt.Var (Smt.SortPf $ fromIntegral $ natVal $ Proxy @n) . show
+  fromConst = WitBaseTerm . Smt.IntToPf . Smt.IntLit . fromP
+  fromSignal =
+    WitBaseTerm
+      . flip Smt.Var (Smt.SortPf $ fromIntegral $ natVal $ Proxy @n)
+      . show
   binOp o = case o of
     Add    -> liftPf (\a b -> Smt.PfNaryExpr Smt.PfAdd [a, b])
     Sub    -> \a b -> binOp Add a $ unOp UnNeg b
@@ -98,9 +101,7 @@ instance KnownNat n => BaseTerm (WitBaseTerm n) (Prime n) where
     BitNot ->
       error "Bitwise negation has unclear semantics for prime field elements"
     Not -> \(WitBaseTerm a) ->
-      WitBaseTerm $ Smt.IntToPf $ Smt.BoolToInt $ Smt.Eq
-        z
-        a
+      WitBaseTerm $ Smt.IntToPf $ Smt.BoolToInt $ Smt.Eq z a
       where z = Smt.IntToPf $ Smt.IntLit 0
     UnPos -> id
     UnNeg -> WitBaseTerm . Smt.PfUnExpr Smt.PfNeg . coerce

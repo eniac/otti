@@ -485,13 +485,12 @@ data BvOpKind = Division | Arith | Bit | Shift
 bvToPf :: forall n . KnownNat n => Maybe SmtVals -> TermDynBv -> ToPf n ()
 bvToPf env term = do
   entry <- getIntM term
-  s <- get
+  s     <- get
   when (isNothing entry) $ do
     liftLog $ logIf "toPf::cache" $ "Cache " ++ show (ints s)
     liftLog $ logIf "toPf" $ "Cache miss " ++ show term
     bvToPfUncached term
-  unless (isNothing entry) $
-    liftLog $ logIf "toPf" $ "Cache hit " ++ show term
+  unless (isNothing entry) $ liftLog $ logIf "toPf" $ "Cache hit " ++ show term
  where
   unhandledOp = unhandled "bv operator in bvToPf"
   bvOpKind :: BvBinOp -> BvOpKind
@@ -719,19 +718,30 @@ handleAlias env a = case a of
           else do
             let rBool = fromJust $ cast t
             _ <- boolToPf env rBool
-            liftLog $ logIf "toPf" $ "Alias " ++ show boolV ++ " to " ++ show rBool
+            liftLog
+              $  logIf "toPf"
+              $  "Alias "
+              ++ show boolV
+              ++ " to "
+              ++ show rBool
             modify $ \st -> st { bools = AMap.alias boolV rBool $ bools st }
             return True
         Nothing ->
           let intV = fromJust (cast v)
-          in  if AMap.memberOrAlias intV (ints s)
-                then return False
-                else do
-                  let rInt = fromJust $ cast t
-                  bvToPf env rInt
-                  liftLog $ logIf "toPf" $ "Alias " ++ show intV ++ " to " ++ show rInt
-                  modify $ \st -> st { ints = AMap.alias intV rInt $ ints st }
-                  return True
+          in
+            if AMap.memberOrAlias intV (ints s)
+              then return False
+              else do
+                let rInt = fromJust $ cast t
+                bvToPf env rInt
+                liftLog
+                  $  logIf "toPf"
+                  $  "Alias "
+                  ++ show intV
+                  ++ " to "
+                  ++ show rInt
+                modify $ \st -> st { ints = AMap.alias intV rInt $ ints st }
+                return True
   _ -> return False
 
 -- # Top Level

@@ -94,5 +94,7 @@ insertWith f k v = modBase (\k -> SMap.insertWith f k v) k
 instance (Show k, Eq k, Show v) => Show (AliasMap k v) where
   show a =
     let baseMappings = map (\(a, b) -> (show a, show b)) $ SMap.toList (base a)
-        aliasMappings = map (\(x, _) -> (show x, show $ dealias x a)) $ SMap.toList $ aliases a
-    in unlines $ map (\(a, b) -> a ++ "\n  -> " ++ b) $ aliasMappings
+        aliasMappings =
+            map (\(x, _) -> (show x, show $ dealias x a)) $ SMap.toList $ aliases
+              a
+    in  unlines $ map (\(a, b) -> a ++ "\n  -> " ++ b) $ aliasMappings

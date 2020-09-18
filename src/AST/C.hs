@@ -1,5 +1,5 @@
 module AST.C where
-import           Data.Maybe            (isJust)
+import           Data.Maybe                     ( isJust )
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 
@@ -26,17 +26,16 @@ isIntegerType :: Type -> Bool
 isIntegerType ty = isSignedInt ty || isUnsignedInt ty
 
 makeType :: Int -> Bool -> Type
-makeType numBits isSigned =
-  case numBits of
-    8  | isSigned -> S8
-    8  -> U8
-    16 | isSigned -> S16
-    16 -> U16
-    32 | isSigned -> S32
-    32 -> U32
-    64 | isSigned -> S64
-    64 -> U64
-    _  -> error "Unexpected width to makeType"
+makeType numBits isSigned = case numBits of
+  8 | isSigned  -> S8
+  8             -> U8
+  16 | isSigned -> S16
+  16            -> U16
+  32 | isSigned -> S32
+  32            -> U32
+  64 | isSigned -> S64
+  64            -> U64
+  _             -> error "Unexpected width to makeType"
 
 numBits :: Type -> Int
 numBits U8                    = 8
@@ -51,9 +50,9 @@ numBits Bool                  = 1
 numBits Double                = 64
 numBits Ptr64{}               = 64
 numBits Ptr32{}               = 32
-numBits (Struct tys)          = sum $ map (numBits . snd) tys
+numBits (Struct tys         ) = sum $ map (numBits . snd) tys
 numBits (Array (Just num) ty) = num * numBits ty
-numBits (Array Nothing ty)    = 32
+numBits (Array Nothing    ty) = 32
 
 isSignedInt :: Type -> Bool
 isSignedInt S8  = True
@@ -93,27 +92,28 @@ isArray _       = False
 pointeeType :: Type -> Type
 pointeeType (Ptr64 ty) = ty
 pointeeType (Ptr32 ty) = ty
-pointeeType v          = error $ unwords ["Can't get pointee type of non-pointer", show v]
+pointeeType v =
+  error $ unwords ["Can't get pointee type of non-pointer", show v]
 
 arrayBaseType :: Type -> Type
 arrayBaseType (Array _ ty) = ty
-arrayBaseType a            =
-    error $ unwords ["Cannot call arrayBaseType on non-array", show a]
+arrayBaseType a =
+  error $ unwords ["Cannot call arrayBaseType on non-array", show a]
 
 arrayNumElems :: Type -> Int
 arrayNumElems (Array (Just n) _) = n
-arrayNumElems n                  =
-    error $ unwords ["Cannot call array num elems on non-array type", show n]
+arrayNumElems n =
+  error $ unwords ["Cannot call array num elems on non-array type", show n]
 
 structFieldTypes :: Type -> [Type]
 structFieldTypes (Struct tys) = map snd tys
-structFieldTypes s            =
-      error $ unwords ["Cannot call structFieldTypes on non-struct", show s]
+structFieldTypes s =
+  error $ unwords ["Cannot call structFieldTypes on non-struct", show s]
 
 structFieldList :: Type -> [(String, Type)]
 structFieldList (Struct tys) = tys
-structFieldList s            =
-    error $ unwords ["Cannot call structFieldList on non-struct", show s]
+structFieldList s =
+  error $ unwords ["Cannot call structFieldList on non-struct", show s]
 
 newStructType :: [(String, Type)] -> Type
 newStructType = Struct
@@ -151,16 +151,14 @@ bodyFromFunc :: CFunctionDef a -> CStatement a
 bodyFromFunc (CFunDef _ _ _ stmt _) = stmt
 
 ptrsFromFunc :: (Show a) => CFunctionDef a -> [CDerivedDeclarator a]
-ptrsFromFunc (CFunDef _ decl _ _ _) =
-  case derivedFromDecl decl of
-    _:ptrs -> ptrs
-    f      -> error $ unwords ["Expected function declaration but got", show f]
+ptrsFromFunc (CFunDef _ decl _ _ _) = case derivedFromDecl decl of
+  _ : ptrs -> ptrs
+  f        -> error $ unwords ["Expected function declaration but got", show f]
 
 argsFromFunc :: (Show a) => CFunctionDef a -> [CDeclaration a]
-argsFromFunc (CFunDef _ decl _ _ _) =
-  case derivedFromDecl decl of
-    (CFunDeclr (Right decls) _ _):_ -> fst decls
-    f -> error $ unwords ["Expected function declaration but got", show f]
+argsFromFunc (CFunDef _ decl _ _ _) = case derivedFromDecl decl of
+  (CFunDeclr (Right decls) _ _) : _ -> fst decls
+  f -> error $ unwords ["Expected function declaration but got", show f]
 
 derivedFromDecl :: CDeclarator a -> [CDerivedDeclarator a]
 derivedFromDecl (CDeclr _ derived _ _ _) = derived
@@ -174,15 +172,14 @@ identToVarName :: Ident -> String
 identToVarName (Ident name _ _) = name
 
 specToStorage :: (Show a) => CDeclarationSpecifier a -> CStorageSpecifier a
-specToStorage spec =
-  case spec of
-    CStorageSpec s -> s
-    s              -> error $ unwords ["Expected storage specifier in declaration", show s]
+specToStorage spec = case spec of
+  CStorageSpec s -> s
+  s -> error $ unwords ["Expected storage specifier in declaration", show s]
 
 specToType :: CDeclarationSpecifier a -> CTypeSpecifier a
 specToType spec = case spec of
-                    CTypeSpec ts -> ts
-                    _            -> error "Expected type specificer in declaration"
+  CTypeSpec ts -> ts
+  _            -> error "Expected type specificer in declaration"
 
 -- General utilities
 
@@ -213,7 +210,7 @@ isTypeSpec :: CDeclarationSpecifier a -> Bool
 isTypeSpec CTypeSpec{} = True
 isTypeSpec _           = False
 
-typeFromSpec :: (Show a) =>  CDeclarationSpecifier a -> Maybe (CTypeSpecifier a)
+typeFromSpec :: (Show a) => CDeclarationSpecifier a -> Maybe (CTypeSpecifier a)
 typeFromSpec (CTypeSpec spec) = Just spec
 typeFromSpec a                = Nothing
 
@@ -329,7 +326,7 @@ isPtrDecl _           = False
 
 getTypesFromPtrDecl :: CDerivedDeclarator a -> [CTypeQualifier a]
 getTypesFromPtrDecl (CPtrDeclr quals _) = quals
-getTypesFromPtrDecl _                   = error "Expected pointer derived declarator"
+getTypesFromPtrDecl _ = error "Expected pointer derived declarator"
 
 isArrDecl :: CDerivedDeclarator a -> Bool
 isArrDecl CArrDeclr{} = True
@@ -343,7 +340,9 @@ isFunDecl :: CDerivedDeclarator a -> Bool
 isFunDecl CFunDeclr{} = True
 isFunDecl _           = False
 
-getInfoFromFunDecl :: CDerivedDeclarator a -> (Either [Ident] ([CDeclaration a], Bool), [CAttribute a])
+getInfoFromFunDecl
+  :: CDerivedDeclarator a
+  -> (Either [Ident] ([CDeclaration a], Bool), [CAttribute a])
 getInfoFromFunDecl (CFunDeclr a b _) = (a, b)
 
 -- Misc

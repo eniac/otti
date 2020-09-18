@@ -1,10 +1,17 @@
 module Targets.SMT.Z3Wrapper where
-import           Control.Monad.State.Strict (foldM, liftIO, unless)
-import qualified Data.Map.Strict            as M
-import           Prelude                    hiding (and, concat, not, or)
+import           Control.Monad.State.Strict     ( foldM
+                                                , liftIO
+                                                , unless
+                                                )
+import qualified Data.Map.Strict               as M
+import           Prelude                 hiding ( and
+                                                , concat
+                                                , not
+                                                , or
+                                                )
 import           Targets.SMT.SMTMonad
-import           Z3.Monad                   (MonadZ3)
-import qualified Z3.Monad                   as Z
+import           Z3.Monad                       ( MonadZ3 )
+import qualified Z3.Monad                      as Z
 
 type Sort = Z.Sort
 type AST = Z.AST
@@ -24,16 +31,16 @@ pop = Z.pop 1
 -- a bool sort or a bitvector sort of size one, because of funkiness within z3 bindings)
 assert :: MonadZ3 z3 => AST -> z3 ()
 assert stmt = do
-  sort <- Z.getSort stmt
-  kind <- Z.getSortKind sort
+  sort  <- Z.getSort stmt
+  kind  <- Z.getSortKind sort
   stmt' <- case kind of
     Z.Z3_BOOL_SORT -> return stmt
-    Z.Z3_BV_SORT -> do
+    Z.Z3_BV_SORT   -> do
       size <- Z.getBvSortSize sort
       unless (size == 1) $ error "Cannot assert non-bool statement"
       bvTrue <- Z.mkBvNum 1 (1 :: Integer)
       Z.mkEq stmt bvTrue
-    s              -> error $ unwords ["Can't assert sort", show s]
+    s -> error $ unwords ["Can't assert sort", show s]
   Z.assert stmt'
 
 assign :: MonadZ3 z3 => AST -> AST -> z3 ()
@@ -42,10 +49,8 @@ assign n1 n2 = do
   sort2 <- Z.getSort n2
   kind1 <- Z.getSortKind sort1
   kind2 <- Z.getSortKind sort2
-  unless (sort1 == sort2) $ error $ unwords [ "Can't assign nodes of different sorts"
-                                            , show kind1
-                                            , show kind2
-                                            ]
+  unless (sort1 == sort2) $ error $ unwords
+    ["Can't assign nodes of different sorts", show kind1, show kind2]
   unless (kind1 == kind2) $ error "Can't assign nodes of different kinds"
   case kind1 of
     Z.Z3_BV_SORT -> do
@@ -110,27 +115,20 @@ getBVSortSize opName ast = do
   kind <- Z.getSortKind sort
   case kind of
     Z.Z3_BV_SORT -> Z.getBvSortSize sort >>= return . fromIntegral
-    s            -> error $ unwords ["Expected BV sort, not", show s, "in", opName]
+    s -> error $ unwords ["Expected BV sort, not", show s, "in", opName]
 
 -- | Perform the given binary operation op in a type safe way
 typeSafeBinary :: MonadZ3 z3 => String -> AST -> AST -> z3 ()
 typeSafeBinary op ast1 ast2 = do
-  s1 <- getBVSort op ast1
-  s2 <- getBVSort op ast2
+  s1    <- getBVSort op ast1
+  s2    <- getBVSort op ast2
   size1 <- Z.getBvSortSize s1
   size2 <- Z.getBvSortSize s2
-  unless (size1 == size2) $ error $ unwords [ op, ": bit-widths must match"
-                                            , "\n"
-                                            , show size1
-                                            , show size2
-                                            ]
+  unless (size1 == size2) $ error $ unwords
+    [op, ": bit-widths must match", "\n", show size1, show size2]
 
-mkTypeSafeBinary :: MonadZ3 z3
-                 => (AST -> AST -> z3 AST)
-                 -> String
-                 -> AST
-                 -> AST
-                 -> z3 AST
+mkTypeSafeBinary
+  :: MonadZ3 z3 => (AST -> AST -> z3 AST) -> String -> AST -> AST -> z3 AST
 mkTypeSafeBinary op opName a b = do
   typeSafeBinary opName a b
   op a b
@@ -139,72 +137,68 @@ mkTypeSafeBinary op opName a b = do
 --- Loading, storing, getting, setting
 ---
 
-load :: MonadZ3 z3
-     => AST
-     -> AST
-     -> z3 AST
+load :: MonadZ3 z3 => AST -> AST -> z3 AST
 load a i = Z.mkSelect a i
 
-store :: MonadZ3 z3
-      => AST
-      -> AST
-      -> AST
-      -> z3 AST
+store :: MonadZ3 z3 => AST -> AST -> AST -> z3 AST
 store a i v = Z.mkStore a i v
 
 -- | Get a given number of bits from a structure starting from a given symbolic index. Little end
-getBitsFromLE :: MonadZ3 z3
-              => AST -- ^ In this structure
-              -> Int -- ^ How large of a read
-              -> AST -- ^ Starting from this index [0..n]
-              -> z3 AST
+getBitsFromLE
+  :: MonadZ3 z3
+  => AST -- ^ In this structure
+  -> Int -- ^ How large of a read
+  -> AST -- ^ Starting from this index [0..n]
+  -> z3 AST
 getBitsFromLE structure width index = do
-  castIndex <- castToWidth index 64
-  structureWidth <- getBVSortSize "getBitsFrom" structure
+  castIndex         <- castToWidth index 64
+  structureWidth    <- getBVSortSize "getBitsFrom" structure
   -- Easier to think about slicing indeices [n..0] so convert the index
   structureWidthSym <- bvNum 64 $ fromIntegral structureWidth
-  subIndex <- sub structureWidthSym castIndex
-  finalIndex <- bvNum 64 1 >>= sub subIndex
+  subIndex          <- sub structureWidthSym castIndex
+  finalIndex        <- bvNum 64 1 >>= sub subIndex
   -- Shift structure so the start of the element is the high bit
-  elemAtHigh <- sll structure finalIndex
+  elemAtHigh        <- sll structure finalIndex
   -- Slice from the high bit to the width of the element
   let elemStart = structureWidth - 1
-      elemEnd = structureWidth - width
+      elemEnd   = structureWidth - width
   slice elemAtHigh elemStart elemEnd
 
 -- | Get a given number of bits from a structure starting from a given symbolic index. Big endian
-getBitsFromBE :: MonadZ3 z3
-              => AST -- ^ In this structure
-              -> Int -- ^ How large of a read
-              -> AST -- ^ Starting from this index [n..0]
-              -> z3 AST
+getBitsFromBE
+  :: MonadZ3 z3
+  => AST -- ^ In this structure
+  -> Int -- ^ How large of a read
+  -> AST -- ^ Starting from this index [n..0]
+  -> z3 AST
 getBitsFromBE structure width index = do
-  castIndex <- castToWidth index 64
+  castIndex      <- castToWidth index 64
   structureWidth <- getBVSortSize "getBitsFrom" structure
   -- Shift structure so the start of the element is the high bit
-  elemAtHigh <- sll structure castIndex
+  elemAtHigh     <- sll structure castIndex
   -- Slice from the high bit to the width of the element
   let elemStart = structureWidth - 1
-      elemEnd = structureWidth - width
+      elemEnd   = structureWidth - width
   slice elemAtHigh elemStart elemEnd
 
 -- | Set a given number of bits in a structure starting from a given symbolic index
-setBitsTo :: AST -- ^ Set to this
-          -> AST -- ^ In this structure
-          -> AST -- ^ Starting from this index [0..n]
-          -> SMT AST -- ^ result
+setBitsTo
+  :: AST -- ^ Set to this
+  -> AST -- ^ In this structure
+  -> AST -- ^ Starting from this index [0..n]
+  -> SMT AST -- ^ result
 setBitsTo element structure index = do
-  castIndex <- castToWidth index 64
+  castIndex      <- castToWidth index 64
   -- Information we will need later
   structureWidth <- getBVSortSize "setBitsTo: structureWidth" structure
-  elementWidth <- getBVSortSize "setBitsTo: elemWidth" element
+  elementWidth   <- getBVSortSize "setBitsTo: elemWidth" element
   let widthDifference = structureWidth - elementWidth
 
   if widthDifference == 0
   -- Setting every bit is just the same as returning the element
-  then return element
+    then return element
   -- Otherwise we have to change some bits while preserving others
-  else do
+    else do
   -- struct: 1001..01011...1011
   -- mask:   1111..00000...1111
   ----------------------------- AND
@@ -215,25 +209,25 @@ setBitsTo element structure index = do
 
     -- Consturct *mask*:
     -- (0) Make [1 repeat width(element)][0 repeat width(structure - element0]
-    ones <- ones elementWidth
-    zeros <- bvNum widthDifference 0
-    preShiftMask <- concat ones zeros
-    -- (1) Right shift to start at the correct index
-    preNegMask <- srl preShiftMask castIndex
-    -- (2) Bitwise negate the whole thing
-    mask <- not preNegMask
+      ones         <- ones elementWidth
+      zeros        <- bvNum widthDifference 0
+      preShiftMask <- concat ones zeros
+      -- (1) Right shift to start at the correct index
+      preNegMask   <- srl preShiftMask castIndex
+      -- (2) Bitwise negate the whole thing
+      mask         <- not preNegMask
 
-    -- And the struct with the mask
-    res <- and mask structure
+      -- And the struct with the mask
+      res          <- and mask structure
 
-    -- Construct the *padded elemnt*:
-    -- (0) Make [element][0 repeat width(structure - element)]
-    preShiftElem <- concat element zeros
-    -- (2) Right shift to start at the correct index
-    finalElem <- srl preShiftElem castIndex
+      -- Construct the *padded elemnt*:
+      -- (0) Make [element][0 repeat width(structure - element)]
+      preShiftElem <- concat element zeros
+      -- (2) Right shift to start at the correct index
+      finalElem    <- srl preShiftElem castIndex
 
-    -- Or the two together!
-    or finalElem res
+      -- Or the two together!
+      or finalElem res
 
 ---
 --- Operations
@@ -318,7 +312,7 @@ umax x y = do
 -- Therefore, we turn the boolean result into a one-bit bitvector result
 cmpWrapper :: MonadZ3 z3 => AST -> z3 AST
 cmpWrapper a = do
-  true <- Z.mkBvNum 1 (1 :: Integer)
+  true  <- Z.mkBvNum 1 (1 :: Integer)
   false <- Z.mkBvNum 1 (0 :: Integer)
   Z.mkIte a true false
 
@@ -361,7 +355,8 @@ cond :: MonadZ3 z3 => AST -> AST -> AST -> z3 AST
 cond c a b = do
   -- Type check c
   size <- getBVSortSize "conditional" c
-  unless (size == 1) $ error $ unwords ["Cannot condition on non-boolean variable"]
+  unless (size == 1) $ error $ unwords
+    ["Cannot condition on non-boolean variable"]
   -- Perform the computation
   bvTrue <- Z.mkBvNum 1 (1 :: Integer)
   isTrue <- Z.mkEq c bvTrue
@@ -390,14 +385,15 @@ concatMany xs = foldM concat (head xs) (tail xs)
 ---
 
 -- | Wrapper for boolector shift operations
-shiftWrapper :: (MonadZ3 m)
-             => (AST -> AST -> m AST) -- ^ Shift op
-             -> AST -- ^ Thing to shift
-             -> AST -- ^ Thing to shift by
-             -> m AST -- ^ Result
+shiftWrapper
+  :: (MonadZ3 m)
+  => (AST -> AST -> m AST) -- ^ Shift op
+  -> AST -- ^ Thing to shift
+  -> AST -- ^ Thing to shift by
+  -> m AST -- ^ Result
 shiftWrapper shiftOp toShift shiftVal = do
   toShiftSort <- Z.getSort toShift
-  castVal <- Z.getBvSortSize toShiftSort >>= castToWidth shiftVal
+  castVal     <- Z.getBvSortSize toShiftSort >>= castToWidth shiftVal
   shiftOp toShift castVal
 
 ---
@@ -407,15 +403,20 @@ shiftWrapper shiftOp toShift shiftVal = do
 -- | Cast a node to a new width
 -- If the new width is larger, use unsigned extension
 -- If the new width is smaller, slice
-castToWidth :: (MonadZ3 m)
-            => Node -- ^ Node to be cast
-            -> Int -- ^ New width
-            -> m Node -- ^ Result
+castToWidth
+  :: (MonadZ3 m)
+  => Node -- ^ Node to be cast
+  -> Int -- ^ New width
+  -> m Node -- ^ Result
 castToWidth varToCast newWidth = do
-  sort <- Z.getSort varToCast
+  sort     <- Z.getSort varToCast
   sortKind <- Z.getSortKind sort
   let isBv = sortKind == Z.Z3_BV_SORT
-  unless isBv $ error $ "Should never cast non-bitvector sort (" ++ show sort ++ ")"
+  unless isBv
+    $  error
+    $  "Should never cast non-bitvector sort ("
+    ++ show sort
+    ++ ")"
   oldWidth' <- Z.getBvSortSize sort
   let oldWidth = fromIntegral oldWidth'
   case compare oldWidth newWidth of
@@ -430,7 +431,7 @@ inf positive = do
   doubSort <- Z.mkDoubleSort
   Z.mkFpInf doubSort positive
 
-fpzero ::MonadZ3 z3 => Bool -> z3 AST
+fpzero :: MonadZ3 z3 => Bool -> z3 AST
 fpzero negative = do
   doubSort <- Z.mkDoubleSort
   Z.mkFpZero doubSort negative
@@ -473,11 +474,7 @@ isPos a = Z.mkFpIsPos a >>= cmpWrapper
 isZero :: MonadZ3 z3 => AST -> z3 AST
 isZero a = Z.mkFpIsZero a >>= cmpWrapper
 
-rmWrapper :: MonadZ3 z3
-          => (AST -> AST -> AST -> z3 AST)
-          -> AST
-          -> AST
-          -> z3 AST
+rmWrapper :: MonadZ3 z3 => (AST -> AST -> AST -> z3 AST) -> AST -> AST -> z3 AST
 rmWrapper op a b = do
   -- In the future we will get the current rounding mode from the monad
   rm <- rtntte
@@ -537,13 +534,13 @@ fpCeil toRound = do
 
 castSBv :: MonadZ3 z3 => AST -> z3 AST
 castSBv bv = do
-  rm <- rtntte
+  rm       <- rtntte
   doubSort <- Z.mkDoubleSort
   Z.mkSBvToFp rm bv doubSort
 
 castUBv :: MonadZ3 z3 => AST -> z3 AST
 castUBv bv = do
-  rm <- rtntte
+  rm       <- rtntte
   doubSort <- Z.mkDoubleSort
   Z.mkUBvToFp rm bv doubSort
 
@@ -568,7 +565,7 @@ addUnderflows a b = Z.mkBvaddNoUnderflow a b >>= cmpWrapper >>= not
 
 addUndef :: MonadZ3 z3 => Bool -> AST -> AST -> z3 AST
 addUndef signed a1 a2 = do
-  overflows <- addOverflows a1 a2 signed
+  overflows  <- addOverflows a1 a2 signed
   underflows <- addUnderflows a1 a2
   or overflows underflows
 
@@ -580,7 +577,7 @@ mulUnderflows a b = Z.mkBvmulNoUnderflow a b >>= cmpWrapper >>= not
 
 mulUndef :: MonadZ3 z3 => Bool -> AST -> AST -> z3 AST
 mulUndef signed a1 a2 = do
-  overflows <- mulOverflows a1 a2 signed
+  overflows  <- mulOverflows a1 a2 signed
   underflows <- mulUnderflows a1 a2
   or overflows underflows
 
@@ -592,6 +589,6 @@ subUnderflows a b = Z.mkBvsubNoUnderflow a b >>= cmpWrapper >>= not
 
 subUndef :: MonadZ3 z3 => Bool -> AST -> AST -> z3 AST
 subUndef _ a1 a2 = do
-  overflows <- subOverflows a1 a2
+  overflows  <- subOverflows a1 a2
   underflows <- subUnderflows a1 a2
   or overflows underflows

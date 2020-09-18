@@ -55,7 +55,7 @@ checkWitComp circuitPath inputs = benchTestCase circuitPath $ do
             i
             (unlines $ map (\(n, v) -> n ++ " " ++ show v) $ Map.toList inputs)
           _             <- hClose i
-          inFile <- openFile inPath ReadMode
+          inFile        <- openFile inPath ReadMode
           inputsSignals <- Link.parseSignalsFromFile (Proxy @Order) inFile
           let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
           let r1cs       = Link.linkMain @Order m
@@ -66,7 +66,8 @@ checkWitComp circuitPath inputs = benchTestCase circuitPath $ do
                 Maybe.fromMaybe (error $ "Missing sig num: " ++ show k)
                   $         m_
                   IntMap.!? k
-          let lookupSignalVal = getOr allSignals . head . getOrI (Link.numSigs r1cs)
+          let lookupSignalVal =
+                getOr allSignals . head . getOrI (Link.numSigs r1cs)
           emitAssignment
             (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
             xPath

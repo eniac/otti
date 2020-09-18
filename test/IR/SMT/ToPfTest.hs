@@ -20,7 +20,7 @@ import qualified Data.BitVector                as Bv
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
-import qualified Data.Foldable as Fold
+import qualified Data.Foldable                 as Fold
 import           Data.Either                    ( isRight )
 import qualified Data.Map.Strict               as Map
 import qualified Data.Set                      as Set
@@ -35,8 +35,8 @@ constraintCountTest name terms nConstraints =
   benchTestCase (nameWithConstraints name nConstraints) $ do
     -- Regard all variables as public: not eliminatable.
     cs <- evalLog $ toPf @Order (Fold.foldMap vars terms) terms
-    when (nConstraints /= length (constraints cs)) $
-      putStrLn ("\n\n" ++name ++ ":\n" ++ r1csShow cs)
+    when (nConstraints /= length (constraints cs))
+      $ putStrLn ("\n\n" ++ name ++ ":\n" ++ r1csShow cs)
     nConstraints @=? length (constraints cs)
 
 nameWithConstraints :: String -> Int -> String

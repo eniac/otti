@@ -5,14 +5,16 @@
 {-# LANGUAGE TypeApplications    #-}
 module IR.SMT.TySmtTest where
 import           BenchUtils
-import           Control.Monad    (forM_, unless)
-import qualified Data.BitVector   as Bv
+import           Control.Monad                  ( forM_
+                                                , unless
+                                                )
+import qualified Data.BitVector                as Bv
 import           Data.Dynamic
-import qualified Data.Map.Strict  as Map
-import           Data.Maybe       (fromMaybe)
+import qualified Data.Map.Strict               as Map
+import           Data.Maybe                     ( fromMaybe )
 import           GHC.TypeLits
-import           IR.SMT.TySmt     (Val)
-import qualified IR.SMT.TySmt     as Smt
+import           IR.SMT.TySmt                   ( Val )
+import qualified IR.SMT.TySmt                  as Smt
 import           Test.Tasty.HUnit
 import           Z3.Monad
 
@@ -117,18 +119,14 @@ tySmtTests = benchTestGroup
   , genZ3ModelTest
     "bv sign ext"
     (Smt.mkDynBvEq
-      ( Smt.mkDynBvSext 8
-      $ Smt.mkDynamizeBv (Smt.IntToBv @3 (Smt.IntLit 7))
-      )
+      (Smt.mkDynBvSext 8 $ Smt.mkDynamizeBv (Smt.IntToBv @3 (Smt.IntLit 7)))
       (Smt.Var "a" (Smt.SortBv 8))
     )
     [("a", i 255)]
   , genZ3ModelTest
     "bv logical ext"
     (Smt.mkDynBvEq
-      ( Smt.mkDynBvUext 8
-      $ Smt.mkDynamizeBv (Smt.IntToBv @3 (Smt.IntLit 7))
-      )
+      (Smt.mkDynBvUext 8 $ Smt.mkDynamizeBv (Smt.IntToBv @3 (Smt.IntLit 7)))
       (Smt.Var "a" (Smt.SortBv 8))
     )
     [("a", i 7)]
