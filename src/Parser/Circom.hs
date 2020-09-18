@@ -1,11 +1,19 @@
-module Parser.Circom(parseFile,loadFilesRecursively,loadMain,Files) where
+module Parser.Circom( parseFile
+                    , loadFilesRecursively
+                    , loadMain
+                    , Files
+                    ) where
 
-import System.FilePath
-import AST.Circom           (Annotated(..), SFile, Item(..), SStatement, Block, MainCircuit(..), collectIncludes, collectFunctions, collectMains, collectTemplates, Span(..), PosnPair(..), mapAnns)
-import Parser.Circom.Parser (parseCircomFile)
-import Parser.Circom.Lexer  (tokenize)
-import qualified Data.Map.Strict as Map
-import Data.Maybe
+import           AST.Circom           (Annotated (..), Block, Item (..),
+                                       MainCircuit (..), PosnPair (..), SFile,
+                                       SStatement, Span (..), collectFunctions,
+                                       collectIncludes, collectMains,
+                                       collectTemplates, mapAnns)
+import qualified Data.Map.Strict      as Map
+import           Data.Maybe
+import           Parser.Circom.Lexer  (tokenize)
+import           Parser.Circom.Parser (parseCircomFile)
+import           System.FilePath
 
 -- Parse the given file.
 parseFile :: FilePath -> IO SFile

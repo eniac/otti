@@ -42,3 +42,15 @@ stack exec compiler
 
 # Directory structure
 
+```
+├── app            -- Compiler executable 
+├── src     
+│   ├── AST        -- Circom AST and C AST helpers 
+│   ├── Codegen    -- Machinery for generating circuits 
+│   ├── IR         -- The typed SMT intermediate representation
+│   ├── Parser     -- Machinery for parsing source files 
+│   ├── Targets    -- TBD: Alex after code changes
+│   └── Util       -- Utilities (e.g., logging)
+└── test           -- Tests
+```
+
