@@ -1,9 +1,15 @@
 #!/usr/bin/bash
 set -e
 
-USAGE="$0 PATH_TO_DIR"
+USAGE="
+$0 SINCE_REF DIR:
 
-DIR=${1?$USAGE}
+Format all Haskell files changed since SINCE_REF under DIR.
+If SINCE_REF is 'all', then formats all Haskell files under DIR.
+"
+
+REF=${1?"$USAGE"}
+DIR=${2?"$USAGE"}
 FORMATTER=brittany
 
 [ -a $DIR ] || (echo "$DIR does not exist" && exit 1)
@@ -17,8 +23,24 @@ check_for git
 check_for xargs
 check_for grep
 
-git diff --quiet $DIR || (echo "Will not format with unstaged modifications" && exit 1)
+if [ "all" == $REF ];
+then
+    echo "Finding all Haskell files in $DIR"
+    [ -z $(git ls-files --others --exclude-standard $DIR | grep '\.hs') ] || (echo "Will not format with untracked *.hs files" && exit 1)
+    files=$(git ls-files $DIR | grep '\.hs')
+else
+    echo "Finding all Haskell files in $DIR that have changed since $REF"
+    files=$(git diff --name-only $REF -- $DIR | (grep '\.hs' || true))
+fi
 
-[ -z $(git ls-files --others --exclude-standard $DIR | grep '\.hs') ] || (echo "Will not format with untracked *.hs files")
+for f in $files
+do
+    git diff --quiet -- $f || (echo "Unstaged changes in $f" && exit 1)
+done
 
-(git ls-files --others --exclude-standard $DIR && git ls-files $DIR) | grep '\.hs' | xargs $FORMATTER --write-mode=inplace
+echo Formatting:
+for f in $files
+do
+    echo "  * $f"
+    #$FORMATTER --write-mode=inplace $f
+done

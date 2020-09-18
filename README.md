@@ -31,6 +31,23 @@ To run an individual test (e.g., C value test), use:
 stack test --ta '-p C value test'
 ```
 
+# Format
+
+We use `brittany`. You can format all files (slow) with `make fmt`.
+
+
+You can format all files changed since a git-ref `REF` in a directory using
+```
+./scripts/format.bash REF DIR
+```
+
+You can format all files in a directory using
+
+```
+./scripts/format.bash REF DIR
+```
+
+The formatting script will not format files which have unstaged changes.
 
 # Run
 
