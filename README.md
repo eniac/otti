@@ -44,7 +44,7 @@ You can format all files changed since a git-ref `REF` in a directory using
 You can format all files in a directory using
 
 ```
-./scripts/format.bash REF DIR
+./scripts/format.bash all DIR
 ```
 
 The formatting script will not format files which have unstaged changes.
