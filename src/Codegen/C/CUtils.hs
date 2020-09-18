@@ -1,10 +1,10 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE Rank2Types #-}
-{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TupleSections       #-}
+{-# LANGUAGE TypeApplications    #-}
 
 module Codegen.C.CUtils
   ( CTerm(..)
@@ -78,23 +78,18 @@ module Codegen.C.CUtils
   )
 where
 
-import qualified IR.SMT.TySmt                  as Ty
-import qualified AST.Simple                    as AST
-import qualified IR.SMT.Assert                 as Assert
-import           IR.SMT.Assert                  ( liftAssert )
-import qualified Codegen.Circify.Memory        as Mem
-import           Codegen.Circify.Memory         ( Mem )
-import           Control.Monad                  ( unless
-                                                , when
-                                                , forM
-                                                )
-import qualified Data.BitVector                as Bv
-import           Data.Foldable                 as Fold
-import qualified Data.Map                      as Map
-import           Data.Maybe                     ( fromMaybe )
-import           Data.Dynamic                   ( Dynamic
-                                                , toDyn
-                                                )
+import qualified AST.C                  as AST
+import           Codegen.Circify.Memory (Mem)
+import qualified Codegen.Circify.Memory as Mem
+import           Control.Monad          (forM, unless, when)
+import qualified Data.BitVector         as Bv
+import           Data.Dynamic           (Dynamic, toDyn)
+import           Data.Foldable          as Fold
+import qualified Data.Map               as Map
+import           Data.Maybe             (fromMaybe)
+import           IR.SMT.Assert          (liftAssert)
+import qualified IR.SMT.Assert          as Assert
+import qualified IR.SMT.TySmt           as Ty
 
 
 type Bv = Ty.TermDynBv
@@ -462,7 +457,7 @@ intResize fromSign toWidth from =
 
 -- TODO: clean this the fuck up.
 -- This is not quite right, but it's a reasonable approximation of C++ arithmetic.
--- For an expression l (+) r, 
+-- For an expression l (+) r,
 -- 1. Both l and r undergo **integral promotion** (bool -> int)
 -- 2. If either are floating, the other is cast to that floating type
 --    * Ptrs not castable.
@@ -707,7 +702,7 @@ cNot :: CTerm -> CTerm
 cNot = cWrapUnLogical "!" Ty.Not
 
 -- This is not quite right, but it's a reasonable approximation of C++ arithmetic.
--- For an expression l (><) r, 
+-- For an expression l (><) r,
 -- 1. Both l and r undergo **integral promotion** (bool -> int)
 -- 2. If either are floating, the other is cast to that floating type
 --    * Ptrs not castable.

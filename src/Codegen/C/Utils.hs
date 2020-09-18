@@ -1,5 +1,5 @@
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections       #-}
 module Codegen.C.Utils
   ( ctype
   , cDeclToType
@@ -8,22 +8,17 @@ module Codegen.C.Utils
   )
 where
 import           AST.C
-import           AST.Simple
 import           Codegen.Circify
-import           Control.Monad.IO.Class
-import           Control.Monad
 import           Control.Applicative
+import           Control.Monad
+import           Control.Monad.IO.Class
+import           Data.Maybe                  (catMaybes, fromJust, fromMaybe,
+                                              isJust, mapMaybe)
 import           Language.C.Data.Ident
-import           Language.C.Syntax.AST
-import           Language.C.Syntax.Constants
 import           Language.C.Data.Node
 import           Language.C.Data.Position
-import           Data.Maybe                     ( fromJust
-                                                , isJust
-                                                , catMaybes
-                                                , mapMaybe
-                                                , fromMaybe
-                                                )
+import           Language.C.Syntax.AST
+import           Language.C.Syntax.Constants
 
 import           Util.Log
 -- | When expr appears on the lhs of an assignment, the assignment is actually a store
@@ -50,17 +45,17 @@ refTy ty         = error $ unwords ["Expected pointer ty in refTy", show ty]
 
 cParseIntTypeLength :: [CTypeSpecifier a] -> Maybe Int
 cParseIntTypeLength l = case l of
-  [CCharType{} ]             -> Just 8
-  [CShortType{}]             -> Just 16
-  [CShortType{}, CIntType{}] -> Just 16
+  [CCharType{} ]                         -> Just 8
+  [CShortType{}]                         -> Just 16
+  [CShortType{}, CIntType{}]             -> Just 16
   -- Not quite right
-  []                         -> Just 32
-  [CIntType{} ]              -> Just 32
-  [CLongType{}]              -> Just 32
-  [CLongType{}, CIntType{} ] -> Just 32
-  [CLongType{}, CLongType{}] -> Just 64
+  []                                     -> Just 32
+  [CIntType{} ]                          -> Just 32
+  [CLongType{}]                          -> Just 32
+  [CLongType{}, CIntType{} ]             -> Just 32
+  [CLongType{}, CLongType{}]             -> Just 64
   [CLongType{}, CLongType{}, CIntType{}] -> Just 64
-  _                          -> Nothing
+  _                                      -> Nothing
 
 cParseIntType :: [CTypeSpecifier a] -> Maybe Type
 cParseIntType l = case l of

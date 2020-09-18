@@ -4,24 +4,24 @@ module Codegen.CTest
   ( cTests
   )
 where
-import           AST.Simple
+import           AST.C
 import           BenchUtils
 import           Codegen.C
 import           Codegen.Circify
 import           Control.Monad
-import           Data.Either             (isRight)
-import qualified Data.Map                as M
-import           Data.Maybe              (fromJust, isJust)
-import qualified Data.Set                as Set
-import           IR.R1cs                 (R1CS (..), r1csCheck, r1csShow)
-import           IR.SMT.Assert           (AssertState (..), asserted,
-                                          execAssert, runAssert)
-import           IR.SMT.ToPf             (toPfWithWit)
-import qualified IR.SMT.TySmt            as Ty
+import           Data.Either      (isRight)
+import qualified Data.Map         as M
+import           Data.Maybe       (fromJust, isJust)
+import qualified Data.Set         as Set
+import           IR.R1cs          (R1CS (..), r1csCheck, r1csShow)
+import           IR.SMT.Assert    (AssertState (..), asserted, execAssert,
+                                   runAssert)
+import           IR.SMT.ToPf      (toPfWithWit)
+import qualified IR.SMT.TySmt     as Ty
 import           Parser.C
 import           Test.Tasty.HUnit
-import           Utils
 import           Util.Log
+import           Utils
 
 type Order
   = 113890009193798365449144652900867294558768981710660728242748762258461992583217

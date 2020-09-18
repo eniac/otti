@@ -1,14 +1,14 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE GADTs #-}
 module Codegen.C.CUtilsTest where
+import qualified AST.C                  as AST
 import           BenchUtils
-import           Test.Tasty.HUnit
 import           Codegen.C.CUtils
-import qualified Codegen.Circify.Memory              as Mem
-import qualified IR.SMT.TySmt as Ty
-import qualified AST.Simple                    as AST
-import qualified IR.SMT.Assert                 as Assert
-import qualified Data.Map.Strict               as M
+import qualified Codegen.Circify.Memory as Mem
+import qualified Data.Map.Strict        as M
+import qualified IR.SMT.Assert          as Assert
+import qualified IR.SMT.TySmt           as Ty
+import           Test.Tasty.HUnit
 
 cutilsTest :: BenchTest
 cutilsTest = benchTestGroup

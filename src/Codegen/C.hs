@@ -1,44 +1,27 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase                 #-}
 module Codegen.C where
 import           AST.C
-import           AST.Simple
-import           Codegen.Circify
 import           Codegen.C.CUtils
-import           Codegen.Circify.Memory         ( bvNum
-                                                , initMem
-                                                , MonadMem
-                                                , liftMem
-                                                , evalMem
-                                                )
 import           Codegen.C.Utils
+import           Codegen.Circify
+import           Codegen.Circify.Memory          (MonadMem, bvNum, evalMem,
+                                                  initMem, liftMem)
 import           Control.Applicative
-import           Control.Monad                  ( replicateM_
-                                                , join
-                                                )
+import           Control.Monad                   (join, replicateM_)
 import           Control.Monad.State.Strict
-import qualified Data.BitVector                as Bv
-import           Data.Char                      ( toLower
-                                                , ord
-                                                )
-import qualified Data.Char                     as Char
-import           Data.Either                    ( fromRight
-                                                , isRight
-                                                )
-import           Data.List                      ( intercalate )
-import qualified Data.Map                      as Map
-import           Data.Maybe                     ( fromJust
-                                                , fromMaybe
-                                                , isJust
-                                                , isNothing
-                                                , listToMaybe
-                                                , maybeToList
-                                                )
-import qualified IR.SMT.Assert                 as Assert
-import           IR.SMT.Assert                  ( liftAssert
-                                                , MonadAssert
-                                                )
-import qualified IR.SMT.TySmt                  as Ty
+import qualified Data.BitVector                  as Bv
+import           Data.Char                       (ord, toLower)
+import qualified Data.Char                       as Char
+import           Data.Either                     (fromRight, isRight)
+import           Data.List                       (intercalate)
+import qualified Data.Map                        as Map
+import           Data.Maybe                      (fromJust, fromMaybe, isJust,
+                                                  isNothing, listToMaybe,
+                                                  maybeToList)
+import           IR.SMT.Assert                   (MonadAssert, liftAssert)
+import qualified IR.SMT.Assert                   as Assert
+import qualified IR.SMT.TySmt                    as Ty
 import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
@@ -47,11 +30,11 @@ import           Util.Cfg
 import           Util.Log
 
 
-data CState = CState { funs              :: Map.Map FunctionName CFunDef
-                     , loopBound         :: Int
-                     , findUB            :: Bool
-                     , bugConditions     :: [Ty.TermBool]
-                     , defaultValue      :: Maybe Integer
+data CState = CState { funs          :: Map.Map FunctionName CFunDef
+                     , loopBound     :: Int
+                     , findUB        :: Bool
+                     , bugConditions :: [Ty.TermBool]
+                     , defaultValue  :: Maybe Integer
                      }
 
 newtype C a = C (StateT CState (Circify Type CTerm) a)
