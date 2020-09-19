@@ -238,9 +238,14 @@ cValueTests = benchTestGroup
                         "main"
                         "test/Code/C/array_2.c"
                         [("f0_main__return", i 17)]
-  -- crashes occastionally
-  --, constraintValueTest "array 3" "main" "test/Code/C/array_3.c" [ ("f0_main__return", i 6) ]
-  --, constraintValueTest "array 4" "main" "test/Code/C/array_4.c" [ ("f0_main__return", i 4) ]
+  , constraintValueTest "array 3"
+                        "main"
+                        "test/Code/C/array_3.c"
+                        [("f0_main__return", i 6)]
+  , constraintValueTest "array 4"
+                        "main"
+                        "test/Code/C/array_4.c"
+                        [("f0_main__return", i 4)]
   , constraintValueTest "array 5"
                         "main"
                         "test/Code/C/array_5.c"
