@@ -8,7 +8,6 @@ import           Codegen.Circify
 import           Codegen.Circify.Memory         ( MonadMem
                                                 , bvNum
                                                 , evalMem
-                                                , initMem
                                                 , liftMem
                                                 )
 import           Control.Applicative
@@ -574,7 +573,6 @@ registerFns decls = forM_ decls $ \case
 
 codegenAll :: CTranslUnit -> C ()
 codegenAll (CTranslUnit decls _) = do
-  liftMem initMem
   registerFns decls
   forM_ decls $ \case
     CDeclExt decl -> void $ genDeclSMT Nothing decl

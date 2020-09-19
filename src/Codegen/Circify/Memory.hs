@@ -1,13 +1,10 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE TypeApplications #-}
 module Codegen.Circify.Memory where
 import           Control.Monad.State.Strict
 import qualified Data.Map.Strict               as Map
-import           Data.Maybe                     ( fromJust
-                                                , fromMaybe
-                                                )
+import           Data.Maybe                     ( fromMaybe )
 import qualified Data.BitVector                as Bv
 import qualified IR.SMT.TySmt                  as Ty
 import           IR.SMT.Assert                 as Assert
@@ -54,23 +51,6 @@ castToWidth t newW =
         LT -> Ty.mkDynBvUext newW t
         GT -> Ty.mkDynBvExtract 0 newW t
         EQ -> t
--- Wat.
--- Wat.-- | Get a given number of bits from a structure starting from a given symbolic index. Little end
--- Wat.getBitsFromLE
--- Wat.  :: Ty.TermDynBv -- ^ In this structure
--- Wat.  -> Int -- ^ How large of a read
--- Wat.  -> Ty.TermDynBv -- ^ Starting from this index [0..n]
--- Wat.  -> Ty.TermDynBv
--- Wat.getBitsFromLE structure width index =
--- Wat.  let castIndex         = castToWidth index 64
--- Wat.      structureWidth    = Ty.dynBvWidth structure
--- Wat.      -- Easier to think about slicing indeices [n..0] so convert the index
--- Wat.      structureWidthSym = bvNum False 64 $ fromIntegral structureWidth
--- Wat.      subIndex          = Ty.mkDynBvBinExpr Ty.BvSub structureWidthSym castIndex
--- Wat.      finalIndex        = Ty.mkDynBvBinExpr Ty.BvSub subIndex (bvNum False 64 1)
--- Wat.      -- Shift structure so the start of the element is the high bit
--- Wat.      elemAtHigh        = Ty.mkDynBvBinExpr Ty.BvShl structure finalIndex
--- Wat.  in  Ty.mkDynBvExtract (structureWidth - width) width elemAtHigh
 
 -- | Get a given number of bits from a structure starting from a given symbolic index. Big endian
 getBits
@@ -145,20 +125,24 @@ setBits element structure index =
             ++ " but the set value has width "
             ++ show elementWidth
 
-data MemoryStrategy = Flat { blockSize :: Int } deriving (Eq,Ord,Show)
-
 type MemSort = Ty.ArraySort Ty.DynBvSort Ty.DynBvSort
 type TermMem = Ty.Term MemSort
 
-newtype StackAlloc = StackAlloc Ty.TermDynBv deriving (Show)
+data StackAlloc = StackAlloc { idxWidth :: Int
+                             , valWidth :: Int
+                             , array    :: TermMem
+                             , size     :: Int
+                             } deriving (Show)
 type StackAllocId = Int
 
+-- Return the index and value widths
+termMemWidths :: TermMem -> (Int, Int)
+termMemWidths t = case Ty.sort t of
+  Ty.SortArray (Ty.SortBv i) (Ty.SortBv v) -> (i, v)
+  s -> error $ "Bad memory term sort " ++ show s
+
 -- | State for keeping track of Mem-layer information
-data MemState = MemState { pointerSize    :: Int
-                         , memoryStrategy :: MemoryStrategy
-                         , memorySort     :: Maybe Ty.Sort -- ^ Redundant, but saves having to re-calc
-                         , memories       :: [TermMem]
-                         , stackAllocations :: Map.Map StackAllocId StackAlloc
+data MemState = MemState { stackAllocations :: Map.Map StackAllocId StackAlloc
                          , nextStackId :: StackAllocId
                          }
 
@@ -166,8 +150,6 @@ instance Show MemState where
   show s =
     unlines
       $  [ "MemState:"
-         , unwords ["  Pointer Size:", show $ pointerSize s]
-         , unwords ["  MemoryStrategy:", show $ memoryStrategy s]
          , unwords ["  Next stack allocation id:", show $ nextStackId s]
          , "  Stack allocations:"
          ]
@@ -187,7 +169,7 @@ instance (MonadMem m) => MonadMem (StateT s m) where
   liftMem = lift . liftMem
 
 emptyMem :: MemState
-emptyMem = MemState 32 (Flat 32) Nothing [] Map.empty 0
+emptyMem = MemState Map.empty 0
 
 runMem :: Mem a -> Assert.Assert (a, MemState)
 runMem (Mem act) = runStateT act emptyMem
@@ -202,38 +184,6 @@ execMem act = snd <$> runMem act
 --- Getters and setters
 ---
 
-setPointerSize :: Int -> Mem ()
-setPointerSize size = modify $ \s -> s { pointerSize = size }
-
-setMemoryStrategy :: MemoryStrategy -> Mem ()
-setMemoryStrategy strategy = modify $ \s -> s { memoryStrategy = strategy }
-
-initMem :: Mem ()
-initMem = do
-  strat <- gets memoryStrategy
-  psize <- gets pointerSize
-  s0    <- get
-  case strat of
-    Flat blockSize' -> do
-      let dSort   = Ty.SortBv psize
-          rSort   = Ty.SortBv blockSize'
-          memSort = Ty.SortArray dSort rSort
-      firstMem <- liftAssert $ newVar @MemSort "global__mem" memSort
-      put $ s0 { memorySort = Just memSort, memories = [firstMem] }
-
-currentMem :: Mem TermMem
-currentMem = gets (head . memories)
-
-nextMem :: Mem TermMem
-nextMem = do
-  s0 <- get
-  let curMems = memories s0
-      memSort = fromJust $ memorySort s0
-  newMem <- liftAssert
-    $ newVar @MemSort ("global__mem_" ++ show (length curMems)) memSort
-  put $ s0 { memories = newMem : curMems }
-  return newMem
-
 takeNextStackId :: Mem StackAllocId
 takeNextStackId = do
   i <- gets nextStackId
@@ -243,40 +193,59 @@ takeNextStackId = do
 intCeil :: Int -> Int -> Int
 intCeil x y = 1 + ((x - 1) `div` y)
 
-dumpMem :: Mem ()
-dumpMem = get >>= (liftIO . print)
-
-stackAlloc :: Ty.TermDynBv -> Mem StackAllocId
-stackAlloc bits = do
+stackAlloc :: TermMem -> Int -> Int -> Int -> Mem StackAllocId
+stackAlloc array' size' idxWidth' valWidth' = do
   i <- takeNextStackId
-  modify $ \s -> s
-    { stackAllocations = Map.insert i (StackAlloc bits) $ stackAllocations s
-    }
+  let a = StackAlloc { idxWidth = idxWidth'
+                     , valWidth = valWidth'
+                     , array    = array'
+                     , size     = size'
+                     }
+  modify $ \s -> s { stackAllocations = Map.insert i a $ stackAllocations s }
   return i
 
-stackAllocLit :: Bv.BV -> Mem StackAllocId
-stackAllocLit bits = stackAlloc (bvNum False (Bv.size bits) (Bv.nat bits))
+stackAllocCons :: Int -> [Ty.TermDynBv] -> Mem StackAllocId
+stackAllocCons idxWidth' elems =
+  let s         = length elems
+      valWidth' = Ty.dynBvWidth $ head elems
+      m =
+          foldl
+              (\a (i, e) -> if Ty.dynBvWidth e == valWidth'
+                then Ty.Store a (Ty.DynBvLit $ Bv.bitVec idxWidth' i) e
+                else error $ "Bad size: " ++ show e
+              )
+              (Ty.ConstArray (Ty.SortBv idxWidth') (bvNum False valWidth' 0))
+            $ zip [(0 :: Integer) ..] elems
+  in  stackAlloc m s idxWidth' valWidth'
 
 stackNewAlloc
-  :: Int -- ^ # of bits
+  :: Int -- ^ size
+  -> Int -- ^ idx bits
+  -> Int -- ^ value bits
   -> Mem StackAllocId -- ^ id of allocation
-stackNewAlloc nbits = stackAllocLit $ Bv.zeros nbits
+stackNewAlloc size' idxWidth' valWidth' = stackAlloc
+  (Ty.ConstArray (Ty.SortBv idxWidth') (bvNum False valWidth' 0))
+  size'
+  idxWidth'
+  valWidth'
 
-stackGetAlloc :: StackAllocId -> Mem Ty.TermDynBv
+stackGetAlloc :: StackAllocId -> Mem StackAlloc
 stackGetAlloc id = do
   mAlloc <- Map.lookup id <$> gets stackAllocations
-  let StackAlloc alloc =
-        fromMaybe (error $ "No stack allocation id: " ++ show id) mAlloc
-  return alloc
+  return $ fromMaybe (error $ "No stack allocation id: " ++ show id) mAlloc
 
 stackLoad
   :: StackAllocId -- ^ Allocation to load from
   -> Ty.TermDynBv -- ^ offset
-  -> Int          -- ^ # of bits
   -> Mem Ty.TermDynBv
-stackLoad id offset nbits = do
+stackLoad id offset = do
   alloc <- stackGetAlloc id
-  return $ getBits alloc nbits offset
+  -- TODO: Enforce bound?
+  unless (idxWidth alloc == Ty.dynBvWidth offset)
+    $  error
+    $  "Bad index size: "
+    ++ show offset
+  return $ Ty.Select (array alloc) offset
 
 stackStore
   :: StackAllocId -- ^ Allocation to load from
@@ -286,117 +255,25 @@ stackStore
   -> Mem ()
 stackStore id offset value guard = do
   alloc <- stackGetAlloc id
-  let alloc' = StackAlloc $ Ty.Ite guard (setBits value alloc offset) alloc
+  -- TODO: Enforce bound?
+  unless (idxWidth alloc == Ty.dynBvWidth offset)
+    $  error
+    $  "Bad index size: "
+    ++ show offset
+  unless (valWidth alloc == Ty.dynBvWidth value)
+    $  error
+    $  "Bad value size: "
+    ++ show value
+  let a      = array alloc
+      alloc' = alloc { array = Ty.Ite guard (Ty.Store a offset value) a }
   modify
     $ \s -> s { stackAllocations = Map.insert id alloc' $ stackAllocations s }
 
 stackIsLoadable :: StackAllocId -> Ty.TermDynBv -> Mem Ty.TermBool
 stackIsLoadable id offset = do
   alloc <- stackGetAlloc id
-  let size = Bv.bitVec (Ty.dynBvWidth offset) (Ty.dynBvWidth alloc)
-  return $ Ty.mkDynBvBinPred Ty.BvUlt offset (Ty.DynBvLit size)
+  let s = Bv.bitVec (Ty.dynBvWidth offset) (size alloc)
+  return $ Ty.mkDynBvBinPred Ty.BvUlt offset (Ty.DynBvLit s)
 
 stackIdUnknown :: StackAllocId
 stackIdUnknown = maxBound
-
-
-memLoad
-  :: Ty.TermDynBv -- ^ low idx
-  -> Int          -- ^ # of bits
-  -> Mem Ty.TermDynBv
-memLoad addr nbits = do
-  pointerSize <- gets pointerSize
-  unless (pointerSize == Ty.dynBvWidth addr) $ error "Pointer size mismatch"
-  memStrat <- gets memoryStrategy
-  case memStrat of
-    Flat blockSize -> do
-      -- Figure out how many blocks to read
-      -- The following comment explains the three different cases we may face.
-      -- We don't special case now on whether the addr is concrete or symbolic, but we could
-
-      -- Consider a load of 32 bits off 0 and blockSize of 32
-      -- In this case, the load size is 32
-      -- The underestimate of the blocks to read is 1, which in this case is correct
-      -- The overestimate of the blocks to read is 2, which is one more than necessary
-
-      -- Now consider a load of 32 bits starting from 16 with the same block size
-      -- The underestimate of the blocks to read is 1, but this is too few! The read spans 2
-      -- The overestimate of the blocks to read is 2, which captures the span
-
-      -- Finally, consider a load of 16 bits starting from 0 with 32 size blocks
-      -- The underestimate of the blocks to read is 16/32, which is zero!
-      -- The estimate of the block size is now one, which sounds right.
-      -- Finally, the overestimate is again 2
-
-      -- We must read at least ceiling( nbits / blockSize ) bits
-      -- We may read one more, because of alignment
-      let blocksToRead = intCeil nbits blockSize + 1
-      -- TODO: If an addresss refers to at most B bits, we could shrink our ra
-
-      when ((blocksToRead :: Int) > 2000) $ error "Load is too large"
-
-      -- Read all the blocks and then smoosh them together into one bv
-      mem <- currentMem
-      let chunk = foldl1 Ty.mkDynBvConcat $ map
-            (\blockIdx -> loadBlock mem $ Ty.mkDynBvBinExpr
-              Ty.BvAdd
-              (bvNum False pointerSize $ fromIntegral blockIdx)
-              addr
-            )
-            [0 .. blocksToRead - 1]
-          startInChunk =
-            Ty.mkDynBvBinExpr Ty.BvUrem addr
-              $ bvNum False pointerSize
-              $ fromIntegral blockSize
-      return $ getBits chunk nbits startInChunk
-
-memStore
-  :: Ty.TermDynBv -- ^ addr
-  -> Ty.TermDynBv -- ^ value
-  -> Maybe Ty.TermBool -- ^ guard
-  -> Mem ()
-memStore addr val mGuard = do
-  pointerSize <- gets pointerSize
-  unless (pointerSize == Ty.dynBvWidth addr) $ error "Pointer size mismatch"
-  memStrat <- gets memoryStrategy
-  case memStrat of
-    Flat blockSize -> do
-      -- Figure out how many blocks to read (see above)
-      let nbits        = Ty.dynBvWidth val
-          blocksToRead = intCeil nbits blockSize + 1
-      -- TODO: If an addresss refers to at most B bits, we could shrink our ra
-
-      when (blocksToRead > 2000) $ error "Load is too large"
-
-      -- Read all the blocks and then smoosh them together into one bv
-      mem <- currentMem
-      let
-        chunk = foldl1 Ty.mkDynBvConcat $ map
-          (\blockIdx -> loadBlock mem $ Ty.mkDynBvBinExpr
-            Ty.BvAdd
-            (bvNum False pointerSize $ fromIntegral blockIdx)
-            addr
-          )
-          [0 .. blocksToRead - 1]
-        blockSizeSym    = bvNum False pointerSize $ fromIntegral blockSize
-        startInChunk    = Ty.mkDynBvBinExpr Ty.BvUrem addr blockSizeSym
-        newChunk        = setBits val chunk startInChunk
-        guardedNewChunk = case mGuard of
-          Nothing -> newChunk
-          Just g  -> Ty.Ite g newChunk chunk
-        writeBlock :: TermMem -> Int -> TermMem
-        writeBlock m blockIdxInChunk =
-          let
-            blockIdxInChunkSym =
-              bvNum False pointerSize $ fromIntegral blockIdxInChunk
-            blockVal = Ty.mkDynBvExtract (blockIdxInChunk * blockSize)
-                                         blockSize
-                                         guardedNewChunk
-            blockIdx = Ty.mkDynBvBinExpr Ty.BvAdd addr blockIdxInChunkSym
-          in
-            storeBlock m blockIdx blockVal
-      next <- nextMem
-      liftAssert $ Assert.assign next $ foldl writeBlock
-                                              mem
-                                              [0 .. blocksToRead - 1]
-

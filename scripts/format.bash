@@ -42,5 +42,5 @@ echo Formatting:
 for f in $files
 do
     echo "  * $f"
-    #$FORMATTER --write-mode=inplace $f
+    $FORMATTER --write-mode=inplace $f
 done

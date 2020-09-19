@@ -142,9 +142,7 @@ ctermEval env t = case term t of
   CFloat  t'       -> return $ toDyn $ Ty.eval env t'
   CStackPtr _ t' _ -> return $ toDyn $ Ty.eval env t'
   CStruct _ _t'    -> error "nyi"
-  CArray  _ i      -> do
-    array <- Mem.stackGetAlloc i
-    return $ toDyn $ Ty.eval env array
+  CArray  _ i      -> toDyn . Ty.eval env . Mem.array <$> Mem.stackGetAlloc i
 
 ctermInit :: AST.Type -> Integer -> CTerm
 ctermInit ty value = mkCTerm
@@ -347,7 +345,7 @@ cDeclVar trackUndef ty name = do
     AST.Double -> liftAssert $ CDouble <$> Assert.newVar name Ty.sortDouble
     AST.Float  -> liftAssert $ CFloat <$> Assert.newVar name Ty.sortFloat
     AST.Array (Just size) innerTy ->
-      CArray ty <$> Mem.stackNewAlloc (size * AST.numBits innerTy)
+      CArray ty <$> Mem.stackNewAlloc size 32 (AST.numBits innerTy)
     AST.Array Nothing _ -> return $ CArray ty Mem.stackIdUnknown
     AST.Ptr32 _         -> do
       bv :: Bv <- liftAssert $ Assert.newVar name (Ty.SortBv 32)
@@ -374,8 +372,8 @@ cArrayLit :: AST.Type -> [CTerm] -> Mem CTerm
 cArrayLit ty vals = do
   forM_ vals $ \v -> unless (cType v == ty) $ error $ unwords
     ["Type mismatch in cArrayLit:", show ty, "vs", show $ cType v]
-  id <- Mem.stackAlloc
-    (foldl1 Ty.mkDynBvConcat $ reverse $ map (serialize . term) vals)
+  let bvs = map (serialize . term) vals
+  id <- Mem.stackAllocCons 32 bvs
   return $ mkCTerm (CArray (AST.Array (Just $ length vals) ty) id)
                    (Ty.BoolLit False)
 
@@ -392,7 +390,7 @@ cStructLit ty vals = do
 cLoad :: CTerm -> Mem (Ty.TermBool, CTerm)
 cLoad ptr = case term ptr of
   CStackPtr ty offset id -> do
-    bits <- Mem.stackLoad id offset (AST.numBits $ AST.pointeeType ty)
+    bits <- Mem.stackLoad id offset
     oob  <- Ty.Not <$> Mem.stackIsLoadable id offset
     let value = deserialize (AST.pointeeType ty) bits
         -- TODO: Check bounds
@@ -497,15 +495,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
       -- TODO: check bounds!
       cPtrPlusInt :: AST.Type -> Bv -> Bool -> Bv -> Bv
       cPtrPlusInt pTy ptr signed int =
-        Ty.mkDynBvBinExpr Ty.BvAdd ptr
-          $ intResize signed (AST.numBits pTy)
-          $ Ty.mkDynBvBinExpr
-              Ty.BvMul
-              (Mem.bvNum False
-                         (Ty.dynBvWidth int)
-                         (fromIntegral $ AST.numBits $ AST.pointeeType pTy)
-              )
-              int
+        Ty.mkDynBvBinExpr Ty.BvAdd ptr $ intResize signed (AST.numBits pTy) int
 
       (t, u) = case (term a, term b) of
         (CDouble d, _) -> if allowDouble
