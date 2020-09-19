@@ -8,6 +8,8 @@ module Codegen.C.CToR1cs
   )
 where
 
+-- This module glues the C circification pipeline to the Smt -> R1cs pipeline.
+
 import           Control.Monad
 import           Control.Monad.IO.Class
 import qualified IR.SMT.TySmt                  as Ty
