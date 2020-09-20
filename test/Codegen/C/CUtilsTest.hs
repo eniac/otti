@@ -9,26 +9,29 @@ import qualified Data.Map.Strict               as M
 import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
 import           Test.Tasty.HUnit
+import           Util.Cfg                       ( evalCfgDefault )
 
 cutilsTest :: BenchTest
 cutilsTest = benchTestGroup
   "CUtils"
   [ benchTestCase "new var" $ do
-    a <- Assert.execAssert $ Mem.execMem $ cDeclVar True AST.U8 "my_u8"
+    a <- evalCfgDefault $ Assert.execAssert $ Mem.execMem $ cDeclVar True
+                                                                     AST.U8
+                                                                     "my_u8"
     2 @=? M.size (Assert.vars a)
   , benchTestCase "new vars" $ do
-    a <- Assert.execAssert $ Mem.execMem $ do
+    a <- evalCfgDefault $ Assert.execAssert $ Mem.execMem $ do
       _ <- cDeclVar True AST.U8 "my_u8"
       cDeclVar True AST.S8 "my_i8"
     (2 + 2) @=? M.size (Assert.vars a)
   , benchTestCase "cAdd: u8 + i8 = i8" $ do
-    a <- Assert.evalAssert $ Mem.evalMem $ do
+    a <- evalCfgDefault $ Assert.evalAssert $ Mem.evalMem $ do
       u <- cDeclVar True AST.U8 "my_u8"
       i <- cDeclVar True AST.S8 "my_i8"
       return $ cAdd u i
     AST.S8 @=? cType a
   , benchTestCase "cAdd: i32 + i8 = i32" $ do
-    a <- Assert.evalAssert $ Mem.evalMem $ do
+    a <- evalCfgDefault $ Assert.evalAssert $ Mem.evalMem $ do
       u <- cDeclVar True AST.S32 "my_i32"
       i <- cDeclVar True AST.S8 "my_i8"
       return $ cAdd u i
@@ -36,17 +39,17 @@ cutilsTest = benchTestGroup
     let (_, w, bv) = asInt $ term a
     Ty.SortBv w @=? Ty.sort bv
   , benchTestCase "cNeg: -u8 = i8" $ do
-    a <- Assert.evalAssert $ Mem.evalMem $ do
+    a <- evalCfgDefault $ Assert.evalAssert $ Mem.evalMem $ do
       u <- cDeclVar True AST.U8 "my_u8"
       return $ cNeg u
     AST.S8 @=? cType a
   , benchTestCase "cNot: !u8 = bool" $ do
-    a <- Assert.evalAssert $ Mem.evalMem $ do
+    a <- evalCfgDefault $ Assert.evalAssert $ Mem.evalMem $ do
       u <- cDeclVar True AST.U8 "my_u8"
       return $ cNot u
     AST.Bool @=? cType a
   , benchTestCase "cCond: bool ? u8 : i8 = u8" $ do
-    a <- Assert.evalAssert $ Mem.evalMem $ do
+    a <- evalCfgDefault $ Assert.evalAssert $ Mem.evalMem $ do
       u <- cDeclVar True AST.U8 "my_u8"
       i <- cDeclVar True AST.S8 "my_i8"
       b <- cDeclVar True AST.Bool "my_bool"

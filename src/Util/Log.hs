@@ -17,8 +17,12 @@ module Util.Log
 where
 import           Control.Monad                  ( )
 import           Control.Monad.State.Strict
+import           Control.Monad.Reader
 import qualified Data.Set                      as S
-import           Util.Cfg                       ( cfgGetList )
+import           Util.Cfg                       ( Cfg
+                                                , MonadCfg(..)
+                                                , _streams
+                                                )
 
 ---
 --- Monad defintions
@@ -29,8 +33,8 @@ data LogState = LogState { streams         :: S.Set String
                          } deriving (Show)
 
 
-newtype Log a = Log (StateT LogState IO a)
-    deriving (Functor, Applicative, Monad, MonadState LogState, MonadIO)
+newtype Log a = Log (StateT LogState Cfg a)
+    deriving (Functor, Applicative, Monad, MonadState LogState, MonadIO, MonadCfg)
 
 class Monad m => MonadLog m where
   liftLog :: Log a -> m a
@@ -58,8 +62,8 @@ logIfM stream msg = do
   enabled <- gets (S.member stream . streams)
   when enabled $ msg >>= liftIO . putStrLn
 
-evalLog :: Log a -> IO a
+evalLog :: Log a -> Cfg a
 evalLog l = do
-  strms <- cfgGetList "log"
+  strms <- liftCfg $ asks _streams
   let Log io = enableStreams strms >> l
   evalStateT io emptyLogState

@@ -15,6 +15,7 @@ import           Control.Monad                  ( join
                                                 , replicateM_
                                                 )
 import           Control.Monad.State.Strict
+import           Control.Monad.Reader
 import qualified Data.BitVector                as Bv
 import           Data.Char                      ( ord
                                                 , toLower
@@ -41,7 +42,10 @@ import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
-import           Util.Cfg
+import           Util.Cfg                       ( Cfg
+                                                , MonadCfg(..)
+                                                , _loopBound
+                                                )
 import           Util.Log
 
 
@@ -53,7 +57,7 @@ data CState = CState { funs          :: Map.Map FunctionName CFunDef
                      }
 
 newtype C a = C (StateT CState (Circify Type CTerm) a)
-    deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem, MonadCircify Type CTerm)
+    deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem, MonadCircify Type CTerm, MonadCfg)
 
 emptyCState :: Bool -> CState
 emptyCState findBugs = CState { funs          = Map.empty
@@ -65,7 +69,7 @@ emptyCState findBugs = CState { funs          = Map.empty
 
 cfgFromEnv :: C ()
 cfgFromEnv = do
-  bound <- liftIO $ cfgGetDef "loopBound" 5
+  bound <- liftCfg $ asks _loopBound
   modify $ \s -> s { loopBound = bound }
   liftLog $ logIf "loop" $ "Setting loop bound to " ++ show bound
 
@@ -625,13 +629,13 @@ execC findBugs act = snd <$> runC findBugs act
 
 -- Can a fn exhibit undefined behavior?
 -- Returns a string describing it, if so.
-checkFn :: CTranslUnit -> String -> IO (Maybe String)
+checkFn :: CTranslUnit -> String -> Cfg (Maybe String)
 checkFn tu name = do
   assertions <- Assert.execAssert
     $ evalC True (codegenFn tu name Nothing >> assertBug)
   liftIO $ Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)
 
-evalFn :: CTranslUnit -> String -> IO (Map.Map String Ty.Val)
+evalFn :: CTranslUnit -> String -> Cfg (Map.Map String Ty.Val)
 evalFn tu name = do
   assertions <- Assert.execAssert $ evalC False $ codegenFn tu name Nothing
   liftIO $ Ty.evalZ3Model $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)

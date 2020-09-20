@@ -48,6 +48,7 @@ import           Data.Field.Galois              ( Prime
                                                 , toP
                                                 )
 import           Util.Log
+import           Util.Cfg                       ( liftCfg )
 
 data FnTrans = FnTrans { assertions :: [Ty.TermBool]
                        , inputs :: [String]
@@ -62,7 +63,7 @@ fnToSmt
 fnToSmt inVals tu name = do
   let init = when (isJust inVals) $ liftCircify initValues
   (((inputs, output), compState), assertState) <-
-    liftIO $ Assert.runAssert $ runC False $ init >> codegenFn tu name inVals
+    liftCfg $ Assert.runAssert $ runC False $ init >> codegenFn tu name inVals
   return $ FnTrans
     { assertions = Assert.asserted assertState
     , inputs     = inputs

@@ -29,6 +29,7 @@ import qualified IR.SMT.TySmt                  as Ty
 import           Parser.C
 import           Test.Tasty.HUnit
 import           Util.Log
+import           Util.Cfg                       ( evalCfgDefault )
 import           Utils
 
 type Order
@@ -43,7 +44,7 @@ cTests = benchTestGroup
 constraintCountTest :: String -> FilePath -> Int -> BenchTest
 constraintCountTest name path constraints = benchTestCase name $ do
   tu         <- parseC path
-  assertions <- execAssert $ evalC True $ codegenAll tu
+  assertions <- evalCfgDefault $ execAssert $ evalC True $ codegenAll tu
   unless (constraints == length (asserted assertions)) $ do
     --forM_ (asserted assertions) $ \s -> putStrLn $ name ++ ": " ++ show s
     return ()
@@ -61,7 +62,7 @@ toSmtTests = benchTestGroup "SMT conversion" []
 ubCheckTest :: String -> String -> FilePath -> Bool -> BenchTest
 ubCheckTest name fnName path undef = benchTestCase name $ do
   tu <- parseC path
-  r  <- checkFn tu fnName
+  r  <- evalCfgDefault $ checkFn tu fnName
   undef @=? isJust r
 
 ubTests = benchTestGroup
@@ -96,7 +97,7 @@ ubTests = benchTestGroup
 satSmtCircuitTest :: String -> String -> FilePath -> BenchTest
 satSmtCircuitTest name fnName path = benchTestCase name $ do
   tu                       <- parseC path
-  (compState, assertState) <- runAssert $ execC False $ do
+  (compState, assertState) <- evalCfgDefault $ runAssert $ execC False $ do
     liftCircify initValues
     setDefaultValueZero
     codegenFn tu fnName (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
@@ -129,11 +130,13 @@ satR1csTestInputs name fnName path inputs = benchTestCase name $ do
           liftCircify initValues
           setDefaultValueZero
           codegenFn tu fnName (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
-  (compState, assertState) <- runAssert $ execC False runIt
+  (compState, assertState) <- evalCfgDefault $ runAssert $ execC False runIt
   let assertions = asserted assertState
   let env        = fromJust $ values compState
   forM_ assertions $ \a -> Ty.ValBool True @=? Ty.eval env a
-  (cs, wit) <- evalLog $ toPfWithWit @Order env Set.empty assertions
+  (cs, wit) <- evalCfgDefault $ evalLog $ toPfWithWit @Order env
+                                                             Set.empty
+                                                             assertions
   -- Check R1CS satisfaction
   let checkResult = r1csCheck wit cs
   isRight checkResult @? show checkResult

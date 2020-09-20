@@ -6,10 +6,10 @@ module IR.R1cs.Opt
   )
 where
 
+import           Control.Applicative
 import           Control.Monad.State.Strict
-import           Data.Functor.Identity
+import           Control.Monad.Reader
 import           Codegen.Circom.Signal
-import           IR.R1cs
 import           Codegen.Circom.CompTypes.LowDeg
                                                 ( QEQ
                                                 , LC
@@ -17,7 +17,6 @@ import           Codegen.Circom.CompTypes.LowDeg
                                                 , lcAdd
                                                 , lcScale
                                                 )
-import           Control.Applicative
 import           GHC.TypeLits                   ( KnownNat )
 import           Data.Bifunctor
 import           Data.Field.Galois              ( Prime
@@ -26,6 +25,7 @@ import           Data.Field.Galois              ( Prime
                                                 , fromP
                                                 , toP
                                                 )
+import           Data.Functor.Identity
 import qualified Data.IntMap.Strict            as IntMap
 import qualified Data.IntSet                   as IntSet
 import qualified Data.Map                      as Map
@@ -33,7 +33,11 @@ import qualified Data.Maybe                    as Maybe
 import qualified Data.Foldable                 as Fold
 import qualified Data.List                     as List
 import qualified Data.Sequence                 as Seq
-import           Util.Cfg
+import           IR.R1cs
+import           Util.Cfg                       ( Cfg
+                                                , MonadCfg(..)
+                                                , _optR1cs
+                                                )
 import           Util.Log
 import           Debug.Trace
 
@@ -141,7 +145,7 @@ reduceLinearities r1cs =
 
 opt :: (KnownNat n, Ord s, Show s) => R1CS s n -> Log (R1CS s n)
 opt r1cs = do
-  doOpt <- liftIO $ cfgGetDef "r1csOpt" True
+  doOpt <- liftCfg $ asks _optR1cs
   if doOpt
     then do
       logIf "r1csOpt" $ "Constraints before r1csOpt: " ++ show

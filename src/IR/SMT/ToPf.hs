@@ -14,6 +14,7 @@ where
 
 import           IR.SMT.TySmt
 import           Control.Monad.State.Strict
+import           Control.Monad.Reader
 import           Control.Monad                  ( join )
 import           Control.Applicative
 import           GHC.TypeNats
@@ -54,7 +55,12 @@ import qualified Data.Map.Strict               as Map
 import           Data.Proxy                     ( Proxy(..) )
 import qualified Data.Set                      as Set
 import           Data.Typeable                  ( cast )
-import           Util.Cfg                       ( cfgGetDef )
+import           Util.Cfg                       ( MonadCfg(..)
+                                                , _toPfCfg
+                                                , _assumeNoOverflow
+                                                , _assumeInputsInRange
+                                                , _optEqs
+                                                )
 import           Util.Log
 
 type PfVar = String
@@ -77,7 +83,7 @@ data ToPfState n = ToPfState { r1cs :: R1CS PfVar n
                              }
 
 newtype ToPf n a = ToPf (StateT (ToPfState n) Log a)
-    deriving (Functor, Applicative, Monad, MonadState (ToPfState n), MonadIO, MonadLog)
+    deriving (Functor, Applicative, Monad, MonadState (ToPfState n), MonadIO, MonadLog, MonadCfg)
 
 emptyState :: ToPfState n
 emptyState = ToPfState
@@ -94,9 +100,9 @@ emptyState = ToPfState
 
 configureFromEnv :: ToPf n ()
 configureFromEnv = do
-  a <- liftIO $ cfgGetDef "noOverflow" False
-  b <- liftIO $ cfgGetDef "toPfOptEq" True
-  c <- liftIO $ cfgGetDef "assumeInputsInRange" True
+  a <- liftCfg $ asks (_assumeNoOverflow . _toPfCfg)
+  b <- liftCfg $ asks (_optEqs . _toPfCfg)
+  c <- liftCfg $ asks (_assumeInputsInRange . _toPfCfg)
   modify $ \s -> s
     { cfg = (cfg s) { assumeNoBvOverflow  = a
                     , optEq               = b

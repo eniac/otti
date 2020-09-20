@@ -16,6 +16,7 @@ where
 import           IR.SMT.TySmt
 
 import           Control.Monad.State.Strict
+import           Control.Monad.Reader
 import qualified Data.BitVector                as Bv
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
@@ -28,7 +29,13 @@ import qualified Data.Map.Strict               as Map
 import           Data.Maybe                     ( fromMaybe )
 import qualified Data.Set                      as Set
 import           Data.Typeable                  ( typeOf )
-import           Util.Cfg
+import           Util.Cfg                       ( Cfg
+                                                , MonadCfg(..)
+                                                , _smtOptCfg
+                                                , _allowSubBlowup
+                                                , _cFoldInSub
+                                                , _smtOpts
+                                                )
 import           Util.Log
 
 data OptMetadata = OptMetadata { protected :: Set.Set String
@@ -41,7 +48,7 @@ newOptMetadata p =
 
 data Opt = Opt { fn :: OptMetadata -> [TermBool] -> Log [TermBool]
                , name :: String
-               , cfg  :: OptMetadata -> IO OptMetadata
+               , cfg  :: OptMetadata -> Cfg OptMetadata
                }
 
 -- Folds constants (literals) away.
@@ -340,10 +347,10 @@ eqElim meta ts =
           , subs = Map.insert v t' $ Map.map (dynamize $ sub v t') $ subs s
           }
 
-eqElimCfg :: OptMetadata -> IO OptMetadata
+eqElimCfg :: OptMetadata -> Cfg OptMetadata
 eqElimCfg m = do
-  o <- cfgGetDef "noBlowup" True
-  c <- cfgGetDef "cFoldInEqElim" True
+  o <- asks (_allowSubBlowup . _smtOptCfg)
+  c <- asks (_cFoldInSub . _smtOptCfg)
   return $ m { eqElimNoBlowup = o, cFoldInEqElim = c }
 
 eqElimOpt :: Opt
@@ -367,8 +374,8 @@ opt p ts = do
                        , eqElimNoBlowup = False
                        , cFoldInEqElim  = False
                        }
-  m'        <- liftIO $ foldM (flip cfg) m0 (Map.elems opts)
-  optsToRun <- liftIO $ cfgGetListDef "opts" ["cfee", "ee"]
+  m'        <- liftCfg $ foldM (flip cfg) m0 (Map.elems opts)
+  optsToRun <- liftCfg $ asks (_smtOpts . _smtOptCfg)
   logAssertions "initial" ts
   foldM
     (\a oname -> do

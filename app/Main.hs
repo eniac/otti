@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE BlockArguments      #-}
 {-# LANGUAGE PolyKinds           #-}
 {-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE TypeApplications    #-}
@@ -46,6 +47,12 @@ import qualified System.IO                      ( openFile )
 import           System.Console.Docopt
 import           System.Process
 import           Util.Log
+import           Util.Cfg                       ( Cfg )
+import qualified Util.Cfg                      as Cfg
+                                                ( setFromEnv
+                                                , evalCfg
+                                                , defaultCfgState
+                                                )
 
 openFile :: FilePath -> IOMode -> IO Handle
 openFile path mode =
@@ -96,8 +103,8 @@ Commands:
   c-prove          Write proof for a C function
 |]
 
-getArgOrExit :: Arguments -> Option -> IO String
-getArgOrExit a o = getArgOrExitWith patterns a o
+getArgOrExit :: Arguments -> Option -> Cfg String
+getArgOrExit a o = liftIO $ getArgOrExitWith patterns a o
 
 
 emitAssignment :: [Integer] -> FilePath -> IO ()
@@ -158,28 +165,30 @@ type Order
 -- type Order = 17
 -- type OrderCtx = Ctx Order
 
-cmdEmitR1cs :: FilePath -> FilePath -> IO ()
+cmdEmitR1cs :: FilePath -> FilePath -> Cfg ()
 cmdEmitR1cs circomPath r1csPath = do
-  print "Loading circuit"
-  m    <- loadMain circomPath
+  liftIO $ print "Loading circuit"
+  m    <- liftIO $ loadMain circomPath
   r1cs <- evalLog $ Opt.opt $ Link.linkMain @Order m
-  putStrLn $ R1cs.r1csStats r1cs
-  putStrLn $ R1cs.r1csShow r1cs
-  R1cs.writeToR1csFile r1cs r1csPath
+  liftIO $ do
+    putStrLn $ R1cs.r1csStats r1cs
+    putStrLn $ R1cs.r1csShow r1cs
+    R1cs.writeToR1csFile r1cs r1csPath
 
-cmdCountTerms :: FilePath -> IO ()
+cmdCountTerms :: FilePath -> Cfg ()
 cmdCountTerms circomPath = do
-  m <- loadMain circomPath
+  m <- liftIO $ loadMain circomPath
   let c = Comp.compMainWitCtx @Order m
-  print $ count c + sum (Map.map count $ CompT.cache c)
-  print c
+  liftIO $ do
+    print $ count c + sum (Map.map count $ CompT.cache c)
+    print c
   where count = Wit.nSmtNodes . CompT.baseCtx
 
 
-cmdSetup :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
+cmdSetup :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> Cfg ()
 cmdSetup libsnark circomPath r1csPath pkPath vkPath = do
   cmdEmitR1cs circomPath r1csPath
-  runSetup libsnark r1csPath pkPath vkPath
+  liftIO $ runSetup libsnark r1csPath pkPath vkPath
 
 cmdProve
   :: FilePath
@@ -190,11 +199,11 @@ cmdProve
   -> FilePath
   -> FilePath
   -> FilePath
-  -> IO ()
+  -> Cfg ()
 cmdProve libsnark pkPath vkPath inPath xPath wPath pfPath circomPath = do
-  m             <- loadMain circomPath
-  inputFile     <- openFile inPath ReadMode
-  inputsSignals <- Link.parseSignalsFromFile (Proxy @Order) inputFile
+  m             <- liftIO $ loadMain circomPath
+  inputFile     <- liftIO $ openFile inPath ReadMode
+  inputsSignals <- liftIO $ Link.parseSignalsFromFile (Proxy @Order) inputFile
   let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
   r1cs <- evalLog $ Opt.opt $ Link.linkMain @Order m
   let getOr m_ k =
@@ -203,43 +212,50 @@ cmdProve libsnark pkPath vkPath inPath xPath wPath pfPath circomPath = do
         Maybe.fromMaybe (error $ "Missing sig num: " ++ show k) $ m_ IntMap.!? k
   let lookupSignalVal :: Int -> Integer =
         getOr allSignals . head . getOrI (Link.numSigs r1cs)
-  emitAssignment (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
-                 xPath
-  emitAssignment
+  liftIO $ emitAssignment
+    (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
+    xPath
+  liftIO $ emitAssignment
     (map lookupSignalVal
          [(2 + Link.nPublicInputs r1cs) .. (Link.nextSigNum r1cs - 1)]
     )
     wPath
-  runProve libsnark pkPath vkPath xPath wPath pfPath
+  liftIO $ runProve libsnark pkPath vkPath xPath wPath pfPath
 
-cmdVerify :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
+cmdVerify :: FilePath -> FilePath -> FilePath -> FilePath -> Cfg ()
 cmdVerify = ((.) . (.) . (.) . (.)) liftIO runVerify
 
-cmdCCheck :: String -> FilePath -> IO ()
+cmdCCheck :: String -> FilePath -> Cfg ()
 cmdCCheck name path = do
-  tu <- parseC path
+  tu <- liftIO $ parseC path
   r  <- checkFn tu name
-  case r of
+  liftIO $ case r of
     Just s  -> putStrLn s
     Nothing -> putStrLn "No bug"
 
-cmdCEval :: String -> FilePath -> IO ()
+cmdCEval :: String -> FilePath -> Cfg ()
 cmdCEval name path = do
-  tu <- parseC path
+  tu <- liftIO $ parseC path
   r  <- evalFn tu name
-  forM_ (Map.toList r) $ \(k, v) -> putStrLn $ unwords [k, ":", show v]
+  forM_ (Map.toList r) $ \(k, v) -> liftIO $ putStrLn $ unwords [k, ":", show v]
 
-cmdCEmitR1cs :: String -> FilePath -> FilePath -> IO ()
+cmdCEmitR1cs :: String -> FilePath -> FilePath -> Cfg ()
 cmdCEmitR1cs fnName cPath r1csPath = do
-  tu   <- parseC cPath
+  tu   <- liftIO $ parseC cPath
   r1cs <- evalLog $ fnToR1cs @Order tu fnName
-  R1cs.writeToR1csFile r1cs r1csPath
+  liftIO $ R1cs.writeToR1csFile r1cs r1csPath
 
 cmdCSetup
-  :: FilePath -> String -> FilePath -> FilePath -> FilePath -> FilePath -> IO ()
+  :: FilePath
+  -> String
+  -> FilePath
+  -> FilePath
+  -> FilePath
+  -> FilePath
+  -> Cfg ()
 cmdCSetup libsnark fnName cPath r1csPath pkPath vkPath = do
   cmdCEmitR1cs fnName cPath r1csPath
-  runSetup libsnark r1csPath pkPath vkPath
+  liftIO $ runSetup libsnark r1csPath pkPath vkPath
 
 cmdCProve
   :: FilePath
@@ -251,11 +267,11 @@ cmdCProve
   -> FilePath
   -> String
   -> FilePath
-  -> IO ()
+  -> Cfg ()
 cmdCProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath = do
-  tu            <- parseC cPath
-  inputFile     <- openFile inPath ReadMode
-  inputsSignals <- Link.parseIntsFromFile inputFile
+  tu            <- liftIO $ parseC cPath
+  inputFile     <- liftIO $ openFile inPath ReadMode
+  inputsSignals <- liftIO $ Link.parseIntsFromFile inputFile
   (r1cs, w)     <- evalLog $ fnToR1csWithWit @Order inputsSignals tu fnName
   let getOr m_ k =
         Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
@@ -263,14 +279,15 @@ cmdCProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath = do
         Maybe.fromMaybe (error $ "Missing sig num: " ++ show k) $ m_ IntMap.!? k
   let lookupSignalVal :: Int -> Integer
       lookupSignalVal i = fromP $ getOr w $ head $ getOrI (Link.numSigs r1cs) i
-  emitAssignment (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
-                 xPath
-  emitAssignment
-    (map lookupSignalVal
-         [(2 + Link.nPublicInputs r1cs) .. (Link.nextSigNum r1cs - 1)]
-    )
-    wPath
-  runProve libsnark pkPath vkPath xPath wPath pfPath
+  liftIO $ do
+    emitAssignment (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
+                   xPath
+    emitAssignment
+      (map lookupSignalVal
+           [(2 + Link.nPublicInputs r1cs) .. (Link.nextSigNum r1cs - 1)]
+      )
+      wPath
+    runProve libsnark pkPath vkPath xPath wPath pfPath
 
 defaultR1cs :: String
 defaultR1cs = "C"
@@ -279,7 +296,7 @@ main :: IO ()
 main = do
   args <- parseArgsOrExit patterns =<< getArgs
   let
-    cmd :: IO () = case True of
+    cmd :: Cfg () = case True of
       _ | args `isPresent` command "emit-r1cs" -> do
         circomPath <- args `getArgOrExit` longOption "circom"
         r1csPath   <- args `getArgOrExit` shortOption 'C'
@@ -342,5 +359,6 @@ main = do
         wPath    <- args `getArgOrExit` shortOption 'w'
         pfPath   <- args `getArgOrExit` shortOption 'p'
         cmdCProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath
-      _ -> exitWithUsageMessage patterns "Missing command!"
-  cmd
+      _ -> liftIO $ exitWithUsageMessage patterns "Missing command!"
+  cfg <- Cfg.setFromEnv Cfg.defaultCfgState
+  Cfg.evalCfg cmd cfg

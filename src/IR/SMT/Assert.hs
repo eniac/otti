@@ -9,6 +9,9 @@ import qualified Data.Map.Strict               as M
 import qualified Data.Dynamic                  as Dyn
 import qualified IR.SMT.TySmt                  as Ty
 import           Util.Log
+import           Util.Cfg                       ( Cfg
+                                                , MonadCfg
+                                                )
 
 ---
 --- Monad defintions
@@ -22,7 +25,7 @@ data AssertState = AssertState { vars         :: M.Map String Dyn.Dynamic
                                deriving (Show)
 
 newtype Assert a = Assert (StateT AssertState Log a)
-    deriving (Functor, Applicative, Monad, MonadState AssertState, MonadIO, MonadLog)
+    deriving (Functor, Applicative, Monad, MonadState AssertState, MonadIO, MonadLog, MonadCfg)
 
 class Monad m => MonadAssert m where
   liftAssert :: Assert a -> m a
@@ -38,13 +41,13 @@ instance (MonadAssert m) => MonadAssert (StateT s m) where
 emptyAssertState :: AssertState
 emptyAssertState = AssertState { vars = M.empty, asserted = [] }
 
-runAssert :: Assert a -> IO (a, AssertState)
+runAssert :: Assert a -> Cfg (a, AssertState)
 runAssert (Assert act) = evalLog $ runStateT act emptyAssertState
 
-evalAssert :: Assert a -> IO a
+evalAssert :: Assert a -> Cfg a
 evalAssert act = fst <$> runAssert act
 
-execAssert :: Assert a -> IO AssertState
+execAssert :: Assert a -> Cfg AssertState
 execAssert act = snd <$> runAssert act
 
 assert :: Ty.Term Ty.BoolSort -> Assert ()

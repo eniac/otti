@@ -46,6 +46,7 @@ import           IR.SMT.Assert                  ( Assert
                                                 , liftAssert
                                                 )
 import           Util.Log
+import           Util.Cfg                       ( MonadCfg )
 
 {-|
 
@@ -351,7 +352,7 @@ data CircifyState ty term = CircifyState { callStack         :: [FunctionScope t
                                  }
 
 newtype Circify ty term a = Circify (StateT (CircifyState ty term) Mem a)
-    deriving (Functor, Applicative, Monad, MonadState (CircifyState ty term), MonadIO, MonadLog, MonadMem, MonadAssert)
+    deriving (Functor, Applicative, Monad, MonadState (CircifyState ty term), MonadIO, MonadLog, MonadMem, MonadAssert, MonadCfg)
 
 class Monad m => MonadCircify ty term m | m -> term, m -> ty where
   liftCircify :: Circify ty term a -> m a

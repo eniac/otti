@@ -25,6 +25,7 @@ import           Data.Field.Galois              ( Prime
                                                 )
 import           GHC.TypeLits                   ( KnownNat )
 import           Util.Log
+import           Util.Cfg                       ( evalCfgDefault )
 
 
 order :: Integer
@@ -59,7 +60,7 @@ buildR1cs cs public =
 mkR1csOptTest :: String -> [StringQEQ] -> [String] -> Int -> BenchTest
 mkR1csOptTest name cs public expectedConstraints = benchTestCase name $ do
   let r1cs = buildR1cs cs public
-  r1cs' <- evalLog $ opt r1cs
+  r1cs' <- evalCfgDefault $ evalLog $ opt r1cs
   unless (expectedConstraints == length (constraints r1cs')) $ do
     putStrLn "R1cs:"
     print r1cs'

@@ -9,6 +9,7 @@ import qualified Data.BitVector                as Bv
 import qualified IR.SMT.TySmt                  as Ty
 import           IR.SMT.Assert                 as Assert
 import           Util.Log
+import           Util.Cfg                       ( MonadCfg )
 
 bvNum :: Bool -> Int -> Integer -> Ty.TermDynBv
 bvNum signed width val
@@ -159,7 +160,7 @@ instance Show MemState where
                     (Map.toAscList $ stackAllocations s)
 
 newtype Mem a = Mem (StateT MemState Assert.Assert a)
-    deriving (Functor, Applicative, Monad, MonadState MemState, MonadIO, MonadLog, Assert.MonadAssert)
+    deriving (Functor, Applicative, Monad, MonadState MemState, MonadIO, MonadLog, Assert.MonadAssert, MonadCfg)
 
 class Monad m => MonadMem m where
   liftMem :: Mem a -> m a
