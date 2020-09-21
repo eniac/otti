@@ -60,14 +60,27 @@ stack exec compiler-exe -- -h
 # Directory structure
 
 ```
-├── app            -- Compiler executable 
-├── src     
-│   ├── AST        -- Circom AST and C AST helpers 
-│   ├── Codegen    -- Machinery for generating circuits 
-│   ├── IR         -- The typed SMT intermediate representation
-│   ├── Parser     -- Machinery for parsing source files 
-│   ├── Targets    -- TBD: Alex after code changes
-│   └── Util       -- Utilities (e.g., logging)
-└── test           -- Tests
+├── app               -- Compiler executable
+├── src
+│   ├── AST           -- Circom AST and C AST helpers 
+│   ├── Codegen       -- Machinery for generating circuits 
+│   │   ├── Circify   -- Language-indended machinery (branches, fns, scopes)
+│   │   │   └── Memory-- Stack allocations and accesses
+│   │   ├── Circom    -- Circom
+│   │   ├── C         -- C
+│   ├── IR            -- The typed SMT intermediate representation
+│   │   ├── SMT       -- Logging
+│   │   │   ├── TySmt -- Sort-typed SMT terms
+│   │   │   ├── Assert-- Monad for accumulating SMT assertions
+│   │   │   ├── Opt   -- Optimizations over SMT
+│   │   │   └── ToPf  -- Converting SMT to R1cs
+│   │   └── R1cs      -- R1cs
+│   │       └── Opt   -- Optimizations over R1cs
+│   ├── Parser        -- Machinery for parsing source files 
+│   ├── Targets       -- TBD: Alex after code changes
+│   └── Util          -- Utilities (e.g., logging)
+│       ├── Log       -- Logging
+│       └── Cfg       -- Configuration
+└── test              -- Tests
 ```
 
