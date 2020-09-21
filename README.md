@@ -1,7 +1,11 @@
-# Compiler from C to circuit representations
+# Compiler to circuit representations
 
-Currently, the compiler goes from C to:
-- R1CS
+Currently we have frontends for:
+- C
+- circom
+
+We have backends for:
+- R1CS (proofs via libsnark)
 - SMT
 
 # Install
