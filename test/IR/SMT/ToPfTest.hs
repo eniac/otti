@@ -25,8 +25,9 @@ import           Data.Either                    ( isRight )
 import qualified Data.Map.Strict               as Map
 import qualified Data.Set                      as Set
 import           IR.SMT.TySmt
-import           Util.Log
 import           Util.Cfg                       ( evalCfgDefault )
+import           Util.Log
+import qualified Util.ShowMap                  as SMap
 
 type Order
   = 113890009193798365449144652900867294558768981710660728242748762258461992583217
@@ -35,7 +36,9 @@ constraintCountTest :: String -> [TermBool] -> Int -> BenchTest
 constraintCountTest name terms nConstraints =
   benchTestCase (nameWithConstraints name nConstraints) $ do
     -- Regard all variables as public: not eliminatable.
-    cs <- evalCfgDefault $ evalLog $ toPf @Order (Fold.foldMap vars terms) terms
+    cs <- evalCfgDefault $ evalLog $ toPf @Order (Fold.foldMap vars terms)
+                                                 SMap.empty
+                                                 terms
     when (nConstraints /= length (constraints cs))
       $ putStrLn ("\n\n" ++ name ++ ":\n" ++ r1csShow cs)
     nConstraints @=? length (constraints cs)
@@ -80,6 +83,7 @@ satTest name env assertions = benchTestCase name $ do
   -- Compute R1CS translation
   (cs, wit) <- evalCfgDefault $ evalLog $ toPfWithWit @Order e
                                                              Set.empty
+                                                             SMap.empty
                                                              assertions
   -- Check R1CS satisfaction
   let checkResult = r1csCheck wit cs

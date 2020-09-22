@@ -10,6 +10,7 @@ import qualified IR.SMT.TySmt                  as Ty
 import           IR.SMT.Assert                 as Assert
 import           Util.Log
 import           Util.Cfg                       ( MonadCfg )
+import qualified Util.ShowMap                  as SMap
 
 bvNum :: Bool -> Int -> Integer -> Ty.TermDynBv
 bvNum signed width val
@@ -144,6 +145,7 @@ termMemWidths t = case Ty.sort t of
 
 -- | State for keeping track of Mem-layer information
 data MemState = MemState { stackAllocations :: Map.Map StackAllocId StackAlloc
+                         , sizes :: SMap.ShowMap TermMem Int
                          , nextStackId :: StackAllocId
                          }
 
@@ -170,7 +172,7 @@ instance (MonadMem m) => MonadMem (StateT s m) where
   liftMem = lift . liftMem
 
 emptyMem :: MemState
-emptyMem = MemState Map.empty 0
+emptyMem = MemState Map.empty SMap.empty 0
 
 runMem :: Mem a -> Assert.Assert (a, MemState)
 runMem (Mem act) = runStateT act emptyMem
@@ -209,26 +211,29 @@ stackAllocCons :: Int -> [Ty.TermDynBv] -> Mem StackAllocId
 stackAllocCons idxWidth' elems =
   let s         = length elems
       valWidth' = Ty.dynBvWidth $ head elems
+      base      = Ty.ConstArray (Ty.SortBv idxWidth') (bvNum False valWidth' 0)
       m =
           foldl
               (\a (i, e) -> if Ty.dynBvWidth e == valWidth'
                 then Ty.Store a (Ty.DynBvLit $ Bv.bitVec idxWidth' i) e
                 else error $ "Bad size: " ++ show e
               )
-              (Ty.ConstArray (Ty.SortBv idxWidth') (bvNum False valWidth' 0))
+              base
             $ zip [(0 :: Integer) ..] elems
-  in  stackAlloc m s idxWidth' valWidth'
+  in  do
+        modify $ \st -> st { sizes = SMap.insert base s $ sizes st }
+        stackAlloc m s idxWidth' valWidth'
 
 stackNewAlloc
   :: Int -- ^ size
   -> Int -- ^ idx bits
   -> Int -- ^ value bits
   -> Mem StackAllocId -- ^ id of allocation
-stackNewAlloc size' idxWidth' valWidth' = stackAlloc
-  (Ty.ConstArray (Ty.SortBv idxWidth') (bvNum False valWidth' 0))
-  size'
-  idxWidth'
-  valWidth'
+stackNewAlloc size' idxWidth' valWidth' = do
+  let a = (Ty.ConstArray (Ty.SortBv idxWidth') (bvNum False valWidth' 0))
+  modify $ \s -> s { sizes = SMap.insert a size' $ sizes s }
+  stackAlloc a size' idxWidth' valWidth'
+
 
 stackGetAlloc :: StackAllocId -> Mem StackAlloc
 stackGetAlloc id = do

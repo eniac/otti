@@ -38,6 +38,8 @@ import           IR.R1cs                        ( R1CS
 import qualified IR.R1cs                       as R1cs
 import qualified Util.AliasMap                 as AMap
 import           Util.AliasMap                  ( AliasMap )
+import qualified Util.ShowMap                  as SMap
+import           Util.ShowMap                   ( ShowMap )
 import qualified Data.Bits                     as Bits
 import qualified Data.BitVector                as Bv
 import           Data.Dynamic                   ( Dynamic
@@ -68,6 +70,7 @@ type SmtVals = Map.Map String Dynamic
 type PfVals n = Map.Map PfVar (Prime n)
 
 type LSig n = (LC PfVar (Prime n), Maybe (Prime n))
+type ArraySizes = ShowMap (TermArray DynBvSort DynBvSort) Int
 
 data ToPfConfig = ToPfConfig { assumeNoBvOverflow :: Bool
                              , optEq :: Bool
@@ -80,22 +83,25 @@ data ToPfState n = ToPfState { r1cs :: R1CS PfVar n
                              , vals :: PfVals n
                              , next :: Int
                              , cfg  :: ToPfConfig
+                             , arraySizes :: ArraySizes
                              }
+
 
 newtype ToPf n a = ToPf (StateT (ToPfState n) Log a)
     deriving (Functor, Applicative, Monad, MonadState (ToPfState n), MonadIO, MonadLog, MonadCfg)
 
 emptyState :: ToPfState n
 emptyState = ToPfState
-  { r1cs  = emptyR1cs
-  , bools = AMap.empty
-  , ints  = AMap.empty
-  , vals  = Map.empty
-  , next  = 0
-  , cfg   = ToPfConfig { assumeNoBvOverflow  = False
-                       , optEq               = False
-                       , assumeInputsInRange = True
-                       }
+  { r1cs       = emptyR1cs
+  , bools      = AMap.empty
+  , ints       = AMap.empty
+  , vals       = Map.empty
+  , next       = 0
+  , cfg        = ToPfConfig { assumeNoBvOverflow  = False
+                            , optEq               = False
+                            , assumeInputsInRange = True
+                            }
+  , arraySizes = SMap.empty
   }
 
 configureFromEnv :: ToPf n ()
@@ -216,11 +222,6 @@ lcSub x y = lcAdd x $ lcNeg y
 
 lcNot :: KnownNat n => LSig n -> LSig n
 lcNot = lcSub lcOne
-
-isPublicSignal :: ToPf n (String -> Bool)
-isPublicSignal = do
-  r <- gets r1cs
-  return $ flip r1csIsPublicSignal r
 
 boolToPf
   :: forall n . KnownNat n => Maybe SmtVals -> TermBool -> ToPf n (LSig n)
@@ -770,26 +771,32 @@ publicizeInputs is = do
   modify $ \s -> s { r1cs = r1csAddSignals (Set.toList is) $ r1cs s }
   forM_ is $ \i -> modify $ \s -> s { r1cs = r1csPublicizeSignal i $ r1cs s }
 
-toPf :: KnownNat n => Set.Set PfVar -> [TermBool] -> Log (R1CS PfVar n)
-toPf inputs bs = do
+toPf
+  :: KnownNat n
+  => Set.Set PfVar
+  -> ArraySizes
+  -> [TermBool]
+  -> Log (R1CS PfVar n)
+toPf inputs arraySizes' bs = do
   s <- runToPf
     (configureFromEnv >> publicizeInputs inputs >> forM_ bs
                                                          (enforceAsPf Nothing)
     )
-    emptyState
+    emptyState { arraySizes = arraySizes' }
   return $ r1cs $ snd s
 
 toPfWithWit
   :: KnownNat n
   => SmtVals
   -> Set.Set PfVar
+  -> ArraySizes
   -> [TermBool]
   -> Log (R1CS PfVar n, PfVals n)
-toPfWithWit env inputs bs = do
+toPfWithWit env inputs arraySizes' bs = do
   s <- runToPf
     (configureFromEnv >> publicizeInputs inputs >> forM_
       bs
       (enforceAsPf $ Just env)
     )
-    emptyState
+    emptyState { arraySizes = arraySizes' }
   return (r1cs $ snd s, vals $ snd s)

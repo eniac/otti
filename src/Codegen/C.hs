@@ -9,6 +9,7 @@ import           Codegen.Circify.Memory         ( MonadMem
                                                 , bvNum
                                                 , evalMem
                                                 , liftMem
+                                                , MemState
                                                 )
 import           Control.Applicative
 import           Control.Monad                  ( join
@@ -614,18 +615,17 @@ cLangDef findBugs = LangDef { declare  = cDeclVar findBugs
                             , termEval = ctermEval
                             }
 
-runC :: Bool -> C a -> Assert.Assert (a, CircifyState Type CTerm)
+runC :: Bool -> C a -> Assert.Assert (a, CircifyState Type CTerm, MemState)
 runC findBugs c = do
   let (C act) = cfgFromEnv >> c
-  ((x, cState), circState) <- runCodegen (cLangDef findBugs)
-    $ runStateT act (emptyCState findBugs)
-  return (x, circState)
+  (((x, cState), circState), memState) <-
+    runCodegen (cLangDef findBugs) $ runStateT act (emptyCState findBugs)
+  return (x, circState, memState)
 
 evalC :: Bool -> C a -> Assert.Assert a
-evalC findBugs act = fst <$> runC findBugs act
-
-execC :: Bool -> C a -> Assert.Assert (CircifyState Type CTerm)
-execC findBugs act = snd <$> runC findBugs act
+evalC findBugs act = do
+  (r, _, _) <- runC findBugs act
+  return r
 
 -- Can a fn exhibit undefined behavior?
 -- Returns a string describing it, if so.

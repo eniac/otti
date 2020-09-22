@@ -15,6 +15,7 @@ import           Control.Monad.IO.Class
 import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.Assert                 as Assert
 import qualified Language.C.Syntax.AST         as AST
+import qualified Codegen.Circify.Memory        as Mem
 import           Codegen.Circify                ( evalCodegen
                                                 , runCodegen
                                                 , initValues
@@ -49,11 +50,13 @@ import           Data.Field.Galois              ( Prime
                                                 )
 import           Util.Log
 import           Util.Cfg                       ( liftCfg )
+import qualified Util.ShowMap                  as SMap
 
 data FnTrans = FnTrans { assertions :: [Ty.TermBool]
                        , inputs :: [String]
                        , output :: String
                        , vals   :: Maybe (Map.Map String Dynamic)
+                       , arraySizes :: SMap.ShowMap (Ty.TermArray Ty.DynBvSort Ty.DynBvSort) Int
                        }
 
 -- Can a fn exhibit undefined behavior?
@@ -62,13 +65,14 @@ fnToSmt
   :: Maybe (Map.Map String Integer) -> AST.CTranslUnit -> String -> Log FnTrans
 fnToSmt inVals tu name = do
   let init = when (isJust inVals) $ liftCircify initValues
-  (((inputs, output), compState), assertState) <-
+  (((inputs, output), compState, memState), assertState) <-
     liftCfg $ Assert.runAssert $ runC False $ init >> codegenFn tu name inVals
   return $ FnTrans
     { assertions = Assert.asserted assertState
     , inputs     = inputs
     , output     = fromMaybe (error "No return value in fnToSmt") output
     , vals       = values compState
+    , arraySizes = Mem.sizes memState
     }
 
 fnToR1cs
@@ -77,7 +81,7 @@ fnToR1cs tu fnName = do
   fn <- fnToSmt Nothing tu fnName
   let pubVars = Set.insert (output fn) $ Set.fromList $ inputs fn
   newSmt <- SmtOpt.opt pubVars (assertions fn)
-  r      <- toPf @n pubVars newSmt
+  r      <- toPf @n pubVars (arraySizes fn) newSmt
   R1csOpt.opt r
 
 fnToR1csWithWit
@@ -95,6 +99,6 @@ fnToR1csWithWit inVals tu fnName = do
     unless (Ty.ValBool True == v) $ error $ "eval " ++ show a ++ " gave False"
   let pubVars = Set.insert (output fn) $ Set.fromList $ inputs fn
   newSmt <- SmtOpt.opt pubVars (assertions fn)
-  (r, w) <- toPfWithWit @n vs pubVars newSmt
+  (r, w) <- toPfWithWit @n vs pubVars (arraySizes fn) newSmt
   r'     <- R1csOpt.opt r
   return (r', w)

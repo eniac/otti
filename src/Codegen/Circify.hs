@@ -658,16 +658,18 @@ doReturn value = do
   compilerModifyTop (fsDoBreak returnBreakName)
 
 runCodegen
-  :: LangDef ty term -> Circify ty term a -> Assert (a, CircifyState ty term)
+  :: LangDef ty term
+  -> Circify ty term a
+  -> Assert ((a, CircifyState ty term), Mem.MemState)
 runCodegen langDef (Circify act) =
-  Mem.evalMem $ runStateT act $ emptyCircifyState langDef
+  Mem.runMem $ runStateT act $ emptyCircifyState langDef
 
 evalCodegen :: LangDef ty term -> Circify ty term a -> Assert a
-evalCodegen langDef act = fst <$> runCodegen langDef act
+evalCodegen langDef act = fst . fst <$> runCodegen langDef act
 
 execCodegen
   :: LangDef ty term -> Circify ty term a -> Assert (CircifyState ty term)
-execCodegen langDef act = snd <$> runCodegen langDef act
+execCodegen langDef act = snd . fst <$> runCodegen langDef act
 
 
 -- Turning VarNames (the AST's representation of a variable) into other representations

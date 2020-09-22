@@ -29,6 +29,7 @@ import qualified IR.SMT.TySmt                  as Ty
 import           Parser.C
 import           Test.Tasty.HUnit
 import           Util.Log
+import qualified Util.ShowMap                  as SMap
 import           Util.Cfg                       ( evalCfgDefault )
 import           Utils
 
@@ -96,11 +97,12 @@ ubTests = benchTestGroup
 
 satSmtCircuitTest :: String -> String -> FilePath -> BenchTest
 satSmtCircuitTest name fnName path = benchTestCase name $ do
-  tu                       <- parseC path
-  (compState, assertState) <- evalCfgDefault $ runAssert $ execC False $ do
-    liftCircify initValues
-    setDefaultValueZero
-    codegenFn tu fnName (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
+  tu                               <- parseC path
+  ((_, compState, _), assertState) <-
+    evalCfgDefault $ runAssert $ runC False $ do
+      liftCircify initValues
+      setDefaultValueZero
+      codegenFn tu fnName (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
   let assertions = asserted assertState
   let env        = fromJust $ values compState
   forM_ assertions $ \a -> do
@@ -130,12 +132,14 @@ satR1csTestInputs name fnName path inputs = benchTestCase name $ do
           liftCircify initValues
           setDefaultValueZero
           codegenFn tu fnName (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
-  (compState, assertState) <- evalCfgDefault $ runAssert $ execC False runIt
+  ((_, compState, _), assertState) <- evalCfgDefault $ runAssert $ runC False
+                                                                        runIt
   let assertions = asserted assertState
   let env        = fromJust $ values compState
   forM_ assertions $ \a -> Ty.ValBool True @=? Ty.eval env a
   (cs, wit) <- evalCfgDefault $ evalLog $ toPfWithWit @Order env
                                                              Set.empty
+                                                             SMap.empty
                                                              assertions
   -- Check R1CS satisfaction
   let checkResult = r1csCheck wit cs

@@ -81,6 +81,7 @@ module IR.SMT.TySmt
   , TermPf
   , TermDouble
   , TermFloat
+  , TermArray
   , sort
   , ComputableFp
   , dynBvWidth
@@ -360,6 +361,7 @@ type TermInt = Term IntSort
 type TermPf n = Term (PfSort n)
 type TermDouble = Term F64
 type TermFloat = Term F32
+type TermArray k v = Term (ArraySort k v)
 
 data Term s where
     -- Boolean terms
