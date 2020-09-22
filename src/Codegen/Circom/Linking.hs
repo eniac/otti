@@ -7,8 +7,6 @@ module Codegen.Circom.Linking
   , r1csCountVars
   , linkMain
   , computeWitnesses
-  , parseSignalsFromFile
-  , parseIntsFromFile
   , r1csStats
   , nPublicInputs
   )
@@ -29,12 +27,10 @@ import qualified Codegen.Circom.CompTypes.WitComp
                                                as Wit
 import           Data.Field.Galois              ( Prime
                                                 , fromP
-                                                , toP
                                                 )
 import           GHC.TypeLits                   ( KnownNat )
 import qualified Data.Array                    as Arr
 import qualified Data.Sequence                 as Seq
-import qualified Data.List.Split               as Split
 import qualified Data.Maybe                    as Maybe
 import qualified Data.Map.Strict               as Map
 import qualified Data.IntSet                   as IntSet
@@ -42,9 +38,6 @@ import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
 import           Data.Proxy                     ( Proxy(Proxy) )
-import           System.IO                      ( Handle
-                                                , hGetContents
-                                                )
 
 newtype LinkState s n a = LinkState (State (R1CS s n) a)
     deriving (Functor, Applicative, Monad, MonadState (R1CS s n))
@@ -251,32 +244,3 @@ computeWitnesses order main inputs =
       Map.union (execWriter w) $ Map.map fromP $ Map.mapKeys
         (joinName namespace . SigLocal)
         inputs
-
-parseIndexedIdent :: String -> IndexedIdent
-parseIndexedIdent s =
-  let parts = filter (not . null) $ Split.splitOneOf "[]" s
-  in  (head parts, map (read @Int) $ tail parts)
-
-parseIntsFromFile :: Handle -> IO (Map.Map String Integer)
-parseIntsFromFile path = do
-  contents <- hGetContents path
-  return
-    $ Map.fromList
-    $ map
-        (\l -> case words l of
-          [a, b] -> (a, read b)
-          _      -> error $ "Invalid input line: " ++ show l
-        )
-    $ lines contents
-
-parseSignalsFromFile
-  :: forall n
-   . KnownNat n
-  => Proxy n
-  -> Handle
-  -> IO (Map.Map IndexedIdent (Prime n))
-parseSignalsFromFile _order path =
-  Map.fromList
-    .   map (bimap parseIndexedIdent toP)
-    .   Map.toAscList
-    <$> parseIntsFromFile path

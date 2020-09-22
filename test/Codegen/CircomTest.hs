@@ -5,6 +5,7 @@ module Codegen.CircomTest where
 import           BenchUtils
 import           Test.Tasty.HUnit
 import qualified Codegen.Circom.Linking        as Link
+import qualified Parser.Circom.Inputs          as Parse
 import qualified IR.R1cs                       as R1cs
 import qualified Data.Map                      as Map
 import qualified Data.IntMap                   as IntMap
@@ -56,7 +57,7 @@ checkWitComp circuitPath inputs = benchTestCase circuitPath $ do
             (unlines $ map (\(n, v) -> n ++ " " ++ show v) $ Map.toList inputs)
           _             <- hClose i
           inFile        <- openFile inPath ReadMode
-          inputsSignals <- Link.parseSignalsFromFile (Proxy @Order) inFile
+          inputsSignals <- Parse.parseSignalsFromFile (Proxy @Order) inFile
           let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
           let r1cs       = Link.linkMain @Order m
           let

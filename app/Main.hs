@@ -28,6 +28,7 @@ import           Control.Monad
 import           Control.Monad.IO.Class
 import qualified IR.R1cs                       as R1cs
 import qualified IR.R1cs.Opt                   as Opt
+import qualified Parser.Circom.Inputs          as Parse
 import           Data.Field.Galois              ( fromP )
 import qualified Data.Map                      as Map
 import qualified Data.IntMap                   as IntMap
@@ -203,7 +204,7 @@ cmdProve
 cmdProve libsnark pkPath vkPath inPath xPath wPath pfPath circomPath = do
   m             <- liftIO $ loadMain circomPath
   inputFile     <- liftIO $ openFile inPath ReadMode
-  inputsSignals <- liftIO $ Link.parseSignalsFromFile (Proxy @Order) inputFile
+  inputsSignals <- liftIO $ Parse.parseSignalsFromFile (Proxy @Order) inputFile
   let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
   r1cs <- evalLog $ Opt.opt $ Link.linkMain @Order m
   let getOr m_ k =
@@ -271,7 +272,7 @@ cmdCProve
 cmdCProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath = do
   tu            <- liftIO $ parseC cPath
   inputFile     <- liftIO $ openFile inPath ReadMode
-  inputsSignals <- liftIO $ Link.parseIntsFromFile inputFile
+  inputsSignals <- liftIO $ Parse.parseIntsFromFile inputFile
   (r1cs, w)     <- evalLog $ fnToR1csWithWit @Order inputsSignals tu fnName
   let getOr m_ k =
         Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
