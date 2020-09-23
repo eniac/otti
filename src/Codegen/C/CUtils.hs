@@ -161,7 +161,8 @@ ctermInit ty value = mkCTerm
     _ | AST.isIntegerType ty ->
       let n = AST.numBits ty
       in  CInt False n (Ty.IntToDynBv n (Ty.IntLit (value `rem` toInteger n)))
-    _ -> error $ "Cannot init type: " ++ show ty
+    AST.Struct fs -> CStruct ty $ map (\(n, ty) -> (n, ctermInit ty value)) fs
+    _             -> error $ "Cannot init type: " ++ show ty
   )
   (Ty.BoolLit False)
 
@@ -269,11 +270,12 @@ udefName s = s ++ "_undef"
 
 cSetValues :: String -> CTerm -> Assert.Assert ()
 cSetValues name t = case term t of
-  CBool b    -> Assert.evalAndSetValue name b
-  CInt _ _ i -> Assert.evalAndSetValue name i
-  CFloat  f  -> Assert.evalAndSetValue name f
-  CDouble d  -> Assert.evalAndSetValue name d
-  _          -> error $ "Cannot set value for a term: " ++ show t
+  CBool b        -> Assert.evalAndSetValue name b
+  CInt _ _ i     -> Assert.evalAndSetValue name i
+  CFloat  f      -> Assert.evalAndSetValue name f
+  CDouble d      -> Assert.evalAndSetValue name d
+  CStruct _ty fs -> forM_ fs $ \(f, t) -> cSetValues (structVarName name f) t
+  _              -> error $ "Cannot set value for a term: " ++ show t
 
 
 -- Makes `name` an alias for `t`.
@@ -930,9 +932,8 @@ parseVar m vName = p m [Name vName]
   p :: Map.Map [Ext] Integer -> [Ext] -> AST.Type -> CTerm
   p m prefix ty = case ty of
     _ | basic ty ->
-      let i =
-              fromMaybe (error $ "No value at path " ++ show prefix)
-                $ Map.lookup prefix m
+      let r = reverse prefix
+          i = fromMaybe (error $ "No value at " ++ show r) $ Map.lookup r m
       in  ctermInit ty i
     AST.Array Nothing _ty' -> error $ "Unsized array: " ++ show ty
     -- TODO: Array (Just n) ty' -> forM [0..n-1] $ \i -> parseVar (Index i:prefix) ty'

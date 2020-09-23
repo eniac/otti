@@ -130,14 +130,14 @@ satSmtCircuitTests = benchTestGroup
   ]
 
 satR1csTestInputs
-  :: String -> String -> FilePath -> M.Map String Integer -> BenchTest
+  :: String -> String -> FilePath -> M.Map [String] Integer -> BenchTest
 satR1csTestInputs name fnName path inputs = benchTestCase name $ do
   tu                               <- parseC path
   ((_, compState, _), assertState) <-
     evalCfgDefault $ runAssert $ runC False $ codegenFn
       tu
       fnName
-      (Just $ M.mapKeys (replicate 1 . Name) inputs)
+      (Just $ M.mapKeys (map Name) inputs)
   let assertions = asserted assertState
   let env        = fromJust $ vals assertState
   forM_ assertions $ \a -> Ty.ValBool True @=? Ty.eval env a
@@ -154,39 +154,57 @@ satR1csTests = benchTestGroup
   [ satR1csTestInputs "constant in if"
                       "sum"
                       "test/Code/C/if.c"
-                      (M.fromList [("x", 4)])
-  , satR1csTestInputs "skip if" "sum" "test/Code/C/if.c" (M.fromList [("x", 5)])
-  , satR1csTestInputs "loop"    "sum" "test/Code/C/loop.c" (M.fromList [])
+                      (M.fromList [(["x"], 4)])
+  , satR1csTestInputs "skip if"
+                      "sum"
+                      "test/Code/C/if.c"
+                      (M.fromList [(["x"], 5)])
+  , satR1csTestInputs "loop" "sum" "test/Code/C/loop.c" (M.fromList [])
   , satR1csTestInputs "add"
                       "add"
                       "test/Code/C/add_unsigned.c"
-                      (M.fromList [("x", 1), ("y", 15)])
+                      (M.fromList [(["x"], 1), (["y"], 15)])
   , satR1csTestInputs "shifts"
                       "shift_it"
                       "test/Code/C/shifts.c"
-                      (M.fromList [("x", 17), ("y", 3)])
+                      (M.fromList [(["x"], 17), (["y"], 3)])
   , satR1csTestInputs "fn calls"
                       "outer"
                       "test/Code/C/fn_call.c"
-                      (M.fromList [("x", 17), ("y", 3)])
+                      (M.fromList [(["x"], 17), (["y"], 3)])
   , satR1csTestInputs "majority"
                       "maj"
                       "test/Code/C/sha.c"
-                      (M.fromList [("x", 17), ("y", 3), ("z", 4)])
+                      (M.fromList [(["x"], 17), (["y"], 3), (["z"], 4)])
   , satR1csTestInputs "ch"
                       "ch"
                       "test/Code/C/sha.c"
-                      (M.fromList [("x", 17), ("y", 3), ("z", 4)])
+                      (M.fromList [(["x"], 17), (["y"], 3), (["z"], 4)])
   -- Set inputs specially because rotation is not SAT for 0 length (the
   -- default)
   , satR1csTestInputs "rot left"
                       "rotateleft"
                       "test/Code/C/sha.c"
-                      (M.fromList [("x", 17), ("n", 30)])
+                      (M.fromList [(["x"], 17), (["n"], 30)])
   -- Set inputs specially because rotation is not SAT for 0 length (the
   -- default)
   , satR1csTestInputs "rot right"
                       "rotateright"
                       "test/Code/C/sha.c"
-                      (M.fromList [("x", 14), ("n", 1)])
+                      (M.fromList [(["x"], 14), (["n"], 1)])
+  , satR1csTestInputs "struct input"
+                      "foo"
+                      "test/Code/C/struct_inputs.c"
+                      (M.fromList [(["p", "x"], 14), (["p", "y"], 1)])
+  , satR1csTestInputs
+    "nested struct input"
+    "nested"
+    "test/Code/C/struct_inputs.c"
+    (M.fromList
+      [ (["t", "p", "x"], 14)
+      , (["t", "p", "y"], 13)
+      , (["t", "q", "x"], 12)
+      , (["t", "q", "y"], 11)
+      ]
+    )
   ]
