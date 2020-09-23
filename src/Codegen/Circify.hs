@@ -336,8 +336,8 @@ fsWithPrefix prefix ty = FunctionScope { guards         = []
 -- The function which define an SMT-embedded language.
 data LangDef ty term = LangDef { declare :: ty -> String -> Mem term
                                , assign  :: ty -> String -> term -> Maybe (Ty.TermBool, term) -> Mem (term, term)
+                               , setValues :: String -> term -> Assert ()
                                , termInit :: ty -> Integer -> term
-                               , termEval :: M.Map String Dynamic -> term -> Mem Dynamic
                                }
 
 -- | Internal state of the compiler for code generation
@@ -347,7 +347,6 @@ data CircifyState ty term = CircifyState { callStack         :: [FunctionScope t
                                  , typedefs          :: M.Map VarName ty
                                  , prefix            :: [String]
                                  , fnCtr             :: Int
-                                 , values            :: Maybe (M.Map String Dynamic)
                                  , lang              :: LangDef ty term
                                  }
 
@@ -373,7 +372,6 @@ emptyCircifyState lang = CircifyState { callStack = []
                                       , typedefs  = M.empty
                                       , prefix    = []
                                       , fnCtr     = 0
-                                      , values    = Nothing
                                       , lang      = lang
                                       }
 
@@ -580,22 +578,11 @@ getSsaName :: SsaLVal -> Circify ty term String
 getSsaName n = ssaVarAsString <$> getSsaVar n
 
 computingValues :: Circify ty term Bool
-computingValues = gets (isJust . values)
+computingValues = liftAssert Assert.isStoringValues
 
 getValues :: Circify ty term (M.Map String Dynamic)
-getValues = gets $ fromMaybe (error "Not computing values") . values
-
-modValues
-  :: (M.Map String Dynamic -> Circify ty term (M.Map String Dynamic))
-  -> Circify ty term ()
-modValues f = do
-  s <- get
-  case values s of
-    Just vs -> do
-      vs' <- f vs
-      put $ s { values = Just vs' }
-    Nothing -> return ()
-
+getValues =
+  liftAssert $ gets $ fromMaybe (error "Not computing values") . Assert.vals
 
 smtEval :: Ty.SortClass s => Ty.Term s -> Circify ty term (Ty.Value s)
 smtEval smt = flip Ty.eval smt <$> getValues
@@ -606,20 +593,16 @@ smtEvalBool smt = Ty.valAsBool <$> smtEval smt
 -- We do not record witness values for references.
 setValue :: Show term => SsaLVal -> term -> Circify ty term ()
 setValue name cterm = do
-  -- TODO: check getSsaVar
   var <- ssaVarAsString <$> getSsaVar name
   setValueRaw var cterm
 
 setValueRaw :: Show term => String -> term -> Circify ty term ()
-setValueRaw var cterm = modValues $ \vs -> do
-  liftLog $ logIf "witness" $ show var ++ " -> " ++ show cterm
-  e    <- gets (termEval . lang)
-  cval <- liftMem $ e vs cterm
-  return $ M.insert var cval vs
+setValueRaw var cterm = whenM computingValues $ do
+  e <- gets (setValues . lang)
+  liftAssert $ e var cterm
 
 getTerm :: SsaLVal -> Circify ty term (SsaVal term)
-getTerm var = do
-  compilerGetsInScope var fsGetTerm lsGetTerm
+getTerm var = compilerGetsInScope var fsGetTerm lsGetTerm
 
 setTerm :: SsaLVal -> SsaVal term -> Circify ty term ()
 setTerm n v = compilerModifyInScope n (fsSetTerm v) (lsSetTerm v)
@@ -740,14 +723,8 @@ ssaAssign var val = do
       , show priorTerm
       ]
 
-initAssign :: Show term => SsaLVal -> Integer -> Circify ty term ()
-initAssign name value = do
-  ty <- getType name
-  i  <- gets (termInit . lang)
-  setValue name (i ty value)
-
 initValues :: Circify ty term ()
-initValues = modify $ \s -> s { values = Just M.empty }
+initValues = liftAssert Assert.initValues
 
 getRef :: SsaLVal -> Circify ty term (SsaVal term)
 getRef lval = do

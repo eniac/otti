@@ -84,8 +84,9 @@ instance (MonadCfg m) => MonadCfg (StateT s m) where
 evalCfg :: Cfg a -> CfgState -> IO a
 evalCfg (Cfg action) = runReaderT action
 
+--TODO: This is helpful for getting stream output from tests. Worth it?
 evalCfgDefault :: Cfg a -> IO a
-evalCfgDefault (Cfg action) = runReaderT action defaultCfgState
+evalCfgDefault (Cfg action) = setFromEnv defaultCfgState >>= runReaderT action
 
 data CfgOption = CfgOption { optLens :: Lens' CfgState String
                            , optName :: String
@@ -162,12 +163,17 @@ options =
               "5"
   ]
 
+replace :: Char -> Char -> String -> String
+replace f t s = case s of
+  []     -> []
+  c : s' -> (if c == f then t else c) : replace f t s'
+
 setFromEnv :: CfgState -> IO CfgState
 setFromEnv cfg = foldM setOptFromEnv cfg options
  where
   setOptFromEnv :: CfgState -> CfgOption -> IO CfgState
   setOptFromEnv st o = do
-    v <- lookupEnv ("C-" ++ optName o)
+    v <- lookupEnv (replace '-' '_' $ "C_" ++ optName o)
     return $ case v of
       Just s  -> set (optLens o) s st
       Nothing -> st

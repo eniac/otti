@@ -5,6 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
 {-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving    #-}
 
 module Codegen.C.CUtils
   ( CTerm(..)
@@ -13,6 +14,7 @@ module Codegen.C.CUtils
   , cDeclVar
   , cDeclInitVar
   , cCondAssign
+  , cSetValues
   -- Memory Operations
   , cLoad
   , cStore
@@ -75,6 +77,11 @@ module Codegen.C.CUtils
   -- evaluation
   , ctermEval
   , ctermInit
+  -- input parsing
+  , parseToMap
+  , parseVar
+  , Ext(..)
+  , InMap
   )
 where
 
@@ -85,16 +92,19 @@ import           Control.Monad                  ( forM
                                                 , unless
                                                 , when
                                                 )
+import           Control.Monad.State.Strict
 import qualified Data.BitVector                as Bv
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
+import qualified Data.List.Split               as Split
 import           Data.Foldable                 as Fold
 import qualified Data.Map                      as Map
 import           Data.Maybe                     ( fromMaybe )
 import           IR.SMT.Assert                  ( liftAssert )
 import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
+import           Text.Read                      ( readMaybe )
 
 
 type Bv = Ty.TermDynBv
@@ -257,6 +267,14 @@ nyi msg = error $ "Not yet implemented: " ++ msg
 udefName :: String -> String
 udefName s = s ++ "_undef"
 
+cSetValues :: String -> CTerm -> Assert.Assert ()
+cSetValues name t = case term t of
+  CBool b    -> Assert.evalAndSetValue name b
+  CInt _ _ i -> Assert.evalAndSetValue name i
+  CFloat  f  -> Assert.evalAndSetValue name f
+  CDouble d  -> Assert.evalAndSetValue name d
+  _          -> error $ "Cannot set value for a term: " ++ show t
+
 
 -- Makes `name` an alias for `t`.
 -- That is, creates new SMT variable corresponding to the terms in `t`,
@@ -288,12 +306,14 @@ alias trackUndef name t = do
       v <- Assert.newVar name sort
       Assert.assign v val
       return $ CDouble v
+    -- TODO set value?
     CStackPtr ty off id -> do
       let sort = Ty.SortBv $ AST.numBits ty
       v <- Assert.newVar name sort
       Assert.assign v off
       return $ CStackPtr ty v id
     -- Arrays have to term-specific SMT variables, so there is nothign to alias.
+    -- TODO set value?
     CArray  ty id     -> return $ CArray ty id
     CStruct ty fields -> CStruct ty <$> forM
       fields
@@ -888,3 +908,37 @@ cTrue = mkCTerm (CBool $ Ty.BoolLit True) (Ty.BoolLit False)
 
 cFalse :: CTerm
 cFalse = mkCTerm (CBool $ Ty.BoolLit False) (Ty.BoolLit False)
+
+type InMap = Map.Map [Ext] Integer
+data Ext = Name String | Index Int deriving (Show, Eq, Ord)
+
+parseToMap :: String -> Map.Map [Ext] Integer
+parseToMap s = Map.fromList $ map pL $ filter (not . null) $ lines s
+ where
+  -- path
+  pP = map pT . filter (not . null) . Split.splitOneOf "[]."
+  -- path token
+  pT t = maybe (Name t) Index $ readMaybe t
+  -- line
+  pL l = case words l of
+    [l, r] -> (pP l, fromMaybe (error "No int on right") $ readMaybe r)
+    _      -> error $ "Line " ++ show l ++ "does not have 2 tokens"
+
+parseVar :: Map.Map [Ext] Integer -> String -> AST.Type -> CTerm
+parseVar m vName = p m [Name vName]
+ where
+  p :: Map.Map [Ext] Integer -> [Ext] -> AST.Type -> CTerm
+  p m prefix ty = case ty of
+    _ | basic ty ->
+      let i =
+              fromMaybe (error $ "No value at path " ++ show prefix)
+                $ Map.lookup prefix m
+      in  ctermInit ty i
+    AST.Array Nothing _ty' -> error $ "Unsized array: " ++ show ty
+    -- TODO: Array (Just n) ty' -> forM [0..n-1] $ \i -> parseVar (Index i:prefix) ty'
+    AST.Struct fields ->
+      let fs = map (\(fName, fTy) -> (fName, p m (Name fName : prefix) fTy))
+                   fields
+      in  mkCTerm (CStruct ty fs) (Ty.BoolLit False)
+    _ -> error $ "Cannot parse: " ++ show ty
+    where basic t = AST.isIntegerType t || t == AST.Bool

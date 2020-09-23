@@ -7,6 +7,7 @@ import           Control.Monad                  ( )
 import           Control.Monad.State.Strict
 import qualified Data.Map.Strict               as M
 import qualified Data.Dynamic                  as Dyn
+import           Data.Maybe                     ( isJust )
 import qualified IR.SMT.TySmt                  as Ty
 import           Util.Log
 import           Util.Cfg                       ( Cfg
@@ -20,7 +21,7 @@ import           Util.Cfg                       ( Cfg
 -- | State for keeping track of SMT-layer information
 data AssertState = AssertState { vars         :: M.Map String Dyn.Dynamic
                                , asserted     :: [Ty.Term Ty.BoolSort]
-                               --, vals         :: M.Map String Dyn.Dynamic
+                               , vals         :: Maybe (M.Map String Dyn.Dynamic)
                                }
                                deriving (Show)
 
@@ -39,7 +40,26 @@ instance (MonadAssert m) => MonadAssert (StateT s m) where
 ---
 
 emptyAssertState :: AssertState
-emptyAssertState = AssertState { vars = M.empty, asserted = [] }
+emptyAssertState =
+  AssertState { vars = M.empty, asserted = [], vals = Nothing }
+
+initValues :: Assert ()
+initValues = modify $ \s -> s { vals = Just M.empty }
+
+isStoringValues :: Assert Bool
+isStoringValues = gets (isJust . vals)
+
+evalAndSetValue :: Ty.SortClass s => String -> Ty.Term s -> Assert ()
+evalAndSetValue variable term = do
+  e <- gets vals
+  case e of
+    Just env -> setValue variable $ Ty.eval env term
+    Nothing  -> return ()
+
+setValue :: Ty.SortClass s => String -> Ty.Value s -> Assert ()
+setValue variable value = do
+  liftLog $ logIf "witness" $ show variable ++ " -> " ++ show value
+  modify $ \s -> s { vals = M.insert variable (Dyn.toDyn value) <$> vals s }
 
 runAssert :: Assert a -> Cfg (a, AssertState)
 runAssert (Assert act) = evalLog $ runStateT act emptyAssertState
@@ -60,14 +80,7 @@ assign a b = assert $ Ty.Eq a b
 
 implies :: Ty.Term Ty.BoolSort -> Ty.Term Ty.BoolSort -> Assert ()
 implies a b = assert $ Ty.BoolBinExpr Ty.Implies a b
---
---setValue :: Ty.SortClass s => String -> Ty.Value s -> Assert ()
---setValue name value = modify $ \s -> s { vals = M.insert name (Dyn.toDyn value) $ vals s }
 
--- REMOVE
--- getVars :: Assert (M.Map String Dyn.Dynamic)
--- getVars = vars `liftM` get
--- 
 newVar :: forall s . Ty.SortClass s => String -> Ty.Sort -> Assert (Ty.Term s)
 newVar name sort = do
   s0 <- get

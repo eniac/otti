@@ -1,5 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE TupleSections              #-}
 module Codegen.C where
 import           AST.C
 import           Codegen.C.CUtils
@@ -14,6 +15,7 @@ import           Codegen.Circify.Memory         ( MonadMem
 import           Control.Applicative
 import           Control.Monad                  ( join
                                                 , replicateM_
+                                                , forM
                                                 )
 import           Control.Monad.State.Strict
 import           Control.Monad.Reader
@@ -26,6 +28,7 @@ import           Data.Either                    ( fromRight
                                                 , isRight
                                                 )
 import           Data.List                      ( intercalate )
+import qualified Data.List.Split               as Split
 import qualified Data.Map                      as Map
 import           Data.Maybe                     ( fromJust
                                                 , fromMaybe
@@ -33,6 +36,7 @@ import           Data.Maybe                     ( fromJust
                                                 , isNothing
                                                 , listToMaybe
                                                 , maybeToList
+                                                , catMaybes
                                                 )
 import           IR.SMT.Assert                  ( MonadAssert
                                                 , liftAssert
@@ -54,7 +58,6 @@ data CState = CState { funs          :: Map.Map FunctionName CFunDef
                      , loopBound     :: Int
                      , findUB        :: Bool
                      , bugConditions :: [Ty.TermBool]
-                     , defaultValue  :: Maybe Integer
                      }
 
 newtype C a = C (StateT CState (Circify Type CTerm) a)
@@ -65,7 +68,6 @@ emptyCState findBugs = CState { funs          = Map.empty
                               , loopBound     = 5
                               , findUB        = findBugs
                               , bugConditions = []
-                              , defaultValue  = Nothing
                               }
 
 cfgFromEnv :: C ()
@@ -113,10 +115,6 @@ assertBug = do
   cs <- gets bugConditions
   liftAssert $ Assert.assert $ Ty.BoolNaryExpr Ty.Or cs
 
--- Default values
-setDefaultValueZero :: C ()
-setDefaultValueZero = modify $ \s -> s { defaultValue = Just 0 }
-
 -- Lift some CUtils stuff to the SSA layer
 ssaBool :: CSsaVal -> Ty.TermBool
 ssaBool = cBool . ssaValAsTerm "cBool"
@@ -146,10 +144,12 @@ ssaStructGet n = liftTermFun "cStructGet" (`cStructGet` n)
 ssaStructSet :: String -> CSsaVal -> CSsaVal -> CSsaVal
 ssaStructSet n = liftTermFun2 "cStructSet" (cStructSet n)
 
-typedefSMT :: Ident -> [CDeclSpec] -> [CDerivedDeclr] -> C ()
+typedefSMT :: Ident -> [CDeclSpec] -> [CDerivedDeclr] -> C (Maybe Type)
 typedefSMT (Ident name _ _) tys ptrs = do
   ty <- liftCircify $ ctype tys ptrs
-  forM_ ty $ liftCircify . typedef name
+  case ty of
+    Right ty' -> liftCircify $ typedef name ty' >> return (Just ty')
+    Left  _   -> return Nothing
 
 declareVarSMT
   :: Ident -> [CDeclSpec] -> [CDerivedDeclr] -> C (Either String Type)
@@ -465,8 +465,8 @@ genStmtSMT stmt = do
       liftCircify $ doReturn $ ssaValAsTerm "return" toReturn
     _ -> error $ unwords ["Unsupported: ", show stmt]
 
--- Returns the names of all declared variables
-genDeclSMT :: Maybe Bool -> CDecl -> C [String]
+-- Returns the names of all declared variables, and their types
+genDeclSMT :: Maybe Bool -> CDecl -> C [(String, Type)]
 genDeclSMT undef d@(CDecl specs decls _) = do
   liftLog $ logIf "decls" "genDeclSMT:"
   liftLog $ logIfM "decls" $ liftIO $ nodeText d
@@ -481,7 +481,7 @@ genDeclSMT undef d@(CDecl specs decls _) = do
   -- Even for not declarators, process the type. It may be a struct that needs to be recorded!
   when (null decls) $ void $ liftCircify $ baseTypeFromSpecs baseType
 
-  forM decls $ \(Just dec, mInit, _) -> do
+  ms <- forM decls $ \(Just dec, mInit, _) -> do
     let mName   = identFromDeclr dec
         ident   = fromMaybe (error "Expected identifier in decl") mName
         name    = identToVarName ident
@@ -489,19 +489,20 @@ genDeclSMT undef d@(CDecl specs decls _) = do
 
     if isTypedefDecl
       then do
-        typedefSMT ident baseType ptrType
-        return "TYPEDEF"
+        ty <- typedefSMT ident baseType ptrType
+        return $ ("TYPEDEF", ) <$> ty
       else do
         -- TODO: kick this into the Nothing case below, use better thing in the
         -- Just case?
-        case mInit of
+        ty <- case mInit of
           Just init -> do
             ty <- liftCircify $ ctype baseType ptrType
             case ty of
-              Left  err -> if skipBadTypes then return () else error err
+              Left  err -> if skipBadTypes then return Nothing else error err
               Right ty  -> do
                 rhs <- genInitSMT ty init
                 liftCircify $ declareInitVar name ty rhs
+                return $ Just ty
           Nothing -> do
             mTy <- declareVarSMT ident baseType ptrType
             when (not skipBadTypes || isRight mTy) $ do
@@ -514,7 +515,9 @@ genDeclSMT undef d@(CDecl specs decls _) = do
                     (udef $ ssaValAsTerm "undef settting in genDeclSMT" lhs)
                 . Ty.BoolLit
                 )
-        return name
+            return $ either (const Nothing) Just mTy
+        return $ (name, ) <$> ty
+  return $ catMaybes ms
 
 genInitSMT :: Type -> CInit -> C CSsaVal
 genInitSMT ty i = case (ty, i) of
@@ -538,8 +541,7 @@ genInitSMT ty i = case (ty, i) of
 ---
 
 -- Returns the variable names corresponding to inputs and the return
-genFunDef
-  :: CFunDef -> Maybe (Map.Map String Integer) -> C ([String], Maybe String)
+genFunDef :: CFunDef -> Maybe InMap -> C ([String], Maybe String)
 genFunDef f inVals = do
   -- Declare the function and setup the return value
   let name = nameFromFunc f
@@ -548,15 +550,14 @@ genFunDef f inVals = do
   retTy <- liftCircify $ unwrap <$> ctype tys ptrs
   liftCircify $ pushFunction name $ noneIfVoid retTy
   -- Declare the arguments and execute the body
-  inputNames     <- join <$> forM (argsFromFunc f) (genDeclSMT (Just False))
+  inputNamesAndTys <- join <$> forM (argsFromFunc f) (genDeclSMT (Just False))
+  let inputNames = map fst inputNamesAndTys
   fullInputNames <- map ssaVarAsString
     <$> forM inputNames (liftCircify . getSsaVar . SLVar)
-  def <- gets defaultValue
   case inVals of
-    Just i -> forM_ inputNames $ \n ->
-      liftCircify $ initAssign (SLVar n) $ fromMaybe
-        (error $ "Missing value for input " ++ n)
-        ((i Map.!? n) <|> def)
+    Just pathMap -> forM_ inputNamesAndTys $ \(n, ty) -> do
+      let v = parseVar pathMap n ty
+      liftCircify $ setValue (SLVar n) v
     Nothing -> return ()
 
   let body = bodyFromFunc f
@@ -599,20 +600,17 @@ findFn name decls =
         )
         (namesToFns Map.!? name)
 
-codegenFn
-  :: CTranslUnit
-  -> String
-  -> Maybe (Map.Map String Integer)
-  -> C ([String], Maybe String)
+codegenFn :: CTranslUnit -> String -> Maybe InMap -> C ([String], Maybe String)
 codegenFn (CTranslUnit decls _) name inVals = do
+  when (isJust inVals) $ liftCircify initValues
   registerFns decls
   genFunDef (findFn name decls) inVals
 
 cLangDef :: Bool -> LangDef Type CTerm
-cLangDef findBugs = LangDef { declare  = cDeclVar findBugs
-                            , assign   = cCondAssign findBugs
-                            , termInit = ctermInit
-                            , termEval = ctermEval
+cLangDef findBugs = LangDef { declare   = cDeclVar findBugs
+                            , assign    = cCondAssign findBugs
+                            , setValues = cSetValues
+                            , termInit  = ctermInit
                             }
 
 runC :: Bool -> C a -> Assert.Assert (a, CircifyState Type CTerm, MemState)

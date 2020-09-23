@@ -19,7 +19,6 @@ import qualified Codegen.Circify.Memory        as Mem
 import           Codegen.Circify                ( evalCodegen
                                                 , runCodegen
                                                 , initValues
-                                                , values
                                                 , liftCircify
                                                 )
 import           Codegen.Circom.CompTypes.LowDeg
@@ -29,6 +28,9 @@ import           Codegen.Circom.CompTypes.LowDeg
 import qualified IR.R1cs.Opt                   as R1csOpt
 import           Codegen.C                      ( codegenFn
                                                 , runC
+                                                )
+import           Codegen.C.CUtils               ( CTerm
+                                                , InMap
                                                 )
 import           IR.SMT.ToPf                    ( toPf
                                                 , toPfWithWit
@@ -61,8 +63,7 @@ data FnTrans = FnTrans { assertions :: [Ty.TermBool]
 
 -- Can a fn exhibit undefined behavior?
 -- Returns a string describing it, if so.
-fnToSmt
-  :: Maybe (Map.Map String Integer) -> AST.CTranslUnit -> String -> Log FnTrans
+fnToSmt :: Maybe InMap -> AST.CTranslUnit -> String -> Log FnTrans
 fnToSmt inVals tu name = do
   let init = when (isJust inVals) $ liftCircify initValues
   (((inputs, output), compState, memState), assertState) <-
@@ -71,7 +72,7 @@ fnToSmt inVals tu name = do
     { assertions = Assert.asserted assertState
     , inputs     = inputs
     , output     = fromMaybe (error "No return value in fnToSmt") output
-    , vals       = values compState
+    , vals       = Assert.vals assertState
     , arraySizes = Mem.sizes memState
     }
 
@@ -87,7 +88,7 @@ fnToR1cs tu fnName = do
 fnToR1csWithWit
   :: forall n
    . KnownNat n
-  => Map.Map String Integer
+  => InMap
   -> AST.CTranslUnit
   -> String
   -> Log (R1CS String n, Map.Map String (Prime n))

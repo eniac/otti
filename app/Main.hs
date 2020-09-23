@@ -19,6 +19,7 @@ import           Codegen.C.CToR1cs              ( fnToR1cs
 import           Codegen.C                      ( checkFn
                                                 , evalFn
                                                 )
+import           Codegen.C.CUtils               ( parseToMap )
 import qualified Codegen.Circom.Compilation    as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
                                                as Wit
@@ -270,10 +271,9 @@ cmdCProve
   -> FilePath
   -> Cfg ()
 cmdCProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath = do
-  tu            <- liftIO $ parseC cPath
-  inputFile     <- liftIO $ openFile inPath ReadMode
-  inputsSignals <- liftIO $ Parse.parseIntsFromFile inputFile
-  (r1cs, w)     <- evalLog $ fnToR1csWithWit @Order inputsSignals tu fnName
+  tu        <- liftIO $ parseC cPath
+  inMap     <- liftIO $ parseToMap <$> readFile inPath
+  (r1cs, w) <- evalLog $ fnToR1csWithWit @Order inMap tu fnName
   let getOr m_ k =
         Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
   let getOrI m_ k =

@@ -7,6 +7,7 @@ where
 import           AST.C
 import           BenchUtils
 import           Codegen.C
+import           Codegen.C.CUtils
 import           Codegen.Circify
 import           Control.Monad
 import           Data.Either                    ( isRight )
@@ -23,6 +24,7 @@ import           IR.SMT.Assert                  ( AssertState(..)
                                                 , asserted
                                                 , execAssert
                                                 , runAssert
+                                                , vals
                                                 )
 import           IR.SMT.ToPf                    ( toPfWithWit )
 import qualified IR.SMT.TySmt                  as Ty
@@ -95,16 +97,16 @@ ubTests = benchTestGroup
   , ubCheckTest "mod by zero" "modzero" "test/Code/C/other.c" True
   ]
 
-satSmtCircuitTest :: String -> String -> FilePath -> BenchTest
-satSmtCircuitTest name fnName path = benchTestCase name $ do
+satSmtCircuitTest
+  :: String -> String -> FilePath -> M.Map String Integer -> BenchTest
+satSmtCircuitTest name fnName path inputs = benchTestCase name $ do
   tu                               <- parseC path
   ((_, compState, _), assertState) <-
     evalCfgDefault $ runAssert $ runC False $ do
       liftCircify initValues
-      setDefaultValueZero
-      codegenFn tu fnName (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
+      codegenFn tu fnName (Just $ M.mapKeys (replicate 1 . Name) inputs)
   let assertions = asserted assertState
-  let env        = fromJust $ values compState
+  let env        = fromJust $ vals assertState
   forM_ assertions $ \a -> do
     --unless (Ty.ValBool True == Ty.eval env a) $ do
     --  putStrLn $ "Unsat constraint: " ++ show a
@@ -112,30 +114,32 @@ satSmtCircuitTest name fnName path = benchTestCase name $ do
 
 satSmtCircuitTests = benchTestGroup
   "SAT SMT Circuit checks"
-  [ satSmtCircuitTest "constant in if" "sum" "test/Code/C/if.c"
-  , satSmtCircuitTest "loop"           "sum" "test/Code/C/loop.c"
-  , satSmtCircuitTest "sum"            "add" "test/Code/C/add_unsigned.c"
+  [ satSmtCircuitTest "constant in if"
+                      "sum"
+                      "test/Code/C/if.c"
+                      (M.fromList [("x", 4)])
+  , satSmtCircuitTest "ch"
+                      "ch"
+                      "test/Code/C/sha.c"
+                      (M.fromList [("x", 17), ("y", 3), ("z", 4)])
+  , satSmtCircuitTest "loop" "sum" "test/Code/C/loop.c" (M.fromList [])
+  , satSmtCircuitTest "sum"
+                      "add"
+                      "test/Code/C/add_unsigned.c"
+                      (M.fromList [("x", 1), ("y", 15)])
   ]
 
-satR1csTest :: String -> String -> FilePath -> BenchTest
-satR1csTest name fnName path = satR1csTestInputs name fnName path Nothing
-
 satR1csTestInputs
-  :: String -> String -> FilePath -> Maybe (M.Map String Integer) -> BenchTest
+  :: String -> String -> FilePath -> M.Map String Integer -> BenchTest
 satR1csTestInputs name fnName path inputs = benchTestCase name $ do
-  tu <- parseC path
-  let runIt = case inputs of
-        Just m -> do
-          liftCircify initValues
-          codegenFn tu fnName (Just m) -- Provide an empty map to trigger initialization with default. ew.
-        Nothing -> do
-          liftCircify initValues
-          setDefaultValueZero
-          codegenFn tu fnName (Just M.empty) -- Provide an empty map to trigger initialization with default. ew.
-  ((_, compState, _), assertState) <- evalCfgDefault $ runAssert $ runC False
-                                                                        runIt
+  tu                               <- parseC path
+  ((_, compState, _), assertState) <-
+    evalCfgDefault $ runAssert $ runC False $ codegenFn
+      tu
+      fnName
+      (Just $ M.mapKeys (replicate 1 . Name) inputs)
   let assertions = asserted assertState
-  let env        = fromJust $ values compState
+  let env        = fromJust $ vals assertState
   forM_ assertions $ \a -> Ty.ValBool True @=? Ty.eval env a
   (cs, wit) <- evalCfgDefault $ evalLog $ toPfWithWit @Order env
                                                              Set.empty
@@ -147,23 +151,42 @@ satR1csTestInputs name fnName path inputs = benchTestCase name $ do
 
 satR1csTests = benchTestGroup
   "SAT R1cs checks"
-  [ satR1csTest "constant in if" "sum"      "test/Code/C/if.c"
-  , satR1csTest "loop"           "sum"      "test/Code/C/loop.c"
-  , satR1csTest "add"            "add"      "test/Code/C/add_unsigned.c"
-  , satR1csTest "shifts"         "shift_it" "test/Code/C/shifts.c"
-  , satR1csTest "fn calls"       "outer"    "test/Code/C/fn_call.c"
-  , satR1csTest "majority"       "maj"      "test/Code/C/sha.c"
-  , satR1csTest "ch"             "ch"       "test/Code/C/sha.c"
+  [ satR1csTestInputs "constant in if"
+                      "sum"
+                      "test/Code/C/if.c"
+                      (M.fromList [("x", 4)])
+  , satR1csTestInputs "skip if" "sum" "test/Code/C/if.c" (M.fromList [("x", 5)])
+  , satR1csTestInputs "loop"    "sum" "test/Code/C/loop.c" (M.fromList [])
+  , satR1csTestInputs "add"
+                      "add"
+                      "test/Code/C/add_unsigned.c"
+                      (M.fromList [("x", 1), ("y", 15)])
+  , satR1csTestInputs "shifts"
+                      "shift_it"
+                      "test/Code/C/shifts.c"
+                      (M.fromList [("x", 17), ("y", 3)])
+  , satR1csTestInputs "fn calls"
+                      "outer"
+                      "test/Code/C/fn_call.c"
+                      (M.fromList [("x", 17), ("y", 3)])
+  , satR1csTestInputs "majority"
+                      "maj"
+                      "test/Code/C/sha.c"
+                      (M.fromList [("x", 17), ("y", 3), ("z", 4)])
+  , satR1csTestInputs "ch"
+                      "ch"
+                      "test/Code/C/sha.c"
+                      (M.fromList [("x", 17), ("y", 3), ("z", 4)])
   -- Set inputs specially because rotation is not SAT for 0 length (the
   -- default)
   , satR1csTestInputs "rot left"
                       "rotateleft"
                       "test/Code/C/sha.c"
-                      (Just $ M.fromList [("x", 17), ("n", 30)])
+                      (M.fromList [("x", 17), ("n", 30)])
   -- Set inputs specially because rotation is not SAT for 0 length (the
   -- default)
   , satR1csTestInputs "rot right"
                       "rotateright"
                       "test/Code/C/sha.c"
-                      (Just $ M.fromList [("x", 14), ("n", 1)])
+                      (M.fromList [("x", 14), ("n", 1)])
   ]

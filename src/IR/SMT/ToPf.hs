@@ -119,8 +119,10 @@ configureFromEnv = do
 -- # Constraints
 
 enforce :: KnownNat n => QEQ PfVar (Prime n) -> ToPf n ()
-enforce qeq = ensureVarsQeq qeq
-  >> modify (\s -> s { r1cs = r1csAddConstraint qeq $ r1cs s })
+enforce qeq = do
+  ensureVarsQeq qeq
+  modify (\s -> s { r1cs = r1csAddConstraint qeq $ r1cs s })
+  liftLog $ logIf "toPfCon" $ qeqShow qeq
 
 enforceCheck :: KnownNat n => (LSig n, LSig n, LSig n) -> ToPf n ()
 enforceCheck ((a, av), (b, bv), (c, cv)) = do
@@ -557,7 +559,7 @@ bvToPf env term = do
       DynBvUnExpr BvNot _ x -> do
         bvToPf env x
         x' <- getIntBits x
-        saveIntBits bv $ map lcNeg x'
+        saveIntBits bv $ map lcNot x'
       DynBvSext _ deltaW i -> do
         bvToPf env i
         i' <- getIntBits i
