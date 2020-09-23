@@ -61,6 +61,21 @@ For usage information:
 stack exec compiler-exe -- -h
 ```
 
+# Configuration
+
+There is a configuration system in `src/Util/Cfg.hs`. You can add new
+configuration options there. Configuration options can be set by environmental
+variables, like so:
+
+```
+C_cfg_with_underscores_instead_of_dashes=value stack run -- ...
+```
+
+One particularly useful configuration options is `C_streams`, which enables
+logging streams. You can log to named streams using `logIf` in
+`src/Util/Log.hs`, and the output will only appear if the specified stream is
+enabled.
+
 # Directory structure
 
 ```
