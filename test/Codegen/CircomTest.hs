@@ -16,14 +16,16 @@ import           System.FilePath
 import           System.IO.Temp
 import           System.IO
 import           Parser.Circom                 as Parser
+import           Util.Cfg
+import           Util.Log
 
 type Order
   = 113890009193798365449144652900867294558768981710660728242748762258461992583217
 
 checkR1cs :: FilePath -> Maybe Int -> BenchTest
 checkR1cs circuitPath constraintCount = benchTestCase circuitPath $ do
-  pgm <- loadMain circuitPath
-  let r1cs = Link.linkMain @Order pgm
+  pgm      <- loadMain circuitPath
+  r1cs     <- evalCfgDefault $ evalLog $ Link.linkMain @Order pgm
   tempDir  <- getTemporaryDirectory
   tempPath <- emptyTempFile tempDir "circom-test-check.ext"
   _        <- R1cs.writeToR1csFile r1cs tempPath
@@ -59,7 +61,7 @@ checkWitComp circuitPath inputs = benchTestCase circuitPath $ do
           inFile        <- openFile inPath ReadMode
           inputsSignals <- Parse.parseSignalsFromFile (Proxy @Order) inFile
           let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
-          let r1cs       = Link.linkMain @Order m
+          r1cs <- evalCfgDefault $ evalLog $ Link.linkMain @Order m
           let
             getOr m_ k =
               Maybe.fromMaybe (error $ "Missing key: " ++ show k) $ m_ Map.!? k

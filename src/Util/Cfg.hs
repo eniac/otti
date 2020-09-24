@@ -25,6 +25,7 @@ import           Data.Typeable                  ( Typeable
                                                 , Proxy(Proxy)
                                                 )
 import           System.Environment             ( lookupEnv )
+import           System.Exit                    ( exitSuccess )
 import           Text.Read                      ( readMaybe )
 import           Data.List.Split                ( splitOn )
 import           Lens.Simple
@@ -59,6 +60,7 @@ data CfgState = CfgState { _optR1cs :: Bool
                          , _smtOptCfg :: SmtOptCfg
                          , _streams :: [String]
                          , _loopBound :: Int
+                         , _help :: Bool
                          } deriving (Show)
 
 defaultCfgState :: CfgState
@@ -67,6 +69,7 @@ defaultCfgState = CfgState { _optR1cs   = True
                            , _smtOptCfg = defaultSmtOptCfg
                            , _streams   = []
                            , _loopBound = 5
+                           , _help      = False
                            }
 
 $(makeLenses ''CfgState)
@@ -110,6 +113,9 @@ showReadLens = lens show (const read')
 commaListLens :: Lens' [String] String
 commaListLens =
   lens (intercalate ",") (const (filter (not . null) . splitOn ","))
+
+cfgEnvName :: CfgOption -> String
+cfgEnvName o = replace '-' '_' $ "C_" ++ optName o
 
 options :: [CfgOption]
 options =
@@ -161,6 +167,11 @@ options =
               "How many iterations loops are unrolled for"
               ""
               "5"
+  , CfgOption (help . showReadLens)
+              "help"
+              "Prints cfg help and exits"
+              ""
+              "False"
   ]
 
 replace :: Char -> Char -> String -> String
@@ -169,11 +180,24 @@ replace f t s = case s of
   c : s' -> (if c == f then t else c) : replace f t s'
 
 setFromEnv :: CfgState -> IO CfgState
-setFromEnv cfg = foldM setOptFromEnv cfg options
+setFromEnv cfg = do
+  cfg' <- foldM setOptFromEnv cfg options
+  when (_help cfg') $ do
+    forM_ options $ \o ->
+      putStrLn
+        $  optName o
+        ++ " (env: "
+        ++ cfgEnvName o
+        ++ ") : "
+        ++ optDesc o
+        ++ "\n\t"
+        ++ optDetail o
+    exitSuccess
+  return cfg'
  where
   setOptFromEnv :: CfgState -> CfgOption -> IO CfgState
   setOptFromEnv st o = do
-    v <- lookupEnv (replace '-' '_' $ "C_" ++ optName o)
+    v <- lookupEnv (cfgEnvName o)
     return $ case v of
       Just s  -> set (optLens o) s st
       Nothing -> st

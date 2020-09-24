@@ -171,7 +171,7 @@ cmdEmitR1cs :: FilePath -> FilePath -> Cfg ()
 cmdEmitR1cs circomPath r1csPath = do
   liftIO $ print "Loading circuit"
   m    <- liftIO $ loadMain circomPath
-  r1cs <- evalLog $ Opt.opt $ Link.linkMain @Order m
+  r1cs <- evalLog $ (Link.linkMain @Order m >>= Opt.opt)
   liftIO $ do
     putStrLn $ R1cs.r1csStats r1cs
     putStrLn $ R1cs.r1csShow r1cs
@@ -207,7 +207,7 @@ cmdProve libsnark pkPath vkPath inPath xPath wPath pfPath circomPath = do
   inputFile     <- liftIO $ openFile inPath ReadMode
   inputsSignals <- liftIO $ Parse.parseSignalsFromFile (Proxy @Order) inputFile
   let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
-  r1cs <- evalLog $ Opt.opt $ Link.linkMain @Order m
+  r1cs <- evalLog $ (Link.linkMain @Order m >>= Opt.opt)
   let getOr m_ k =
         Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
   let getOrI m_ k =

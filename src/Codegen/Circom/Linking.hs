@@ -38,9 +38,10 @@ import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
 import           Data.Proxy                     ( Proxy(Proxy) )
+import           Util.Log
 
-newtype LinkState s n a = LinkState (State (R1CS s n) a)
-    deriving (Functor, Applicative, Monad, MonadState (R1CS s n))
+newtype LinkState s n a = LinkState (StateT (R1CS s n) Log a)
+    deriving (Functor, Applicative, Monad, MonadState (R1CS s n), MonadLog)
 
 type Namespace = GlobalSignal
 
@@ -94,7 +95,11 @@ link namespace invocation ctx =
       components =
           foldMap (uncurry $ extractComponents []) $ Map.assocs $ CompT.env c
   in  do
-      -- add our signals
+        liftLog
+          $  logIf "r1cs::link::namespace"
+          $  "Linking namespace: "
+          ++ show namespace
+        -- add our signals
         modify (r1csAddSignals (map (joinName namespace) newSignals))
         -- link sub-modules
         mapM_ (\(loc, inv) -> link (prependNamespace loc namespace) inv ctx)
@@ -103,10 +108,11 @@ link namespace invocation ctx =
         modify $ r1csAddConstraints newConstraints
         return ()
 
-execLink :: KnownNat n => LinkState s n a -> R1CS s n -> R1CS s n
-execLink (LinkState s) = execState s
+execLink :: KnownNat n => LinkState s n a -> R1CS s n -> Log (R1CS s n)
+execLink (LinkState s) = execStateT s
 
-linkMain :: forall k . KnownNat k => AST.SMainCircuit -> R1CS GlobalSignal k
+linkMain
+  :: forall k . KnownNat k => AST.SMainCircuit -> Log (R1CS GlobalSignal k)
 linkMain m =
   let c          = Comp.compMainCtx m
       invocation = Comp.getMainInvocation (Proxy @k) m
@@ -117,9 +123,9 @@ linkMain m =
             Map.!? invocation
       n         = CompT.nPublicInputs mainCtx
       namespace = GlobalSignal [("main", [])]
-  in  (execLink @k (link namespace invocation c) emptyR1cs)
-        { publicInputs = IntSet.fromAscList $ take n [2 ..]
-        }
+  in  do
+        s <- execLink @k (link namespace invocation c) emptyR1cs
+        return s { publicInputs = IntSet.fromAscList $ take n [2 ..] }
 
 type GlobalValues = Map.Map GlobalSignal Integer
 data LocalValues = LocalValues { stringValues :: !(Map.Map String Dynamic)
