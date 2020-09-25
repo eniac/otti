@@ -40,6 +40,7 @@ library:
   - bitvec >= 1.0.2
   - data-binary-ieee754 >= 0.4
   - lens-simple >= 0.1.0.9 && < 0.2
+  - union-find >= 0.2 && < 0.3
 
 executables:
   compiler-exe:

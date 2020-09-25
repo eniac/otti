@@ -174,7 +174,7 @@ cmdEmitR1cs circomPath r1csPath = do
   r1cs <- evalLog $ (Link.linkMain @Order m >>= Opt.opt)
   liftIO $ do
     putStrLn $ R1cs.r1csStats r1cs
-    putStrLn $ R1cs.r1csShow r1cs
+    --putStrLn $ R1cs.r1csShow r1cs
     R1cs.writeToR1csFile r1cs r1csPath
 
 cmdCountTerms :: FilePath -> Cfg ()

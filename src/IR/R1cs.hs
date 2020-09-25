@@ -24,6 +24,8 @@ module IR.R1cs
   , r1csShow
   , qeqShow
   , lcShow
+  , lcSigs
+  , qeqSigs
   , primeShow
   , emptyR1cs
   , nPublicInputs
@@ -39,7 +41,6 @@ where
 
 import           Control.Monad
 import           Data.Field.Galois              ( Prime
-                                                , PrimeField
                                                 , GaloisField
                                                 , fromP
                                                 , toP
@@ -117,12 +118,15 @@ r1csShow r1cs =
   List.intercalate "" $ map (\qeq -> "  " ++ qeqShow qeq ++ "\n") $ r1csQeqs
     r1cs
 
-primeShow :: forall n . KnownNat n => Prime n -> String
-primeShow p =
+primeToSignedInt :: forall n . KnownNat n => Prime n -> Integer
+primeToSignedInt p =
   let v  = fromP p
       o  = natVal $ Proxy @n
       ho = o `div` 2
-  in  if v < ho then show v else show (v - o)
+  in  if v < ho then v else v - o
+
+primeShow :: KnownNat n => Prime n -> String
+primeShow = show . primeToSignedInt
 
 qeqShow :: (KnownNat n, Show s) => QEQ s (Prime n) -> String
 qeqShow (a, b, c) =
@@ -134,6 +138,12 @@ lcShow (m, c) =
           map (\(x, v) -> primeShow v ++ " " ++ show x) (Map.toList m)
             ++ [ primeShow c | c /= toP 0 ]
   in  List.intercalate " + " (if null list then ["0"] else list)
+
+lcSigs :: LC s k -> [s]
+lcSigs = Map.keys . fst
+
+qeqSigs :: QEQ s k -> [s]
+qeqSigs (a, b, c) = lcSigs a ++ lcSigs b ++ lcSigs c
 
 sigNumLookup :: (Show s, Ord s) => R1CS s n -> s -> Int
 sigNumLookup r1cs s = Map.findWithDefault
@@ -229,14 +239,16 @@ sigMapLc f (m, c) = (Map.mapKeys f m, c)
 sigMapQeq :: (Ord s, Ord t) => (s -> t) -> QEQ s n -> QEQ t n
 sigMapQeq f (a, b, c) = (sigMapLc f a, sigMapLc f b, sigMapLc f c)
 
-lcToR1csLine :: PrimeField n => LC Int n -> [Integer]
+lcToR1csLine :: KnownNat n => LC Int (Prime n) -> [Integer]
 lcToR1csLine (m, c) =
   let pairs          = Map.toAscList m
       augmentedPairs = if fromP c == 0 then pairs else (1, c) : pairs
       nPairs         = fromIntegral (length augmentedPairs)
-  in  nPairs : concatMap (\(x, f) -> [fromP f, fromIntegral x]) augmentedPairs
+  in  nPairs
+        : concatMap (\(x, f) -> [primeToSignedInt f, fromIntegral x])
+                    augmentedPairs
 
-qeqToR1csLines :: PrimeField n => QEQ Int n -> [[Integer]]
+qeqToR1csLines :: KnownNat n => QEQ Int (Prime n) -> [[Integer]]
 qeqToR1csLines (a, b, c) = [] : map lcToR1csLine [a, b, c]
 
 r1csAsLines :: KnownNat n => R1CS s n -> [[Integer]]
