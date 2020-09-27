@@ -7,3 +7,4 @@ compiler.cabal
 comp
 scratch
 inputs
+*.jq

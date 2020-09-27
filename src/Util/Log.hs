@@ -17,6 +17,7 @@ module Util.Log
 where
 import           Control.Monad                  ( )
 import           Control.Monad.State.Strict
+import           Control.Monad.Writer.Strict
 import           Control.Monad.Reader
 import qualified Data.Set                      as S
 import           Util.Cfg                       ( Cfg
@@ -41,6 +42,8 @@ class Monad m => MonadLog m where
 instance MonadLog Log where
   liftLog = id
 instance (MonadLog m) => MonadLog (StateT s m) where
+  liftLog = lift . liftLog
+instance (Monoid w, MonadLog m) => MonadLog (WriterT w m) where
   liftLog = lift . liftLog
 
 emptyLogState :: LogState

@@ -28,7 +28,7 @@ checkR1cs circuitPath constraintCount = benchTestCase circuitPath $ do
   r1cs     <- evalCfgDefault $ evalLog $ Link.linkMain @Order pgm
   tempDir  <- getTemporaryDirectory
   tempPath <- emptyTempFile tempDir "circom-test-check.ext"
-  _        <- R1cs.writeToR1csFile r1cs tempPath
+  _        <- R1cs.writeToR1csFile False r1cs tempPath
   case constraintCount of
     Just n  -> length (Link.constraints r1cs) @?= n
     Nothing -> pure ()
@@ -60,7 +60,7 @@ checkWitComp circuitPath inputs = benchTestCase circuitPath $ do
           _             <- hClose i
           inFile        <- openFile inPath ReadMode
           inputsSignals <- Parse.parseSignalsFromFile (Proxy @Order) inFile
-          let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
+          allSignals <- evalCfgDefault $ evalLog $ Link.computeWitnesses (Proxy @Order) m inputsSignals
           r1cs <- evalCfgDefault $ evalLog $ Link.linkMain @Order m
           let
             getOr m_ k =

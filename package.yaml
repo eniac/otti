@@ -41,6 +41,9 @@ library:
   - data-binary-ieee754 >= 0.4
   - lens-simple >= 0.1.0.9 && < 0.2
   - union-find >= 0.2 && < 0.3
+  - aeson >= 1.4.6 && < 1.5
+  - text >= 1.2.3 && < 1.3
+  - deepseq >= 1.4.4 && < 1.5
 
 executables:
   compiler-exe:

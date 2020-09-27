@@ -55,7 +55,7 @@ defaultToPfCfg = ToPfCfg { _assumeNoOverflow    = False
 
 $(makeLenses ''ToPfCfg)
 
-data CfgState = CfgState { _optR1cs :: Bool
+data CfgState = CfgState { _optR1cs :: Int
                          , _toPfCfg :: ToPfCfg
                          , _smtOptCfg :: SmtOptCfg
                          , _streams :: [String]
@@ -64,7 +64,7 @@ data CfgState = CfgState { _optR1cs :: Bool
                          } deriving (Show)
 
 defaultCfgState :: CfgState
-defaultCfgState = CfgState { _optR1cs   = True
+defaultCfgState = CfgState { _optR1cs   = 2
                            , _toPfCfg   = defaultToPfCfg
                            , _smtOptCfg = defaultSmtOptCfg
                            , _streams   = []
@@ -121,9 +121,9 @@ options :: [CfgOption]
 options =
   [ CfgOption (optR1cs . showReadLens)
               "opt-r1cs"
-              "Optimize the rank-1 constraint system"
-              "Eliminates linear equations through substitution."
-              "True"
+              "Level of optimization to apply to the R1CS"
+              "0: None (not recommended), 1: eliminate equalities, 2: eliminate all linear constraints"
+              "2"
   , CfgOption
     (toPfCfg . assumeNoOverflow . showReadLens)
     "no-overflow"

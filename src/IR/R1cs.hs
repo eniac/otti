@@ -1,5 +1,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE BangPatterns #-}
 module IR.R1cs
   ( LC
   , QEQ
@@ -11,6 +14,7 @@ module IR.R1cs
   , qeqLcAdd
   , qeqScale
   , qeqShift
+  , qeqZero
   , R1CS(..)
   , r1csStats
   , sigNumLookup
@@ -21,6 +25,10 @@ module IR.R1cs
   , r1csIsPublicSignal
   , r1csAddConstraint
   , r1csAddConstraints
+  , r1csMergeSignals
+  , r1csMergeSignalNums
+  , r1csExternLc
+  , r1csExternQeq
   , r1csShow
   , qeqShow
   , lcShow
@@ -36,10 +44,16 @@ module IR.R1cs
   , sigMapQeq
   , sigMapLc
   , r1csCheck
+  , qeqToJsonString
+  , lcToJsonString
   )
 where
 
 import           Control.Monad
+import           Control.DeepSeq                ( deepseq, NFData )
+import           Data.Aeson
+import qualified Data.ByteString.Lazy          as ByteString
+import qualified Data.ByteString.Lazy.Char8    as Char8
 import           Data.Field.Galois              ( Prime
                                                 , GaloisField
                                                 , fromP
@@ -53,7 +67,9 @@ import qualified Data.Map.Merge.Strict         as MapMerge
 import           Data.Maybe                     ( fromMaybe )
 import qualified Data.Sequence                 as Seq
 import qualified Data.Tuple                    as Tuple
+import qualified Data.Text                     as Text
 import qualified Data.List                     as List
+import           GHC.Generics
 import           GHC.TypeLits                   ( KnownNat
                                                 , natVal
                                                 )
@@ -64,6 +80,9 @@ type QEQ s n = (LC s n, LC s n, LC s n)
 
 lcZero :: GaloisField k => LC s k
 lcZero = (Map.empty, 0)
+
+qeqZero :: GaloisField k => QEQ s k
+qeqZero = (lcZero, lcZero, lcZero)
 
 -- For each pair of matching coefficients, add them, dropping the coefficient if 0
 lcAdd :: (Ord s, GaloisField k) => LC s k -> LC s k -> LC s k
@@ -104,7 +123,51 @@ data R1CS s n = R1CS { sigNums :: !(Map.Map s Int)
                      , constraints :: !(Seq.Seq (QEQ Int (Prime n)))
                      , nextSigNum :: !Int
                      , publicInputs :: !IntSet.IntSet
-                     } deriving (Show)
+                     }
+
+instance {-# OVERLAPS #-} forall s n. (Show s, KnownNat n) => ToJSON (LC s (Prime n)) where
+  toJSON (m, c) =
+    let back =
+            map (\(k, v) -> Text.pack (show k) .= show (fromP v)) (Map.toList m)
+    in
+      object
+        [ "type" .= Text.pack "LINEARCOMBINATION"
+        , "values"
+          .= object (if c == 0 then back else ("one" .= show (fromP c)) : back)
+        ]
+
+instance {-# OVERLAPS #-} forall s n. (Show s, KnownNat n) => ToJSON (QEQ s (Prime n)) where
+  toJSON (a, b, c) = object
+    [ "type" .= Text.pack "QEQ"
+    , "a" .= toJSON a
+    , "b" .= toJSON b
+    , "c" .= toJSON c
+    ]
+
+qeqToJsonString :: (Show s, KnownNat n) => QEQ s (Prime n) -> String
+qeqToJsonString = Char8.unpack . encode
+
+lcToJsonString :: (Show s, KnownNat n) => LC s (Prime n) -> String
+lcToJsonString = Char8.unpack . encode
+
+instance forall s n. (Show s, KnownNat n) => ToJSON (R1CS s n) where
+  toJSON r1cs = object
+    [ "constraints" .= map qeqToJson (Fold.toList $ constraints r1cs)
+    , "signals" .= (sigOne : map sigToJson (IntMap.toList $ numSigs r1cs))
+    ]
+   where
+    sigOne :: Value
+    sigOne = object ["names" .= ["one" :: String]]
+    sigToJson :: (Int, [s]) -> Value
+    sigToJson (_, ss) = object ["names" .= map show ss]
+    qeqToJson (a, b, c) = map lcToJson [a, b, c]
+    lcToJson (m, c) =
+      let back = map (\(k, v) -> Text.pack (show (k - 1)) .= show (fromP v))
+                     (Map.toList m)
+      in  object $ if c == 0 then back else ("0" .= show (fromP c)) : back
+
+instance forall s n. (Show s, KnownNat n) => Show (R1CS s n) where
+  show = Char8.unpack . encode
 
 r1csStats :: R1CS s n -> String
 r1csStats r = unlines
@@ -191,19 +254,24 @@ r1csPublicizeSignal sig r1cs = r1cs
   }
 
 -- Replace `b` with `a`
-r1csMergeSignals :: (Show s, Ord s) => s -> s -> R1CS s n -> R1CS s n
-r1csMergeSignals a b r1cs =
-  let aN       = sigNums r1cs Map.! a
-      bN       = sigNums r1cs Map.! b
-      bSigs    = numSigs r1cs IntMap.! bN
+r1csMergeSignalNums
+  :: (Show s, Ord s, KnownNat n) => Int -> Int -> R1CS s n -> R1CS s n
+r1csMergeSignalNums !aN !bN !r1cs =
+  let bSigs    = numSigs r1cs IntMap.! bN
       numSigs' = IntMap.adjust (++ bSigs) aN (numSigs r1cs)
-      sigNums' = Map.insert b aN (sigNums r1cs)
+      sigNums' = foldr (flip Map.insert aN) (sigNums r1cs) bSigs
       constraints' =
           fmap (sigMapQeq (\i -> if i == bN then aN else i)) (constraints r1cs)
   in  r1cs { numSigs     = numSigs'
            , sigNums     = sigNums'
            , constraints = constraints'
            }
+r1csMergeSignals
+  :: (Show s, Ord s, KnownNat n) => s -> s -> R1CS s n -> R1CS s n
+r1csMergeSignals !a !b !r1cs =
+  let aN = sigNums r1cs Map.! a
+      bN = sigNums r1cs Map.! b
+  in  r1csMergeSignalNums aN bN r1cs
 
 r1csIsPublicSignal :: (Show s, Ord s) => s -> R1CS s n -> Bool
 r1csIsPublicSignal sig r1cs = case Map.lookup sig (sigNums r1cs) of
@@ -233,11 +301,13 @@ r1csCountVars :: KnownNat n => R1CS s n -> Int
 r1csCountVars = foldr ((+) . qeqSize) 0 . constraints
   where qeqSize ((a, _), (b, _), (c, _)) = Map.size a + Map.size b + Map.size c
 
-sigMapLc :: (Ord s, Ord t) => (s -> t) -> LC s n -> LC t n
-sigMapLc f (m, c) = (Map.mapKeys f m, c)
+sigMapLc :: forall s t n. (NFData t, Ord s, Ord t, Eq n, Num n, NFData n) => (s -> t) -> LC s n -> LC t n
+sigMapLc !f (!m, !c) =
+  let m' :: Map.Map t n = Map.filter (/= fromInteger 0) $ Map.mapKeysWith (+) f m
+  in  m' `deepseq` (m', c)
 
-sigMapQeq :: (Ord s, Ord t) => (s -> t) -> QEQ s n -> QEQ t n
-sigMapQeq f (a, b, c) = (sigMapLc f a, sigMapLc f b, sigMapLc f c)
+sigMapQeq :: (NFData t, Ord s, Ord t, Eq n, Num n, NFData n) => (s -> t) -> QEQ s n -> QEQ t n
+sigMapQeq !f (!a, !b, !c) = (sigMapLc f a, sigMapLc f b, sigMapLc f c)
 
 lcToR1csLine :: KnownNat n => LC Int (Prime n) -> [Integer]
 lcToR1csLine (m, c) =
@@ -259,9 +329,10 @@ r1csAsLines r1cs =
       constraintLines = concatMap qeqToR1csLines $ constraints r1cs
   in  [nPubIns, nWit, nConstraints] : constraintLines
 
-writeToR1csFile :: KnownNat n => R1CS s n -> FilePath -> IO ()
-writeToR1csFile r1cs path =
-  writeFile path $ unlines $ map (unwords . map show) $ r1csAsLines r1cs
+writeToR1csFile :: (Show s, KnownNat n) => Bool -> R1CS s n -> FilePath -> IO ()
+writeToR1csFile asJson r1cs path = if asJson
+  then ByteString.writeFile path $ encode r1cs
+  else writeFile path $ unlines $ map (unwords . map show) $ r1csAsLines r1cs
 
 getVal :: (Show s, Ord s) => s -> Map.Map s k -> k
 getVal k m =

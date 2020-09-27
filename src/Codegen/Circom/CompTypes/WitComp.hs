@@ -38,7 +38,9 @@ import qualified Data.Foldable                 as Fold
 import           Data.Proxy                     ( Proxy(Proxy) )
 import qualified Data.Set                      as Set
 import qualified Data.Map.Strict               as Map
+import           Data.Maybe                     ( fromMaybe )
 import qualified Digraph
+import           Text.Read                      ( readMaybe )
 import           GHC.TypeLits.KnownNat
 import           GHC.TypeNats
 
@@ -143,8 +145,12 @@ instance KnownNat n => BaseCtx (WitBaseCtx n) (WitBaseTerm n) (Prime n) where
        where
         visit :: Smt.Term t -> Maybe (Set.Set Sig.Signal)
         visit t = case t of
-          Smt.Var v _ -> Just $ Set.singleton $ read v
-          _           -> Nothing
+          Smt.Var v _ ->
+            Just
+              $ Set.singleton
+              $ fromMaybe (error $ "Cannot read signal: " ++ show v)
+              $ readMaybe v
+          _ -> Nothing
 
       asLterm :: Either LTerm Sig.IndexedIdent -> LTerm
       asLterm = either id LTermLocal

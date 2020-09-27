@@ -91,6 +91,7 @@ Options:
   -w <path>          Write the the auxiliary input to this path [default: w]
   -p <path>          Write/Read the proof at this path [default: pf]
   --libsnark <path>  Location of the libsnark binary [default: libsnark-frontend/build/src/main]
+  --json             Whether to write json
 
 Commands:
   prove            Run the prover
@@ -167,20 +168,20 @@ type Order
 -- type Order = 17
 -- type OrderCtx = Ctx Order
 
-cmdEmitR1cs :: FilePath -> FilePath -> Cfg ()
-cmdEmitR1cs circomPath r1csPath = do
+cmdEmitR1cs :: Bool -> FilePath -> FilePath -> Cfg ()
+cmdEmitR1cs asJson circomPath r1csPath = do
   liftIO $ print "Loading circuit"
   m    <- liftIO $ loadMain circomPath
   r1cs <- evalLog $ (Link.linkMain @Order m >>= Opt.opt)
   liftIO $ do
     putStrLn $ R1cs.r1csStats r1cs
     --putStrLn $ R1cs.r1csShow r1cs
-    R1cs.writeToR1csFile r1cs r1csPath
+    R1cs.writeToR1csFile asJson r1cs r1csPath
 
 cmdCountTerms :: FilePath -> Cfg ()
 cmdCountTerms circomPath = do
   m <- liftIO $ loadMain circomPath
-  let c = Comp.compMainWitCtx @Order m
+  c <- evalLog $ Comp.compMainWitCtx @Order m
   liftIO $ do
     print $ count c + sum (Map.map count $ CompT.cache c)
     print c
@@ -189,7 +190,7 @@ cmdCountTerms circomPath = do
 
 cmdSetup :: FilePath -> FilePath -> FilePath -> FilePath -> FilePath -> Cfg ()
 cmdSetup libsnark circomPath r1csPath pkPath vkPath = do
-  cmdEmitR1cs circomPath r1csPath
+  cmdEmitR1cs False circomPath r1csPath
   liftIO $ runSetup libsnark r1csPath pkPath vkPath
 
 cmdProve
@@ -206,7 +207,7 @@ cmdProve libsnark pkPath vkPath inPath xPath wPath pfPath circomPath = do
   m             <- liftIO $ loadMain circomPath
   inputFile     <- liftIO $ openFile inPath ReadMode
   inputsSignals <- liftIO $ Parse.parseSignalsFromFile (Proxy @Order) inputFile
-  let allSignals = Link.computeWitnesses (Proxy @Order) m inputsSignals
+  allSignals <- evalLog $ Link.computeWitnesses (Proxy @Order) m inputsSignals
   r1cs <- evalLog $ (Link.linkMain @Order m >>= Opt.opt)
   let getOr m_ k =
         Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
@@ -245,7 +246,7 @@ cmdCEmitR1cs :: String -> FilePath -> FilePath -> Cfg ()
 cmdCEmitR1cs fnName cPath r1csPath = do
   tu   <- liftIO $ parseC cPath
   r1cs <- evalLog $ fnToR1cs @Order tu fnName
-  liftIO $ R1cs.writeToR1csFile r1cs r1csPath
+  liftIO $ R1cs.writeToR1csFile False r1cs r1csPath
 
 cmdCSetup
   :: FilePath
@@ -300,8 +301,9 @@ main = do
     cmd :: Cfg () = case True of
       _ | args `isPresent` command "emit-r1cs" -> do
         circomPath <- args `getArgOrExit` longOption "circom"
+        let asJson = args `isPresent` longOption "json"
         r1csPath   <- args `getArgOrExit` shortOption 'C'
-        cmdEmitR1cs circomPath r1csPath
+        cmdEmitR1cs asJson circomPath r1csPath
       _ | args `isPresent` command "count-terms" -> do
         circomPath <- args `getArgOrExit` longOption "circom"
         cmdCountTerms circomPath
