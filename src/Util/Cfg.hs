@@ -1,3 +1,5 @@
+-- For optDefault
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
@@ -119,11 +121,12 @@ cfgEnvName o = replace '-' '_' $ "C_" ++ optName o
 
 options :: [CfgOption]
 options =
-  [ CfgOption (optR1cs . showReadLens)
-              "opt-r1cs"
-              "Level of optimization to apply to the R1CS"
-              "0: None (not recommended), 1: eliminate equalities, 2: eliminate all linear constraints"
-              "2"
+  [ CfgOption
+    (optR1cs . showReadLens)
+    "opt-r1cs"
+    "Level of optimization to apply to the R1CS"
+    "0: None (not recommended), 1: eliminate equalities, 2: eliminate all linear constraints"
+    "2"
   , CfgOption
     (toPfCfg . assumeNoOverflow . showReadLens)
     "no-overflow"

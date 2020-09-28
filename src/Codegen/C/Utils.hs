@@ -9,11 +9,9 @@ module Codegen.C.Utils
 where
 import           AST.C
 import           Codegen.Circify
-import           Control.Applicative
 import           Control.Monad
 import           Control.Monad.IO.Class
-import           Data.Maybe                     ( catMaybes
-                                                , fromJust
+import           Data.Maybe                     ( fromJust
                                                 , fromMaybe
                                                 , isJust
                                                 , mapMaybe
@@ -24,27 +22,11 @@ import           Language.C.Data.Position
 import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
 
-import           Util.Log
--- | When expr appears on the lhs of an assignment, the assignment is actually a store
-isStore :: (Show a) => CExpression a -> Bool
-isStore expr = case expr of
-  CIndex{}          -> True
-  CUnary CIndOp _ _ -> True
-  CVar{}            -> False
-  _                 -> error $ unwords ["Unexpected assignment with", show expr]
-
---
-
 ctype
   :: [CDeclSpec] -> [CDerivedDeclr] -> Circify Type term (Either String Type)
 ctype tys ptrs = do
   ty <- baseTypeFromSpecs tys
   return $ ty >>= flip getTy ptrs
-
-refTy :: Type -> Type
-refTy (Ptr32 ty) = ty
-refTy (Ptr64 ty) = ty
-refTy ty         = error $ unwords ["Expected pointer ty in refTy", show ty]
 
 -- helpers to be renamed
 
@@ -118,11 +100,13 @@ getTy ty (d : ds) = case d of
 -- Not really right. Gets pointers wrong?
 cDeclToType :: CDecl -> Circify Type term (Either String Type)
 cDeclToType (CDecl specs _ _) = ctypeToType $ map specToType specs
+cDeclToType _                 = error "nyi"
 
 baseTypeFromSpecs :: [CDeclSpec] -> Circify Type term (Either String Type)
 baseTypeFromSpecs all@(elem : rest) = if isTypeQual elem || isAlignSpec elem
   then baseTypeFromSpecs rest
   else ctypeToType $ mapMaybe typeFromSpec all
+baseTypeFromSpecs _ = error "nyi"
 
 nodeText :: (Show a, CNode a) => a -> IO String
 nodeText n = fromMaybe ("<Missing text>" ++ show n) <$> nodeTextMaybe n
@@ -146,14 +130,14 @@ cSplitDeclaration
   :: CDeclaration NodeInfo
   -> Circify Type term (Either String [(String, Type, Maybe CInit)])
 cSplitDeclaration d = case d of
-  CDecl specs decls info -> do
+  CDecl specs decls _info -> do
     let firstSpec = head specs
         isTypedefDecl =
-          (isStorageSpec firstSpec) && (isTypedef $ storageFromSpec firstSpec)
+          isStorageSpec firstSpec && isTypedef (storageFromSpec firstSpec)
         baseType = if isTypedefDecl then tail specs else specs
     r <- forM decls $ \(Just dec, mInit, _) -> do
       let id      = identFromDecl dec
           ptrType = derivedFromDeclr dec
       fmap (identToString id, , mInit) <$> ctype baseType ptrType
     return $ sequence r
-  _ -> error <$> ("Unexpected declaration: " ++) <$> liftIO (nodeText d)
+  _ -> error . ("Unexpected declaration: " ++) <$> liftIO (nodeText d)

@@ -23,22 +23,15 @@ import           Control.Monad.State.Strict
 
 -- Data imports
 import           Data.List                      ( intercalate
-                                                , isInfixOf
                                                 , findIndex
                                                 )
 import           Data.Functor.Identity
 import           Data.Foldable
 import qualified Data.Map                      as M
-import           Data.Maybe                     ( catMaybes
-                                                , fromMaybe
-                                                , isJust
-                                                , fromJust
+import           Data.Maybe                     ( fromMaybe
                                                 , listToMaybe
                                                 )
-import           Data.Dynamic                   ( Dynamic
-                                                , toDyn
-                                                , fromDyn
-                                                )
+import           Data.Dynamic                   ( Dynamic )
 import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.Assert                 as Assert
 import           IR.SMT.Assert                  ( Assert
@@ -203,6 +196,7 @@ data FunctionScope ty term = FunctionScope { -- Condition for current path
 listModify :: Functor m => Int -> (a -> m a) -> [a] -> m [a]
 listModify 0 f (x : xs) = (: xs) `fmap` f x
 listModify n f (x : xs) = (x :) `fmap` listModify (n - 1) f xs
+listModify _ _ []       = error "Could not modify at index"
 
 -- | Find the scope containing this variable. Indexed from the back.
 fsFindLexScope :: VarName -> FunctionScope ty term -> Int
@@ -317,6 +311,7 @@ fsDoBreak name scope = scope { guards = go [] $ guards scope }
     Break name' cs : r -> if name == name'
       then Break name' (safeNary Ty.And acc : cs) : r
       else Break name' cs : go (map Ty.Not cs ++ acc) r
+    [] -> error $ "Could not find break " ++ show name
 
 fsCurrentGuard :: FunctionScope ty term -> [Ty.TermBool]
 fsCurrentGuard = concatMap guardConditions . guards
@@ -420,7 +415,8 @@ compilerRunInScopeIdx scopeIdx fF lF = case scopeIdx of
     (r, global') <- lF global
     modify $ \s -> s { globals = global' }
     return r
-  ScopeIdx { lsIdx = l, fsIdx = f } -> do
+  -- TODO: use l
+  ScopeIdx { lsIdx = _l, fsIdx = f } -> do
     stack <- gets callStack
     n     <- gets nFrames
     let i     = n - f - 1
@@ -637,7 +633,7 @@ getGuard = safeNary Ty.And . concatMap fsCurrentGuard . callStack <$> get
 
 doReturn :: Show term => term -> Circify ty term ()
 doReturn value = do
-  ssaAssign (SLVar returnValueName) (Base value)
+  _ <- ssaAssign (SLVar returnValueName) (Base value)
   compilerModifyTop (fsDoBreak returnBreakName)
 
 runCodegen
@@ -690,7 +686,7 @@ argAssign var val = do
       setTerm var (Base t)
       whenM computingValues $ setValue var castVal
       return (Base t)
-    RefVal r -> do
+    RefVal{} -> do
       setTerm var val
       return val
 
@@ -711,7 +707,7 @@ ssaAssign var val = do
       setTerm var (Base t)
       whenM computingValues $ setValue var val'
       return (Base t)
-    (RefVal r, _) -> do
+    (RefVal{}, _) -> do
       setTerm var val
       return val
     _ -> error $ unwords

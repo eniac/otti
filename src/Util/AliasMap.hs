@@ -15,7 +15,6 @@ where
 import           Prelude                 hiding ( lookup )
 import qualified Util.ShowMap                  as SMap
 import           Util.ShowMap                   ( ShowMap )
-import           Data.Maybe                     ( isNothing )
 
 
 -- Layer on top of ShowMap which allows keys to be aliased to one another
@@ -58,7 +57,7 @@ alias k k' m = case SMap.lookup k (aliases m) of
     , show k''
     ]
   Nothing -> case lookup k m of
-    Just v -> error $ unwords
+    Just{} -> error $ unwords
       [ "Cannot alias"
       , show k
       , "to"

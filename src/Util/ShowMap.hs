@@ -17,9 +17,7 @@ where
 
 import qualified Data.Map                      as Map
 import           Data.Map                       ( Map )
-import           Data.Maybe                     ( isJust
-                                                , fromMaybe
-                                                )
+import           Data.Maybe                     ( fromMaybe )
 
 import           Prelude                 hiding ( lookup )
 import qualified Prelude
@@ -32,22 +30,25 @@ empty = ShowMap Map.empty
 inner :: ShowMap k v -> Map String [(k, v)]
 inner (ShowMap m) = m
 
-entryInsertWith :: Eq k => (v -> v -> v) -> k -> v -> [(k, v)] -> [(k, v)]
+entryInsertWith
+  :: (Show k, Eq k) => (v -> v -> v) -> k -> v -> [(k, v)] -> [(k, v)]
 entryInsertWith f k newV e = case Prelude.lookup k e of
   Just oldV -> modify k (f newV oldV) e
   Nothing   -> (k, newV) : e
  where
   modify k v (h : t) = if fst h == k then (k, v) : t else h : modify k v t
+  modify k _ []      = error $ "Cannot " ++ show k ++ " to modify"
 
 entryAdjust :: (Show k, Eq k) => (v -> v) -> k -> [(k, v)] -> [(k, v)]
 entryAdjust f k e = case Prelude.lookup k e of
-  Just oldV -> modify e
-  Nothing   -> error $ "missing " ++ show k
+  Just{}  -> modify e
+  Nothing -> error $ "missing " ++ show k
  where
   modify (h : t) = if fst h == k then (k, f $ snd h) : t else h : modify t
+  modify []      = error $ "Cannot " ++ show k ++ " to modify"
 
 maybeEntryInsertWith
-  :: Eq k => (v -> v -> v) -> k -> v -> Maybe [(k, v)] -> [(k, v)]
+  :: (Show k, Eq k) => (v -> v -> v) -> k -> v -> Maybe [(k, v)] -> [(k, v)]
 maybeEntryInsertWith f k v = maybe [(k, v)] (entryInsertWith f k v)
 
 insertWith

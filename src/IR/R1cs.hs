@@ -51,7 +51,9 @@ module IR.R1cs
 where
 
 import           Control.Monad
-import           Control.DeepSeq                ( deepseq, NFData )
+import           Control.DeepSeq                ( deepseq
+                                                , NFData
+                                                )
 import           Data.Aeson
 import qualified Data.ByteString.Lazy          as ByteString
 import qualified Data.ByteString.Lazy.Char8    as Char8
@@ -73,6 +75,12 @@ import           GHC.TypeLits                   ( KnownNat
                                                 , natVal
                                                 )
 import           Data.Proxy                     ( Proxy(..) )
+-- Faster IO?
+-- import qualified Data.Text.IO                  as TextIO
+-- import           System.IO                      ( openFile
+--                                                 , hClose
+--                                                 , IOMode(WriteMode)
+--                                                )
 
 type LC s n = (Map.Map s n, n) -- A linear combination of signals and gen-time constants
 type QEQ s n = (LC s n, LC s n, LC s n)
@@ -300,12 +308,22 @@ r1csCountVars :: KnownNat n => R1CS s n -> Int
 r1csCountVars = foldr ((+) . qeqSize) 0 . constraints
   where qeqSize ((a, _), (b, _), (c, _)) = Map.size a + Map.size b + Map.size c
 
-sigMapLc :: forall s t n. (NFData t, Ord s, Ord t, Eq n, Num n, NFData n) => (s -> t) -> LC s n -> LC t n
+sigMapLc
+  :: forall s t n
+   . (NFData t, Ord s, Ord t, Eq n, Num n, NFData n)
+  => (s -> t)
+  -> LC s n
+  -> LC t n
 sigMapLc !f (!m, !c) =
-  let m' :: Map.Map t n = Map.filter (/= fromInteger 0) $ Map.mapKeysWith (+) f m
+  let m' :: Map.Map t n =
+          Map.filter (/= fromInteger 0) $ Map.mapKeysWith (+) f m
   in  m' `deepseq` (m', c)
 
-sigMapQeq :: (NFData t, Ord s, Ord t, Eq n, Num n, NFData n) => (s -> t) -> QEQ s n -> QEQ t n
+sigMapQeq
+  :: (NFData t, Ord s, Ord t, Eq n, Num n, NFData n)
+  => (s -> t)
+  -> QEQ s n
+  -> QEQ t n
 sigMapQeq !f (!a, !b, !c) = (sigMapLc f a, sigMapLc f b, sigMapLc f c)
 
 lcToR1csLine :: KnownNat n => LC Int (Prime n) -> [Integer]
@@ -313,9 +331,7 @@ lcToR1csLine (m, c) =
   let pairs          = Map.toAscList m
       augmentedPairs = if fromP c == 0 then pairs else (1, c) : pairs
       nPairs         = fromIntegral (length augmentedPairs)
-  in  nPairs
-        : concatMap (\(x, f) -> [fromP f, fromIntegral x])
-                    augmentedPairs
+  in  nPairs : concatMap (\(x, f) -> [fromP f, fromIntegral x]) augmentedPairs
 
 qeqToR1csLines :: KnownNat n => QEQ Int (Prime n) -> [[Integer]]
 qeqToR1csLines (a, b, c) = [] : map lcToR1csLine [a, b, c]
@@ -333,6 +349,13 @@ writeToR1csFile :: (Show s, KnownNat n) => Bool -> R1CS s n -> FilePath -> IO ()
 writeToR1csFile asJson r1cs path = if asJson
   then ByteString.writeFile path $ encode r1cs
   else writeFile path $ unlines $ map (unwords . map show) $ r1csAsLines r1cs
+--  else do
+--    h <- openFile path WriteMode
+--    forM_ (r1csAsLines r1cs) $ \line -> do
+--      forM_ line $ \t -> do
+--        TextIO.hPutStr h $ Text.pack $ show t
+--      TextIO.hPutStrLn h ""
+--    hClose h
 
 getVal :: (Show s, Ord s) => s -> Map.Map s k -> k
 getVal k m =

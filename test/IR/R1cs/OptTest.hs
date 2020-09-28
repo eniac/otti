@@ -1,6 +1,5 @@
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE PolyKinds           #-}
-{-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE TypeApplications    #-}
 module IR.R1cs.OptTest
   ( r1csOptTests
@@ -17,33 +16,23 @@ import qualified Data.IntSet                   as IntSet
 import qualified Data.Sequence                 as Seq
 import           IR.R1cs
 import           Test.Tasty.HUnit
-import           Data.Field.Galois              ( Prime
-                                                , PrimeField
-                                                , GaloisField
-                                                , fromP
-                                                , toP
-                                                )
-import           GHC.TypeLits                   ( KnownNat )
+import           Data.Field.Galois              ( toP )
 import           Util.Log
 import           Util.Cfg                       ( evalCfgDefault )
 
 
-order :: Integer
-order =
-  21888242871839275222246405745257275088548364400416034343698204186575808495617
 type Order
   = 21888242871839275222246405745257275088548364400416034343698204186575808495617
 
-type StringLC = LC String Integer
 type StringQEQ = QEQ String Integer
 
 buildR1cs :: [StringQEQ] -> [String] -> R1CS String Order
 buildR1cs cs public =
-  let lcSigs (m, c) = Set.fromAscList $ Map.keys m
+  let lcSigs (m, _) = Set.fromAscList $ Map.keys m
       qeqSigs (a, b, c) = foldr1 Set.union $ map lcSigs [a, b, c]
       sigs         = Set.toList $ foldr1 Set.union $ map qeqSigs cs
       sigNums      = Map.fromList $ zip sigs [2 ..]
-      numSigs      = IntMap.fromList $ zip [2 ..] $ map (\a -> [a]) sigs
+      numSigs      = IntMap.fromList $ zip [2 ..] $ map (: []) sigs
       publicInputs = IntSet.fromList $ map (sigNums Map.!) public
       nextSigNum   = Map.size sigNums + 2
       p            = toP @Order

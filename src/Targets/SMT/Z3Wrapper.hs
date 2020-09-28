@@ -1,9 +1,7 @@
 module Targets.SMT.Z3Wrapper where
 import           Control.Monad.State.Strict     ( foldM
-                                                , liftIO
                                                 , unless
                                                 )
-import qualified Data.Map.Strict               as M
 import           Prelude                 hiding ( and
                                                 , concat
                                                 , not

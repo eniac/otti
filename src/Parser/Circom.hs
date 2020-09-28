@@ -7,8 +7,6 @@ module Parser.Circom
 where
 
 import           AST.Circom                     ( Annotated(..)
-                                                , Block
-                                                , Item(..)
                                                 , MainCircuit(..)
                                                 , PosnPair(..)
                                                 , SFile
@@ -21,7 +19,6 @@ import           AST.Circom                     ( Annotated(..)
                                                 , mapAnns
                                                 )
 import qualified Data.Map.Strict               as Map
-import           Data.Maybe
 import           Parser.Circom.Lexer            ( tokenize )
 import           Parser.Circom.Parser           ( parseCircomFile )
 import           System.FilePath
