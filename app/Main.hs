@@ -19,6 +19,7 @@ import           Codegen.C.CToR1cs              ( fnToR1cs
 import           Codegen.C                      ( checkFn
                                                 , evalFn
                                                 )
+import           Codegen.Circify                ( extractVarName )
 import           Codegen.C.CUtils               ( parseToMap )
 import qualified Codegen.Circom.Compilation    as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
@@ -79,6 +80,8 @@ Usage:
   compiler [options] c-setup <fn-name> <path>
   compiler [options] c-prove <fn-name> <path>
   compiler [options] c-eval <fn-name> <path>
+  compiler [options] c-check-setup <fn-name> <path>
+  compiler [options] c-check-prove <fn-name> <path>
 
 Options:
   -h, --help         Display this message
@@ -104,6 +107,8 @@ Commands:
   c-emit-r1cs      Convert a C function to R1CS
   c-setup          Run setup for a C function
   c-prove          Write proof for a C function
+  c-check-setup    Setup a proof of bug
+  c-check-prove    Find a bug and prove its presense
 |]
 
 getArgOrExit :: Arguments -> Option -> Cfg String
@@ -208,7 +213,7 @@ cmdProve libsnark pkPath vkPath inPath xPath wPath pfPath circomPath = do
   inputFile     <- liftIO $ openFile inPath ReadMode
   inputsSignals <- liftIO $ Parse.parseSignalsFromFile (Proxy @Order) inputFile
   allSignals <- evalLog $ Link.computeWitnesses (Proxy @Order) m inputsSignals
-  r1cs <- evalLog (Link.linkMain @Order m >>= Opt.opt)
+  r1cs          <- evalLog (Link.linkMain @Order m >>= Opt.opt)
   let getOr m_ k =
         Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
   let getOrI m_ k =
@@ -230,34 +235,36 @@ cmdVerify = ((.) . (.) . (.) . (.)) liftIO runVerify
 
 cmdCCheck :: String -> FilePath -> Cfg ()
 cmdCCheck name path = do
-  tu <- liftIO $ parseC path
-  r  <- checkFn tu name
+  tu     <- liftIO $ parseC path
+  (_, r) <- checkFn tu name
   liftIO $ case r of
-    Just s  -> putStrLn s
+    Just s -> forM_ (Map.toList s)
+      $ \(k, v) -> liftIO $ putStrLn $ unwords [k, ":", show v]
     Nothing -> putStrLn "No bug"
 
 cmdCEval :: String -> FilePath -> Cfg ()
 cmdCEval name path = do
   tu <- liftIO $ parseC path
-  r  <- evalFn tu name
+  r  <- evalFn False tu name
   forM_ (Map.toList r) $ \(k, v) -> liftIO $ putStrLn $ unwords [k, ":", show v]
 
-cmdCEmitR1cs :: String -> FilePath -> FilePath -> Cfg ()
-cmdCEmitR1cs fnName cPath r1csPath = do
+cmdCEmitR1cs :: Bool -> String -> FilePath -> FilePath -> Cfg ()
+cmdCEmitR1cs findBugs fnName cPath r1csPath = do
   tu   <- liftIO $ parseC cPath
-  r1cs <- evalLog $ fnToR1cs @Order tu fnName
+  r1cs <- evalLog $ fnToR1cs @Order findBugs tu fnName
   liftIO $ R1cs.writeToR1csFile False r1cs r1csPath
 
 cmdCSetup
-  :: FilePath
+  :: Bool
+  -> FilePath
   -> String
   -> FilePath
   -> FilePath
   -> FilePath
   -> FilePath
   -> Cfg ()
-cmdCSetup libsnark fnName cPath r1csPath pkPath vkPath = do
-  cmdCEmitR1cs fnName cPath r1csPath
+cmdCSetup findBugs libsnark fnName cPath r1csPath pkPath vkPath = do
+  cmdCEmitR1cs findBugs fnName cPath r1csPath
   liftIO $ runSetup libsnark r1csPath pkPath vkPath
 
 cmdCProve
@@ -274,7 +281,7 @@ cmdCProve
 cmdCProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath = do
   tu        <- liftIO $ parseC cPath
   inMap     <- liftIO $ parseToMap <$> readFile inPath
-  (r1cs, w) <- evalLog $ fnToR1csWithWit @Order inMap tu fnName
+  (r1cs, w) <- evalLog $ fnToR1csWithWit @Order False inMap tu fnName
   let getOr m_ k =
         Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
   let getOrI m_ k =
@@ -291,6 +298,51 @@ cmdCProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath = do
       wPath
     runProve libsnark pkPath vkPath xPath wPath pfPath
 
+cmdCCheckProve
+  :: FilePath
+  -> FilePath
+  -> FilePath
+  -> FilePath
+  -> FilePath
+  -> FilePath
+  -> FilePath
+  -> String
+  -> FilePath
+  -> Cfg ()
+cmdCCheckProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath =
+  do
+    tu        <- liftIO $ parseC cPath
+    (ins, mR) <- checkFn tu fnName
+    let r = Maybe.fromMaybe (error "No bug") mR
+    forM_ (Map.toList r)
+      $ \(k, v) -> liftIO $ putStrLn $ unwords [k, ":", show v]
+    forM_ ins $ \i -> liftIO $ putStrLn $ "Input: " ++ show i
+    liftIO $ writeFile inPath $ unlines $ map
+      (\i -> extractVarName i ++ " " ++ show (r Map.! i))
+      ins
+    inMap <- liftIO $ parseToMap <$> readFile inPath
+    liftIO $ print inMap
+    (r1cs, w) <- evalLog $ fnToR1csWithWit @Order True inMap tu fnName
+    let getOr m_ k =
+          Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
+    let getOrI m_ k =
+          Maybe.fromMaybe (error $ "Missing sig num: " ++ show k)
+            $         m_
+            IntMap.!? k
+    let lookupSignalVal :: Int -> Integer
+        lookupSignalVal i =
+          fromP $ getOr w $ head $ getOrI (Link.numSigs r1cs) i
+    liftIO $ do
+      emitAssignment
+        (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
+        xPath
+      emitAssignment
+        (map lookupSignalVal
+             [(2 + Link.nPublicInputs r1cs) .. (Link.nextSigNum r1cs - 1)]
+        )
+        wPath
+      runProve libsnark pkPath vkPath xPath wPath pfPath
+
 defaultR1cs :: String
 defaultR1cs = "C"
 
@@ -302,7 +354,7 @@ main = do
       _ | args `isPresent` command "emit-r1cs" -> do
         circomPath <- args `getArgOrExit` longOption "circom"
         let asJson = args `isPresent` longOption "json"
-        r1csPath   <- args `getArgOrExit` shortOption 'C'
+        r1csPath <- args `getArgOrExit` shortOption 'C'
         cmdEmitR1cs asJson circomPath r1csPath
       _ | args `isPresent` command "count-terms" -> do
         circomPath <- args `getArgOrExit` longOption "circom"
@@ -342,7 +394,7 @@ main = do
         fnName   <- args `getArgOrExit` argument "fn-name"
         path     <- args `getArgOrExit` argument "path"
         r1csPath <- args `getArgOrExit` shortOption 'C'
-        cmdCEmitR1cs fnName path r1csPath
+        cmdCEmitR1cs False fnName path r1csPath
       _ | args `isPresent` command "c-setup" -> do
         libsnark <- args `getArgOrExit` longOption "libsnark"
         fnName   <- args `getArgOrExit` argument "fn-name"
@@ -350,7 +402,7 @@ main = do
         r1csPath <- args `getArgOrExit` shortOption 'C'
         pkPath   <- args `getArgOrExit` shortOption 'P'
         vkPath   <- args `getArgOrExit` shortOption 'V'
-        cmdCSetup libsnark fnName cPath r1csPath pkPath vkPath
+        cmdCSetup False libsnark fnName cPath r1csPath pkPath vkPath
       _ | args `isPresent` command "c-prove" -> do
         libsnark <- args `getArgOrExit` longOption "libsnark"
         fnName   <- args `getArgOrExit` argument "fn-name"
@@ -362,6 +414,33 @@ main = do
         wPath    <- args `getArgOrExit` shortOption 'w'
         pfPath   <- args `getArgOrExit` shortOption 'p'
         cmdCProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath
+      _ | args `isPresent` command "c-check-setup" -> do
+        libsnark <- args `getArgOrExit` longOption "libsnark"
+        fnName   <- args `getArgOrExit` argument "fn-name"
+        cPath    <- args `getArgOrExit` argument "path"
+        r1csPath <- args `getArgOrExit` shortOption 'C'
+        pkPath   <- args `getArgOrExit` shortOption 'P'
+        vkPath   <- args `getArgOrExit` shortOption 'V'
+        cmdCSetup True libsnark fnName cPath r1csPath pkPath vkPath
+      _ | args `isPresent` command "c-check-prove" -> do
+        libsnark <- args `getArgOrExit` longOption "libsnark"
+        fnName   <- args `getArgOrExit` argument "fn-name"
+        cPath    <- args `getArgOrExit` argument "path"
+        pkPath   <- args `getArgOrExit` shortOption 'P'
+        vkPath   <- args `getArgOrExit` shortOption 'V'
+        inPath   <- args `getArgOrExit` shortOption 'i'
+        xPath    <- args `getArgOrExit` shortOption 'x'
+        wPath    <- args `getArgOrExit` shortOption 'w'
+        pfPath   <- args `getArgOrExit` shortOption 'p'
+        cmdCCheckProve libsnark
+                       pkPath
+                       vkPath
+                       inPath
+                       xPath
+                       wPath
+                       pfPath
+                       fnName
+                       cPath
       _ -> liftIO $ exitWithUsageMessage patterns "Missing command!"
   cfg <- Cfg.setFromEnv Cfg.defaultCfgState
   Cfg.evalCfg cmd cfg

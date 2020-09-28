@@ -546,6 +546,7 @@ genFunDef f inVals = do
   case inVals of
     Just pathMap -> forM_ inputNamesAndTys $ \(n, ty) -> do
       let v = parseVar pathMap n ty
+      liftLog $ logIf "inputs" $ "Input: " ++ n ++ " -> " ++ show v
       liftCircify $ setValue (SLVar n) v
     Nothing -> return ()
 
@@ -598,7 +599,7 @@ codegenFn (CTranslUnit decls _) name inVals = do
 cLangDef :: Bool -> LangDef Type CTerm
 cLangDef findBugs = LangDef { declare   = cDeclVar findBugs
                             , assign    = cCondAssign findBugs
-                            , setValues = cSetValues
+                            , setValues = cSetValues findBugs
                             , termInit  = ctermInit
                             }
 
@@ -616,13 +617,21 @@ evalC findBugs act = do
 
 -- Can a fn exhibit undefined behavior?
 -- Returns a string describing it, if so.
-checkFn :: CTranslUnit -> String -> Cfg (Maybe String)
+checkFn
+  :: CTranslUnit -> String -> Cfg ([String], Maybe (Map.Map String Ty.Val))
 checkFn tu name = do
-  assertions <- Assert.execAssert
-    $ evalC True (codegenFn tu name Nothing >> assertBug)
-  liftIO $ Ty.evalZ3 $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)
+  (ins, assertions) <- Assert.runAssert $ evalC True $ do
+    (ins, _) <- codegenFn tu name Nothing
+    assertBug
+    return ins
+  model <- liftIO $ Ty.evalZ3Model $ Ty.BoolNaryExpr
+    Ty.And
+    (Assert.asserted assertions)
+  return (ins, if Map.null model then Nothing else Just model)
 
-evalFn :: CTranslUnit -> String -> Cfg (Map.Map String Ty.Val)
-evalFn tu name = do
-  assertions <- Assert.execAssert $ evalC False $ codegenFn tu name Nothing
+evalFn :: Bool -> CTranslUnit -> String -> Cfg (Map.Map String Ty.Val)
+evalFn findBug tu name = do
+  assertions <- Assert.execAssert $ evalC findBug $ do
+    _ <- codegenFn tu name Nothing
+    when findBug assertBug
   liftIO $ Ty.evalZ3Model $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)

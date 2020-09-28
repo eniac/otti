@@ -1,5 +1,5 @@
 fmt:
 	./scripts/format.bash all .
 
-fmt-since-master:
+fmt-since-origin-master:
 	./scripts/format.bash origin/master .

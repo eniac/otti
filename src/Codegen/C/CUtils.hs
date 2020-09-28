@@ -159,7 +159,9 @@ ctermInit ty value = mkCTerm
     AST.Bool -> CBool (Ty.BoolLit (value /= 0))
     _ | AST.isIntegerType ty ->
       let n = AST.numBits ty
-      in  CInt False n (Ty.IntToDynBv n (Ty.IntLit (value `rem` toInteger n)))
+      in  CInt False
+               n
+               (Ty.IntToDynBv n (Ty.IntLit (value `rem` (2 ^ toInteger n))))
     AST.Struct fs -> CStruct ty $ map (\(n, ty) -> (n, ctermInit ty value)) fs
     _             -> error $ "Cannot init type: " ++ show ty
   )
@@ -267,14 +269,17 @@ nyi msg = error $ "Not yet implemented: " ++ msg
 udefName :: String -> String
 udefName s = s ++ "_undef"
 
-cSetValues :: String -> CTerm -> Assert.Assert ()
-cSetValues name t = case term t of
-  CBool b        -> Assert.evalAndSetValue name b
-  CInt _ _ i     -> Assert.evalAndSetValue name i
-  CFloat  f      -> Assert.evalAndSetValue name f
-  CDouble d      -> Assert.evalAndSetValue name d
-  CStruct _ty fs -> forM_ fs $ \(f, t) -> cSetValues (structVarName name f) t
-  _              -> error $ "Cannot set value for a term: " ++ show t
+cSetValues :: Bool -> String -> CTerm -> Assert.Assert ()
+cSetValues trackUndef name t = do
+  case term t of
+    CBool b    -> Assert.evalAndSetValue name b
+    CInt _ _ i -> Assert.evalAndSetValue name i
+    CFloat  f  -> Assert.evalAndSetValue name f
+    CDouble d  -> Assert.evalAndSetValue name d
+    CStruct _ty fs ->
+      forM_ fs $ \(f, t) -> cSetValues trackUndef (structVarName name f) t
+    _ -> error $ "Cannot set value for a term: " ++ show t
+  when trackUndef $ Assert.evalAndSetValue (udefName name) (udef t)
 
 
 -- Makes `name` an alias for `t`.

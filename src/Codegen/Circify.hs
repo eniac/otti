@@ -27,6 +27,7 @@ import           Data.List                      ( intercalate
                                                 )
 import           Data.Functor.Identity
 import           Data.Foldable
+import           Data.List.Split                ( splitOn )
 import qualified Data.Map                      as M
 import           Data.Maybe                     ( fromMaybe
                                                 , listToMaybe
@@ -814,3 +815,10 @@ liftTermFunM name f x = case x of
   Base c -> Base <$> f c
   RefVal r ->
     error $ "Cannot apply c function " ++ name ++ " to reference " ++ show r
+
+extractVarName :: String -> String
+extractVarName s =
+  fromMaybe (error $ "Could not parse var from " ++ show s) $ do
+    versioned <- listToMaybe $ drop 1 $ splitOn "__" s
+    listToMaybe $ splitOn "_" versioned
+

@@ -58,8 +58,8 @@ toSmtTests = benchTestGroup "SMT conversion" []
 
 ubCheckTest :: String -> String -> FilePath -> Bool -> BenchTest
 ubCheckTest name fnName path undef = benchTestCase name $ do
-  tu <- parseC path
-  r  <- evalCfgDefault $ checkFn tu fnName
+  tu     <- parseC path
+  (_, r) <- evalCfgDefault $ checkFn tu fnName
   undef @=? isJust r
 
 ubTests = benchTestGroup

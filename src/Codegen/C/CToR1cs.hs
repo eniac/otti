@@ -21,6 +21,7 @@ import           Codegen.Circify                ( initValues
 import qualified IR.R1cs.Opt                   as R1csOpt
 import           Codegen.C                      ( codegenFn
                                                 , runC
+                                                , assertBug
                                                 )
 import           Codegen.C.CUtils               ( InMap )
 import           IR.SMT.ToPf                    ( toPf
@@ -48,13 +49,20 @@ data FnTrans = FnTrans { assertions :: [Ty.TermBool]
                        , arraySizes :: SMap.ShowMap (Ty.TermArray Ty.DynBvSort Ty.DynBvSort) Int
                        }
 
+fnTransPublicIns :: FnTrans -> Set.Set String
+fnTransPublicIns f = Set.fromList (output f : inputs f)
+
 -- Can a fn exhibit undefined behavior?
 -- Returns a string describing it, if so.
-fnToSmt :: Maybe InMap -> AST.CTranslUnit -> String -> Log FnTrans
-fnToSmt inVals tu name = do
+fnToSmt :: Bool -> Maybe InMap -> AST.CTranslUnit -> String -> Log FnTrans
+fnToSmt findBugs inVals tu name = do
   let init = when (isJust inVals) $ liftCircify initValues
   (((inputs, output), _, memState), assertState) <-
-    liftCfg $ Assert.runAssert $ runC False $ init >> codegenFn tu name inVals
+    liftCfg $ Assert.runAssert $ runC findBugs $ do
+      init
+      r <- codegenFn tu name inVals
+      when findBugs assertBug
+      return r
   return $ FnTrans
     { assertions = Assert.asserted assertState
     , inputs     = inputs
@@ -64,10 +72,15 @@ fnToSmt inVals tu name = do
     }
 
 fnToR1cs
-  :: forall n . KnownNat n => AST.CTranslUnit -> String -> Log (R1CS String n)
-fnToR1cs tu fnName = do
-  fn <- fnToSmt Nothing tu fnName
-  let pubVars = Set.insert (output fn) $ Set.fromList $ inputs fn
+  :: forall n
+   . KnownNat n
+  => Bool
+  -> AST.CTranslUnit
+  -> String
+  -> Log (R1CS String n)
+fnToR1cs findBugs tu fnName = do
+  fn <- fnToSmt findBugs Nothing tu fnName
+  let pubVars = if findBugs then Set.empty else fnTransPublicIns fn
   newSmt <- SmtOpt.opt pubVars (assertions fn)
   r      <- toPf @n pubVars (arraySizes fn) newSmt
   R1csOpt.opt r
@@ -75,17 +88,19 @@ fnToR1cs tu fnName = do
 fnToR1csWithWit
   :: forall n
    . KnownNat n
-  => InMap
+  => Bool
+  -> InMap
   -> AST.CTranslUnit
   -> String
   -> Log (R1CS String n, Map.Map String (Prime n))
-fnToR1csWithWit inVals tu fnName = do
-  fn <- fnToSmt (Just inVals) tu fnName
+fnToR1csWithWit findBugs inVals tu fnName = do
+  fn <- fnToSmt findBugs (Just inVals) tu fnName
   let vs = fromJust $ vals fn
   forM_ (assertions fn) $ \a -> do
     let v = Ty.eval vs a
+    logIf "fnToR1csWithWit" $ "Assert: " ++ show a
     unless (Ty.ValBool True == v) $ error $ "eval " ++ show a ++ " gave False"
-  let pubVars = Set.insert (output fn) $ Set.fromList $ inputs fn
+  let pubVars = if findBugs then Set.empty else fnTransPublicIns fn
   newSmt <- SmtOpt.opt pubVars (assertions fn)
   (r, w) <- toPfWithWit @n vs pubVars (arraySizes fn) newSmt
   r'     <- R1csOpt.opt r

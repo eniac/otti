@@ -91,6 +91,7 @@ module IR.SMT.TySmt
   , valAsPf
   , valAsBool
   , valAsDynBv
+  , asInteger
   )
 where
 
@@ -1427,6 +1428,12 @@ evalZ3Model term = do
     0
   toDec :: String -> Integer
   toDec = foldl' (\acc x -> acc * 2 + (fromIntegral $ digitToInt x)) 0
+
+asInteger :: Val -> Integer
+asInteger v = case v of
+  IVal i -> toInteger i
+  BVal b -> toInteger $ fromEnum b
+  _      -> error $ "Cannot convert " ++ show v ++ " to integer"
 
 -- Tries to case the values to the same type
 dynEq :: (Typeable a, Typeable b) => Term a -> Term b -> Bool
