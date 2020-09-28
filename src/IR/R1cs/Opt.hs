@@ -41,6 +41,8 @@ opt :: (KnownNat n, Ord s, Show s) => R1CS s n -> Log (R1CS s n)
 opt r1cs = do
   logIf "r1csOpt" $ "Constraints before r1csOpt: " ++ show
     (Seq.length $ constraints r1cs)
+  logIf "r1csOpt" $ "Public inputs: " ++ show
+    (publicInputs r1cs)
   optLevel <- liftCfg $ asks _optR1cs
   r1cs     <- (if optLevel >= 1 then foldEqs else pure) r1cs
   r1cs     <- (if optLevel >= 2 then RedLin.reduceLinearities else pure) r1cs

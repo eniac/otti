@@ -315,7 +315,7 @@ lcToR1csLine (m, c) =
       augmentedPairs = if fromP c == 0 then pairs else (1, c) : pairs
       nPairs         = fromIntegral (length augmentedPairs)
   in  nPairs
-        : concatMap (\(x, f) -> [primeToSignedInt f, fromIntegral x])
+        : concatMap (\(x, f) -> [fromP f, fromIntegral x])
                     augmentedPairs
 
 qeqToR1csLines :: KnownNat n => QEQ Int (Prime n) -> [[Integer]]

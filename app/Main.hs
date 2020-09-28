@@ -208,7 +208,7 @@ cmdProve libsnark pkPath vkPath inPath xPath wPath pfPath circomPath = do
   inputFile     <- liftIO $ openFile inPath ReadMode
   inputsSignals <- liftIO $ Parse.parseSignalsFromFile (Proxy @Order) inputFile
   allSignals <- evalLog $ Link.computeWitnesses (Proxy @Order) m inputsSignals
-  r1cs <- evalLog $ (Link.linkMain @Order m >>= Opt.opt)
+  r1cs <- evalLog (Link.linkMain @Order m >>= Opt.opt)
   let getOr m_ k =
         Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
   let getOrI m_ k =
