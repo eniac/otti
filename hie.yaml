@@ -1,0 +1,10 @@
+cradle:
+  stack:
+    - path: "./src"
+      component: "compiler:lib"
+
+    - path: "./app/Main.hs"
+      component: "compiler:exe:compiler-exe"
+
+    - path: "./test"
+      component: "compiler:test:compiler-test"
