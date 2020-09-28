@@ -4,7 +4,6 @@ module Codegen.CTest
   ( cTests
   )
 where
-import           AST.C
 import           BenchUtils
 import           Codegen.C
 import           Codegen.C.CUtils
@@ -16,14 +15,10 @@ import           Data.Maybe                     ( fromJust
                                                 , isJust
                                                 )
 import qualified Data.Set                      as Set
-import           IR.R1cs                        ( R1CS(..)
-                                                , r1csCheck
-                                                , r1csShow
-                                                )
+import           IR.R1cs                        ( r1csCheck )
 import           IR.SMT.Assert                  ( AssertState(..)
                                                 , asserted
                                                 , execAssert
-                                                , runAssert
                                                 , vals
                                                 )
 import           IR.SMT.ToPf                    ( toPfWithWit )
@@ -33,7 +28,6 @@ import           Test.Tasty.HUnit
 import           Util.Log
 import qualified Util.ShowMap                  as SMap
 import           Util.Cfg                       ( evalCfgDefault )
-import           Utils
 
 type Order
   = 113890009193798365449144652900867294558768981710660728242748762258461992583217
@@ -44,14 +38,14 @@ cTests = benchTestGroup
   [toSmtTests, ubTests, satSmtCircuitTests, satR1csTests]
 
 
-constraintCountTest :: String -> FilePath -> Int -> BenchTest
-constraintCountTest name path constraints = benchTestCase name $ do
-  tu         <- parseC path
-  assertions <- evalCfgDefault $ execAssert $ evalC True $ codegenAll tu
-  unless (constraints == length (asserted assertions)) $ do
-    --forM_ (asserted assertions) $ \s -> putStrLn $ name ++ ": " ++ show s
-    return ()
-  constraints @=? length (asserted assertions)
+-- constraintCountTest :: String -> FilePath -> Int -> BenchTest
+-- constraintCountTest name path constraints = benchTestCase name $ do
+--   tu         <- parseC path
+--   assertions <- evalCfgDefault $ execAssert $ evalC True $ codegenAll tu
+--   unless (constraints == length (asserted assertions)) $ do
+--     --forM_ (asserted assertions) $ \s -> putStrLn $ name ++ ": " ++ show s
+--     return ()
+--   constraints @=? length (asserted assertions)
 
 toSmtTests = benchTestGroup "SMT conversion" []
   -- These tests area just too brittle.
@@ -100,16 +94,17 @@ ubTests = benchTestGroup
 satSmtCircuitTest
   :: String -> String -> FilePath -> M.Map String Integer -> BenchTest
 satSmtCircuitTest name fnName path inputs = benchTestCase name $ do
-  tu                               <- parseC path
-  ((_, compState, _), assertState) <-
-    evalCfgDefault $ runAssert $ runC False $ do
-      liftCircify initValues
-      codegenFn tu fnName (Just $ M.mapKeys (replicate 1 . Name) inputs)
+  tu          <- parseC path
+  assertState <- evalCfgDefault $ execAssert $ runC False $ do
+    liftCircify initValues
+    codegenFn tu fnName (Just $ M.mapKeys (replicate 1 . Name) inputs)
   let assertions = asserted assertState
   let env        = fromJust $ vals assertState
   forM_ assertions $ \a -> do
-    --unless (Ty.ValBool True == Ty.eval env a) $ do
-    --  putStrLn $ "Unsat constraint: " ++ show a
+    unless (Ty.ValBool True == Ty.eval env a)
+      $  putStrLn
+      $  "Unsat constraint: "
+      ++ show a
     Ty.ValBool True @=? Ty.eval env a
 
 satSmtCircuitTests = benchTestGroup
@@ -132,12 +127,11 @@ satSmtCircuitTests = benchTestGroup
 satR1csTestInputs
   :: String -> String -> FilePath -> M.Map [String] Integer -> BenchTest
 satR1csTestInputs name fnName path inputs = benchTestCase name $ do
-  tu                               <- parseC path
-  ((_, compState, _), assertState) <-
-    evalCfgDefault $ runAssert $ runC False $ codegenFn
-      tu
-      fnName
-      (Just $ M.mapKeys (map Name) inputs)
+  tu          <- parseC path
+  assertState <- evalCfgDefault $ execAssert $ runC False $ codegenFn
+    tu
+    fnName
+    (Just $ M.mapKeys (map Name) inputs)
   let assertions = asserted assertState
   let env        = fromJust $ vals assertState
   forM_ assertions $ \a -> Ty.ValBool True @=? Ty.eval env a

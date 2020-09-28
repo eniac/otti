@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 -- Because of out KnownNat1 instance for the Log2 family...
 {-# OPTIONS_GHC -Wno-orphans #-}

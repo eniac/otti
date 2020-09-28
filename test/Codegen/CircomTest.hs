@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE TypeApplications    #-}
 module Codegen.CircomTest where

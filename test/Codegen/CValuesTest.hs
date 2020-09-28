@@ -1,18 +1,9 @@
 module Codegen.CValuesTest where
 import           BenchUtils
 import           Codegen.C
-import           Codegen.Circify
 import           Control.Monad                  ( forM_ )
 import qualified Data.Map                      as M
-import           IR.SMT.Assert                  ( AssertState(..)
-                                                , asserted
-                                                , execAssert
-                                                , runAssert
-                                                )
-import           IR.SMT.TySmt                   ( Val
-                                                , nan
-                                                , nz
-                                                )
+import           IR.SMT.TySmt                   ( Val )
 import qualified IR.SMT.TySmt                  as Ty
 import           Parser.C
 import           Test.Tasty.HUnit

@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -249,7 +248,7 @@ compStatementNoReturn s = case ast s of
   assert' (Base b) = do
     liftLog $ logIf "circomAssert" $ show b
     modify $ \c -> c { baseCtx = assert b (baseCtx c) }
-  assert' t        = spanE (ann s) $ "Cannot constain " ++ show t ++ " to zero"
+  assert' t = spanE (ann s) $ "Cannot constain " ++ show t ++ " to zero"
 
   whileM_ :: Monad m => m Bool -> m a -> m ()
   whileM_ condition step = do

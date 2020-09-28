@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE Rank2Types          #-}

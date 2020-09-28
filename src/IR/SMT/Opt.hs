@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}

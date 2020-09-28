@@ -1,13 +1,10 @@
-{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications    #-}
 module IR.SMT.TySmtTest where
 import           BenchUtils
-import           Control.Monad                  ( forM_
-                                                , unless
-                                                )
+import           Control.Monad                  ( forM_ )
 import qualified Data.BitVector                as Bv
 import           Data.Dynamic
 import qualified Data.Map.Strict               as Map

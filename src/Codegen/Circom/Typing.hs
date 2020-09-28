@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wall #-}
 module Codegen.Circom.Typing
   ( InstanceType
   , emptyType

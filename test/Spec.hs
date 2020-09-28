@@ -10,8 +10,6 @@ import           IR.SMT.ToPfTest
 import           IR.SMT.TySmtTest
 import           Parser.CircomTest
 import           Parser.CTest
-import           Targets.SMT
-import           Targets.SMTTest
 import           Test.Tasty
 
 parserTests :: BenchTest

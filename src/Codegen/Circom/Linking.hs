@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
@@ -29,7 +28,7 @@ import           Data.Field.Galois              ( Prime
                                                 , fromP
                                                 )
 import           GHC.TypeLits                   ( KnownNat )
-import           Data.Aeson (encode)
+import           Data.Aeson                     ( encode )
 import qualified Data.Array                    as Arr
 import qualified Data.ByteString.Lazy.Char8    as Char8
 import qualified Data.Foldable                 as Fold
@@ -89,14 +88,18 @@ link namespace invocation ctx =
 
       newConstraints :: Seq.Seq (LD.QEQ GlobalSignal (Prime n))
       newConstraints =
-          Seq.reverse $ Seq.fromList
+          Seq.reverse
+            $ Seq.fromList
             $ map (sigMapQeq (joinName namespace))
             $ LD.constraints
             $ CompT.baseCtx c
 
       components :: Seq.Seq (IndexedIdent, Comp.TemplateInvocation (Prime n))
-      components = Seq.reverse $ 
-          foldMap (uncurry $ extractComponents []) $ Map.assocs $ CompT.env c
+      components =
+          Seq.reverse
+            $ foldMap (uncurry $ extractComponents [])
+            $ Map.assocs
+            $ CompT.env c
   in  do
         liftLog
           $  logIf "r1cs::link::namespace"
@@ -110,7 +113,9 @@ link namespace invocation ctx =
         -- add our constraints
         liftLog
           $ logIf "r1cs::link::cons"
-          $ unlines $ map (Char8.unpack .encode) $ Fold.toList newConstraints
+          $ unlines
+          $ map (Char8.unpack . encode)
+          $ Fold.toList newConstraints
         modify $ r1csAddConstraints newConstraints
         return ()
 

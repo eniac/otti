@@ -11,34 +11,23 @@ where
 -- This module glues the C circification pipeline to the Smt -> R1cs pipeline.
 
 import           Control.Monad
-import           Control.Monad.IO.Class
 import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.Assert                 as Assert
 import qualified Language.C.Syntax.AST         as AST
 import qualified Codegen.Circify.Memory        as Mem
-import           Codegen.Circify                ( evalCodegen
-                                                , runCodegen
-                                                , initValues
+import           Codegen.Circify                ( initValues
                                                 , liftCircify
-                                                )
-import           Codegen.Circom.CompTypes.LowDeg
-                                                ( LC
-                                                , QEQ
                                                 )
 import qualified IR.R1cs.Opt                   as R1csOpt
 import           Codegen.C                      ( codegenFn
                                                 , runC
                                                 )
-import           Codegen.C.CUtils               ( CTerm
-                                                , InMap
-                                                )
+import           Codegen.C.CUtils               ( InMap )
 import           IR.SMT.ToPf                    ( toPf
                                                 , toPfWithWit
                                                 )
 import qualified IR.SMT.Opt                    as SmtOpt
-import           IR.R1cs                        ( R1CS(..)
-                                                , r1csStats
-                                                )
+import           IR.R1cs                        ( R1CS(..) )
 import           Data.Maybe                     ( isJust
                                                 , fromJust
                                                 , fromMaybe
@@ -47,9 +36,7 @@ import           Data.Dynamic                   ( Dynamic )
 import qualified Data.Set                      as Set
 import qualified Data.Map.Strict               as Map
 import           GHC.TypeNats                   ( KnownNat )
-import           Data.Field.Galois              ( Prime
-                                                , toP
-                                                )
+import           Data.Field.Galois              ( Prime )
 import           Util.Log
 import           Util.Cfg                       ( liftCfg )
 import qualified Util.ShowMap                  as SMap
@@ -66,7 +53,7 @@ data FnTrans = FnTrans { assertions :: [Ty.TermBool]
 fnToSmt :: Maybe InMap -> AST.CTranslUnit -> String -> Log FnTrans
 fnToSmt inVals tu name = do
   let init = when (isJust inVals) $ liftCircify initValues
-  (((inputs, output), compState, memState), assertState) <-
+  (((inputs, output), _, memState), assertState) <-
     liftCfg $ Assert.runAssert $ runC False $ init >> codegenFn tu name inVals
   return $ FnTrans
     { assertions = Assert.asserted assertState

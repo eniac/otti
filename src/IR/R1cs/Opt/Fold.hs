@@ -7,7 +7,6 @@ where
 
 import           Control.DeepSeq
 import           Control.Monad.State.Strict
-import           Control.Applicative
 import qualified Data.IntMap.Strict            as IntMap
 import           Data.IntMap.Strict             ( IntMap )
 import qualified Data.IntSet                   as IntSet
@@ -23,7 +22,6 @@ import           IR.R1cs.Opt.Util               ( asEqOrConst
                                                 )
 import           Lens.Simple                    ( makeLenses
                                                 , over
-                                                , set
                                                 , view
                                                 )
 import           Util.Log
@@ -39,9 +37,6 @@ $(makeLenses ''FoldState)
 
 newtype Fold a = Fold (StateT FoldState Log a)
   deriving (Functor, Applicative, Monad, MonadState FoldState, MonadIO, MonadLog)
-
-insertIfMissing :: Int -> a -> IntMap a -> IntMap a
-insertIfMissing k v = IntMap.alter (<|> Just v) k
 
 ensure :: Int -> Fold ()
 ensure x = do
@@ -70,7 +65,7 @@ equate x y = do
         then (yRep, yClass, xRep, xClass)
         else (xRep, xClass, yRep, yClass)
   -- reassign members of bRep's class
-  forM_ (IntSet.toList bC) $ \x -> modify $ over reps $ IntMap.insert x aR
+  forM_ (IntSet.toList bC) $ \z -> modify $ over reps $ IntMap.insert z aR
   -- update aRep's class
   modify $ over classes $ IntMap.insert aR $ IntSet.union aC bC
   -- remove bRep's class
@@ -97,7 +92,8 @@ foldEqs r1cs = do
   logIf "r1cs::opt::fold" $ "Constraints before: " ++ show
     (Seq.length $ constraints r1cs)
   let constraints' =
-        force $ Seq.filter (not . constantlyTrue)
+        force
+          $   Seq.filter (not . constantlyTrue)
           $   sigMapQeq (IntMap.fromList representatives IntMap.!)
           <$> constraints r1cs
   logIf "r1cs::opt::fold" $ "Constraints after : " ++ show
@@ -110,8 +106,8 @@ foldEqs r1cs = do
   -- replaces bN with aN, updating signal maps, but not constraints
   mergeInNumSigMaps
     :: (Show s, Ord s, KnownNat n) => Int -> Int -> R1CS s n -> R1CS s n
-  mergeInNumSigMaps aN bN r1cs =
-    let bSigs    = numSigs r1cs IntMap.! bN
-        numSigs' = IntMap.adjust (++ bSigs) aN (numSigs r1cs)
-        sigNums' = foldr (flip Map.insert aN) (sigNums r1cs) bSigs
-    in  r1cs { numSigs = numSigs', sigNums = sigNums' }
+  mergeInNumSigMaps aN bN r1cs' =
+    let bSigs    = numSigs r1cs' IntMap.! bN
+        numSigs' = IntMap.adjust (++ bSigs) aN (numSigs r1cs')
+        sigNums' = foldr (flip Map.insert aN) (sigNums r1cs') bSigs
+    in  r1cs' { numSigs = numSigs', sigNums = sigNums' }

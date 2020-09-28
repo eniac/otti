@@ -7,35 +7,25 @@ import           Codegen.C.CUtils
 import           Codegen.C.Utils
 import           Codegen.Circify
 import           Codegen.Circify.Memory         ( MonadMem
-                                                , bvNum
-                                                , evalMem
                                                 , liftMem
                                                 , MemState
                                                 )
-import           Control.Applicative
 import           Control.Monad                  ( join
                                                 , replicateM_
                                                 , forM
                                                 )
 import           Control.Monad.State.Strict
 import           Control.Monad.Reader
-import qualified Data.BitVector                as Bv
 import           Data.Char                      ( ord
                                                 , toLower
                                                 )
 import qualified Data.Char                     as Char
-import           Data.Either                    ( fromRight
-                                                , isRight
-                                                )
+import           Data.Either                    ( isRight )
 import           Data.List                      ( intercalate )
-import qualified Data.List.Split               as Split
 import qualified Data.Map                      as Map
 import           Data.Maybe                     ( fromJust
                                                 , fromMaybe
                                                 , isJust
-                                                , isNothing
-                                                , listToMaybe
-                                                , maybeToList
                                                 , catMaybes
                                                 )
 import           IR.SMT.Assert                  ( MonadAssert
@@ -43,7 +33,6 @@ import           IR.SMT.Assert                  ( MonadAssert
                                                 )
 import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
-import           Language.C.Analysis.AstAnalysis
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
@@ -164,8 +153,8 @@ genVarSMT (Ident name _ _) = liftCircify $ getTerm $ SLVar name
 genConstSMT :: CConst -> C CTerm
 genConstSMT c = case c of
   CIntConst  (CInteger i _ _) _ -> return $ cIntLit S32 i
-  CCharConst (CChar  c _    ) _ -> return $ cIntLit S8 $ toInteger $ Char.ord c
-  CCharConst (CChars c _    ) _ -> error "Chars const unsupported"
+  CCharConst (CChar c _     ) _ -> return $ cIntLit S8 $ toInteger $ Char.ord c
+  CCharConst (CChars{}      ) _ -> error "Chars const unsupported"
   CFloatConst (Language.C.Syntax.Constants.CFloat str) _ ->
     case toLower (last str) of
       'f' -> return $ cFloatLit (read $ init str)
@@ -217,9 +206,9 @@ genAssign :: CLVal -> CSsaVal -> C CSsaVal
 genAssign location value = case location of
   CLVar  varName -> liftCircify $ ssaAssign varName value
   CLAddr addr    -> case addr of
-    Base   a -> ssaStore addr value >> return value
+    Base{}   -> ssaStore addr value >> return value
     RefVal r -> liftCircify $ ssaAssign (SLRef r) value
-  CLField struct field -> modLocation location (const value)
+  CLField{} -> modLocation location (const value)
    where
     -- Apply a modification function to a location
     modLocation :: CLVal -> (CSsaVal -> CSsaVal) -> C CSsaVal
@@ -227,7 +216,7 @@ genAssign location value = case location of
       CLVar varName ->
         liftCircify $ getTerm varName >>= ssaAssign varName . modFn
       CLAddr addr -> case addr of
-        Base c -> do
+        Base _ -> do
           old <- ssaLoad addr
           let new = modFn old
           ssaStore addr new
@@ -301,16 +290,15 @@ genExprSMT expr = do
           formalArgs =
             map (SLVar . identToVarName)
               $ concatMap
-                  (\decl -> case decl of
-                    CDecl _ decls _ -> do
-                      map
-                        (\(Just dec, mInit, _) ->
-                          let mName = identFromDeclr dec
-                          in  if isJust mName
-                                then fromJust mName
-                                else error "Expected identifier in decl"
-                        )
-                        decls
+                  (\case
+                    CDecl _ decls _ -> map
+                      (\(Just dec, _, _) ->
+                        let mName = identFromDeclr dec
+                        in  fromMaybe (error "Expected identifier in decl")
+                                      mName
+                      )
+                      decls
+                    _ -> error "Missing case in formalArgs"
                   )
               $ argsFromFunc f
         unless (length formalArgs == length actualArgs)
@@ -352,7 +340,7 @@ getUnaryOp op arg = case op of
     rval <- evalLVal lval
     let one = Base $ cIntLit (ssaType rval) 1
     let new = liftTermFun2 (show op) (if isDec op then cSub else cAdd) rval one
-    genAssign lval new
+    _ <- genAssign lval new
     return $ if isPre op then new else rval
   CIndOp -> do
     l <- genExprSMT arg
@@ -422,7 +410,7 @@ genStmtSMT stmt = do
     t <- liftIO $ nodeText stmt
     return $ "Stmt: " ++ t
   case stmt of
-    CCompound ids items _ -> do
+    CCompound _ items _ -> do
       liftCircify enterLexScope
       forM_ items $ \case
         CBlockStmt stmt -> genStmtSMT stmt
@@ -518,10 +506,11 @@ genDeclSMT undef d@(CDecl specs decls _) = do
             return $ either (const Nothing) Just mTy
         return $ (name, ) <$> ty
   return $ catMaybes ms
+genDeclSMT _ _ = error "Missing case in genDeclSMT"
 
 genInitSMT :: Type -> CInit -> C CSsaVal
 genInitSMT ty i = case (ty, i) of
-  (tt, CInitExpr e _) -> do
+  (_, CInitExpr e _) -> do
     t <- genExprSMT e
     return $ case t of
       Base c   -> Base $ cCast ty c
@@ -616,8 +605,8 @@ cLangDef findBugs = LangDef { declare   = cDeclVar findBugs
 runC :: Bool -> C a -> Assert.Assert (a, CircifyState Type CTerm, MemState)
 runC findBugs c = do
   let (C act) = cfgFromEnv >> c
-  (((x, cState), circState), memState) <-
-    runCodegen (cLangDef findBugs) $ runStateT act (emptyCState findBugs)
+  (((x, _), circState), memState) <- runCodegen (cLangDef findBugs)
+    $ runStateT act (emptyCState findBugs)
   return (x, circState, memState)
 
 evalC :: Bool -> C a -> Assert.Assert a

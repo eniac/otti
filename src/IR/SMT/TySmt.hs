@@ -14,7 +14,6 @@
 {-# LANGUAGE TypeFamilies           #-}
 {-# LANGUAGE TypeOperators          #-}
 {-# LANGUAGE TypeSynonymInstances   #-}
-{-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
 
 module IR.SMT.TySmt

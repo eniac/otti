@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -29,9 +28,9 @@ import           Codegen.Circom.CompTypes       ( BaseTerm(..)
                                                 )
 import qualified Codegen.Circom.Signal         as Sig
 import           Data.Aeson
-import qualified Data.Text as Text
-import qualified Data.ByteString.Lazy.Char8 as Char8
-import qualified Data.Map.Strict as Map
+import qualified Data.Text                     as Text
+import qualified Data.ByteString.Lazy.Char8    as Char8
+import qualified Data.Map.Strict               as Map
 import           Data.Field.Galois              ( Prime )
 import           GHC.TypeNats
 import           IR.R1cs
@@ -44,15 +43,14 @@ data LowDeg n = Scalar !n
 
 instance Show n => ToJSON (LowDeg n) where
   toJSON x = case x of
-    Scalar i -> toJSON $ Text.pack (show i)
-    Linear l -> toJSON $ lcToJson l
+    Scalar    i -> toJSON $ Text.pack (show i)
+    Linear    l -> toJSON $ lcToJson l
     Quadratic q -> qeqToJson q
-    HighDegree -> toJSON $ Text.pack "HighDegree"
+    HighDegree  -> toJSON $ Text.pack "HighDegree"
    where
     qeqToJson (a, b, c) = toJSON $ map lcToJson [a, b, c]
     lcToJson (m, c) =
-      let back = map (\(k, v) -> Text.pack (show k) .= show v)
-                     (Map.toList m)
+      let back = map (\(k, v) -> Text.pack (show k) .= show v) (Map.toList m)
       in  object $ ("1" .= show c) : back
 
 instance Show n => Show (LowDeg n) where

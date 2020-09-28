@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
 module Codegen.Circom.Signal
@@ -9,8 +8,7 @@ module Codegen.Circom.Signal
 where
 
 import           Data.List                      ( intercalate )
-import           GHC.Generics                   ( Generic
-                                                )
+import           GHC.Generics                   ( Generic )
 import           Control.DeepSeq                ( NFData )
 
 type IndexedIdent = (String, [Int])

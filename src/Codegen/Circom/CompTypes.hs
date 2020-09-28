@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE EmptyDataDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -64,7 +63,7 @@ import qualified Data.Foldable                 as Fold
 import           Data.Ix
 import qualified Data.List                     as List
 import qualified Data.Map.Strict               as Map
-import Util.Log
+import           Util.Log
 import           GHC.TypeNats
 
 data LTerm = LTermLocal !Sig.IndexedIdent

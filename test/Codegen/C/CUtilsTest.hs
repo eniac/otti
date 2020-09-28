@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE GADTs #-}
 module Codegen.C.CUtilsTest where
 import qualified AST.C                         as AST
