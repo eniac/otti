@@ -1,4 +1,5 @@
 {
+{-# OPTIONS_GHC -Wno-all #-}
 module Parser.Circom.Lexer (tokenize, tokenStartPosn, tokenEndPosn, tokenStr, Token(..), AlexPosn(AlexPn)) where
 }
 

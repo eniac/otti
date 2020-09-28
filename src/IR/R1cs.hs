@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
@@ -66,10 +67,8 @@ import qualified Data.Map.Strict               as Map
 import qualified Data.Map.Merge.Strict         as MapMerge
 import           Data.Maybe                     ( fromMaybe )
 import qualified Data.Sequence                 as Seq
-import qualified Data.Tuple                    as Tuple
 import qualified Data.Text                     as Text
 import qualified Data.List                     as List
-import           GHC.Generics
 import           GHC.TypeLits                   ( KnownNat
                                                 , natVal
                                                 )
@@ -329,6 +328,7 @@ r1csAsLines r1cs =
       constraintLines = concatMap qeqToR1csLines $ constraints r1cs
   in  [nPubIns, nWit, nConstraints] : constraintLines
 
+-- Todo: implement this using a better IO system.
 writeToR1csFile :: (Show s, KnownNat n) => Bool -> R1CS s n -> FilePath -> IO ()
 writeToR1csFile asJson r1cs path = if asJson
   then ByteString.writeFile path $ encode r1cs

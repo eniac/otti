@@ -15,6 +15,7 @@ import qualified Data.IntSet                   as IntSet
 import           Data.IntSet                    ( IntSet )
 import           Data.Field.Galois              ( Prime )
 import qualified Data.Foldable                 as Fold
+import qualified Data.Map.Strict               as Map
 import qualified Data.Sequence                 as Seq
 import           Data.Sequence                  ( Seq )
 import           Data.Maybe                     ( fromMaybe )
@@ -32,7 +33,8 @@ import           Lens.Simple                    ( makeLenses
                                                 )
 import           Util.Log
 
-type Constraint n = QEQ Int (Prime n)
+-- A constraint, together with its set of variables.
+type Constraint n = (QEQ Int (Prime n), IntSet)
 type ConstrId = Int
 data RedLinState n = RedLinState { _cs :: IntMap (Constraint n)
                                  , _uses :: IntMap IntSet
@@ -47,7 +49,7 @@ newtype RedLin n a = RedLin (StateT (RedLinState n) Log a)
   deriving (Functor, Applicative, Monad, MonadState (RedLinState n), MonadIO, MonadLog)
 
 shouldVisit :: KnownNat n => Constraint n -> Bool
-shouldVisit (a, b, _) = a == lcZero || b == lcZero
+shouldVisit ((a, b, _), _) = a == lcZero || b == lcZero
 
 getC :: ConstrId -> RedLin n (Constraint n)
 getC id' = gets
@@ -69,8 +71,8 @@ whenJust test body = maybe (return ()) body test
 
 updateC :: ConstrId -> Constraint n -> RedLin n ()
 updateC id' c = do
-  oldVars <- IntSet.fromList . qeqSigs <$> getC id'
-  let newVars = IntSet.fromList $ qeqSigs c
+  oldVars <- snd <$> getC id'
+  let newVars = snd c
   -- Unregister vars that are now unused
   forM_ (IntSet.toList $ oldVars IntSet.\\ newVars)
     $ \v -> modify $ over uses $ IntMap.adjust (IntSet.delete id') v
@@ -78,6 +80,7 @@ updateC id' c = do
   forM_ (IntSet.toList $ newVars IntSet.\\ oldVars)
     $ \v -> modify $ over uses $ IntMap.adjust (IntSet.insert id') v
   modify $ over cs $ IntMap.insert id' c
+
 
 whileJustM :: Monad m => m (Maybe a) -> (a -> m ()) -> m ()
 whileJustM test body = do
@@ -106,22 +109,27 @@ run r1cs = do
   whileJustM popFromQueue $ \id' -> do
     c <- getC id'
     -- If it is a linear sub, `v` -> `t`
-    whenJust (asLinearSub (publicInputs r1cs) c) $ \(v, t) -> do
+    whenJust (asLinearSub (publicInputs r1cs) (fst c)) $ \(v, t) -> do
       liftLog $ logIf "r1cs::opt::lin::sub" $ show $ map
         show
         (numSigs r1cs IntMap.! v)
       -- Get constraints that use `v`
       vUses <- gets (IntSet.toList . (IntMap.! v) . view uses)
       -- Set constraint to zero
-      updateC id' qeqZero
+      updateC id' (qeqZero, IntSet.empty)
       -- For constraints that use `v`
       forM_ vUses $ \useId -> do
         -- Do substitution
         useC <- getC useId
-        let useC' = normalize $ subLcInQeq v t useC
+        let useC' = attachSigs $ normalize $ subLcInQeq v t $ fst useC
         updateC useId useC'
         -- Enqueue if result looks promising
         when (shouldVisit useC') $ enqueue useId
+
+-- TODO: be careful to never reconstruct the variable sets.
+qSigs (a, b, c) = IntSet.union (lSigs a) (IntSet.union (lSigs b) (lSigs c))
+lSigs (m, _) = IntSet.fromDistinctAscList $ Map.keys m
+attachSigs qeq = (qeq, qSigs qeq)
 
 initRedLinState :: KnownNat n => R1CS s n -> RedLinState n
 initRedLinState r1cs =
@@ -129,10 +137,10 @@ initRedLinState r1cs =
     cs' =
       IntMap.fromDistinctAscList
         $ zip [0 ..]
-        $ map normalize
+        $ map (attachSigs . normalize)
         $ Fold.toList
         $ constraints r1cs
-    usePairs = [ (v, id') | (id', qeq) <- IntMap.toList cs', v <- qeqSigs qeq ]
+    usePairs = [ (v, id') | (id', (_, vs)) <- IntMap.toList cs', v <- IntSet.toList vs ]
     uses' =
       IntMap.fromListWith IntSet.union $ map (second IntSet.singleton) usePairs
   in
@@ -147,6 +155,6 @@ reduceLinearities r1cs = do
   let (RedLin runAction) = run r1cs
   st <- execStateT runAction $ initRedLinState r1cs
   let constraints' =
-        Seq.fromList $ filter (not . constantlyTrue) $ IntMap.elems $ view cs st
+        Seq.fromList $ filter (not . constantlyTrue) $ map fst $ IntMap.elems $ view cs st
   logIf "r1cs::opt::lin" $ "Constraints: " ++ show (Seq.length constraints')
   return $ r1cs { constraints = constraints' }

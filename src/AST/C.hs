@@ -1,5 +1,4 @@
 module AST.C where
-import           Data.Maybe                     ( isJust )
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 
@@ -52,7 +51,8 @@ numBits Ptr64{}               = 64
 numBits Ptr32{}               = 32
 numBits (Struct tys         ) = sum $ map (numBits . snd) tys
 numBits (Array (Just num) ty) = num * numBits ty
-numBits (Array Nothing    ty) = 32
+numBits (Array Nothing    _ ) = 32
+numBits _                     = error "nyi"
 
 isSignedInt :: Type -> Bool
 isSignedInt S8  = True
@@ -145,7 +145,7 @@ nameFromFunc :: CFunctionDef a -> String
 nameFromFunc (CFunDef _ decl _ _ _) = nameFromIdent $ identFromDecl decl
 
 baseTypeFromFunc :: CFunctionDef a -> [CDeclarationSpecifier a]
-baseTypeFromFunc (CFunDef tys _ _ stmt _) = tys
+baseTypeFromFunc (CFunDef tys _ _ _ _) = tys
 
 bodyFromFunc :: CFunctionDef a -> CStatement a
 bodyFromFunc (CFunDef _ _ _ stmt _) = stmt
@@ -212,7 +212,7 @@ isTypeSpec _           = False
 
 typeFromSpec :: (Show a) => CDeclarationSpecifier a -> Maybe (CTypeSpecifier a)
 typeFromSpec (CTypeSpec spec) = Just spec
-typeFromSpec a                = Nothing
+typeFromSpec _                = Nothing
 
 isTypeQual :: CDeclarationSpecifier a -> Bool
 isTypeQual CTypeQual{} = True
@@ -344,11 +344,11 @@ getInfoFromFunDecl
   :: CDerivedDeclarator a
   -> (Either [Ident] ([CDeclaration a], Bool), [CAttribute a])
 getInfoFromFunDecl (CFunDeclr a b _) = (a, b)
+getInfoFromFunDecl _ = error "nyi"
 
 -- Misc
 
 nameFromIdent :: Ident -> String
 nameFromIdent (Ident name _ _) = name
-
 
 
