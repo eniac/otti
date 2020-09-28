@@ -496,7 +496,7 @@ intResize fromSign toWidth from =
 -- 4. Scale the int, do the op.
 cWrapBinArith
   :: String
-  -> Ty.BvBinOp
+  -> (Bool -> Ty.BvBinOp)
   -> (  forall f
       . Ty.ComputableFp f
      => Ty.Term (Ty.FpSort f)
@@ -545,19 +545,21 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
             (CFloat $ doubleF d $ asFloat $ term $ cCast AST.Float a, Nothing)
           else cannot "a double"
         (CStackPtr ty off id, CInt s _ i) ->
-          if bvOp == Ty.BvAdd || bvOp == Ty.BvSub
+          if bvOp s == Ty.BvAdd || bvOp s == Ty.BvSub
             then (CStackPtr ty (cPtrPlusInt ty off s i) id, Nothing)
             else cannot "a pointer on the left"
         (CStackPtr ty off id, CStackPtr ty' off' id') ->
-          if bvOp == Ty.BvSub && ty == ty' && id == id'
+          if bvOp False == Ty.BvSub && ty == ty' && id == id'
             then -- TODO: ptrdiff_t?
-              ( CInt True (AST.numBits ty) (Ty.mkDynBvBinExpr bvOp off off')
+              ( CInt True
+                     (AST.numBits ty)
+                     (Ty.mkDynBvBinExpr (bvOp False) off off')
               , ubF >>= (\f -> f True off True off')
               )
             else
               cannot
                 "two pointers, or two pointers of different types, or pointers to different allocations"
-        (CInt s _ i, CStackPtr ty addr id) -> if bvOp == Ty.BvAdd
+        (CInt s _ i, CStackPtr ty addr id) -> if bvOp s == Ty.BvAdd
           then (CStackPtr ty (cPtrPlusInt ty addr s i) id, Nothing)
           else cannot "a pointer on the right"
         -- Ptr diff
@@ -566,7 +568,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
               sign  = max s s'
               l     = intResize s width i
               r     = intResize s' width i'
-          in  ( CInt sign width $ Ty.mkDynBvBinExpr bvOp l r
+          in  ( CInt sign width $ Ty.mkDynBvBinExpr (bvOp sign) l r
               , ubF >>= (\f -> f s l s' r)
               )
         (_, _) -> cannot $ unwords [show a, "and", show b]
@@ -577,7 +579,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
 cBitOr, cBitXor, cBitAnd, cSub, cMul, cAdd, cMin, cMax, cDiv, cRem, cShl, cShr
   :: CTerm -> CTerm -> CTerm
 cAdd = cWrapBinArith "+"
-                     Ty.BvAdd
+                     (const Ty.BvAdd)
                      (Ty.FpBinExpr Ty.FpAdd)
                      (Just overflow)
                      True
@@ -586,7 +588,7 @@ cAdd = cWrapBinArith "+"
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSaddo i i' else Nothing
 cSub = cWrapBinArith "-"
-                     Ty.BvSub
+                     (const Ty.BvSub)
                      (Ty.FpBinExpr Ty.FpSub)
                      (Just overflow)
                      True
@@ -595,7 +597,7 @@ cSub = cWrapBinArith "-"
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSsubo i i' else Nothing
 cMul = cWrapBinArith "*"
-                     Ty.BvMul
+                     (const Ty.BvMul)
                      (Ty.FpBinExpr Ty.FpMul)
                      (Just overflow)
                      True
@@ -604,15 +606,19 @@ cMul = cWrapBinArith "*"
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSmulo i i' else Nothing
 -- TODO: div overflow
-cDiv =
-  cWrapBinArith "/" Ty.BvUdiv (Ty.FpBinExpr Ty.FpDiv) (Just isDivZero) True True
+cDiv = cWrapBinArith "/"
+                     (const Ty.BvUdiv)
+                     (Ty.FpBinExpr Ty.FpDiv)
+                     (Just isDivZero)
+                     True
+                     True
 isDivZero :: Bool -> Bv -> Bool -> Bv -> Maybe Ty.TermBool
 isDivZero _s _i _s' i' =
   Just $ Ty.mkDynBvEq i' (Ty.DynBvLit (Bv.zeros (Ty.dynBvWidth i')))
 
 -- TODO: CPP reference says that % requires integral arguments
 cRem = cWrapBinArith "%"
-                     Ty.BvUrem
+                     (const Ty.BvUrem)
                      (Ty.FpBinExpr Ty.FpRem)
                      (Just isDivZero)
                      False
@@ -626,49 +632,39 @@ noFpError
   -> Ty.Term (Ty.FpSort f)
   -> Ty.Term (Ty.FpSort f)
 noFpError = const $ const $ error "Invalid FP op"
-cBitOr = cWrapBinArith "|" Ty.BvOr noFpError Nothing False True
-cBitAnd = cWrapBinArith "&" Ty.BvAnd noFpError Nothing False True
-cBitXor = cWrapBinArith "^" Ty.BvXor noFpError Nothing False True
+cBitOr = cWrapBinArith "|" (const Ty.BvOr) noFpError Nothing False True
+cBitAnd = cWrapBinArith "&" (const Ty.BvAnd) noFpError Nothing False True
+cBitXor = cWrapBinArith "^" (const Ty.BvXor) noFpError Nothing False True
 -- Not quite right, since we're gonna force these to be equal in size
-cShl = cWrapBinArith "<<" Ty.BvShl noFpError (Just overflow) False True
+cShl = cWrapBinArith "<<" (const Ty.BvShl) noFpError (Just overflow) False True
  where
-  overflow s i s' i' =
-    let baseNonNeg =
-            [ Ty.mkDynBvBinPred Ty.BvSlt (Mem.bvNum True (Ty.dynBvWidth i) 0) i
+  overflow s i _s' i' =
+    let baseNeg =
+            [ Ty.mkDynBvBinPred Ty.BvSlt i (Mem.bvNum True (Ty.dynBvWidth i) 0)
             | s
             ]
-        shftNonNeg =
-            [ Ty.mkDynBvBinPred Ty.BvSlt (Mem.bvNum True (Ty.dynBvWidth i') 0) i'
-            | s'
-            ]
-        shftSmall =
+        shftBig =
             [ Ty.mkDynBvBinPred
-                Ty.BvSge
+                Ty.BvUge
+                i'
                 (Mem.bvNum True
                            (Ty.dynBvWidth i')
                            (fromIntegral $ Ty.dynBvWidth i)
                 )
-                i'
             ]
-    in  Just $ Ty.BoolNaryExpr Ty.Or $ baseNonNeg ++ shftNonNeg ++ shftSmall
+    in  Just $ Ty.BoolNaryExpr Ty.Or $ baseNeg ++ shftBig
 -- Not quite right, since we're gonna force these to be equal in size
-cShr = cWrapBinArith ">>" Ty.BvAshr noFpError (Just overflow) False True
+cShr = cWrapBinArith ">>"
+                     (\s -> if s then Ty.BvAshr else Ty.BvLshr)
+                     noFpError
+                     (Just overflow)
+                     False
+                     True
  where
-  overflow _s i s' i' =
-    let shftNonNeg =
-            [ Ty.mkDynBvBinPred Ty.BvSlt (Mem.bvNum True (Ty.dynBvWidth i') 0) i'
-            | s'
-            ]
-        shftSmall =
-            [ Ty.mkDynBvBinPred
-                Ty.BvSge
-                (Mem.bvNum True
-                           (Ty.dynBvWidth i')
-                           (fromIntegral $ Ty.dynBvWidth i)
-                )
-                i'
-            ]
-    in  Just $ Ty.BoolNaryExpr Ty.Or $ shftNonNeg ++ shftSmall
+  overflow _s i _s' i' = Just $ Ty.mkDynBvBinPred
+    Ty.BvUge
+    i'
+    (Mem.bvNum True (Ty.dynBvWidth i') (fromIntegral $ Ty.dynBvWidth i))
 
 cWrapUnArith
   :: String

@@ -89,6 +89,10 @@ ubTests = benchTestGroup
   --, ubCheckTest "negate intmin" "neg" "test/Code/C/other.c" True
   , ubCheckTest "divide by zero" "divzero" "test/Code/C/other.c" True
   , ubCheckTest "mod by zero" "modzero" "test/Code/C/other.c" True
+  , ubCheckTest "no bounds check" "trivial" "test/Code/C/array_bounds.c" True
+  , ubCheckTest "bad bounds check" "very_easy" "test/Code/C/array_bounds.c" True
+  , ubCheckTest "bad ashr bounds check" "easy" "test/Code/C/array_bounds.c" True
+  , ubCheckTest "lshr bounds check" "easy_okay" "test/Code/C/array_bounds.c" False
   ]
 
 satSmtCircuitTest
