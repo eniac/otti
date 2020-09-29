@@ -32,7 +32,7 @@ testLex :: String -> BenchTest
 testLex path = benchTestCase ("lex: " ++ path) $ do
   string <- readFile path
   let tokens = tokenize string
-  null tokens @? error "0 tokens!"
+  not (null tokens) @? error "0 tokens!"
 
 testParse :: String -> BenchTest
 testParse path = benchTestCase ("parse: " ++ path) $ do
