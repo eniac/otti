@@ -32,7 +32,6 @@ getBitsTest = benchTestCase "getBitsFrom" $ do
 
     bv8     <- bvSort 8
     bv16    <- bvSort 16
-    bv32    <- bvSort 32
 
     zero32  <- bvNum 32 0
     result0 <- newVar "result0" bv16
@@ -85,8 +84,6 @@ setBitsTest = benchTestCase "setBitsTo" $ do
   r <- evalSMT Nothing $ do
 
     bv8      <- bvSort 8
-    bv16     <- bvSort 16
-    bv32     <- bvSort 32
 
     result0  <- newVar "result0" bv8
     lowSet   <- bvNum 8 15

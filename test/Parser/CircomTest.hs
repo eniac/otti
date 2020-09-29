@@ -1,9 +1,5 @@
 module Parser.CircomTest where
 import           BenchUtils
-import           Control.Monad                  ( unless )
-import           Data.Either                    ( fromLeft
-                                                , isRight
-                                                )
 import           AST.Circom
 import           Test.Tasty.HUnit
 import           Parser.Circom.Lexer            ( tokenize )
@@ -11,10 +7,6 @@ import           Parser.Circom                  ( parseFile
                                                 , loadFilesRecursively
                                                 , loadMain
                                                 )
-import           Parser.Circom.Parser           ( parseCircomExpr
-                                                , parseCircomStatement
-                                                )
-import           Utils
 
 circomParserTests :: BenchTest
 circomParserTests = benchTestGroup
@@ -40,7 +32,7 @@ testLex :: String -> BenchTest
 testLex path = benchTestCase ("lex: " ++ path) $ do
   string <- readFile path
   let tokens = tokenize string
-  (length tokens > 0) @? error "0 tokens!"
+  null tokens @? error "0 tokens!"
 
 testParse :: String -> BenchTest
 testParse path = benchTestCase ("parse: " ++ path) $ do

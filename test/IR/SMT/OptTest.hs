@@ -137,18 +137,18 @@ optTests = benchTestGroup
   ]
  where
   v s = Var s SortBool :: Term BoolSort
-  t      = BoolLit True
-  n      = Not
-  f      = BoolLit False
-  o      = BoolNaryExpr Or
-  x      = BoolNaryExpr Xor
-  a      = BoolNaryExpr And
-  i      = BoolBinExpr Implies
-  bvW    = 16
+  t   = BoolLit True
+  n   = Not
+  f   = BoolLit False
+  o   = BoolNaryExpr Or
+  x   = BoolNaryExpr Xor
+  a   = BoolNaryExpr And
+  i   = BoolBinExpr Implies
+  bvW = 16
+  bv :: Int -> TermDynBv
   bv     = DynBvLit . Bv.bitVec bvW
   bin    = flip DynBvBinExpr bvW
   binP   = flip DynBvBinPred bvW
-  int    = IntLit
   bvSMax = 2 ^ (bvW - 1) - 1
   bvUMax = 2 ^ bvW - 1
   bvSMin = negate $ 2 ^ (bvW - 1)
