@@ -264,7 +264,7 @@ data Sort = SortInt
           | SortPf Integer
           | SortFp Int Int
           | SortArray Sort Sort
-          deriving (Show,Ord,Eq,Typeable,Typeable)
+          deriving (Show,Ord,Eq,Typeable)
 
 sortDouble :: Sort
 sortDouble = SortFp 11 53

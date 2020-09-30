@@ -17,7 +17,7 @@ bvNum signed width val
   $ unwords [show val, "does not fit in", show width, "signed bits"]
   | not signed && val >= 2 ^ width = error
   $ unwords [show val, "does not fit in", show width, "unsigned bits"]
-  | otherwise = Ty.IntToDynBv width (Ty.IntLit val)
+  | otherwise = Ty.DynBvLit (Bv.bitVec width val)
 
 ones :: Int -> Ty.TermDynBv
 ones width = bvNum False width ((2 :: Integer) ^ width - 1)

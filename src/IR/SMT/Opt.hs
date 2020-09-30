@@ -13,7 +13,7 @@ module IR.SMT.Opt
 where
 
 import           IR.SMT.TySmt
-import           IR.SMT.ArrayElim ( elimArrays )
+import           IR.SMT.ArrayElim               ( elimArrays )
 
 import           Control.Monad.State.Strict
 import           Control.Monad.Reader
@@ -37,14 +37,21 @@ import           Util.Cfg                       ( Cfg
                                                 , _smtOpts
                                                 )
 import           Util.Log
+import           Util.ShowMap                   ( ShowMap )
 
-data OptMetadata = OptMetadata { protected :: Set.Set String
-                               , eqElimNoBlowup :: Bool
-                               , cFoldInEqElim    :: Bool
+type ArraySizes = ShowMap (Term (ArraySort DynBvSort DynBvSort)) Int
+
+data OptMetadata = OptMetadata { protected :: !(Set.Set String)
+                               , eqElimNoBlowup :: !Bool
+                               , cFoldInEqElim    :: !Bool
+                               , arraySizes :: !ArraySizes
                                }
-newOptMetadata :: Set.Set String -> OptMetadata
-newOptMetadata p =
-  OptMetadata { protected = p, eqElimNoBlowup = False, cFoldInEqElim = False }
+newOptMetadata :: Set.Set String -> ArraySizes -> OptMetadata
+newOptMetadata p s = OptMetadata { protected      = p
+                                 , eqElimNoBlowup = False
+                                 , cFoldInEqElim  = False
+                                 , arraySizes     = s
+                                 }
 
 data Opt = Opt { fn :: OptMetadata -> [TermBool] -> Log [TermBool]
                , name :: String
@@ -359,11 +366,13 @@ eqElimOpt =
 
 arrayElimOpt :: Opt
 arrayElimOpt =
-  Opt { fn = const elimArrays, name = "arrayElim", cfg = return }
+  Opt { fn = elimArrays . arraySizes, name = "arrayElim", cfg = return }
 
 opts :: Map.Map String Opt
 opts = Map.fromList
-  [ (name o, o) | o <- [eqElimOpt, constantFoldOpt, constantFoldEqOpt, arrayElimOpt] ]
+  [ (name o, o)
+  | o <- [eqElimOpt, constantFoldOpt, constantFoldEqOpt, arrayElimOpt]
+  ]
 
 logAssertions :: String -> [TermBool] -> Log ()
 logAssertions context as = logIfM "opt" $ do
@@ -372,11 +381,12 @@ logAssertions context as = logIfM "opt" $ do
   return $ show (length as) ++ " assertions"
 
 -- Optimize, ensuring that the variables in `p` continue to exist.
-opt :: Set.Set String -> [TermBool] -> Log [TermBool]
-opt p ts = do
+opt :: ArraySizes -> Set.Set String -> [TermBool] -> Log [TermBool]
+opt sizes p ts = do
   let m0 = OptMetadata { protected      = p
                        , eqElimNoBlowup = False
                        , cFoldInEqElim  = False
+                       , arraySizes     = sizes
                        }
   m'        <- liftCfg $ foldM (flip cfg) m0 (Map.elems opts)
   optsToRun <- liftCfg $ asks (_smtOpts . _smtOptCfg)

@@ -81,7 +81,7 @@ fnToR1cs
 fnToR1cs findBugs tu fnName = do
   fn <- fnToSmt findBugs Nothing tu fnName
   let pubVars = if findBugs then Set.empty else fnTransPublicIns fn
-  newSmt <- SmtOpt.opt pubVars (assertions fn)
+  newSmt <- SmtOpt.opt (arraySizes fn) pubVars (assertions fn)
   r      <- toPf @n pubVars (arraySizes fn) newSmt
   R1csOpt.opt r
 
@@ -101,7 +101,7 @@ fnToR1csWithWit findBugs inVals tu fnName = do
     logIf "fnToR1csWithWit" $ "Assert: " ++ show a
     unless (Ty.ValBool True == v) $ error $ "eval " ++ show a ++ " gave False"
   let pubVars = if findBugs then Set.empty else fnTransPublicIns fn
-  newSmt <- SmtOpt.opt pubVars (assertions fn)
+  newSmt <- SmtOpt.opt (arraySizes fn) pubVars (assertions fn)
   (r, w) <- toPfWithWit @n vs pubVars (arraySizes fn) newSmt
   r'     <- R1csOpt.opt r
   return (r', w)
