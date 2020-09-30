@@ -75,3 +75,8 @@ member k m = fromMaybe False $ do
 
 toList :: ShowMap k v -> [(k, v)]
 toList (ShowMap a) = concat $ Map.elems a
+
+instance (Show k, Eq k, Show v) => Show (ShowMap k v) where
+  show a =
+    let baseMappings = map (\(a, b) -> (show a, show b)) $ toList a
+    in  unlines $ map (\(a, b) -> a ++ "\n  -> " ++ b) baseMappings

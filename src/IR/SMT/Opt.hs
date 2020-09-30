@@ -13,6 +13,7 @@ module IR.SMT.Opt
 where
 
 import           IR.SMT.TySmt
+import           IR.SMT.ArrayElim ( elimArrays )
 
 import           Control.Monad.State.Strict
 import           Control.Monad.Reader
@@ -356,9 +357,13 @@ eqElimOpt :: Opt
 eqElimOpt =
   Opt { fn = ((.) . (.)) return eqElim, name = "ee", cfg = eqElimCfg }
 
+arrayElimOpt :: Opt
+arrayElimOpt =
+  Opt { fn = const elimArrays, name = "arrayElim", cfg = return }
+
 opts :: Map.Map String Opt
 opts = Map.fromList
-  [ (name o, o) | o <- [eqElimOpt, constantFoldOpt, constantFoldEqOpt] ]
+  [ (name o, o) | o <- [eqElimOpt, constantFoldOpt, constantFoldEqOpt, arrayElimOpt] ]
 
 logAssertions :: String -> [TermBool] -> Log ()
 logAssertions context as = logIfM "opt" $ do

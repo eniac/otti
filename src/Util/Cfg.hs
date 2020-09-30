@@ -158,7 +158,7 @@ options =
   , CfgOption (smtOptCfg . smtOpts . commaListLens)
               "smt-opts"
               "Optimizations to perform over the Smt formula"
-              "A comma-separated list. Options: {cfee, ee, cf}"
+              "A comma-separated list. Options: {cfee, ee, cf, arrayElim}"
               "cfee,ee"
   , CfgOption (streams . commaListLens)
               "streams"

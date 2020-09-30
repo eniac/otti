@@ -86,7 +86,7 @@ enabled.
 │   │   ├── Circify   -- Language-indended machinery (branches, fns, scopes)
 │   │   │   └── Memory-- Stack allocations and accesses
 │   │   ├── Circom    -- Circom
-│   │   ├── C         -- C
+│   │   └── C         -- C
 │   ├── IR            -- The typed SMT intermediate representation
 │   │   ├── SMT       -- Logging
 │   │   │   ├── TySmt -- Sort-typed SMT terms
