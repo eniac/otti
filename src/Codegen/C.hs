@@ -21,7 +21,9 @@ import           Data.Char                      ( ord
                                                 )
 import qualified Data.Char                     as Char
 import           Data.Either                    ( isRight )
-import           Data.List                      ( intercalate )
+import           Data.List                      ( intercalate
+                                                , isPrefixOf
+                                                )
 import qualified Data.Map                      as Map
 import           Data.Maybe                     ( fromJust
                                                 , fromMaybe
@@ -36,9 +38,9 @@ import qualified IR.SMT.TySmt                  as Ty
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
+import qualified Util.Cfg                      as Cfg
 import           Util.Cfg                       ( Cfg
                                                 , MonadCfg(..)
-                                                , _loopBound
                                                 )
 import           Util.Log
 
@@ -47,6 +49,8 @@ data CState = CState { funs          :: Map.Map FunctionName CFunDef
                      , loopBound     :: Int
                      , findUB        :: Bool
                      , bugConditions :: [Ty.TermBool]
+                     , assumptions   :: [Ty.TermBool]
+                     , nonDetCtr     :: Int
                      }
 
 newtype C a = C (StateT CState (Circify Type CTerm) a)
@@ -57,11 +61,13 @@ emptyCState findBugs = CState { funs          = Map.empty
                               , loopBound     = 5
                               , findUB        = findBugs
                               , bugConditions = []
+                              , assumptions   = []
+                              , nonDetCtr     = 0
                               }
 
 cfgFromEnv :: C ()
 cfgFromEnv = do
-  bound <- liftCfg $ asks _loopBound
+  bound <- Cfg.liftCfg $ asks $ Cfg._loopBound
   modify $ \s -> s { loopBound = bound }
   liftLog $ logIf "loop" $ "Setting loop bound to " ++ show bound
 
@@ -98,11 +104,19 @@ bugIf c = do
   modify $ \s ->
     s { bugConditions = Ty.BoolNaryExpr Ty.And [g, c] : bugConditions s }
 
+assume :: Ty.TermBool -> C ()
+assume c = do
+  g <- liftCircify getGuard
+  modify
+    $ \s -> s { assumptions = Ty.BoolBinExpr Ty.Implies g c : assumptions s }
+
 -- Assert that some recorded bug happens
 assertBug :: C ()
 assertBug = do
   cs <- gets bugConditions
   liftAssert $ Assert.assert $ Ty.BoolNaryExpr Ty.Or cs
+  as <- gets assumptions
+  liftAssert $ forM_ as Assert.assert
 
 -- Lift some CUtils stuff to the SSA layer
 ssaBool :: CSsaVal -> Ty.TermBool
@@ -235,6 +249,45 @@ unwrap e = case e of
 noneIfVoid :: Type -> Maybe Type
 noneIfVoid t = if Void == t then Nothing else Just t
 
+-- | Handle special functions, returning whether this function was special
+genSpecialFunction :: VarName -> [CSsaVal] -> C (Maybe CSsaVal)
+genSpecialFunction fnName args = do
+  specifialPrintf <- Cfg.liftCfg $ asks (Cfg._printfOutput . Cfg._cCfg)
+  svExtensions    <- Cfg.liftCfg $ asks (Cfg._svExtensions . Cfg._cCfg)
+  bugs            <- gets findUB
+  case fnName of
+    "printf" | specifialPrintf -> do
+      -- skip fstring
+      when bugs $ forM_ (tail args) (bugIf . ssaBool)
+      -- Not quite right. Should be # chars.
+      return $ Just $ Base $ cIntLit S32 1
+    "__VERIFIER_error" | svExtensions -> do
+      when bugs $ bugIf (Ty.BoolLit True)
+      return $ Just $ Base $ cIntLit S32 1
+    "__VERIFIER_assert" | svExtensions -> do
+      when bugs $ bugIf $ Ty.Not $ ssaBool $ head args
+      return $ Just $ Base $ cIntLit S32 1
+    "__VERIFIER_assume" | svExtensions -> do
+      when bugs $ assume $ ssaBool $ head args
+      return $ Just $ Base $ cIntLit S32 1
+    _ | isNonDet fnName -> do
+      let ty = nonDetTy fnName
+      n <- gets nonDetCtr
+      modify $ \s -> s { nonDetCtr = n + 1 }
+      let name = fnName ++ "_" ++ show n
+      liftCircify $ declareVar name ty
+      liftCircify $ Just <$> getTerm (SLVar name)
+    _ -> return Nothing
+ where
+  nonDetTy :: String -> Type
+  nonDetTy s = case drop (length "__VERIFIER_nondet_") s of
+    "int"   -> S32
+    "uint"  -> U32
+    "long"  -> S64
+    "ulong" -> U64
+    _       -> error $ "Unknown nondet suffix in: " ++ s
+  isNonDet = isPrefixOf "__VERIFIER_nondet_"
+
 genExprSMT :: CExpr -> C CSsaVal
 genExprSMT expr = do
   liftLog $ logIfM "expr" $ do
@@ -281,39 +334,44 @@ genExprSMT expr = do
       CVar fnIdent _ -> do
         let fnName = identToVarName fnIdent
         actualArgs <- traverse genExprSMT args
-        f          <- getFunction fnName
-        retTy      <- liftCircify $ unwrap <$> ctype (baseTypeFromFunc f)
-                                                     (ptrsFromFunc f)
-        liftCircify $ pushFunction fnName (noneIfVoid retTy)
-        forM_ (argsFromFunc f) (genDeclSMT Nothing)
-        let
-          formalArgs =
-            map (SLVar . identToVarName)
-              $ concatMap
-                  (\case
-                    CDecl _ decls _ -> map
-                      (\(Just dec, _, _) ->
-                        let mName = identFromDeclr dec
-                        in  fromMaybe (error "Expected identifier in decl")
-                                      mName
+        s          <- genSpecialFunction fnName actualArgs
+        case s of
+          Just r  -> return r
+          Nothing -> do
+            f     <- getFunction fnName
+            retTy <- liftCircify $ unwrap <$> ctype (baseTypeFromFunc f)
+                                                    (ptrsFromFunc f)
+            liftCircify $ pushFunction fnName (noneIfVoid retTy)
+            forM_ (argsFromFunc f) (genDeclSMT Nothing)
+            let
+              formalArgs =
+                map (SLVar . identToVarName)
+                  $ concatMap
+                      (\case
+                        CDecl _ decls _ -> map
+                          (\(Just dec, _, _) ->
+                            let mName = identFromDeclr dec
+                            in  fromMaybe
+                                  (error "Expected identifier in decl")
+                                  mName
+                          )
+                          decls
+                        _ -> error "Missing case in formalArgs"
                       )
-                      decls
-                    _ -> error "Missing case in formalArgs"
-                  )
-              $ argsFromFunc f
-        unless (length formalArgs == length actualArgs)
-          $  error
-          $  "Wrong arg count: "
-          ++ show expr
-        liftCircify $ forM_ (zip formalArgs actualArgs) (uncurry argAssign)
-        let body = bodyFromFunc f
-        case body of
-          CCompound{} -> genStmtSMT body
-          _ -> error "Expected C statement block in function definition"
-        returnValue <- liftCircify popFunction
-        return $ Base $ fromMaybe
-          (error "Getting the return value of a void fn")
-          returnValue
+                  $ argsFromFunc f
+            unless (length formalArgs == length actualArgs)
+              $  error
+              $  "Wrong arg count: "
+              ++ show expr
+            liftCircify $ forM_ (zip formalArgs actualArgs) (uncurry argAssign)
+            let body = bodyFromFunc f
+            case body of
+              CCompound{} -> genStmtSMT body
+              _ -> error "Expected C statement block in function definition"
+            returnValue <- liftCircify popFunction
+            return $ Base $ fromMaybe
+              (error "Getting the return value of a void fn")
+              returnValue
       _ -> error $ unwords ["Fn call of", show fn, "is unsupported"]
     CCond cond mTrueBr falseBr _ -> do
       cond'  <- genExprSMT cond
@@ -451,7 +509,10 @@ genStmtSMT stmt = do
     CReturn expr _ -> when (isJust expr) $ do
       toReturn <- genExprSMT $ fromJust expr
       liftCircify $ doReturn $ ssaValAsTerm "return" toReturn
-    _ -> error $ unwords ["Unsupported: ", show stmt]
+    CLabel _ inner _ _ -> genStmtSMT inner
+    _                  -> do
+      text <- liftIO $ nodeText stmt
+      error $ unlines ["Unsupported:", text]
 
 -- Returns the names of all declared variables, and their types
 genDeclSMT :: Maybe Bool -> CDecl -> C [(String, Type)]
@@ -480,8 +541,6 @@ genDeclSMT undef d@(CDecl specs decls _) = do
         ty <- typedefSMT ident baseType ptrType
         return $ ("TYPEDEF", ) <$> ty
       else do
-        -- TODO: kick this into the Nothing case below, use better thing in the
-        -- Just case?
         ty <- case mInit of
           Just init -> do
             ty <- liftCircify $ ctype baseType ptrType
@@ -532,7 +591,7 @@ genInitSMT ty i = case (ty, i) of
 -- Returns the variable names corresponding to inputs and the return
 genFunDef :: CFunDef -> Maybe InMap -> C ([String], Maybe String)
 genFunDef f inVals = do
-  -- Declare the function and setup the return value
+  -- Declare the function and get the return type
   let name = nameFromFunc f
       ptrs = ptrsFromFunc f
       tys  = baseTypeFromFunc f
@@ -545,6 +604,8 @@ genFunDef f inVals = do
     <$> forM inputNames (liftCircify . getSsaVar . SLVar)
   case inVals of
     Just pathMap -> forM_ inputNamesAndTys $ \(n, ty) -> do
+      -- TODO: fix array inputs. Right now we're allocating for them, but not
+      -- initializing.
       let v = parseVar pathMap n ty
       liftLog $ logIf "inputs" $ "Input: " ++ n ++ " -> " ++ show v
       liftCircify $ setValue (SLVar n) v

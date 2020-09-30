@@ -9,6 +9,7 @@ module Util.Cfg
   ( Cfg(..)
   , CfgState(..)
   , SmtOptCfg(..)
+  , CCfg(..)
   , ToPfCfg(..)
   , MonadCfg(..)
   , setFromEnv
@@ -26,6 +27,7 @@ import           Data.Typeable                  ( Typeable
                                                 , typeRep
                                                 , Proxy(Proxy)
                                                 )
+import           Data.Maybe                     ( fromMaybe )
 import           System.Environment             ( lookupEnv )
 import           System.Exit                    ( exitSuccess )
 import           Text.Read                      ( readMaybe )
@@ -54,14 +56,23 @@ defaultToPfCfg = ToPfCfg { _assumeNoOverflow    = False
                          , _optEqs              = True
                          , _assumeInputsInRange = True
                          }
-
 $(makeLenses ''ToPfCfg)
+
+data CCfg = CCfg { _printfOutput :: Bool
+                 , _svExtensions :: Bool
+                 } deriving (Show)
+
+defaultCCfg = CCfg { _printfOutput = True, _svExtensions = False }
+
+$(makeLenses ''CCfg)
+
 
 data CfgState = CfgState { _optR1cs :: Int
                          , _toPfCfg :: ToPfCfg
                          , _smtOptCfg :: SmtOptCfg
                          , _streams :: [String]
                          , _loopBound :: Int
+                         , _cCfg :: CCfg
                          , _help :: Bool
                          } deriving (Show)
 
@@ -72,6 +83,7 @@ defaultCfgState = CfgState { _optR1cs   = 2
                            , _streams   = []
                            , _loopBound = 5
                            , _help      = False
+                           , _cCfg      = defaultCCfg
                            }
 
 $(makeLenses ''CfgState)
@@ -105,11 +117,10 @@ showReadLens = lens show (const read')
  where
   read' :: forall a . (Read a, Typeable a) => String -> a
   read' s =
-    maybe
+    fromMaybe
         (error $ "Cannot deserialize " ++ show s ++ " as a " ++ show
           (typeRep $ Proxy @a)
         )
-        id
       $ readMaybe s
 
 commaListLens :: Lens' [String] String
@@ -170,6 +181,17 @@ options =
               "How many iterations loops are unrolled for"
               ""
               "5"
+  , CfgOption (cCfg . printfOutput . showReadLens)
+              "c-printf"
+              "Handle printf specially"
+              "It is a bug to print something undefined"
+              "True"
+  , CfgOption
+    (cCfg . svExtensions . showReadLens)
+    "c-sv"
+    "Apply sv conventions"
+    "Handle __VERIFIER_error, __VERIFIER_assert, __VERIFIER_assume, __VERIFIER_nondet_<type> in accordance with the competition"
+    "False"
   , CfgOption (help . showReadLens)
               "help"
               "Prints cfg help and exits"
