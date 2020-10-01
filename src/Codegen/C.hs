@@ -342,7 +342,7 @@ genExprSMT expr = do
             retTy <- liftCircify $ unwrap <$> ctype (baseTypeFromFunc f)
                                                     (ptrsFromFunc f)
             liftCircify $ pushFunction fnName (noneIfVoid retTy)
-            forM_ (argsFromFunc f) (genDeclSMT Nothing)
+            forM_ (argsFromFunc f) (genDeclSMT FnArg)
             let
               formalArgs =
                 map (SLVar . identToVarName)
@@ -472,7 +472,7 @@ genStmtSMT stmt = do
       liftCircify enterLexScope
       forM_ items $ \case
         CBlockStmt stmt -> genStmtSMT stmt
-        CBlockDecl decl -> void $ genDeclSMT (Just True) decl
+        CBlockDecl decl -> void $ genDeclSMT Local decl
         CNestedFunDef{} -> error "Nested function definitions not supported"
       liftCircify exitLexScope
     CExpr e _ -> when (isJust e) $ void $ genExprSMT $ fromJust e
@@ -485,7 +485,7 @@ genStmtSMT stmt = do
     CFor init check incr body _ -> do
       case init of
         Left  (Just expr) -> void $ genExprSMT expr
-        Right decl        -> void $ genDeclSMT (Just True) decl
+        Right decl        -> void $ genDeclSMT Local decl
         _                 -> return ()
       -- Make a guard on the bound to guard execution of the loop
       -- Execute up to the loop bound
@@ -514,9 +514,16 @@ genStmtSMT stmt = do
       text <- liftIO $ nodeText stmt
       error $ unlines ["Unsupported:", text]
 
--- Returns the names of all declared variables, and their types
-genDeclSMT :: Maybe Bool -> CDecl -> C [(String, Type)]
-genDeclSMT undef d@(CDecl specs decls _) = do
+-- Kind of declaration
+data DeclType = FnArg -- ^ Argument to a called function. Internally defined.
+              | Local -- ^ Local variable. Not defined if uninitialized.
+              | EntryFnArg -- ^ Top level function argument. Externally defined.
+              deriving (Eq)
+
+-- | Returns the names of all declared variables, and their types
+-- @isInput@: whether the declared variables are inputs to the constraint system (vs. witnesses)
+genDeclSMT :: DeclType -> CDecl -> C [(String, Type)]
+genDeclSMT dType d@(CDecl specs decls _) = do
   liftLog $ logIf "decls" "genDeclSMT:"
   liftLog $ logIfM "decls" $ liftIO $ nodeText d
   -- At the top level, we ignore types we don't understand.
@@ -554,14 +561,14 @@ genDeclSMT undef d@(CDecl specs decls _) = do
             mTy <- declareVarSMT ident baseType ptrType
             when (not skipBadTypes || isRight mTy) $ do
               lhs <- genVarSMT ident
-              whenM (gets findUB) $ forM_
-                undef
-                ( liftAssert
-                . Assert.assert
-                . Ty.Eq
-                    (udef $ ssaValAsTerm "undef settting in genDeclSMT" lhs)
-                . Ty.BoolLit
-                )
+              whenM (gets findUB)
+                $  when (dType /= FnArg)
+                $  liftAssert
+                $  Assert.assert
+                $ Ty.Eq (udef $ ssaValAsTerm "undef settting in genDeclSMT" lhs)
+                $  Ty.BoolLit
+                $  dType
+                == Local
             return $ either (const Nothing) Just mTy
         return $ (name, ) <$> ty
   return $ catMaybes ms
@@ -598,7 +605,7 @@ genFunDef f inVals = do
   retTy <- liftCircify $ unwrap <$> ctype tys ptrs
   liftCircify $ pushFunction name $ noneIfVoid retTy
   -- Declare the arguments and execute the body
-  inputNamesAndTys <- join <$> forM (argsFromFunc f) (genDeclSMT (Just False))
+  inputNamesAndTys <- join <$> forM (argsFromFunc f) (genDeclSMT EntryFnArg)
   let inputNames = map fst inputNamesAndTys
   fullInputNames <- map ssaVarAsString
     <$> forM inputNames (liftCircify . getSsaVar . SLVar)
@@ -625,14 +632,14 @@ genAsm = undefined
 registerFns :: [CExtDecl] -> C ()
 registerFns decls = forM_ decls $ \case
   CFDefExt f    -> registerFunction (nameFromFunc f) f
-  CDeclExt d    -> void $ genDeclSMT Nothing d
+  CDeclExt d    -> void $ genDeclSMT Local d
   CAsmExt asm _ -> genAsm asm
 
 codegenAll :: CTranslUnit -> C ()
 codegenAll (CTranslUnit decls _) = do
   registerFns decls
   forM_ decls $ \case
-    CDeclExt decl -> void $ genDeclSMT Nothing decl
+    CDeclExt decl -> void $ genDeclSMT Local decl
     CFDefExt fun  -> void $ genFunDef fun Nothing
     CAsmExt asm _ -> genAsm asm
 
@@ -646,7 +653,7 @@ findFn name decls =
         $  "No function `"
         ++ name
         ++ "`. Available functions: {"
-        ++ intercalate "," (Map.keys namesToFns)
+        ++ intercalate ", " (Map.keys namesToFns)
         ++ "}."
         )
         (namesToFns Map.!? name)
