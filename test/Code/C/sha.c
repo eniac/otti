@@ -1,7 +1,3 @@
-#include <stdlib.h>
-#include <memory.h>
-#include <stdint.h>
-
 #define WORD unsigned
 
 WORD maj(WORD x, WORD y, WORD z) {

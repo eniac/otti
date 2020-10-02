@@ -330,21 +330,32 @@ fsWithPrefix prefix ty = FunctionScope { guards         = []
                                        }
 
 -- The function which define an SMT-embedded language.
-data LangDef ty term = LangDef { declare :: ty -> String -> Mem term
-                               , assign  :: ty -> String -> term -> Maybe (Ty.TermBool, term) -> Mem (term, term)
-                               , setValues :: String -> term -> Assert ()
-                               , termInit :: ty -> Integer -> term
-                               }
+data LangDef ty term = LangDef
+  {
+    -- | Declare an uninitialized variable of the given type & name
+    declare :: ty -> String -> Mem term
+    -- | Create a new variable of the given type, set to the given term.
+    -- If the Maybe isJust, conditionally set the variable to the other term.
+    -- Returns the term for the new variable, and the conditional term that
+    -- represents the ITE that it has been assigned to.
+  , assign  :: ty -> String -> term -> Maybe (Ty.TermBool, term) -> Mem (term, term)
+  , setValues :: String -> term -> Assert ()
+    -- | Given the SMT var name, and the var name, and the type, set the value
+    -- of any SMT variables associated with the input.
+  , setInputs :: String -> Maybe VarName -> ty -> Mem ()
+  }
 
 -- | Internal state of the compiler for code generation
-data CircifyState ty term = CircifyState { callStack         :: [FunctionScope ty term]
-                                 , nFrames           :: Int
-                                 , globals           :: LexScope ty term
-                                 , typedefs          :: M.Map VarName ty
-                                 , prefix            :: [String]
-                                 , fnCtr             :: Int
-                                 , lang              :: LangDef ty term
-                                 }
+data CircifyState ty term = CircifyState
+  { callStack         :: [FunctionScope ty term] -- ^ Function scopes
+  , nFrames           :: Int                     -- ^ Number of them
+  , globals           :: LexScope ty term        -- ^ Global scope
+  , typedefs          :: M.Map VarName ty        -- ^ Type aliases
+  , prefix            :: [String]                -- ^ Curreny name prefix
+  , fnCtr             :: Int                     -- ^ Inline fn-call #
+  , lang              :: LangDef ty term         -- ^ Language bindings
+  , inputs            :: [(String, String)]      -- ^ Public inputs. (user name, SMT name) pairs
+  }
 
 newtype Circify ty term a = Circify (StateT (CircifyState ty term) Mem a)
     deriving (Functor, Applicative, Monad, MonadState (CircifyState ty term), MonadIO, MonadLog, MonadMem, MonadAssert, MonadCfg)
@@ -369,6 +380,7 @@ emptyCircifyState lang = CircifyState { callStack = []
                                       , prefix    = []
                                       , fnCtr     = 0
                                       , lang      = lang
+                                      , inputs    = []
                                       }
 
 compilerRunOnTop
@@ -548,13 +560,21 @@ declareInitVar var ty term = do
   declCommon var ty
   void $ argAssign (SLVar var) term
 
-declareVar :: (Show ty, Show term) => VarName -> ty -> Circify ty term ()
-declareVar var ty = do
+declareVar
+  :: (Show ty, Show term) => Bool -> VarName -> ty -> Circify ty term ()
+declareVar isInput var ty = do
   declCommon var ty
-  -- Kind of weird: we don't know this is the right values, but there's no harm
-  -- in lying to the SMT evaluation layer for now.
-  i <- gets (termInit . lang)
-  whenM computingValues $ setValue (SLVar var) $ i ty 0
+  smtVar <- ssaVarAsString <$> getSsaVar (SLVar var)
+  when isInput $ modify $ \s -> s { inputs = (var, smtVar) : inputs s }
+  whenM (liftAssert Assert.isStoringValues) $ do
+    setInputs' <- gets (setInputs . lang)
+    liftLog
+      $  logIf "inputs"
+      $  "declareVar setting inputs: "
+      ++ show smtVar
+      ++ " aka "
+      ++ show var
+    liftMem $ setInputs' smtVar (if isInput then Just var else Nothing) ty
 
 getVer :: SsaLVal -> Circify ty term Version
 getVer v = compilerGetsInScope v fsGetVer lsGetVer
@@ -757,7 +777,7 @@ pushFunction name ty = do
     )
   enterLexScope
   compilerModifyTop $ fsPushBreakable returnBreakName
-  forM_ ty $ \t -> declareVar returnValueName t
+  forM_ ty $ \t -> declareVar False returnValueName t
 
 -- Pop a function, returning the return term
 popFunction :: Show term => Circify ty term (Maybe term)
@@ -821,4 +841,3 @@ extractVarName s =
   fromMaybe (error $ "Could not parse var from " ++ show s) $ do
     versioned <- listToMaybe $ drop 1 $ splitOn "__" s
     listToMaybe $ splitOn "_" versioned
-

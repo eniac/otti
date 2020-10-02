@@ -58,9 +58,9 @@ fnToSmt :: Bool -> Maybe InMap -> AST.CTranslUnit -> String -> Log FnTrans
 fnToSmt findBugs inVals tu name = do
   let init = when (isJust inVals) $ liftCircify initValues
   (((inputs, output), _, memState), assertState) <-
-    liftCfg $ Assert.runAssert $ runC findBugs $ do
+    liftCfg $ Assert.runAssert $ runC inVals findBugs $ do
       init
-      r <- codegenFn tu name inVals
+      r <- codegenFn tu name
       when findBugs assertBug
       return r
   return $ FnTrans

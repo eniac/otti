@@ -92,16 +92,20 @@ ubTests = benchTestGroup
   , ubCheckTest "no bounds check" "trivial" "test/Code/C/array_bounds.c" True
   , ubCheckTest "bad bounds check" "very_easy" "test/Code/C/array_bounds.c" True
   , ubCheckTest "bad ashr bounds check" "easy" "test/Code/C/array_bounds.c" True
-  , ubCheckTest "lshr bounds check" "easy_okay" "test/Code/C/array_bounds.c" False
+  , ubCheckTest "lshr bounds check"
+                "easy_okay"
+                "test/Code/C/array_bounds.c"
+                False
   ]
 
 satSmtCircuitTest
   :: String -> String -> FilePath -> M.Map String Integer -> BenchTest
 satSmtCircuitTest name fnName path inputs = benchTestCase name $ do
+  let extInputs = Just $ M.mapKeys (replicate 1 . Name) inputs
   tu          <- parseC path
-  assertState <- evalCfgDefault $ execAssert $ runC False $ do
+  assertState <- evalCfgDefault $ execAssert $ runC extInputs False $ do
     liftCircify initValues
-    codegenFn tu fnName (Just $ M.mapKeys (replicate 1 . Name) inputs)
+    codegenFn tu fnName
   let assertions = asserted assertState
   let env        = fromJust $ vals assertState
   forM_ assertions $ \a -> do
@@ -117,6 +121,10 @@ satSmtCircuitTests = benchTestGroup
                       "sum"
                       "test/Code/C/if.c"
                       (M.fromList [("x", 4)])
+  , satSmtCircuitTest "constant in if (SMT var set)"
+                      "sum"
+                      "test/Code/C/if.c"
+                      (M.fromList [("f0_foo_lex0__x_v0", 0)])
   , satSmtCircuitTest "ch"
                       "ch"
                       "test/Code/C/sha.c"
@@ -131,11 +139,11 @@ satSmtCircuitTests = benchTestGroup
 satR1csTestInputs
   :: String -> String -> FilePath -> M.Map [String] Integer -> BenchTest
 satR1csTestInputs name fnName path inputs = benchTestCase name $ do
+  let extInputs = Just $ M.mapKeys (map Name) inputs
   tu          <- parseC path
-  assertState <- evalCfgDefault $ execAssert $ runC False $ codegenFn
+  assertState <- evalCfgDefault $ execAssert $ runC extInputs False $ codegenFn
     tu
     fnName
-    (Just $ M.mapKeys (map Name) inputs)
   let assertions = asserted assertState
   let env        = fromJust $ vals assertState
   forM_ assertions $ \a -> Ty.ValBool True @=? Ty.eval env a

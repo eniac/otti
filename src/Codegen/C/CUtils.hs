@@ -75,7 +75,9 @@ module Codegen.C.CUtils
   , asVar
   -- evaluation
   , ctermEval
-  , ctermInit
+  , cbaseParse
+  , cZeroInit
+  , modelMapToExtMap
   -- input parsing
   , parseToMap
   , parseVar
@@ -93,6 +95,7 @@ import           Control.Monad                  ( forM
                                                 )
 import           Control.Monad.State.Strict
 import qualified Data.BitVector                as Bv
+import Data.Bifunctor (second)
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
@@ -104,6 +107,7 @@ import           IR.SMT.Assert                  ( liftAssert )
 import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
 import           Text.Read                      ( readMaybe )
+import           Util.Log
 
 
 type Bv = Ty.TermDynBv
@@ -153,19 +157,45 @@ ctermEval env t = case term t of
   CStruct _ _t'    -> error "nyi"
   CArray  _ i      -> toDyn . Ty.eval env . Mem.array <$> Mem.stackGetAlloc i
 
-ctermInit :: AST.Type -> Integer -> CTerm
-ctermInit ty value = mkCTerm
-  (case ty of
+cbaseParse :: AST.Type -> Integer -> CTermData
+cbaseParse ty value =
+  case ty of
     AST.Bool -> CBool (Ty.BoolLit (value /= 0))
     _ | AST.isIntegerType ty ->
       let n = AST.numBits ty
-      in  CInt False
+      in  CInt (AST.isSignedInt ty)
                n
                (Ty.IntToDynBv n (Ty.IntLit (value `rem` (2 ^ toInteger n))))
-    AST.Struct fs -> CStruct ty $ map (\(n, ty) -> (n, ctermInit ty value)) fs
+    _             -> error $ "Cannot init type: " ++ show ty
+
+cZeroInit :: AST.Type -> CTerm
+cZeroInit ty = mkCTerm
+  (case ty of
+    AST.Bool -> CBool (Ty.BoolLit False)
+    _ | AST.isIntegerType ty ->
+      let n = AST.numBits ty
+      in  CInt (AST.isSignedInt ty)
+               n
+               (Mem.bvNum False n 0)
+    AST.Struct fields -> CStruct ty $ second cZeroInit <$> fields
     _             -> error $ "Cannot init type: " ++ show ty
   )
-  (Ty.BoolLit False)
+  (Ty.BoolLit True)
+
+-- Convert a model map (from Z3) to an ext map
+-- TODO: handle structures
+modelMapToExtMap :: Map.Map String Ty.Val -> InMap
+modelMapToExtMap m = Map.fromList $ map f $ Map.toList m
+ where
+  varToExtList s = maybe (Name s) Index (readMaybe s)
+  f (k, v) =
+    let i = case v of
+               Ty.BVal b -> toInteger $ fromEnum b
+               Ty.IVal i -> toInteger i
+               _ -> error $ "Unhandled model entry value: " ++ show v
+        e = map varToExtList $ Split.splitOneOf "." k
+    in  (e, i)
+
 
 asDouble :: CTermData -> Ty.TermDouble
 asDouble (CDouble d) = d
@@ -271,6 +301,7 @@ udefName s = s ++ "_undef"
 
 cSetValues :: Bool -> String -> CTerm -> Assert.Assert ()
 cSetValues trackUndef name t = do
+  liftLog $ logIf "values" $ "Setting " ++ show name ++ " to " ++ show t
   case term t of
     CBool b    -> Assert.evalAndSetValue name b
     CInt _ _ i -> Assert.evalAndSetValue name i
@@ -926,20 +957,22 @@ parseToMap s = Map.fromList $ map pL $ filter (not . null) $ lines s
     [l, r] -> (pP l, fromMaybe (error "No int on right") $ readMaybe r)
     _      -> error $ "Line " ++ show l ++ "does not have 2 tokens"
 
-parseVar :: Map.Map [Ext] Integer -> String -> AST.Type -> CTerm
-parseVar m vName = p m [Name vName]
+parseVar :: Map.Map [Ext] Integer -> Bool -> String -> AST.Type -> Maybe CTerm
+parseVar m undef vName = p m [Name vName]
  where
-  p :: Map.Map [Ext] Integer -> [Ext] -> AST.Type -> CTerm
+  p :: Map.Map [Ext] Integer -> [Ext] -> AST.Type -> Maybe CTerm
   p m prefix ty = case ty of
-    _ | basic ty ->
-      let r = reverse prefix
-          i = fromMaybe (error $ "No value at " ++ show r) $ Map.lookup r m
-      in  ctermInit ty i
+    _ | basic ty -> do
+      t <- cbaseParse ty <$> Map.lookup (reverse prefix) m
+      let (Name h):t' = reverse prefix
+      let undefPath = Name (udefName h) :t'
+      let u = Ty.BoolLit $ maybe undef (/=0) $ Map.lookup undefPath m
+      return $ mkCTerm t u
     AST.Array Nothing _ty' -> error $ "Unsized array: " ++ show ty
     -- TODO: Array (Just n) ty' -> forM [0..n-1] $ \i -> parseVar (Index i:prefix) ty'
     AST.Struct fields ->
-      let fs = map (\(fName, fTy) -> (fName, p m (Name fName : prefix) fTy))
-                   fields
-      in  mkCTerm (CStruct ty fs) (Ty.BoolLit False)
+      do
+        fs <- mapM (\(fName, fTy) -> (fName, ) <$> p m (Name fName : prefix) fTy) fields
+        return $ mkCTerm (CStruct ty fs) (Ty.BoolLit False)
     _ -> error $ "Cannot parse: " ++ show ty
     where basic t = AST.isIntegerType t || t == AST.Bool

@@ -20,7 +20,7 @@ import           Codegen.C                      ( checkFn
                                                 , evalFn
                                                 )
 import           Codegen.Circify                ( extractVarName )
-import           Codegen.C.CUtils               ( parseToMap )
+import           Codegen.C.CUtils               ( parseToMap, modelMapToExtMap )
 import qualified Codegen.Circom.Compilation    as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
                                                as Wit
@@ -314,13 +314,7 @@ cmdCCheckProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath =
     tu        <- liftIO $ parseC cPath
     (ins, mR) <- checkFn tu fnName
     let r = Maybe.fromMaybe (error "No bug") mR
-    forM_ (Map.toList r)
-      $ \(k, v) -> liftIO $ putStrLn $ unwords [k, ":", show v]
-    forM_ ins $ \i -> liftIO $ putStrLn $ "Input: " ++ show i
-    liftIO $ writeFile inPath $ unlines $ map
-      (\i -> extractVarName i ++ " " ++ show (r Map.! i))
-      ins
-    inMap <- liftIO $ parseToMap <$> readFile inPath
+        inMap = modelMapToExtMap r
     liftIO $ print inMap
     (r1cs, w) <- evalLog $ fnToR1csWithWit @Order True inMap tu fnName
     let getOr m_ k =

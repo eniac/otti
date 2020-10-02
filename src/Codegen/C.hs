@@ -9,11 +9,13 @@ import           Codegen.Circify
 import           Codegen.Circify.Memory         ( MonadMem
                                                 , liftMem
                                                 , MemState
+                                                , Mem
                                                 )
 import           Control.Monad                  ( join
                                                 , replicateM_
                                                 , forM
                                                 )
+import           Control.Applicative            ( (<|>) )
 import           Control.Monad.State.Strict
 import           Control.Monad.Reader
 import           Data.Char                      ( ord
@@ -155,10 +157,11 @@ typedefSMT (Ident name _ _) tys ptrs = do
     Left  _   -> return Nothing
 
 declareVarSMT
-  :: Ident -> [CDeclSpec] -> [CDerivedDeclr] -> C (Either String Type)
-declareVarSMT (Ident name _ _) tys ptrs = do
+  :: Bool -> Ident -> [CDeclSpec] -> [CDerivedDeclr] -> C (Either String Type)
+declareVarSMT isInput (Ident name _ _) tys ptrs = do
   ty <- liftCircify $ ctype tys ptrs
-  forM_ ty $ liftCircify . declareVar name
+  liftLog $ logIf "decls" $ "declareVarSMT: " ++ show name ++ ": " ++ show ty
+  forM_ ty $ liftCircify . declareVar isInput name
   return ty
 
 genVarSMT :: Ident -> C CSsaVal
@@ -275,7 +278,7 @@ genSpecialFunction fnName args = do
       n <- gets nonDetCtr
       modify $ \s -> s { nonDetCtr = n + 1 }
       let name = fnName ++ "_" ++ show n
-      liftCircify $ declareVar name ty
+      liftCircify $ declareVar True name ty
       liftCircify $ Just <$> getTerm (SLVar name)
     _ -> return Nothing
  where
@@ -558,7 +561,7 @@ genDeclSMT dType d@(CDecl specs decls _) = do
                 liftCircify $ declareInitVar name ty rhs
                 return $ Just ty
           Nothing -> do
-            mTy <- declareVarSMT ident baseType ptrType
+            mTy <- declareVarSMT (dType == EntryFnArg) ident baseType ptrType
             when (not skipBadTypes || isRight mTy) $ do
               lhs <- genVarSMT ident
               whenM (gets findUB)
@@ -596,8 +599,8 @@ genInitSMT ty i = case (ty, i) of
 ---
 
 -- Returns the variable names corresponding to inputs and the return
-genFunDef :: CFunDef -> Maybe InMap -> C ([String], Maybe String)
-genFunDef f inVals = do
+genFunDef :: CFunDef -> C ([String], Maybe String)
+genFunDef f = do
   -- Declare the function and get the return type
   let name = nameFromFunc f
       ptrs = ptrsFromFunc f
@@ -609,14 +612,6 @@ genFunDef f inVals = do
   let inputNames = map fst inputNamesAndTys
   fullInputNames <- map ssaVarAsString
     <$> forM inputNames (liftCircify . getSsaVar . SLVar)
-  case inVals of
-    Just pathMap -> forM_ inputNamesAndTys $ \(n, ty) -> do
-      -- TODO: fix array inputs. Right now we're allocating for them, but not
-      -- initializing.
-      let v = parseVar pathMap n ty
-      liftLog $ logIf "inputs" $ "Input: " ++ n ++ " -> " ++ show v
-      liftCircify $ setValue (SLVar n) v
-    Nothing -> return ()
 
   let body = bodyFromFunc f
   case body of
@@ -640,7 +635,7 @@ codegenAll (CTranslUnit decls _) = do
   registerFns decls
   forM_ decls $ \case
     CDeclExt decl -> void $ genDeclSMT Local decl
-    CFDefExt fun  -> void $ genFunDef fun Nothing
+    CFDefExt fun  -> void $ genFunDef fun
     CAsmExt asm _ -> genAsm asm
 
 findFn :: String -> [CExtDecl] -> CFunDef
@@ -658,29 +653,49 @@ findFn name decls =
         )
         (namesToFns Map.!? name)
 
-codegenFn :: CTranslUnit -> String -> Maybe InMap -> C ([String], Maybe String)
-codegenFn (CTranslUnit decls _) name inVals = do
-  when (isJust inVals) $ liftCircify initValues
+codegenFn :: CTranslUnit -> String -> C ([String], Maybe String)
+codegenFn (CTranslUnit decls _) name = do
   registerFns decls
-  genFunDef (findFn name decls) inVals
+  genFunDef (findFn name decls)
 
-cLangDef :: Bool -> LangDef Type CTerm
-cLangDef findBugs = LangDef { declare   = cDeclVar findBugs
-                            , assign    = cCondAssign findBugs
-                            , setValues = cSetValues findBugs
-                            , termInit  = ctermInit
-                            }
+cSetInputs :: Maybe InMap -> Bool -> String -> Maybe VarName -> Type -> Mem ()
+cSetInputs inputs findBugs smtName mUserName ty = do
+  let inMap    = fromMaybe (error "Accessing missing inputs!") inputs
+      -- term provided under the user name
+      userTerm = do
+        userName <- mUserName
+        parseVar inMap False userName ty
+      -- term provided under the smt name. Undef, since internal?
+      smtTerm     = parseVar inMap True smtName ty
+      defaultTerm = cZeroInit ty
+      term        = fromMaybe defaultTerm (userTerm <|> smtTerm)
+  liftLog $ logIf "inputs" $ unwords
+    ["C setting input:", show smtName, show mUserName, show userTerm, show smtTerm, show defaultTerm, show term]
+  liftAssert $ cSetValues findBugs smtName term
 
-runC :: Bool -> C a -> Assert.Assert (a, CircifyState Type CTerm, MemState)
-runC findBugs c = do
+
+cLangDef :: Maybe (Map.Map [Ext] Integer) -> Bool -> LangDef Type CTerm
+cLangDef inputs findBugs = LangDef { declare   = cDeclVar findBugs
+                                   , assign    = cCondAssign findBugs
+                                   , setValues = cSetValues findBugs
+                                   , setInputs = cSetInputs inputs findBugs
+                                   }
+
+runC
+  :: Maybe InMap
+  -> Bool
+  -> C a
+  -> Assert.Assert (a, CircifyState Type CTerm, MemState)
+runC inMap findBugs c = do
+  when (isJust inMap) $ Assert.initValues
   let (C act) = cfgFromEnv >> c
-  (((x, _), circState), memState) <- runCodegen (cLangDef findBugs)
-    $ runStateT act (emptyCState findBugs)
+  (((x, _), circState), memState) <-
+    runCodegen (cLangDef inMap findBugs) $ runStateT act (emptyCState findBugs)
   return (x, circState, memState)
 
-evalC :: Bool -> C a -> Assert.Assert a
-evalC findBugs act = do
-  (r, _, _) <- runC findBugs act
+evalC :: Maybe InMap -> Bool -> C a -> Assert.Assert a
+evalC inMap findBugs act = do
+  (r, _, _) <- runC inMap findBugs act
   return r
 
 -- Can a fn exhibit undefined behavior?
@@ -688,8 +703,8 @@ evalC findBugs act = do
 checkFn
   :: CTranslUnit -> String -> Cfg ([String], Maybe (Map.Map String Ty.Val))
 checkFn tu name = do
-  (ins, assertions) <- Assert.runAssert $ evalC True $ do
-    (ins, _) <- codegenFn tu name Nothing
+  (ins, assertions) <- Assert.runAssert $ evalC Nothing True $ do
+    (ins, _) <- codegenFn tu name
     assertBug
     return ins
   model <- liftIO $ Ty.evalZ3Model $ Ty.BoolNaryExpr
@@ -699,7 +714,8 @@ checkFn tu name = do
 
 evalFn :: Bool -> CTranslUnit -> String -> Cfg (Map.Map String Ty.Val)
 evalFn findBug tu name = do
-  assertions <- Assert.execAssert $ evalC findBug $ do
-    _ <- codegenFn tu name Nothing
+  -- TODO: inputs?
+  assertions <- Assert.execAssert $ evalC Nothing findBug $ do
+    _ <- codegenFn tu name
     when findBug assertBug
   liftIO $ Ty.evalZ3Model $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)
