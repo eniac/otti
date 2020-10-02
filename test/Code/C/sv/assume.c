@@ -15,7 +15,7 @@ int main()
 
   x=__VERIFIER_nondet_uint();
   y=__VERIFIER_nondet_uint();
-  __VERIFIER_assume(x > 4);
+  __VERIFIER_assume(x > 3);
   __VERIFIER_assume(y <= 4);
   __VERIFIER_assert(x != y);
   return 0;
