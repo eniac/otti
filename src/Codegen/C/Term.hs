@@ -95,7 +95,7 @@ import           Control.Monad                  ( forM
                                                 )
 import           Control.Monad.State.Strict
 import qualified Data.BitVector                as Bv
-import Data.Bifunctor (second)
+import           Data.Bifunctor                 ( second )
 import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
@@ -158,15 +158,14 @@ ctermEval env t = case term t of
   CArray  _ i      -> toDyn . Ty.eval env . Mem.array <$> Mem.stackGetAlloc i
 
 cbaseParse :: Type.Type -> Integer -> CTermData
-cbaseParse ty value =
-  case ty of
-    Type.Bool -> CBool (Ty.BoolLit (value /= 0))
-    _ | Type.isIntegerType ty ->
-      let n = Type.numBits ty
-      in  CInt (Type.isSignedInt ty)
-               n
-               (Ty.IntToDynBv n (Ty.IntLit (value `rem` (2 ^ toInteger n))))
-    _             -> error $ "Cannot init type: " ++ show ty
+cbaseParse ty value = case ty of
+  Type.Bool -> CBool (Ty.BoolLit (value /= 0))
+  _ | Type.isIntegerType ty ->
+    let n = Type.numBits ty
+    in  CInt (Type.isSignedInt ty)
+             n
+             (Ty.IntToDynBv n (Ty.IntLit (value `rem` (2 ^ toInteger n))))
+  _ -> error $ "Cannot init type: " ++ show ty
 
 cZeroInit :: Type.Type -> CTerm
 cZeroInit ty = mkCTerm
@@ -174,11 +173,9 @@ cZeroInit ty = mkCTerm
     Type.Bool -> CBool (Ty.BoolLit False)
     _ | Type.isIntegerType ty ->
       let n = Type.numBits ty
-      in  CInt (Type.isSignedInt ty)
-               n
-               (Mem.bvNum False n 0)
+      in  CInt (Type.isSignedInt ty) n (Mem.bvNum False n 0)
     Type.Struct fields -> CStruct ty $ second cZeroInit <$> fields
-    _             -> error $ "Cannot init type: " ++ show ty
+    _                  -> error $ "Cannot init type: " ++ show ty
   )
   (Ty.BoolLit True)
 
@@ -190,9 +187,9 @@ modelMapToExtMap m = Map.fromList $ map f $ Map.toList m
   varToExtList s = maybe (Name s) Index (readMaybe s)
   f (k, v) =
     let i = case v of
-               Ty.BVal b -> toInteger $ fromEnum b
-               Ty.IVal i -> toInteger i
-               _ -> error $ "Unhandled model entry value: " ++ show v
+          Ty.BVal b -> toInteger $ fromEnum b
+          Ty.IVal i -> toInteger i
+          _         -> error $ "Unhandled model entry value: " ++ show v
         e = map varToExtList $ Split.splitOneOf "." k
     in  (e, i)
 
@@ -396,9 +393,9 @@ cDeclVar trackUndef ty name = do
   t <- case ty of
     Type.Bool -> liftAssert $ CBool <$> Assert.newVar name Ty.SortBool
     _ | Type.isIntegerType ty ->
-      liftAssert $ CInt (Type.isSignedInt ty) (Type.numBits ty) <$> Assert.newVar
-        name
-        (Ty.SortBv $ Type.numBits ty)
+      liftAssert
+        $   CInt (Type.isSignedInt ty) (Type.numBits ty)
+        <$> Assert.newVar name (Ty.SortBv $ Type.numBits ty)
     Type.Double -> liftAssert $ CDouble <$> Assert.newVar name Ty.sortDouble
     Type.Float  -> liftAssert $ CFloat <$> Assert.newVar name Ty.sortFloat
     Type.Array (Just size) innerTy ->
@@ -473,7 +470,10 @@ arrayToPointer :: CTerm -> CTerm
 arrayToPointer arr =
   let (ty, id) = asArray $ term arr
   in  mkCTerm
-        (CStackPtr (Type.Ptr32 $ Type.arrayBaseType ty) (Mem.bvNum False 32 0) id)
+        (CStackPtr (Type.Ptr32 $ Type.arrayBaseType ty)
+                   (Mem.bvNum False 32 0)
+                   id
+        )
         (udef arr)
 
 cStructGet :: CTerm -> String -> CTerm
@@ -820,7 +820,7 @@ cCast toTy node = case term node of
     Type.Double -> mkCTerm (CDouble $ Ty.DynUbvToFp $ boolToBv t 1) (udef node)
     Type.Float  -> mkCTerm (CFloat $ Ty.DynUbvToFp $ boolToBv t 1) (udef node)
     Type.Bool   -> node
-    _          -> error $ unwords ["Bad cast from", show t, "to", show toTy]
+    _           -> error $ unwords ["Bad cast from", show t, "to", show toTy]
   CInt fromS fromW t -> case toTy of
     _ | Type.isIntegerType toTy ->
       let toW = Type.numBits toTy
@@ -842,42 +842,44 @@ cCast toTy node = case term node of
       let half    = Ty.Fp64Lit 0.5
           negHalf = Ty.Fp64Lit (-0.5)
       in  mkCTerm
-            (CInt (Type.isSignedInt toTy) (Type.numBits toTy) $ Ty.RoundFpToDynBv
-              (Type.numBits toTy)
-              True
-              (Ty.FpBinExpr
-                Ty.FpAdd
-                t
-                (Ty.Ite (Ty.FpUnPred Ty.FpIsPositive t) negHalf half)
-              )
+            ( CInt (Type.isSignedInt toTy) (Type.numBits toTy)
+            $ Ty.RoundFpToDynBv
+                (Type.numBits toTy)
+                True
+                (Ty.FpBinExpr
+                  Ty.FpAdd
+                  t
+                  (Ty.Ite (Ty.FpUnPred Ty.FpIsPositive t) negHalf half)
+                )
             )
             (udef node)
     Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
     Type.Double -> node
     Type.Float  -> mkCTerm (CFloat $ Ty.FpToFp t) (udef node)
-    _          -> error $ unwords ["Bad cast from", show t, "to", show toTy]
+    _           -> error $ unwords ["Bad cast from", show t, "to", show toTy]
   CFloat t -> case toTy of
     _ | Type.isIntegerType toTy ->
       -- TODO: Do this with rounding modes
       let half    = Ty.Fp32Lit 0.5
           negHalf = Ty.Fp32Lit (-0.5)
       in  mkCTerm
-            (CInt (Type.isSignedInt toTy) (Type.numBits toTy) $ Ty.RoundFpToDynBv
-              (Type.numBits toTy)
-              True
-              (Ty.FpBinExpr
-                Ty.FpAdd
-                t
-                (Ty.Ite (Ty.FpUnPred Ty.FpIsPositive t) negHalf half)
-              )
+            ( CInt (Type.isSignedInt toTy) (Type.numBits toTy)
+            $ Ty.RoundFpToDynBv
+                (Type.numBits toTy)
+                True
+                (Ty.FpBinExpr
+                  Ty.FpAdd
+                  t
+                  (Ty.Ite (Ty.FpUnPred Ty.FpIsPositive t) negHalf half)
+                )
             )
             (udef node)
     Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
     Type.Double -> mkCTerm (CDouble $ Ty.FpToFp t) (udef node)
     Type.Float  -> node
-    _          -> error $ unwords ["Bad cast from", show t, "to", show toTy]
+    _           -> error $ unwords ["Bad cast from", show t, "to", show toTy]
   CStackPtr ty t _id -> if Type.isIntegerType toTy
     then cCast toTy $ mkCTerm (CInt False (Ty.dynBvWidth t) t) (udef node)
     else if toTy == Type.Bool
@@ -964,15 +966,16 @@ parseVar m undef vName = p m [Name vName]
   p m prefix ty = case ty of
     _ | basic ty -> do
       t <- cbaseParse ty <$> Map.lookup (reverse prefix) m
-      let (Name h):t' = reverse prefix
-      let undefPath = Name (udefName h) :t'
-      let u = Ty.BoolLit $ maybe undef (/=0) $ Map.lookup undefPath m
+      let (Name h) : t' = reverse prefix
+      let undefPath     = Name (udefName h) : t'
+      let u = Ty.BoolLit $ maybe undef (/= 0) $ Map.lookup undefPath m
       return $ mkCTerm t u
     Type.Array Nothing _ty' -> error $ "Unsized array: " ++ show ty
     -- TODO: Array (Just n) ty' -> forM [0..n-1] $ \i -> parseVar (Index i:prefix) ty'
-    Type.Struct fields ->
-      do
-        fs <- mapM (\(fName, fTy) -> (fName, ) <$> p m (Name fName : prefix) fTy) fields
-        return $ mkCTerm (CStruct ty fs) (Ty.BoolLit False)
+    Type.Struct fields      -> do
+      fs <- mapM
+        (\(fName, fTy) -> (fName, ) <$> p m (Name fName : prefix) fTy)
+        fields
+      return $ mkCTerm (CStruct ty fs) (Ty.BoolLit False)
     _ -> error $ "Cannot parse: " ++ show ty
     where basic t = Type.isIntegerType t || t == Type.Bool

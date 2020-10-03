@@ -59,7 +59,10 @@ checkWitComp circuitPath inputs = benchTestCase circuitPath $ do
           _             <- hClose i
           inFile        <- openFile inPath ReadMode
           inputsSignals <- Parse.parseSignalsFromFile (Proxy @Order) inFile
-          allSignals <- evalCfgDefault $ evalLog $ Link.computeWitnesses (Proxy @Order) m inputsSignals
+          allSignals    <- evalCfgDefault $ evalLog $ Link.computeWitnesses
+            (Proxy @Order)
+            m
+            inputsSignals
           r1cs <- evalCfgDefault $ evalLog $ Link.linkMain @Order m
           let
             getOr m_ k =

@@ -1,6 +1,6 @@
 {-# LANGUAGE GADTs #-}
 module Codegen.C.TermTest where
-import qualified Codegen.C.Type as Type
+import qualified Codegen.C.Type                as Type
 import           BenchUtils
 import           Codegen.C.Term
 import qualified Codegen.Circify.Memory        as Mem
