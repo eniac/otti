@@ -8,7 +8,44 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
-module Codegen.Circify where
+module Codegen.Circify
+  ( pushFunction
+  , popFunction
+  , pushGuard
+  , popGuard
+  , guarded
+  , getGuard
+  , enterLexScope
+  , exitLexScope
+  , scoped
+  , LangDef(..)
+  , Circify(..)
+  , CircifyState(..)
+  , MonadCircify(..)
+  , runCircify
+  , typedef
+  , untypedef
+  , makePublic
+  , getTerm
+  , VarName
+  , SsaVal(..)
+  , SsaLVal(..)
+  , liftTermFun
+  , liftTermFun2
+  , liftTermFun2M
+  , liftTermFun3
+  , declareVar
+  , ssaAssign
+  , argAssign
+  , deref
+  , getRef
+  , printComp
+  , doReturn
+  , ssaValAsTerm
+  , ssaVarAsString
+  , getSsaName
+  )
+where
 
 -- C imports
 import qualified Codegen.Circify.Memory        as Mem
@@ -27,20 +64,19 @@ import           Data.List                      ( intercalate
                                                 )
 import           Data.Functor.Identity
 import           Data.Foldable
-import           Data.List.Split                ( splitOn )
 import qualified Data.Map                      as M
 import           Data.Maybe                     ( fromMaybe
                                                 , listToMaybe
                                                 )
-import           Data.Dynamic                   ( Dynamic )
 import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.Assert                 as Assert
 import           IR.SMT.Assert                  ( Assert
                                                 , MonadAssert
                                                 , liftAssert
                                                 )
-import           Util.Log
 import           Util.Cfg                       ( MonadCfg )
+import           Util.Control
+import           Util.Log
 
 {-|
 
@@ -200,12 +236,6 @@ listModify n f (x : xs) = (x :) `fmap` listModify (n - 1) f xs
 listModify _ _ []       = error "Could not modify at index"
 
 -- | Find the scope containing this variable. Indexed from the back.
-fsFindLexScope :: VarName -> FunctionScope ty term -> Int
-fsFindLexScope var scope =
-  fromMaybe (error $ unwords ["Cannot find", var, "in current scope"])
-    $ fsFindLexScopeOpt var scope
-
--- | Find the scope containing this variable. Indexed from the back.
 fsFindLexScopeOpt :: VarName -> FunctionScope ty term -> Maybe Int
 fsFindLexScopeOpt var scope = (nCurrentScopes scope - 1 -)
   <$> findIndex (M.member var . tys) (lexicalScopes scope)
@@ -239,9 +269,6 @@ fsDeclareVar var ty scope = if null (lexicalScopes scope)
   else do
     head' <- lsDeclareVar var ty (head $ lexicalScopes scope)
     return $ scope { lexicalScopes = head' : tail (lexicalScopes scope) }
-
-fsGetVer :: VarName -> Int -> FunctionScope ty term -> Version
-fsGetVer var i = fsGetFromLexScope i (lsGetVer var)
 
 fsGetType :: VarName -> Int -> FunctionScope ty term -> ty
 fsGetType var i = fsGetFromLexScope i (lsGetType var)
@@ -529,9 +556,6 @@ compilerGetsInScope ssa fF lF = do
       let frame = stack !! i
       return $ fF (ssaLValName ssa) l frame
 
-compilerGetsFunction :: (FunctionScope ty term -> a) -> Circify ty term a
-compilerGetsFunction f = compilerRunOnTop (\s -> return (f s, s))
-
 compilerModifyTopM
   :: (FunctionScope ty term -> Circify ty term (FunctionScope ty term))
   -> Circify ty term ()
@@ -540,9 +564,6 @@ compilerModifyTopM f = compilerRunOnTop $ fmap ((), ) . f
 compilerModifyTop
   :: (FunctionScope ty term -> FunctionScope ty term) -> Circify ty term ()
 compilerModifyTop f = compilerModifyTopM (return . f)
-
-compilerGetsTop :: (FunctionScope ty term -> a) -> Circify ty term a
-compilerGetsTop f = compilerRunOnTop (\s -> return (f s, s))
 
 declCommon :: (Show ty, Show term) => VarName -> ty -> Circify ty term ()
 declCommon var ty = do
@@ -568,20 +589,17 @@ declareVar
   :: (Show ty, Show term) => Bool -> VarName -> ty -> Circify ty term ()
 declareVar isInput var ty = do
   declCommon var ty
-  smtVar <- ssaVarAsString <$> getSsaVar (SLVar var)
-  when isInput $ makePublic var smtVar
+  smtName <- getSsaName (SLVar var)
+  when isInput $ makePublic var smtName
   whenM (liftAssert Assert.isStoringValues) $ do
     setInputs' <- gets (setInputs . lang)
     liftLog
       $  logIf "inputs"
       $  "declareVar setting inputs: "
-      ++ show smtVar
+      ++ show smtName
       ++ " aka "
       ++ show var
-    liftMem $ setInputs' smtVar (if isInput then Just var else Nothing) ty
-
-getVer :: SsaLVal -> Circify ty term Version
-getVer v = compilerGetsInScope v fsGetVer lsGetVer
+    liftMem $ setInputs' smtName (if isInput then Just var else Nothing) ty
 
 nextVer :: SsaLVal -> Circify ty term ()
 nextVer v = compilerModifyInScope v fsNextVer lsNextVer
@@ -589,32 +607,20 @@ nextVer v = compilerModifyInScope v fsNextVer lsNextVer
 getType :: SsaLVal -> Circify ty term ty
 getType v = compilerGetsInScope v fsGetType lsGetType
 
-getSsaVar :: SsaLVal -> Circify ty term SsaVar
-getSsaVar v = compilerGetsInScope v fsGetSsaVar lsGetSsaVar
-
-getNextSsaVar :: SsaLVal -> Circify ty term SsaVar
-getNextSsaVar v = compilerGetsInScope v fsGetNextSsaVar lsGetNextSsaVar
-
 getSsaName :: SsaLVal -> Circify ty term String
-getSsaName n = ssaVarAsString <$> getSsaVar n
+getSsaName v = ssaVarAsString <$> compilerGetsInScope v fsGetSsaVar lsGetSsaVar
+
+getNextSsaName :: SsaLVal -> Circify ty term String
+getNextSsaName v =
+  ssaVarAsString <$> compilerGetsInScope v fsGetNextSsaVar lsGetNextSsaVar
 
 computingValues :: Circify ty term Bool
 computingValues = liftAssert Assert.isStoringValues
 
-getValues :: Circify ty term (M.Map String Dynamic)
-getValues =
-  liftAssert $ gets $ fromMaybe (error "Not computing values") . Assert.vals
-
-smtEval :: Ty.SortClass s => Ty.Term s -> Circify ty term (Ty.Value s)
-smtEval smt = flip Ty.eval smt <$> getValues
-
-smtEvalBool :: Ty.TermBool -> Circify ty term Bool
-smtEvalBool smt = Ty.valAsBool <$> smtEval smt
-
 -- We do not record witness values for references.
 setValue :: Show term => SsaLVal -> term -> Circify ty term ()
 setValue name cterm = do
-  var <- ssaVarAsString <$> getSsaVar name
+  var <- getSsaName name
   setValueRaw var cterm
 
 setValueRaw :: Show term => String -> term -> Circify ty term ()
@@ -643,6 +649,9 @@ enterLexScope = compilerModifyTop fsEnterLexScope
 exitLexScope :: Circify ty term ()
 exitLexScope = compilerModifyTop fsExitLexScope
 
+scoped :: MonadCircify ty term m => m a -> m a
+scoped a = liftCircify enterLexScope *> a <* liftCircify exitLexScope
+
 pushGuard :: Ty.TermBool -> Circify ty term ()
 pushGuard = compilerModifyTop . fsPushGuard
 
@@ -650,8 +659,7 @@ popGuard :: Circify ty term ()
 popGuard = compilerModifyTop fsPopGuard
 
 guarded :: MonadCircify ty term m => Ty.TermBool -> m a -> m a
-guarded cond action =
-  liftCircify (pushGuard cond) *> action <* liftCircify popGuard
+guarded c a = liftCircify (pushGuard c) *> a <* liftCircify popGuard
 
 getGuard :: Circify ty term Ty.TermBool
 getGuard = safeNary Ty.And . concatMap fsCurrentGuard . callStack <$> get
@@ -661,26 +669,12 @@ doReturn value = do
   _ <- ssaAssign (SLVar returnValueName) (Base value)
   compilerModifyTop (fsDoBreak returnBreakName)
 
-runCodegen
+runCircify
   :: LangDef ty term
   -> Circify ty term a
   -> Assert ((a, CircifyState ty term), Mem.MemState)
-runCodegen langDef (Circify act) =
+runCircify langDef (Circify act) =
   Mem.runMem $ runStateT act $ emptyCircifyState langDef
-
-evalCodegen :: LangDef ty term -> Circify ty term a -> Assert a
-evalCodegen langDef act = fst . fst <$> runCodegen langDef act
-
-execCodegen
-  :: LangDef ty term -> Circify ty term a -> Assert (CircifyState ty term)
-execCodegen langDef act = snd . fst <$> runCodegen langDef act
-
-
--- Turning VarNames (the AST's representation of a variable) into other representations
--- of variables
-
-codegenVar :: SsaLVal -> Circify ty term SsaVar
-codegenVar var = SsaVar (ssaLValName var) <$> getVer var
 
 -- | Human readable name.
 -- We probably want to replace this with something faster (eg hash) someday, but
@@ -688,13 +682,6 @@ codegenVar var = SsaVar (ssaLValName var) <$> getVer var
 ssaVarAsString :: SsaVar -> String
 ssaVarAsString (SsaVar varName ver) = varName ++ "_v" ++ show ver
 
-whenM :: Monad m => m Bool -> m () -> m ()
-whenM condition action = condition >>= flip when action
-
-ifVal :: Monad m => SsaVal term -> (term -> m a) -> m ()
-ifVal val f = case val of
-  Base v -> void $ f v
-  _      -> return ()
 
 -- Assert that the current version of `var` is assign `value` to it.
 -- Could return 
@@ -702,12 +689,12 @@ argAssign
   :: Show term => SsaLVal -> SsaVal term -> Circify ty term (SsaVal term)
 argAssign var val = do
   --liftIO $ putStrLn $ "argAssign " ++ var ++ " = " ++ show val
-  ty     <- getType var
-  ssaVar <- getSsaVar var
+  ty      <- getType var
+  ssaName <- getSsaName var
   case val of
     Base cval -> do
       a            <- gets (assign . lang)
-      (t, castVal) <- liftMem $ a ty (ssaVarAsString ssaVar) cval Nothing
+      (t, castVal) <- liftMem $ a ty ssaName cval Nothing
       setTerm var (Base t)
       whenM computingValues $ setValue var castVal
       return (Base t)
@@ -719,15 +706,14 @@ argAssign var val = do
 ssaAssign
   :: Show term => SsaLVal -> SsaVal term -> Circify ty term (SsaVal term)
 ssaAssign var val = do
-  priorTerm  <- getTerm var
-  ty         <- getType var
-  nextSsaVar <- getNextSsaVar var
-  guard      <- getGuard
+  priorTerm   <- getTerm var
+  ty          <- getType var
+  nextSsaName <- getNextSsaName var
+  guard       <- getGuard
   case (val, priorTerm) of
     (Base cval, Base priorCval) -> do
       a         <- gets (assign . lang)
-      (t, val') <- liftMem
-        $ a ty (ssaVarAsString nextSsaVar) cval (Just (guard, priorCval))
+      (t, val') <- liftMem $ a ty nextSsaName cval (Just (guard, priorCval))
       nextVer var
       setTerm var (Base t)
       whenM computingValues $ setValue var val'
@@ -743,9 +729,6 @@ ssaAssign var val = do
       , "which held a"
       , show priorTerm
       ]
-
-initValues :: Circify ty term ()
-initValues = liftAssert Assert.initValues
 
 getRef :: SsaLVal -> Circify ty term (SsaVal term)
 getRef lval = do
@@ -822,7 +805,7 @@ untypedef :: VarName -> Circify ty term (Maybe ty)
 untypedef name = M.lookup name <$> gets typedefs
 
 ---
---- If-statements
+--- Random
 ---
 
 safeNary :: Ty.BoolNaryOp -> [Ty.TermBool] -> Ty.TermBool
@@ -830,18 +813,3 @@ safeNary op xs = case xs of
   []  -> Ty.boolNaryId op
   [s] -> s
   _   -> Ty.BoolNaryExpr op xs
-
--- UB
-
-liftTermFunM
-  :: Monad m => String -> (term -> m term) -> SsaVal term -> m (SsaVal term)
-liftTermFunM name f x = case x of
-  Base c -> Base <$> f c
-  RefVal r ->
-    error $ "Cannot apply c function " ++ name ++ " to reference " ++ show r
-
-extractVarName :: String -> String
-extractVarName s =
-  fromMaybe (error $ "Could not parse var from " ++ show s) $ do
-    versioned <- listToMaybe $ drop 1 $ splitOn "__" s
-    listToMaybe $ splitOn "_" versioned

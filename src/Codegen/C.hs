@@ -44,6 +44,7 @@ import qualified Util.Cfg                      as Cfg
 import           Util.Cfg                       ( Cfg
                                                 , MonadCfg(..)
                                                 )
+import           Util.Control
 import           Util.Log
 
 
@@ -88,14 +89,14 @@ registerFunction name function = do
   s0 <- get
   case Map.lookup name $ funs s0 of
     Nothing -> put $ s0 { funs = Map.insert name function $ funs s0 }
-    _       -> error $ unwords ["Already declared", name]
+    _       -> error $ unwords ["Already declared fn:", name]
 
 getFunction :: FunctionName -> C CFunDef
 getFunction funName = do
   functions <- gets funs
   case Map.lookup funName functions of
     Just function -> return function
-    Nothing       -> error $ unwords ["Called undeclared function", funName]
+    Nothing       -> error $ unwords ["Called undeclared function:", funName]
 
 -- Bugs
 
@@ -171,7 +172,7 @@ genConstSMT :: CConst -> C CTerm
 genConstSMT c = case c of
   CIntConst  (CInteger i _ _) _ -> return $ cIntLit S32 i
   CCharConst (CChar c _     ) _ -> return $ cIntLit S8 $ toInteger $ Char.ord c
-  CCharConst (CChars{}      ) _ -> error "Chars const unsupported"
+  CCharConst CChars{}         _ -> error "Chars const unsupported"
   CFloatConst (Language.C.Syntax.Constants.CFloat str) _ ->
     case toLower (last str) of
       'f' -> return $ cFloatLit (read $ init str)
@@ -471,13 +472,10 @@ genStmtSMT stmt = do
     t <- liftIO $ nodeText stmt
     return $ "Stmt: " ++ t
   case stmt of
-    CCompound _ items _ -> do
-      liftCircify enterLexScope
-      forM_ items $ \case
-        CBlockStmt stmt -> genStmtSMT stmt
-        CBlockDecl decl -> void $ genDeclSMT Local decl
-        CNestedFunDef{} -> error "Nested function definitions not supported"
-      liftCircify exitLexScope
+    CCompound _ items _ -> scoped $ forM_ items $ \case
+      CBlockStmt stmt -> genStmtSMT stmt
+      CBlockDecl decl -> void $ genDeclSMT Local decl
+      CNestedFunDef{} -> error "Nested function definitions not supported"
     CExpr e _ -> when (isJust e) $ void $ genExprSMT $ fromJust e
     CIf cond trueBr falseBr _ -> do
       trueCond <- ssaBool <$> genExprSMT cond
@@ -558,7 +556,9 @@ genDeclSMT dType d@(CDecl specs decls _) = do
               Left  err -> if skipBadTypes then return Nothing else error err
               Right ty  -> do
                 rhs <- genInitSMT ty init
-                liftCircify $ declareInitVar name ty rhs
+                _   <- liftCircify $ do
+                  declareVar False name ty
+                  argAssign (SLVar name) rhs
                 return $ Just ty
           Nothing -> do
             mTy <- declareVarSMT (dType == EntryFnArg) ident baseType ptrType
@@ -610,8 +610,7 @@ genFunDef f = do
   -- Declare the arguments and execute the body
   inputNamesAndTys <- join <$> forM (argsFromFunc f) (genDeclSMT EntryFnArg)
   let inputNames = map fst inputNamesAndTys
-  fullInputNames <- map ssaVarAsString
-    <$> forM inputNames (liftCircify . getSsaVar . SLVar)
+  fullInputNames <- forM inputNames (liftCircify . getSsaName . SLVar)
 
   let body = bodyFromFunc f
   case body of
@@ -698,7 +697,7 @@ runC inMap findBugs c = do
   when (isJust inMap) Assert.initValues
   let (C act) = cfgFromEnv >> c
   (((x, _), circState), memState) <-
-    runCodegen (cLangDef inMap findBugs) $ runStateT act (emptyCState findBugs)
+    runCircify (cLangDef inMap findBugs) $ runStateT act (emptyCState findBugs)
   return (x, circState, memState)
 
 evalC :: Maybe InMap -> Bool -> C a -> Assert.Assert a

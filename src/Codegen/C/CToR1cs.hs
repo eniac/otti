@@ -14,9 +14,7 @@ import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.Assert                 as Assert
 import qualified Language.C.Syntax.AST         as AST
 import qualified Codegen.Circify.Memory        as Mem
-import           Codegen.Circify                ( initValues
-                                                , liftCircify
-                                                )
+import           Codegen.Circify                ( liftCircify )
 import qualified Codegen.Circify               as Circify
 import qualified IR.R1cs.Opt                   as R1csOpt
 import           Codegen.C                      ( codegenFn
@@ -49,7 +47,7 @@ data FnTrans = FnTrans { assertions :: [Ty.TermBool]
 -- Returns a string describing it, if so.
 fnToSmt :: Bool -> Maybe InMap -> AST.CTranslUnit -> String -> Log FnTrans
 fnToSmt findBugs inVals tu name = do
-  let init = when (isJust inVals) $ liftCircify initValues
+  let init = when (isJust inVals) $ Assert.liftAssert Assert.initValues
   (((_, _), circState, memState), assertState) <-
     liftCfg $ Assert.runAssert $ runC inVals findBugs $ do
       init

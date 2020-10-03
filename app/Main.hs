@@ -37,7 +37,6 @@ import qualified Data.IntMap                   as IntMap
 import qualified Data.Map                      as Map
 import qualified Data.Maybe                    as Maybe
 import           Data.Proxy                     ( Proxy(..) )
-import qualified Data.Sequence                 as Seq
 import           Parser.C                       ( parseC )
 import           Parser.Circom                  ( loadMain )
 import           System.Environment             ( getArgs )

@@ -7,7 +7,6 @@ where
 import           BenchUtils
 import           Codegen.C
 import           Codegen.C.CUtils
-import           Codegen.Circify
 import           Control.Monad
 import           Data.Either                    ( isRight )
 import qualified Data.Map                      as M
@@ -20,6 +19,8 @@ import           IR.SMT.Assert                  ( AssertState(..)
                                                 , asserted
                                                 , execAssert
                                                 , vals
+                                                , liftAssert
+                                                , initValues
                                                 )
 import           IR.SMT.ToPf                    ( toPf )
 import qualified IR.SMT.TySmt                  as Ty
@@ -104,7 +105,7 @@ satSmtCircuitTest name fnName path inputs = benchTestCase name $ do
   let extInputs = Just $ M.mapKeys (replicate 1 . Name) inputs
   tu          <- parseC path
   assertState <- evalCfgDefault $ execAssert $ runC extInputs False $ do
-    liftCircify initValues
+    liftAssert initValues
     codegenFn tu fnName
   let assertions = asserted assertState
   let env        = fromJust $ vals assertState

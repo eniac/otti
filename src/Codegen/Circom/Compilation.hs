@@ -41,6 +41,7 @@ import qualified Data.Map.Strict               as Map
 import qualified Data.Maybe                    as Maybe
 import           Data.Proxy                     ( Proxy )
 import           Debug.Trace
+import           Util.Control
 import           Util.Log
 import           GHC.TypeNats
 
@@ -222,14 +223,14 @@ compStatementNoReturn s = case ast s of
     b <- compCondition cond
     if b then compStatements $ ast true else mapM_ (compStatements . ast) false
   While cond block ->
-    whileM_ (compCondition cond) (compStatements $ ast block) $> ()
+    whileM (compCondition cond) (compStatements $ ast block) $> ()
   For ini cond step block -> do
     compStatement ini
-    _ <- whileM_ (compCondition cond)
-                 (compStatements (ast block) *> compStatement step)
+    _ <- whileM (compCondition cond)
+                (compStatements (ast block) *> compStatement step)
     return ()
   DoWhile block cond -> compStatements (ast block)
-    <* whileM_ (compCondition cond) (compStatements $ ast block)
+    <* whileM (compCondition cond) (compStatements $ ast block)
   Compute b -> do
     ignore <- gets (ignoreCompBlock . baseCtx)
     if ignore then return () else compStatements (ast b)
@@ -249,11 +250,6 @@ compStatementNoReturn s = case ast s of
     liftLog $ logIf "circomAssert" $ show b
     modify $ \c -> c { baseCtx = assert b (baseCtx c) }
   assert' t = spanE (ann s) $ "Cannot constain " ++ show t ++ " to zero"
-
-  whileM_ :: Monad m => m Bool -> m a -> m ()
-  whileM_ condition step = do
-    b <- condition
-    if b then step *> whileM_ condition step else pure ()
 
 termMultiDimArray
   :: (Show b, KnownNat k)

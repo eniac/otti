@@ -31,6 +31,7 @@ import           Lens.Simple                    ( makeLenses
                                                 , set
                                                 , view
                                                 )
+import           Util.Control
 import           Util.Log
 
 -- A constraint, together with its set of variables.
@@ -66,9 +67,6 @@ enqueue id' = do
     modify $ over queued $ IntSet.insert id'
     modify $ over queue (Seq.|> id')
 
-whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
-whenJust test body = maybe (return ()) body test
-
 updateC :: ConstrId -> Constraint n -> RedLin n ()
 updateC id' c = do
   oldVars <- snd <$> getC id'
@@ -81,13 +79,6 @@ updateC id' c = do
     $ \v -> modify $ over uses $ IntMap.adjust (IntSet.insert id') v
   modify $ over cs $ IntMap.insert id' c
 
-
-whileJustM :: Monad m => m (Maybe a) -> (a -> m ()) -> m ()
-whileJustM test body = do
-  t <- test
-  case t of
-    Just v  -> body v >> whileJustM test body
-    Nothing -> return ()
 
 popFromQueue :: RedLin n (Maybe ConstrId)
 popFromQueue = do
