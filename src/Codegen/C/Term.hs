@@ -4,7 +4,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
 {-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving    #-}
+{-| This module define CTerm: an SMT/Mem embedding of C values and terms.
+ - It does not handle control flow.
+ -}
 
 module Codegen.C.Term
   ( CTerm(..)
@@ -309,6 +311,9 @@ alias trackUndef name t = do
 structVarName :: String -> String -> String
 structVarName baseName fieldName = baseName ++ "." ++ fieldName
 
+arrayNameMod :: String -> Int -> String
+arrayNameMod baseName idx = baseName ++ "." ++ show idx
+
 -- Declare a new variable, initialize it to a value.
 -- Returns the new term, and the old one, casted to be of the right type.
 cDeclInitVar :: Bool -> Type.Type -> String -> CTerm -> Mem (CTerm, CTerm)
@@ -375,8 +380,23 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
       t <- CDouble <$> Assert.newVar smtName Ty.sortFloat
       getBaseInput (error "nyi: float input") (Ty.ValFloat 0) smtName mUserName
       return t
-    Type.Array (Just size) innerTy ->
-      CArray ty <$> Mem.stackNewAlloc size 32 (Type.numBits innerTy)
+    Type.Array (Just size) innerTy -> do
+      id <- Mem.stackNewAlloc size 32 (Type.numBits innerTy)
+      forM_ mUserName $ \userName -> do
+        unless (Type.isSimple innerTy)
+          $  error
+          $  "We only support user visible arrays of primitives: "
+          ++ show ty
+        forM_ [0 .. (size - 1)] $ \i -> do
+          let smtName'  = arrayNameMod smtName i
+              userName' = Just $ arrayNameMod userName i
+          innerT <- cDeclVar inMap trackUndef innerTy smtName' userName'
+          let off  = Mem.bvNum False 32 $ toInteger i
+              ptr  = CStackPtr (Type.Ptr32 innerTy) off id
+              ptrT = mkCTerm ptr (Ty.BoolLit False)
+          -- We know this is not UB, so ignore
+          void $ cStore ptrT innerT (Ty.BoolLit True)
+      return $ CArray ty id
     Type.Array Nothing _ -> return $ CArray ty Mem.stackIdUnknown
     Type.Ptr32 _         -> do
       bv :: Bv <- liftAssert $ Assert.newVar smtName (Ty.SortBv 32)

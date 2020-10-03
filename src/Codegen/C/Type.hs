@@ -19,6 +19,9 @@ data Type = U8 | S8
           | Char
           deriving (Eq, Ord, Show)
 
+isSimple :: Type -> Bool
+isSimple ty = isIntegerType ty || ty == Bool || isDouble ty || isFloat ty
+
 isIntegerType :: Type -> Bool
 isIntegerType ty = isSignedInt ty || isUnsignedInt ty
 

@@ -124,6 +124,8 @@ import qualified Data.Set                      as Set
 import           Data.Typeable                  ( cast )
 import           GHC.TypeLits
 import           Prelude                 hiding ( exp )
+import qualified IR.SMT.TySmt.DefaultMap       as DMap
+import           IR.SMT.TySmt.DefaultMap        ( DefaultMap )
 import           Z3.Monad                       ( MonadZ3 )
 import qualified Z3.Monad                      as Z
 
@@ -251,7 +253,7 @@ data Value s where
     ValPf ::KnownNat n => Integer -> Value (PfSort n)
     ValFloat ::Float -> Value F32
     ValDouble ::Double -> Value F64
-    ValArray ::Map (Value a) (Value b) -> Value (ArraySort a b)
+    ValArray ::DefaultMap (Value a) (Value b) -> Value (ArraySort a b)
 
 deriving instance Typeable (Value s)
 deriving instance Show (Value s)
@@ -990,7 +992,7 @@ valAsBv (ValBv b) = b
 valAsDynBv :: Value DynBvSort -> Bv.BV
 valAsDynBv (ValDynBv b) = b
 
-valAsArray :: Value (ArraySort k v) -> Map (Value k) (Value v)
+valAsArray :: Value (ArraySort k v) -> DefaultMap (Value k) (Value v)
 valAsArray (ValArray b) = b
 
 modulus :: forall n . KnownNat n => TermPf n -> Integer
@@ -999,15 +1001,16 @@ modulus _ = natVal (Proxy :: Proxy n)
 size :: forall n . KnownNat n => TermBv n -> Int
 size _ = fromIntegral $ natVal $ Proxy @n
 
-
 newArray
   :: forall k v
    . (Typeable k, Typeable v)
   => Term (ArraySort k v)
+  -> Maybe (Value v)
   -> Value (ArraySort k v)
-newArray t = case t of
-  NewArray -> ValArray $ (Map.empty :: (Map.Map (Value k) (Value v)))
-  _        -> error "should be unreachable"
+newArray _t v = case v of
+  Just v' ->
+    ValArray $ (DMap.emptyWithDefault v' :: (DefaultMap (Value k) (Value v)))
+  Nothing -> ValArray $ (DMap.empty :: (DefaultMap (Value k) (Value v)))
 
 eval :: forall s . Typeable s => Env -> Term s -> Value s
 eval e t = case t of
@@ -1141,16 +1144,16 @@ eval e t = case t of
 
   Select a k -> Maybe.fromMaybe
     (error $ "Array has no entry for " ++ show k')
-    (a' Map.!? k')
+    (a' DMap.!? k')
    where
     a' = valAsArray $ eval e a
     k' = eval e k
   Store a k v ->
-    ValArray $ Map.insert (eval e k) (eval e v) (valAsArray $ eval e a)
+    ValArray $ DMap.insert (eval e k) (eval e v) (valAsArray $ eval e a)
   -- Not quite right
-  ConstArray{} -> newArray t
-  NewArray     -> newArray t
-  ArrayLit m   -> ValArray m
+  ConstArray _ v -> newArray t $ Just $ eval e v
+  NewArray       -> newArray t Nothing
+  ArrayLit m     -> ValArray $ DMap.fromMap m
 
 
 sortToZ3 :: forall z . MonadZ3 z => Sort -> z Z.Sort

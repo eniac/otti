@@ -28,3 +28,11 @@ stack run -- verify
 C_c_sv=True stack run -- c-check-setup main ./test/Code/C/sv/assume.c
 C_c_sv=True stack run -- c-check-prove main ./test/Code/C/sv/assume.c
 C_c_sv=True stack run -- verify
+
+stack run -- c-setup sum ./test/Code/C/array_8.c
+stack run -- -i ./test/Code/C/inputs/array_8_sum.in c-prove sum ./test/Code/C/array_8.c
+stack run -- verify
+
+stack run -- c-setup struct_sum ./test/Code/C/array_8.c
+stack run -- -i ./test/Code/C/inputs/array_8_struct_sum.in c-prove struct_sum ./test/Code/C/array_8.c
+stack run -- verify

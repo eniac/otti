@@ -118,7 +118,7 @@ getArgOrExit a o = liftIO $ getArgOrExitWith patterns a o
 
 checkProcess :: FilePath -> [String] -> String -> IO ()
 checkProcess pgm args input = do
-  putStrLn $ "Running: " ++ pgm ++ unwords args
+  putStrLn $ "Running: " ++ pgm ++ " " ++ unwords args
   (code, stdout, stderr) <- readProcessWithExitCode pgm args input
   unless (code == ExitSuccess) $ do
     putStrLn "STDOUT"
