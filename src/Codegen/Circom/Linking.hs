@@ -18,7 +18,7 @@ import           Data.Bifunctor
 import           Control.Monad.State.Strict
 import           Control.Monad.Writer.Strict
 import qualified Codegen.Circom.Compilation    as Comp
-import           IR.R1cs
+import           IR.R1cs                 hiding ( values )
 import qualified Codegen.Circom.CompTypes      as CompT
 import qualified Codegen.Circom.CompTypes.LowDeg
                                                as LD

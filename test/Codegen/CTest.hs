@@ -21,7 +21,7 @@ import           IR.SMT.Assert                  ( AssertState(..)
                                                 , execAssert
                                                 , vals
                                                 )
-import           IR.SMT.ToPf                    ( toPfWithWit )
+import           IR.SMT.ToPf                    ( toPf )
 import qualified IR.SMT.TySmt                  as Ty
 import           Parser.C
 import           Test.Tasty.HUnit
@@ -147,12 +147,12 @@ satR1csTestInputs name fnName path inputs = benchTestCase name $ do
   let assertions = asserted assertState
   let env        = fromJust $ vals assertState
   forM_ assertions $ \a -> Ty.ValBool True @=? Ty.eval env a
-  (cs, wit) <- evalCfgDefault $ evalLog $ toPfWithWit @Order env
-                                                             Set.empty
-                                                             SMap.empty
-                                                             assertions
+  cs <- evalCfgDefault $ evalLog $ toPf @Order (Just env)
+                                               Set.empty
+                                               SMap.empty
+                                               assertions
   -- Check R1CS satisfaction
-  let checkResult = r1csCheck wit cs
+  let checkResult = r1csCheck cs
   isRight checkResult @? show checkResult
 
 satR1csTests = benchTestGroup

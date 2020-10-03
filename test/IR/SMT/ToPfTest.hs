@@ -8,9 +8,7 @@ where
 import           Control.Monad
 import           BenchUtils
 import           Test.Tasty.HUnit
-import           IR.SMT.ToPf                    ( toPf
-                                                , toPfWithWit
-                                                )
+import           IR.SMT.ToPf                    ( toPf )
 import           IR.R1cs                        ( R1CS(..)
                                                 , r1csShow
                                                 , r1csCheck
@@ -35,7 +33,8 @@ constraintCountTest :: String -> [TermBool] -> Int -> BenchTest
 constraintCountTest name terms nConstraints =
   benchTestCase (nameWithConstraints name nConstraints) $ do
     -- Regard all variables as public: not eliminatable.
-    cs <- evalCfgDefault $ evalLog $ toPf @Order (Fold.foldMap vars terms)
+    cs <- evalCfgDefault $ evalLog $ toPf @Order Nothing
+                                                 (Fold.foldMap vars terms)
                                                  SMap.empty
                                                  terms
     when (nConstraints /= length (constraints cs))
@@ -80,12 +79,12 @@ satTest name env assertions = benchTestCase name $ do
     let v = eval e a
     ValBool True == v @? "eval " ++ show a ++ " gave False"
   -- Compute R1CS translation
-  (cs, wit) <- evalCfgDefault $ evalLog $ toPfWithWit @Order e
-                                                             Set.empty
-                                                             SMap.empty
-                                                             assertions
+  r1cs <- evalCfgDefault $ evalLog $ toPf @Order (Just e)
+                                                 Set.empty
+                                                 SMap.empty
+                                                 assertions
   -- Check R1CS satisfaction
-  let checkResult = r1csCheck wit cs
+  let checkResult = r1csCheck r1cs
   isRight checkResult @? show checkResult
 
 toPfTests :: BenchTest

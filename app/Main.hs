@@ -13,14 +13,13 @@
 module Main where
 
 import           Control.Exception              ( catchJust )
-import           Codegen.C.CToR1cs              ( fnToR1cs
-                                                , fnToR1csWithWit
-                                                )
+import           Codegen.C.CToR1cs              ( fnToR1cs )
 import           Codegen.C                      ( checkFn
                                                 , evalFn
                                                 )
-import           Codegen.Circify                ( extractVarName )
-import           Codegen.C.CUtils               ( parseToMap, modelMapToExtMap )
+import           Codegen.C.CUtils               ( parseToMap
+                                                , modelMapToExtMap
+                                                )
 import qualified Codegen.Circom.Compilation    as Comp
 import qualified Codegen.Circom.CompTypes.WitComp
                                                as Wit
@@ -31,17 +30,19 @@ import           Control.Monad.IO.Class
 import qualified IR.R1cs                       as R1cs
 import qualified IR.R1cs.Opt                   as Opt
 import qualified Parser.Circom.Inputs          as Parse
-import           Data.Field.Galois              ( fromP )
-import qualified Data.Map                      as Map
+import           Data.Field.Galois              ( toP
+                                                , Prime
+                                                )
 import qualified Data.IntMap                   as IntMap
+import qualified Data.Map                      as Map
 import qualified Data.Maybe                    as Maybe
 import           Data.Proxy                     ( Proxy(..) )
+import qualified Data.Sequence                 as Seq
 import           Parser.C                       ( parseC )
 import           Parser.Circom                  ( loadMain )
 import           System.Environment             ( getArgs )
-import           System.IO                      ( hPutStr
-                                                , IOMode(..)
-                                                , hClose
+import           System.Exit                    ( exitFailure )
+import           System.IO                      ( IOMode(..)
                                                 , Handle
                                                 , IOMode
                                                 )
@@ -114,13 +115,6 @@ Commands:
 getArgOrExit :: Arguments -> Option -> Cfg String
 getArgOrExit a o = liftIO $ getArgOrExitWith patterns a o
 
-
-emitAssignment :: [Integer] -> FilePath -> IO ()
-emitAssignment xs path = do
-  handle <- openFile path WriteMode
-  hPutStr handle
-    $ concatMap (\i -> show i ++ "\n") (fromIntegral (length xs) : xs)
-  hClose handle
 
 -- libsnark functions
 runSetup :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
@@ -218,12 +212,12 @@ cmdProve libsnark pkPath vkPath inPath xPath wPath pfPath circomPath = do
         Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
   let getOrI m_ k =
         Maybe.fromMaybe (error $ "Missing sig num: " ++ show k) $ m_ IntMap.!? k
-  let lookupSignalVal :: Int -> Integer =
-        getOr allSignals . head . getOrI (Link.numSigs r1cs)
-  liftIO $ emitAssignment
+  let lookupSignalVal :: Int -> Prime Order =
+        toP . getOr allSignals . head . getOrI (Link.numSigs r1cs)
+  liftIO $ R1cs.emitAssignment
     (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
     xPath
-  liftIO $ emitAssignment
+  liftIO $ R1cs.emitAssignment
     (map lookupSignalVal
          [(2 + Link.nPublicInputs r1cs) .. (Link.nextSigNum r1cs - 1)]
     )
@@ -251,7 +245,7 @@ cmdCEval name path = do
 cmdCEmitR1cs :: Bool -> String -> FilePath -> FilePath -> Cfg ()
 cmdCEmitR1cs findBugs fnName cPath r1csPath = do
   tu   <- liftIO $ parseC cPath
-  r1cs <- evalLog $ fnToR1cs @Order findBugs tu fnName
+  r1cs <- evalLog $ fnToR1cs @Order findBugs Nothing tu fnName
   liftIO $ R1cs.writeToR1csFile False r1cs r1csPath
 
 cmdCSetup
@@ -279,23 +273,16 @@ cmdCProve
   -> FilePath
   -> Cfg ()
 cmdCProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath = do
-  tu        <- liftIO $ parseC cPath
-  inMap     <- liftIO $ parseToMap <$> readFile inPath
-  (r1cs, w) <- evalLog $ fnToR1csWithWit @Order False inMap tu fnName
-  let getOr m_ k =
-        Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
-  let getOrI m_ k =
-        Maybe.fromMaybe (error $ "Missing sig num: " ++ show k) $ m_ IntMap.!? k
-  let lookupSignalVal :: Int -> Integer
-      lookupSignalVal i = fromP $ getOr w $ head $ getOrI (Link.numSigs r1cs) i
+  tu    <- liftIO $ parseC cPath
+  inMap <- liftIO $ parseToMap <$> readFile inPath
+  r1cs  <- evalLog $ fnToR1cs @Order False (Just inMap) tu fnName
+  case R1cs.r1csCheck r1cs of
+    Right _ -> return ()
+    Left  e -> liftIO $ do
+      putStrLn e
+      exitFailure
   liftIO $ do
-    emitAssignment (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
-                   xPath
-    emitAssignment
-      (map lookupSignalVal
-           [(2 + Link.nPublicInputs r1cs) .. (Link.nextSigNum r1cs - 1)]
-      )
-      wPath
+    R1cs.r1csWriteAssignments r1cs xPath wPath
     runProve libsnark pkPath vkPath xPath wPath pfPath
 
 cmdCCheckProve
@@ -309,32 +296,21 @@ cmdCCheckProve
   -> String
   -> FilePath
   -> Cfg ()
-cmdCCheckProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath =
+cmdCCheckProve libsnark pkPath vkPath _inPath xPath wPath pfPath fnName cPath =
   do
-    tu        <- liftIO $ parseC cPath
-    (ins, mR) <- checkFn tu fnName
-    let r = Maybe.fromMaybe (error "No bug") mR
+    tu      <- liftIO $ parseC cPath
+    (_, mR) <- checkFn tu fnName
+    let r     = Maybe.fromMaybe (error "No bug") mR
         inMap = modelMapToExtMap r
-    liftIO $ print inMap
-    (r1cs, w) <- evalLog $ fnToR1csWithWit @Order True inMap tu fnName
-    let getOr m_ k =
-          Maybe.fromMaybe (error $ "Missing sig: " ++ show k) $ m_ Map.!? k
-    let getOrI m_ k =
-          Maybe.fromMaybe (error $ "Missing sig num: " ++ show k)
-            $         m_
-            IntMap.!? k
-    let lookupSignalVal :: Int -> Integer
-        lookupSignalVal i =
-          fromP $ getOr w $ head $ getOrI (Link.numSigs r1cs) i
+    r1cs <- evalLog $ fnToR1cs @Order True (Just inMap) tu fnName
+    liftIO $ R1cs.writeToR1csFile False r1cs "CC"
+    case R1cs.r1csCheck r1cs of
+      Right _ -> return ()
+      Left  e -> liftIO $ do
+        putStrLn e
+        exitFailure
     liftIO $ do
-      emitAssignment
-        (map lookupSignalVal [2 .. (1 + Link.nPublicInputs r1cs)])
-        xPath
-      emitAssignment
-        (map lookupSignalVal
-             [(2 + Link.nPublicInputs r1cs) .. (Link.nextSigNum r1cs - 1)]
-        )
-        wPath
+      R1cs.r1csWriteAssignments r1cs xPath wPath
       runProve libsnark pkPath vkPath xPath wPath pfPath
 
 defaultR1cs :: String

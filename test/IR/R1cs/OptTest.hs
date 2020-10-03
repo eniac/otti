@@ -44,6 +44,7 @@ buildR1cs cs public =
            , constraints  = cs'
            , nextSigNum   = nextSigNum
            , publicInputs = publicInputs
+           , values       = IntMap.empty
            }
 
 mkR1csOptTest :: String -> [StringQEQ] -> [String] -> Int -> BenchTest

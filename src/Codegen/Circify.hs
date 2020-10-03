@@ -560,12 +560,16 @@ declareInitVar var ty term = do
   declCommon var ty
   void $ argAssign (SLVar var) term
 
+makePublic :: VarName -> String -> Circify ty term ()
+makePublic var smtVar = modify $ \s -> s { inputs = (var, smtVar) : inputs s }
+
+
 declareVar
   :: (Show ty, Show term) => Bool -> VarName -> ty -> Circify ty term ()
 declareVar isInput var ty = do
   declCommon var ty
   smtVar <- ssaVarAsString <$> getSsaVar (SLVar var)
-  when isInput $ modify $ \s -> s { inputs = (var, smtVar) : inputs s }
+  when isInput $ makePublic var smtVar
   whenM (liftAssert Assert.isStoringValues) $ do
     setInputs' <- gets (setInputs . lang)
     liftLog

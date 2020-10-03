@@ -140,7 +140,8 @@ initRedLinState r1cs =
         $ map (attachSigs . normalize)
         $ Fold.toList
         $ constraints r1cs
-    usePairs = [ (v, id') | (id', (_, vs)) <- IntMap.toList cs', v <- IntSet.toList vs ]
+    usePairs =
+      [ (v, id') | (id', (_, vs)) <- IntMap.toList cs', v <- IntSet.toList vs ]
     uses' =
       IntMap.fromListWith IntSet.union $ map (second IntSet.singleton) usePairs
   in
@@ -153,8 +154,13 @@ initRedLinState r1cs =
 reduceLinearities :: (Show s, Ord s, KnownNat n) => R1CS s n -> Log (R1CS s n)
 reduceLinearities r1cs = do
   let (RedLin runAction) = run r1cs
+  logIf "r1cs::opt::lin" $ "Public: " ++ show (publicInputs r1cs)
   st <- execStateT runAction $ initRedLinState r1cs
   let constraints' =
-        Seq.fromList $ filter (not . constantlyTrue) $ map fst $ IntMap.elems $ view cs st
+        Seq.fromList
+          $ filter (not . constantlyTrue)
+          $ map fst
+          $ IntMap.elems
+          $ view cs st
   logIf "r1cs::opt::lin" $ "Constraints: " ++ show (Seq.length constraints')
   return $ r1cs { constraints = constraints' }

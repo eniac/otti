@@ -7,7 +7,6 @@
 {-# LANGUAGE TupleSections #-}
 module IR.SMT.ToPf
   ( toPf
-  , toPfWithWit
   )
 where
 
@@ -27,6 +26,7 @@ import           IR.R1cs                        ( R1CS
                                                 , emptyR1cs
                                                 , r1csAddConstraint
                                                 , r1csStats
+                                                , r1csSetSignalVal
                                                 , r1csEnsureSignal
                                                 , r1csAddSignals
                                                 , r1csPublicizeSignal
@@ -66,7 +66,6 @@ import           Util.Log
 
 type PfVar = String
 type SmtVals = Map.Map String Dynamic
-type PfVals n = Map.Map PfVar (Prime n)
 
 type LSig n = (LC PfVar (Prime n), Maybe (Prime n))
 type ArraySizes = ShowMap (TermArray DynBvSort DynBvSort) Int
@@ -79,7 +78,6 @@ data ToPfConfig = ToPfConfig { assumeNoBvOverflow :: Bool
 data ToPfState n = ToPfState { r1cs :: R1CS PfVar n
                              , bools :: AliasMap TermBool (LSig n)
                              , ints :: AliasMap TermDynBv (BvEntry n)
-                             , vals :: PfVals n
                              , next :: Int
                              , cfg  :: ToPfConfig
                              , arraySizes :: ArraySizes
@@ -94,7 +92,6 @@ emptyState = ToPfState
   { r1cs       = emptyR1cs
   , bools      = AMap.empty
   , ints       = AMap.empty
-  , vals       = Map.empty
   , next       = 0
   , cfg        = ToPfConfig { assumeNoBvOverflow  = False
                             , optEq               = False
@@ -155,10 +152,11 @@ nextVar name value = do
 
 asVar :: KnownNat n => String -> Maybe (Prime n) -> ToPf n (LSig n)
 asVar var value = do
+  modify $ \s -> s { r1cs = r1csEnsureSignal var $ r1cs s }
   case value of
     Just v -> do
       liftLog $ logIf "toPfVal" $ var ++ " -> " ++ primeShow v
-      modify $ \s -> s { vals = Map.insert var v $ vals s }
+      modify $ \s -> s { r1cs = r1csSetSignalVal var v $ r1cs s }
     _ -> return ()
   return (LD.lcSig var, value)
 
@@ -774,30 +772,15 @@ publicizeInputs is = do
 
 toPf
   :: KnownNat n
-  => Set.Set PfVar
-  -> ArraySizes
-  -> [TermBool]
-  -> Log (R1CS PfVar n)
-toPf inputs arraySizes' bs = do
-  s <- runToPf
-    (configureFromEnv >> publicizeInputs inputs >> forM_ bs
-                                                         (enforceAsPf Nothing)
-    )
-    emptyState { arraySizes = arraySizes' }
-  return $ r1cs $ snd s
-
-toPfWithWit
-  :: KnownNat n
-  => SmtVals
+  => Maybe SmtVals
   -> Set.Set PfVar
   -> ArraySizes
   -> [TermBool]
-  -> Log (R1CS PfVar n, PfVals n)
-toPfWithWit env inputs arraySizes' bs = do
-  s <- runToPf
-    (configureFromEnv >> publicizeInputs inputs >> forM_
-      bs
-      (enforceAsPf $ Just env)
-    )
+  -> Log (R1CS PfVar n)
+toPf env inputs arraySizes' bs = do
+  logIf "toPfVal" $ show env
+  r <- r1cs . snd <$> runToPf
+    (configureFromEnv >> publicizeInputs inputs >> forM_ bs (enforceAsPf env))
     emptyState { arraySizes = arraySizes' }
-  return (r1cs $ snd s, vals $ snd s)
+  logIf "toPf" "Done with toPf"
+  return r

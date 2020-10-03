@@ -618,8 +618,9 @@ genFunDef f = do
     CCompound{} -> genStmtSMT body
     _           -> error "Expected C statement block in function definition"
   returnValue <- liftCircify popFunction
+  forM_ returnValue $ liftCircify . makePublic "return" . fromJust . asVar
   whenM (gets findUB) $ forM_ returnValue $ \r -> bugIf $ udef r
-  return (fullInputNames, fmap (fromJust . asVar) returnValue)
+  return (fullInputNames, fromJust . asVar <$> returnValue)
 
 genAsm :: CStringLiteral a -> C ()
 genAsm = undefined
@@ -670,7 +671,14 @@ cSetInputs inputs findBugs smtName mUserName ty = do
       defaultTerm = cZeroInit ty
       term        = fromMaybe defaultTerm (userTerm <|> smtTerm)
   liftLog $ logIf "inputs" $ unwords
-    ["C setting input:", show smtName, show mUserName, show userTerm, show smtTerm, show defaultTerm, show term]
+    [ "C setting input:"
+    , show smtName
+    , show mUserName
+    , show userTerm
+    , show smtTerm
+    , show defaultTerm
+    , show term
+    ]
   liftAssert $ cSetValues findBugs smtName term
 
 
@@ -687,7 +695,7 @@ runC
   -> C a
   -> Assert.Assert (a, CircifyState Type CTerm, MemState)
 runC inMap findBugs c = do
-  when (isJust inMap) $ Assert.initValues
+  when (isJust inMap) Assert.initValues
   let (C act) = cfgFromEnv >> c
   (((x, _), circState), memState) <-
     runCodegen (cLangDef inMap findBugs) $ runStateT act (emptyCState findBugs)

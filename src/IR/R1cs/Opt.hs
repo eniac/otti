@@ -39,12 +39,15 @@ opt r1cs = do
 removeDeadSignals :: R1CS s n -> R1CS s n
 removeDeadSignals r1cs =
   let liveSigs = liveSignalIntsR1cs r1cs `IntSet.union` publicInputs r1cs
-  in  r1cs
-        { numSigs    = IntMap.filterWithKey (\k _ -> IntSet.member k liveSigs)
-                         $ numSigs r1cs
-        , sigNums    = Map.filter (`IntSet.member` liveSigs) $ sigNums r1cs
-        , nextSigNum = 2 + IntSet.size liveSigs
-        }
+  in
+    r1cs
+      { numSigs    = IntMap.filterWithKey (\k _ -> IntSet.member k liveSigs)
+                       $ numSigs r1cs
+      , sigNums    = Map.filter (`IntSet.member` liveSigs) $ sigNums r1cs
+      , nextSigNum = 2 + IntSet.size liveSigs
+      , values     = IntMap.filterWithKey (\k _ -> IntSet.member k liveSigs)
+                       $ values r1cs
+      }
  where
   liveSignalIntsLc (m, _) = IntSet.fromDistinctAscList $ Map.keys m
   liveSignalIntsQeq (a, b, c) =
@@ -54,7 +57,7 @@ removeDeadSignals r1cs =
 
 -- Given a set of constraints, ensures that the signal numbers are in the range
 -- [2..(1+n)], where n is the number of signals
-compactifySigNums :: KnownNat n => R1CS s n -> R1CS s n
+compactifySigNums :: (Show s, KnownNat n) => R1CS s n -> R1CS s n
 compactifySigNums r1cs =
   let usedNums = IntMap.keys $ numSigs r1cs
       numMap   = IntMap.fromDistinctAscList $ zip usedNums [2 ..]
@@ -65,6 +68,9 @@ compactifySigNums r1cs =
               ++ show i
               ++ " when remapping signal numbers.\n\nContext: "
               ++ s
+              ++ "\n\n numSigs: "
+              ++ show (numSigs r1cs)
+              ++ "\n"
               )
             $         numMap
             IntMap.!? i
@@ -73,5 +79,6 @@ compactifySigNums r1cs =
         , numSigs = IntMap.mapKeysMonotonic (remap "numSigs") $ numSigs r1cs
         , constraints  = sigMapQeq (remap "constraints") <$> constraints r1cs
         , publicInputs = IntSet.map (remap "publicInputs") $ publicInputs r1cs
+        , values       = IntMap.mapKeysMonotonic (remap "values") $ values r1cs
         , nextSigNum   = 2 + IntMap.size numMap
         }

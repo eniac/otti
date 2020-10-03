@@ -20,6 +20,7 @@ module IR.R1cs
   , r1csStats
   , sigNumLookup
   , r1csAddSignal
+  , r1csSetSignalVal
   , r1csEnsureSignal
   , r1csAddSignals
   , r1csPublicizeSignal
@@ -31,6 +32,8 @@ module IR.R1cs
   , r1csExternLc
   , r1csExternQeq
   , r1csShow
+  , r1csWriteAssignments
+  , emitAssignment
   , qeqShow
   , lcShow
   , lcSigs
@@ -75,6 +78,11 @@ import           GHC.TypeLits                   ( KnownNat
                                                 , natVal
                                                 )
 import           Data.Proxy                     ( Proxy(..) )
+import           System.IO                      ( hPutStr
+                                                , openFile
+                                                , IOMode(WriteMode)
+                                                , hClose
+                                                )
 -- Faster IO?
 -- import qualified Data.Text.IO                  as TextIO
 -- import           System.IO                      ( openFile
@@ -130,6 +138,7 @@ data R1CS s n = R1CS { sigNums :: !(Map.Map s Int)
                      , constraints :: !(Seq.Seq (QEQ Int (Prime n)))
                      , nextSigNum :: !Int
                      , publicInputs :: !IntSet.IntSet
+                     , values :: !(IntMap.IntMap (Prime n))
                      }
 
 instance {-# OVERLAPS #-} forall s n. (Show s, KnownNat n) => ToJSON (LC s (Prime n)) where
@@ -252,6 +261,13 @@ r1csEnsureSignal :: Ord s => s -> R1CS s n -> R1CS s n
 r1csEnsureSignal sig r1cs =
   if Map.member sig (sigNums r1cs) then r1cs else r1csAddSignal sig r1cs
 
+r1csSetSignalVal :: Ord s => s -> Prime n -> R1CS s n -> R1CS s n
+r1csSetSignalVal sig val r1cs =
+  let r1cs' = r1csEnsureSignal sig r1cs
+  in  r1cs'
+        { values = IntMap.insert (sigNums r1cs' Map.! sig) val $ values r1cs'
+        }
+
 r1csAddSignal :: Ord s => s -> R1CS s n -> R1CS s n
 r1csAddSignal sig = r1csAddSignals [sig]
 
@@ -272,6 +288,7 @@ r1csMergeSignalNums !aN !bN !r1cs =
   in  r1cs { numSigs     = numSigs'
            , sigNums     = sigNums'
            , constraints = constraints'
+           , values      = IntMap.delete bN $ values r1cs
            }
 r1csMergeSignals
   :: (Show s, Ord s, KnownNat n) => s -> s -> R1CS s n -> R1CS s n
@@ -299,7 +316,7 @@ r1csAddConstraints c r1cs = r1cs
   }
 
 emptyR1cs :: R1CS s n
-emptyR1cs = R1CS Map.empty IntMap.empty Seq.empty 2 IntSet.empty
+emptyR1cs = R1CS Map.empty IntMap.empty Seq.empty 2 IntSet.empty IntMap.empty
 
 nPublicInputs :: R1CS s n -> Int
 nPublicInputs = IntSet.size . publicInputs
@@ -357,24 +374,49 @@ writeToR1csFile asJson r1cs path = if asJson
 --      TextIO.hPutStrLn h ""
 --    hClose h
 
-getVal :: (Show s, Ord s) => s -> Map.Map s k -> k
-getVal k m =
-  fromMaybe (error $ "Could not find r1cs var: " ++ show k) $ m Map.!? k
-
-lcEval :: (Show s, Ord s, Num k) => Map.Map s k -> LC s k -> k
-lcEval env (m, c) = c + sum (map (\(k, v) -> v * getVal k env) $ Map.toList m)
-
-qeqEval :: (Show s, Ord s, Num k) => Map.Map s k -> QEQ s k -> k
-qeqEval env (a, b, c) = let e = lcEval env in e a * e b - e c
-
 r1csCheck
-  :: (Show s, Ord s, KnownNat n)
-  => Map.Map s (Prime n)
-  -> R1CS s n
-  -> Either String ()
-r1csCheck env r1cs = forM_ (r1csQeqs r1cs) $ \c ->
-  let v = qeqEval env c
+  :: forall s n . (Show s, Ord s, KnownNat n) => R1CS s n -> Either String ()
+r1csCheck r1cs = forM_ (constraints r1cs) $ \c ->
+  let v = qeqEval c
   in  if 0 == fromP v
         then Right ()
         else Left $ unwords
           ["The constraint", qeqShow c, "evaluated to", primeShow v, "not 0"]
+ where
+
+  lcEval :: LC Int (Prime n) -> Prime n
+  lcEval (m, c) =
+    c + sum (map (\(k, v) -> v * r1csNumValue r1cs k) $ Map.toList m)
+
+  qeqEval :: QEQ Int (Prime n) -> Prime n
+  qeqEval (a, b, c) = lcEval a * lcEval b - lcEval c
+
+r1csNumValue :: (KnownNat n, Show s) => R1CS s n -> Int -> Prime n
+r1csNumValue r1cs i =
+  fromMaybe
+      (error $ "Could not find r1cs var: " ++ show i ++ ": " ++ show
+        (numSigs r1cs IntMap.!? i)
+      )
+    $         values r1cs
+    IntMap.!? i
+
+r1csWriteAssignments
+  :: forall s n
+   . (Ord s, Show s, KnownNat n)
+  => R1CS s n
+  -> FilePath
+  -> FilePath
+  -> IO ()
+r1csWriteAssignments r1cs inputPath witPath = do
+  let lookupSignalVal = r1csNumValue r1cs
+  emitAssignment (map lookupSignalVal [2 .. (1 + nPublicInputs r1cs)]) inputPath
+  emitAssignment
+    (map lookupSignalVal [(2 + nPublicInputs r1cs) .. (nextSigNum r1cs - 1)])
+    witPath
+
+emitAssignment :: KnownNat n => [Prime n] -> FilePath -> IO ()
+emitAssignment xs path = do
+  handle <- openFile path WriteMode
+  hPutStr handle $ concatMap (\i -> show (fromP i :: Integer) ++ "\n")
+                             (toP (toInteger $ length xs) : xs)
+  hClose handle
