@@ -1,13 +1,23 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
-module Codegen.C.Utils
+module Codegen.C.AstUtil
   ( ctype
   , cDeclToType
   , baseTypeFromSpecs
+  , cSplitDeclaration
   , nodeText
+  , fnRetTy
+  , fnInfo
+  , nameFromFunc
+  , derivedFromDeclr
+  , identToVarName
+  , identFromDeclr
+  , isTypedef
+  , storageFromSpec
+  , isStorageSpec
   )
 where
-import           AST.C
+import           Codegen.C.Type
 import           Codegen.Circify
 import           Control.Monad
 import           Control.Monad.IO.Class
@@ -26,7 +36,10 @@ ctype
   :: [CDeclSpec] -> [CDerivedDeclr] -> Circify Type term (Either String Type)
 ctype tys ptrs = do
   ty <- baseTypeFromSpecs tys
-  return $ ty >>= flip getTy ptrs
+  return $ ty >>= flip applyDerivations ptrs
+
+fnRetTy :: CFunDef -> Circify Type term (Either String Type)
+fnRetTy f = ctype (baseTypeFromFunc f) (ptrsFromFunc f)
 
 -- helpers to be renamed
 
@@ -46,15 +59,15 @@ cParseIntTypeLength l = case l of
 
 cParseIntType :: [CTypeSpecifier a] -> Maybe Type
 cParseIntType l = case l of
-  CUnsigType{}  : r -> flip makeType False <$> cParseIntTypeLength r
-  CSignedType{} : r -> flip makeType True <$> cParseIntTypeLength r
-  r                 -> flip makeType True <$> cParseIntTypeLength r
+  CUnsigType{}  : r -> flip makeIntTy False <$> cParseIntTypeLength r
+  CSignedType{} : r -> flip makeIntTy True <$> cParseIntTypeLength r
+  r                 -> flip makeIntTy True <$> cParseIntTypeLength r
 
 maybeToEither :: b -> Maybe a -> Either b a
 maybeToEither = flip maybe Right . Left
 
-ctypeToType :: [CTypeSpec] -> Circify Type term (Either String Type)
-ctypeToType ty = case ty of
+parseBaseTy :: [CTypeSpec] -> Circify Type term (Either String Type)
+parseBaseTy ty = case ty of
   [CVoidType{}] -> return $ Right Void
   [CTypeDef (Ident name _ _) _] ->
     maybeToEither ("Missing typedef: " ++ name) <$> untypedef name
@@ -88,24 +101,24 @@ ctypeToType ty = case ty of
     text <- liftIO $ nodeText $ head ty
     return $ Left $ unlines ["Unexpected type:", text]
 
-getTy :: (Show a) => Type -> [CDerivedDeclarator a] -> Either String Type
-getTy ty []       = Right ty
-getTy ty (d : ds) = case d of
-  _ | isPtrDecl d -> getTy (Ptr32 ty) ds
+applyDerivations
+  :: (Show a) => Type -> [CDerivedDeclarator a] -> Either String Type
+applyDerivations ty []       = Right ty
+applyDerivations ty (d : ds) = case d of
+  CPtrDeclr{} -> applyDerivations (Ptr32 ty) ds
   CArrDeclr _ (CArrSize _ (CConst (CIntConst (CInteger i _ _) _))) _ ->
-    getTy (Array (Just $ fromIntegral i) ty) ds
-  CArrDeclr _ (CNoArrSize _) _ -> getTy (Array Nothing ty) ds
+    applyDerivations (Array (Just $ fromIntegral i) ty) ds
+  CArrDeclr _ (CNoArrSize _) _ -> applyDerivations (Array Nothing ty) ds
   _                            -> Left $ "Do not support type " ++ show d
 
--- Not really right. Gets pointers wrong?
 cDeclToType :: CDecl -> Circify Type term (Either String Type)
-cDeclToType (CDecl specs _ _) = ctypeToType $ map specToType specs
+cDeclToType (CDecl specs _ _) = parseBaseTy $ map specToType specs
 cDeclToType _                 = error "nyi"
 
 baseTypeFromSpecs :: [CDeclSpec] -> Circify Type term (Either String Type)
 baseTypeFromSpecs all@(elem : rest) = if isTypeQual elem || isAlignSpec elem
   then baseTypeFromSpecs rest
-  else ctypeToType $ mapMaybe typeFromSpec all
+  else parseBaseTy $ mapMaybe typeFromSpec all
 baseTypeFromSpecs _ = error "nyi"
 
 nodeText :: (Show a, CNode a) => a -> IO String
@@ -136,8 +149,82 @@ cSplitDeclaration d = case d of
           isStorageSpec firstSpec && isTypedef (storageFromSpec firstSpec)
         baseType = if isTypedefDecl then tail specs else specs
     r <- forM decls $ \(Just dec, mInit, _) -> do
-      let id      = identFromDecl dec
+      let id      = identFromDeclr dec
           ptrType = derivedFromDeclr dec
       fmap (identToString id, , mInit) <$> ctype baseType ptrType
     return $ sequence r
   _ -> error . ("Unexpected declaration: " ++) <$> liftIO (nodeText d)
+
+-- Other Helpers
+
+fnInfo :: CFunDef -> (FunctionName, [CDecl], CStat)
+fnInfo f = (nameFromFunc f, argsFromFunc f, bodyFromFunc f)
+
+nameFromFunc :: CFunDef -> String
+nameFromFunc (CFunDef _ decl _ _ _) = identToVarName $ identFromDeclr decl
+
+baseTypeFromFunc :: CFunctionDef a -> [CDeclarationSpecifier a]
+baseTypeFromFunc (CFunDef tys _ _ _ _) = tys
+
+bodyFromFunc :: CFunctionDef a -> CStatement a
+bodyFromFunc (CFunDef _ _ _ stmt _) = stmt
+
+ptrsFromFunc :: (Show a) => CFunctionDef a -> [CDerivedDeclarator a]
+ptrsFromFunc (CFunDef _ decl _ _ _) = case derivedFromDecl decl of
+  _ : ptrs -> ptrs
+  f        -> error $ unwords ["Expected function declaration but got", show f]
+
+argsFromFunc :: (Show a) => CFunctionDef a -> [CDeclaration a]
+argsFromFunc (CFunDef _ decl _ _ _) = case derivedFromDecl decl of
+  (CFunDeclr (Right decls) _ _) : _ -> fst decls
+  f -> error $ unwords ["Expected function declaration but got", show f]
+
+derivedFromDecl :: CDeclarator a -> [CDerivedDeclarator a]
+derivedFromDecl (CDeclr _ derived _ _ _) = derived
+
+identToVarName :: Ident -> String
+identToVarName (Ident name _ _) = name
+
+specToType :: CDeclarationSpecifier a -> CTypeSpecifier a
+specToType spec = case spec of
+  CTypeSpec ts -> ts
+  _            -> error "Expected type specificer in declaration"
+
+-- General utilities
+
+-- Declarators
+
+identFromDeclr :: CDeclr -> Ident
+identFromDeclr d@(CDeclr ids _ _ _ _) =
+  fromMaybe (error $ "Expected ident in declarator " ++ show d) ids
+
+derivedFromDeclr :: CDeclarator a -> [CDerivedDeclarator a]
+derivedFromDeclr (CDeclr _ derived _ _ _) = derived
+
+-- Declaration specifiers
+
+isStorageSpec :: CDeclarationSpecifier a -> Bool
+isStorageSpec CStorageSpec{} = True
+isStorageSpec _              = False
+
+storageFromSpec :: CDeclarationSpecifier a -> CStorageSpecifier a
+storageFromSpec (CStorageSpec spec) = spec
+storageFromSpec _                   = error "Expected storage specifier"
+
+typeFromSpec :: (Show a) => CDeclarationSpecifier a -> Maybe (CTypeSpecifier a)
+typeFromSpec (CTypeSpec spec) = Just spec
+typeFromSpec _                = Nothing
+
+isTypeQual :: CDeclarationSpecifier a -> Bool
+isTypeQual CTypeQual{} = True
+isTypeQual _           = False
+
+isAlignSpec :: CDeclarationSpecifier a -> Bool
+isAlignSpec CAlignSpec{} = True
+isAlignSpec _            = False
+
+-- Storage specifiers
+
+isTypedef :: CStorageSpecifier a -> Bool
+isTypedef CTypedef{} = True
+isTypedef _          = False

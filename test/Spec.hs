@@ -1,9 +1,9 @@
 import           BenchUtils
-import           Codegen.C.CUtilsTest
+import           Codegen.C.TermTest
+import           Codegen.C.EvalTest
+import           Codegen.C.Test
 import           Codegen.Circify.MemoryTest
 import           Codegen.CircomTest
-import           Codegen.CTest
-import           Codegen.CValuesTest
 import           IR.R1cs.OptTest
 import           IR.SMT.OptTest
 import           IR.SMT.ToPfTest

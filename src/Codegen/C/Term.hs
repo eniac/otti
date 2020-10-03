@@ -6,7 +6,7 @@
 {-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving    #-}
 
-module Codegen.C.CUtils
+module Codegen.C.Term
   ( CTerm(..)
   , CTermData(..)
   , Bitable(..)
@@ -86,7 +86,7 @@ module Codegen.C.CUtils
   )
 where
 
-import qualified AST.C                         as AST
+import qualified Codegen.C.Type                as Type
 import           Codegen.Circify.Memory         ( Mem )
 import qualified Codegen.Circify.Memory        as Mem
 import           Control.Monad                  ( forM
@@ -115,34 +115,34 @@ type Bv = Ty.TermDynBv
 class Bitable s where
   nbits :: s -> Int
   serialize :: s -> Bv
-  deserialize :: AST.Type -> Bv -> s
+  deserialize :: Type.Type -> Bv -> s
 
 data CTermData = CInt Bool Int Bv
                | CBool Ty.TermBool
                | CDouble Ty.TermDouble
                | CFloat Ty.TermFloat
                -- The array type, the offset, the underlying array.
-               | CArray AST.Type Mem.StackAllocId
+               | CArray Type.Type Mem.StackAllocId
                -- The type is the pointer (not pointee) type!
                -- Also the offset and the underlying allocation.
-               | CStackPtr AST.Type Bv Mem.StackAllocId
-               | CStruct AST.Type [(String, CTerm)]
+               | CStackPtr Type.Type Bv Mem.StackAllocId
+               | CStruct Type.Type [(String, CTerm)]
                deriving (Show, Eq)
 
-ctermDataTy :: CTermData -> AST.Type
+ctermDataTy :: CTermData -> Type.Type
 ctermDataTy t = case t of
-  CInt True  8  _  -> AST.S8
-  CInt False 8  _  -> AST.U8
-  CInt True  16 _  -> AST.S16
-  CInt False 16 _  -> AST.U16
-  CInt True  32 _  -> AST.S32
-  CInt False 32 _  -> AST.U32
-  CInt True  64 _  -> AST.S64
-  CInt False 64 _  -> AST.U64
+  CInt True  8  _  -> Type.S8
+  CInt False 8  _  -> Type.U8
+  CInt True  16 _  -> Type.S16
+  CInt False 16 _  -> Type.U16
+  CInt True  32 _  -> Type.S32
+  CInt False 32 _  -> Type.U32
+  CInt True  64 _  -> Type.S64
+  CInt False 64 _  -> Type.U64
   CInt _     w  _  -> error $ unwords ["Invalid int width:", show w]
-  CBool{}          -> AST.Bool
-  CDouble{}        -> AST.Double
-  CFloat{}         -> AST.Float
+  CBool{}          -> Type.Bool
+  CDouble{}        -> Type.Double
+  CFloat{}         -> Type.Float
   CArray  ty _     -> ty
   CStruct ty _     -> ty
   CStackPtr ty _ _ -> ty
@@ -157,27 +157,27 @@ ctermEval env t = case term t of
   CStruct _ _t'    -> error "nyi"
   CArray  _ i      -> toDyn . Ty.eval env . Mem.array <$> Mem.stackGetAlloc i
 
-cbaseParse :: AST.Type -> Integer -> CTermData
+cbaseParse :: Type.Type -> Integer -> CTermData
 cbaseParse ty value =
   case ty of
-    AST.Bool -> CBool (Ty.BoolLit (value /= 0))
-    _ | AST.isIntegerType ty ->
-      let n = AST.numBits ty
-      in  CInt (AST.isSignedInt ty)
+    Type.Bool -> CBool (Ty.BoolLit (value /= 0))
+    _ | Type.isIntegerType ty ->
+      let n = Type.numBits ty
+      in  CInt (Type.isSignedInt ty)
                n
                (Ty.IntToDynBv n (Ty.IntLit (value `rem` (2 ^ toInteger n))))
     _             -> error $ "Cannot init type: " ++ show ty
 
-cZeroInit :: AST.Type -> CTerm
+cZeroInit :: Type.Type -> CTerm
 cZeroInit ty = mkCTerm
   (case ty of
-    AST.Bool -> CBool (Ty.BoolLit False)
-    _ | AST.isIntegerType ty ->
-      let n = AST.numBits ty
-      in  CInt (AST.isSignedInt ty)
+    Type.Bool -> CBool (Ty.BoolLit False)
+    _ | Type.isIntegerType ty ->
+      let n = Type.numBits ty
+      in  CInt (Type.isSignedInt ty)
                n
                (Mem.bvNum False n 0)
-    AST.Struct fields -> CStruct ty $ second cZeroInit <$> fields
+    Type.Struct fields -> CStruct ty $ second cZeroInit <$> fields
     _             -> error $ "Cannot init type: " ++ show ty
   )
   (Ty.BoolLit True)
@@ -213,11 +213,11 @@ asBool :: CTermData -> Ty.TermBool
 asBool (CBool b) = b
 asBool t         = error $ unwords [show t, "is not a boolean"]
 
-asStackPtr :: CTermData -> (AST.Type, Bv, Mem.StackAllocId)
+asStackPtr :: CTermData -> (Type.Type, Bv, Mem.StackAllocId)
 asStackPtr (CStackPtr ty bv alloc) = (ty, bv, alloc)
 asStackPtr t = error $ unwords [show t, "is not a pointer"]
 
-asArray :: CTermData -> (AST.Type, Mem.StackAllocId)
+asArray :: CTermData -> (Type.Type, Mem.StackAllocId)
 asArray (CArray ty alloc) = (ty, alloc)
 asArray t                 = error $ unwords [show t, "is not an array"]
 
@@ -240,7 +240,7 @@ mkCTerm d b = case d of
   CInt _ w bv -> if Ty.dynBvWidth bv == w
     then CTerm d b
     else error $ unwords ["Bad width in CTerm", show d]
-  CStackPtr ty off _alloc -> if Ty.dynBvWidth off == AST.numBits ty
+  CStackPtr ty off _alloc -> if Ty.dynBvWidth off == Type.numBits ty
     then CTerm d b
     else error $ unwords ["Bad width in CTerm", show d]
   _ -> CTerm d b
@@ -251,7 +251,7 @@ instance Bitable CTermData where
     CInt _ w _ -> w
     CDouble{}  -> 64
     CFloat{}   -> 32
-    --CStackPtr ty _ _ -> AST.numBits ty
+    --CStackPtr ty _ _ -> Type.numBits ty
     _          -> error $ "Cannot serialize: " ++ show c
   serialize c = case c of
     CBool b     -> Ty.Ite b (Mem.bvNum False 1 1) (Mem.bvNum False 1 0)
@@ -265,13 +265,13 @@ instance Bitable CTermData where
     -- you refer to.
     _ -> error $ "Cannot serialize: " ++ show c
   deserialize ty bv = case ty of
-    t | AST.isIntegerType t -> CInt (AST.isSignedInt t) (AST.numBits t) bv
-    AST.Double              -> CDouble $ Ty.BvToFp $ Ty.mkStatifyBv @64 bv
-    AST.Float               -> CFloat $ Ty.BvToFp $ Ty.mkStatifyBv @32 bv
-    AST.Bool                -> CBool $ Ty.mkDynBvEq bv (Mem.bvNum False 1 1)
-    AST.Struct fs ->
+    t | Type.isIntegerType t -> CInt (Type.isSignedInt t) (Type.numBits t) bv
+    Type.Double              -> CDouble $ Ty.BvToFp $ Ty.mkStatifyBv @64 bv
+    Type.Float               -> CFloat $ Ty.BvToFp $ Ty.mkStatifyBv @32 bv
+    Type.Bool                -> CBool $ Ty.mkDynBvEq bv (Mem.bvNum False 1 1)
+    Type.Struct fs ->
       let
-        sizes  = map (AST.numBits . snd) fs
+        sizes  = map (Type.numBits . snd) fs
         starts = 0 : scanl1 (+) sizes
         chunks =
           zipWith (\start size -> Ty.mkDynBvExtract start size bv) starts sizes
@@ -287,11 +287,11 @@ instance Bitable CTermData where
 
 
 
-cType :: CTerm -> AST.Type
+cType :: CTerm -> Type.Type
 cType = ctermDataTy . term
 
 cBool :: CTerm -> Ty.TermBool
-cBool = asBool . term . cCast AST.Bool
+cBool = asBool . term . cCast Type.Bool
 
 nyi :: String -> a
 nyi msg = error $ "Not yet implemented: " ++ msg
@@ -345,7 +345,7 @@ alias trackUndef name t = do
       return $ CDouble v
     -- TODO set value?
     CStackPtr ty off id -> do
-      let sort = Ty.SortBv $ AST.numBits ty
+      let sort = Ty.SortBv $ Type.numBits ty
       v <- Assert.newVar name sort
       Assert.assign v off
       return $ CStackPtr ty v id
@@ -362,7 +362,7 @@ structVarName baseName fieldName = baseName ++ "." ++ fieldName
 
 -- Declare a new variable, initialize it to a value.
 -- Returns the new term, and the old one, casted to be of the right type.
-cDeclInitVar :: Bool -> AST.Type -> String -> CTerm -> Mem (CTerm, CTerm)
+cDeclInitVar :: Bool -> Type.Type -> String -> CTerm -> Mem (CTerm, CTerm)
 cDeclInitVar trackUndef ty name init =
   let init' = cCast ty init
   in  liftAssert $ (, init') <$> alias trackUndef name init'
@@ -375,7 +375,7 @@ cDeclInitVar trackUndef ty name init =
 -- whatever that it was ultimately assigned to.
 cCondAssign
   :: Bool
-  -> AST.Type
+  -> Type.Type
   -> String
   -> CTerm
   -> Maybe (Ty.TermBool, CTerm)
@@ -387,36 +387,36 @@ cCondAssign trackUndef ty name value alternate = case alternate of
   Nothing -> cDeclInitVar trackUndef ty name (cCast ty value)
 
 -- Declare a new variable, do not initialize it.
-cDeclVar :: Bool -> AST.Type -> String -> Mem CTerm
+cDeclVar :: Bool -> Type.Type -> String -> Mem CTerm
 cDeclVar trackUndef ty name = do
   u <- liftAssert $ if trackUndef
     then Assert.newVar (udefName name) Ty.SortBool
     else return (Ty.BoolLit False)
   -- liftAssert $ Assert.assign u (Ty.BoolLit True)
   t <- case ty of
-    AST.Bool -> liftAssert $ CBool <$> Assert.newVar name Ty.SortBool
-    _ | AST.isIntegerType ty ->
-      liftAssert $ CInt (AST.isSignedInt ty) (AST.numBits ty) <$> Assert.newVar
+    Type.Bool -> liftAssert $ CBool <$> Assert.newVar name Ty.SortBool
+    _ | Type.isIntegerType ty ->
+      liftAssert $ CInt (Type.isSignedInt ty) (Type.numBits ty) <$> Assert.newVar
         name
-        (Ty.SortBv $ AST.numBits ty)
-    AST.Double -> liftAssert $ CDouble <$> Assert.newVar name Ty.sortDouble
-    AST.Float  -> liftAssert $ CFloat <$> Assert.newVar name Ty.sortFloat
-    AST.Array (Just size) innerTy ->
-      CArray ty <$> Mem.stackNewAlloc size 32 (AST.numBits innerTy)
-    AST.Array Nothing _ -> return $ CArray ty Mem.stackIdUnknown
-    AST.Ptr32 _         -> do
+        (Ty.SortBv $ Type.numBits ty)
+    Type.Double -> liftAssert $ CDouble <$> Assert.newVar name Ty.sortDouble
+    Type.Float  -> liftAssert $ CFloat <$> Assert.newVar name Ty.sortFloat
+    Type.Array (Just size) innerTy ->
+      CArray ty <$> Mem.stackNewAlloc size 32 (Type.numBits innerTy)
+    Type.Array Nothing _ -> return $ CArray ty Mem.stackIdUnknown
+    Type.Ptr32 _         -> do
       bv :: Bv <- liftAssert $ Assert.newVar name (Ty.SortBv 32)
       return $ CStackPtr ty bv Mem.stackIdUnknown
-    AST.Struct fields -> CStruct ty <$> forM
+    Type.Struct fields -> CStruct ty <$> forM
       fields
       (\(f, fTy) -> (f, ) <$> cDeclVar trackUndef fTy (structVarName name f))
     _ -> nyi $ "cDeclVar for type " ++ show ty
   return $ mkCTerm t u
 
-cIntLit :: AST.Type -> Integer -> CTerm
+cIntLit :: Type.Type -> Integer -> CTerm
 cIntLit t v =
-  let s = AST.isSignedInt t
-      w = AST.numBits t
+  let s = Type.isSignedInt t
+      w = Type.numBits t
   in  mkCTerm (CInt s w (Ty.IntToDynBv w (Ty.IntLit v))) (Ty.BoolLit False)
 
 cDoubleLit :: Double -> CTerm
@@ -425,22 +425,22 @@ cDoubleLit v = mkCTerm (CDouble $ Ty.Fp64Lit v) (Ty.BoolLit False)
 cFloatLit :: Float -> CTerm
 cFloatLit v = mkCTerm (CFloat $ Ty.Fp32Lit v) (Ty.BoolLit False)
 
-cArrayLit :: AST.Type -> [CTerm] -> Mem CTerm
+cArrayLit :: Type.Type -> [CTerm] -> Mem CTerm
 cArrayLit ty vals = do
   forM_ vals $ \v -> unless (cType v == ty) $ error $ unwords
     ["Type mismatch in cArrayLit:", show ty, "vs", show $ cType v]
   let bvs = map (serialize . term) vals
   id <- Mem.stackAllocCons 32 bvs
-  return $ mkCTerm (CArray (AST.Array (Just $ length vals) ty) id)
+  return $ mkCTerm (CArray (Type.Array (Just $ length vals) ty) id)
                    (Ty.BoolLit False)
 
-cStructLit :: AST.Type -> [CTerm] -> Mem CTerm
+cStructLit :: Type.Type -> [CTerm] -> Mem CTerm
 cStructLit ty vals = do
-  let fieldTys = AST.structFieldTypes ty
+  let fieldTys = Type.structFieldTypes ty
   forM_ (zip fieldTys vals) $ \(fTy, v) ->
     unless (cType v == fTy) $ error $ unwords
       ["Type mismatch in cStructLit:", show ty, "vs", show $ cType v]
-  return $ mkCTerm (CStruct ty (zip (map fst $ AST.structFieldList ty) vals))
+  return $ mkCTerm (CStruct ty (zip (map fst $ Type.structFieldList ty) vals))
                    (Ty.BoolLit False)
 
 -- Do a load, returning whether is was UB
@@ -449,7 +449,7 @@ cLoad ptr = case term ptr of
   CStackPtr ty offset id -> do
     bits <- Mem.stackLoad id offset
     oob  <- Ty.Not <$> Mem.stackIsLoadable id offset
-    let value = deserialize (AST.pointeeType ty) bits
+    let value = deserialize (Type.pointeeType ty) bits
         -- TODO: Check bounds
         undef = Ty.BoolNaryExpr Ty.Or [udef ptr, oob]
     return (oob, mkCTerm value undef)
@@ -460,20 +460,20 @@ cStore :: CTerm -> CTerm -> Ty.TermBool -> Mem Ty.TermBool
 cStore ptr val guard = case term ptr of
   --TODO: serialize the udef bit too.
   CStackPtr ty offset id ->
-    let bits = serialize (term $ cCast (AST.pointeeType ty) val)
-    in  if AST.numBits (AST.pointeeType ty) == Ty.dynBvWidth bits
+    let bits = serialize (term $ cCast (Type.pointeeType ty) val)
+    in  if Type.numBits (Type.pointeeType ty) == Ty.dynBvWidth bits
           then do
             Mem.stackStore id offset bits guard
             Ty.Not <$> Mem.stackIsLoadable id offset
           else error $ unwords
-            ["CTerm", show val, "is not", show (AST.numBits ty), "bits wide"]
+            ["CTerm", show val, "is not", show (Type.numBits ty), "bits wide"]
   _ -> error $ unwords ["The value", show ptr, "cannot be cStore'd"]
 
 arrayToPointer :: CTerm -> CTerm
 arrayToPointer arr =
   let (ty, id) = asArray $ term arr
   in  mkCTerm
-        (CStackPtr (AST.Ptr32 $ AST.arrayBaseType ty) (Mem.bvNum False 32 0) id)
+        (CStackPtr (Type.Ptr32 $ Type.arrayBaseType ty) (Mem.bvNum False 32 0) id)
         (udef arr)
 
 cStructGet :: CTerm -> String -> CTerm
@@ -550,30 +550,30 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
       cannot with = error $ unwords ["Cannot do", name, "with", with]
 
       -- TODO: check bounds!
-      cPtrPlusInt :: AST.Type -> Bv -> Bool -> Bv -> Bv
+      cPtrPlusInt :: Type.Type -> Bv -> Bool -> Bv -> Bv
       cPtrPlusInt pTy ptr signed int =
-        Ty.mkDynBvBinExpr Ty.BvAdd ptr $ intResize signed (AST.numBits pTy) int
+        Ty.mkDynBvBinExpr Ty.BvAdd ptr $ intResize signed (Type.numBits pTy) int
 
       (t, u) = case (term a, term b) of
         (CDouble d, _) -> if allowDouble
           then
-            ( CDouble $ doubleF d $ asDouble $ term $ cCast AST.Double b
+            ( CDouble $ doubleF d $ asDouble $ term $ cCast Type.Double b
             , Nothing
             )
           else cannot "a double"
         (_, CDouble d) -> if allowDouble
           then
-            ( CDouble $ doubleF d $ asDouble $ term $ cCast AST.Double a
+            ( CDouble $ doubleF d $ asDouble $ term $ cCast Type.Double a
             , Nothing
             )
           else cannot "a double"
         (CFloat d, _) -> if allowDouble
           then
-            (CFloat $ doubleF d $ asFloat $ term $ cCast AST.Float b, Nothing)
+            (CFloat $ doubleF d $ asFloat $ term $ cCast Type.Float b, Nothing)
           else cannot "a double"
         (_, CFloat d) -> if allowDouble
           then
-            (CFloat $ doubleF d $ asFloat $ term $ cCast AST.Float a, Nothing)
+            (CFloat $ doubleF d $ asFloat $ term $ cCast Type.Float a, Nothing)
           else cannot "a double"
         (CStackPtr ty off id, CInt s _ i) ->
           if bvOp s == Ty.BvAdd || bvOp s == Ty.BvSub
@@ -583,7 +583,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
           if bvOp False == Ty.BvSub && ty == ty' && id == id'
             then -- TODO: ptrdiff_t?
               ( CInt True
-                     (AST.numBits ty)
+                     (Type.numBits ty)
                      (Ty.mkDynBvBinExpr (bvOp False) off off')
               , ubF >>= (\f -> f True off True off')
               )
@@ -727,7 +727,7 @@ cWrapBinLogical
   -> CTerm
   -> CTerm
 cWrapBinLogical name f a b =
-  case (term $ cCast AST.Bool a, term $ cCast AST.Bool b) of
+  case (term $ cCast Type.Bool a, term $ cCast Type.Bool b) of
     (CBool a', CBool b') ->
       mkCTerm (CBool $ f a' b') (Ty.BoolNaryExpr Ty.Or [udef a, udef b])
     _ -> error $ unwords ["Cannot do", name, "on", show a, "and", show b]
@@ -736,7 +736,7 @@ cOr = cWrapBinLogical "||" (((.) . (.)) (Ty.BoolNaryExpr Ty.Or) doubleton)
 cAnd = cWrapBinLogical "&&" (((.) . (.)) (Ty.BoolNaryExpr Ty.And) doubleton)
 
 cWrapUnLogical :: String -> (Ty.TermBool -> Ty.TermBool) -> CTerm -> CTerm
-cWrapUnLogical name f a = case term $ cCast AST.Bool a of
+cWrapUnLogical name f a = case term $ cCast Type.Bool a of
   CBool a' -> mkCTerm (CBool $ f a') (udef a)
   _        -> error $ unwords ["Cannot do", name, "on", show a]
 
@@ -768,10 +768,10 @@ cWrapCmp name bvF doubleF a b = convert (integralPromotion a)
     let
       cannot with = error $ unwords ["Cannot do", name, "with", with]
       t = case (term a, term b) of
-        (CDouble d, _) -> doubleF d (asDouble $ term $ cCast AST.Double b)
-        (_, CDouble d) -> doubleF (asDouble $ term $ cCast AST.Double a) d
-        (CFloat d, _) -> doubleF d (asFloat $ term $ cCast AST.Float b)
-        (_, CFloat d) -> doubleF (asFloat $ term $ cCast AST.Float a) d
+        (CDouble d, _) -> doubleF d (asDouble $ term $ cCast Type.Double b)
+        (_, CDouble d) -> doubleF (asDouble $ term $ cCast Type.Double a) d
+        (CFloat d, _) -> doubleF d (asFloat $ term $ cCast Type.Float b)
+        (_, CFloat d) -> doubleF (asFloat $ term $ cCast Type.Float a) d
         (CStackPtr ty addr id, CStackPtr ty' addr' id') ->
           if ty == ty' && id == id'
             then bvF False addr addr'
@@ -807,43 +807,43 @@ cGe = cWrapCmp ">="
 -- Do not mess with pointers
 integralPromotion :: CTerm -> CTerm
 integralPromotion n = case term n of
-  CBool{} -> cCast AST.S32 n
+  CBool{} -> cCast Type.S32 n
   _       -> n
 
-cCast :: AST.Type -> CTerm -> CTerm
+cCast :: Type.Type -> CTerm -> CTerm
 cCast toTy node = case term node of
   CBool t -> case toTy of
-    _ | AST.isIntegerType toTy ->
-      let width = AST.numBits toTy
-          cint  = CInt (AST.isSignedInt toTy) width (boolToBv t width)
+    _ | Type.isIntegerType toTy ->
+      let width = Type.numBits toTy
+          cint  = CInt (Type.isSignedInt toTy) width (boolToBv t width)
       in  mkCTerm cint (udef node)
-    AST.Double -> mkCTerm (CDouble $ Ty.DynUbvToFp $ boolToBv t 1) (udef node)
-    AST.Float  -> mkCTerm (CFloat $ Ty.DynUbvToFp $ boolToBv t 1) (udef node)
-    AST.Bool   -> node
+    Type.Double -> mkCTerm (CDouble $ Ty.DynUbvToFp $ boolToBv t 1) (udef node)
+    Type.Float  -> mkCTerm (CFloat $ Ty.DynUbvToFp $ boolToBv t 1) (udef node)
+    Type.Bool   -> node
     _          -> error $ unwords ["Bad cast from", show t, "to", show toTy]
   CInt fromS fromW t -> case toTy of
-    _ | AST.isIntegerType toTy ->
-      let toW = AST.numBits toTy
-          toS = AST.isSignedInt toTy
+    _ | Type.isIntegerType toTy ->
+      let toW = Type.numBits toTy
+          toS = Type.isSignedInt toTy
           t'  = intResize fromS toW t
       in  mkCTerm (CInt toS toW t') (udef node)
-    AST.Double -> mkCTerm
+    Type.Double -> mkCTerm
       (CDouble $ (if fromS then Ty.DynSbvToFp else Ty.DynUbvToFp) t)
       (udef node)
-    AST.Float -> mkCTerm
+    Type.Float -> mkCTerm
       (CFloat $ (if fromS then Ty.DynSbvToFp else Ty.DynUbvToFp) t)
       (udef node)
-    AST.Bool ->
+    Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.Eq (Mem.bvNum False fromW 0) t) (udef node)
     _ -> error $ unwords ["Bad cast from", show t, "to", show toTy]
   CDouble t -> case toTy of
-    _ | AST.isIntegerType toTy ->
+    _ | Type.isIntegerType toTy ->
       -- TODO: Do this with rounding modes
       let half    = Ty.Fp64Lit 0.5
           negHalf = Ty.Fp64Lit (-0.5)
       in  mkCTerm
-            (CInt (AST.isSignedInt toTy) (AST.numBits toTy) $ Ty.RoundFpToDynBv
-              (AST.numBits toTy)
+            (CInt (Type.isSignedInt toTy) (Type.numBits toTy) $ Ty.RoundFpToDynBv
+              (Type.numBits toTy)
               True
               (Ty.FpBinExpr
                 Ty.FpAdd
@@ -852,19 +852,19 @@ cCast toTy node = case term node of
               )
             )
             (udef node)
-    AST.Bool ->
+    Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
-    AST.Double -> node
-    AST.Float  -> mkCTerm (CFloat $ Ty.FpToFp t) (udef node)
+    Type.Double -> node
+    Type.Float  -> mkCTerm (CFloat $ Ty.FpToFp t) (udef node)
     _          -> error $ unwords ["Bad cast from", show t, "to", show toTy]
   CFloat t -> case toTy of
-    _ | AST.isIntegerType toTy ->
+    _ | Type.isIntegerType toTy ->
       -- TODO: Do this with rounding modes
       let half    = Ty.Fp32Lit 0.5
           negHalf = Ty.Fp32Lit (-0.5)
       in  mkCTerm
-            (CInt (AST.isSignedInt toTy) (AST.numBits toTy) $ Ty.RoundFpToDynBv
-              (AST.numBits toTy)
+            (CInt (Type.isSignedInt toTy) (Type.numBits toTy) $ Ty.RoundFpToDynBv
+              (Type.numBits toTy)
               True
               (Ty.FpBinExpr
                 Ty.FpAdd
@@ -873,26 +873,26 @@ cCast toTy node = case term node of
               )
             )
             (udef node)
-    AST.Bool ->
+    Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
-    AST.Double -> mkCTerm (CDouble $ Ty.FpToFp t) (udef node)
-    AST.Float  -> node
+    Type.Double -> mkCTerm (CDouble $ Ty.FpToFp t) (udef node)
+    Type.Float  -> node
     _          -> error $ unwords ["Bad cast from", show t, "to", show toTy]
-  CStackPtr ty t _id -> if AST.isIntegerType toTy
+  CStackPtr ty t _id -> if Type.isIntegerType toTy
     then cCast toTy $ mkCTerm (CInt False (Ty.dynBvWidth t) t) (udef node)
-    else if toTy == AST.Bool
+    else if toTy == Type.Bool
       then mkCTerm
-        (CBool $ Ty.Not $ Ty.Eq (Mem.bvNum False (AST.numBits ty) 0) t)
+        (CBool $ Ty.Not $ Ty.Eq (Mem.bvNum False (Type.numBits ty) 0) t)
         (udef node)
-      else if AST.isPointer toTy
+      else if Type.isPointer toTy
         -- TODO: Not quite right: widths
         then node
         else error $ unwords ["Bad cast from", show t, "to", show toTy]
   CArray ty id -> case toTy of
-    AST.Ptr32 iTy | iTy == AST.arrayBaseType ty -> mkCTerm
-      (CStackPtr toTy (Mem.bvNum False (AST.numBits toTy) 0) id)
+    Type.Ptr32 iTy | iTy == Type.arrayBaseType ty -> mkCTerm
+      (CStackPtr toTy (Mem.bvNum False (Type.numBits toTy) 0) id)
       (udef node)
-    AST.Array Nothing toBaseTy | toBaseTy == AST.arrayBaseType ty ->
+    Type.Array Nothing toBaseTy | toBaseTy == Type.arrayBaseType ty ->
       mkCTerm (CArray toTy id) (udef node)
     _ | toTy == ty -> node
     _ -> error $ unwords ["Bad cast from", show node, "to", show toTy]
@@ -906,7 +906,7 @@ cCast toTy node = case term node of
 -- A ITE based on a CTerm condition.
 cCond :: CTerm -> CTerm -> CTerm -> CTerm
 cCond cond t f =
-  let condB = asBool $ term $ cCast AST.Bool cond
+  let condB = asBool $ term $ cCast Type.Bool cond
       r     = cIte condB t f
   in  mkCTerm (term r) (Ty.BoolNaryExpr Ty.Or [udef cond, udef r])
 
@@ -957,10 +957,10 @@ parseToMap s = Map.fromList $ map pL $ filter (not . null) $ lines s
     [l, r] -> (pP l, fromMaybe (error "No int on right") $ readMaybe r)
     _      -> error $ "Line " ++ show l ++ "does not have 2 tokens"
 
-parseVar :: Map.Map [Ext] Integer -> Bool -> String -> AST.Type -> Maybe CTerm
+parseVar :: Map.Map [Ext] Integer -> Bool -> String -> Type.Type -> Maybe CTerm
 parseVar m undef vName = p m [Name vName]
  where
-  p :: Map.Map [Ext] Integer -> [Ext] -> AST.Type -> Maybe CTerm
+  p :: Map.Map [Ext] Integer -> [Ext] -> Type.Type -> Maybe CTerm
   p m prefix ty = case ty of
     _ | basic ty -> do
       t <- cbaseParse ty <$> Map.lookup (reverse prefix) m
@@ -968,11 +968,11 @@ parseVar m undef vName = p m [Name vName]
       let undefPath = Name (udefName h) :t'
       let u = Ty.BoolLit $ maybe undef (/=0) $ Map.lookup undefPath m
       return $ mkCTerm t u
-    AST.Array Nothing _ty' -> error $ "Unsized array: " ++ show ty
+    Type.Array Nothing _ty' -> error $ "Unsized array: " ++ show ty
     -- TODO: Array (Just n) ty' -> forM [0..n-1] $ \i -> parseVar (Index i:prefix) ty'
-    AST.Struct fields ->
+    Type.Struct fields ->
       do
         fs <- mapM (\(fName, fTy) -> (fName, ) <$> p m (Name fName : prefix) fTy) fields
         return $ mkCTerm (CStruct ty fs) (Ty.BoolLit False)
     _ -> error $ "Cannot parse: " ++ show ty
-    where basic t = AST.isIntegerType t || t == AST.Bool
+    where basic t = Type.isIntegerType t || t == Type.Bool

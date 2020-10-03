@@ -42,7 +42,6 @@ module Codegen.Circify
   , printComp
   , doReturn
   , ssaValAsTerm
-  , ssaVarAsString
   , getSsaName
   )
 where
@@ -583,7 +582,6 @@ declareInitVar var ty term = do
 
 makePublic :: VarName -> String -> Circify ty term ()
 makePublic var smtVar = modify $ \s -> s { inputs = (var, smtVar) : inputs s }
-
 
 declareVar
   :: (Show ty, Show term) => Bool -> VarName -> ty -> Circify ty term ()

@@ -1,4 +1,4 @@
-module Codegen.CValuesTest where
+module Codegen.C.EvalTest where
 import           BenchUtils
 import           Codegen.C
 import           Control.Monad                  ( forM_ )
@@ -15,7 +15,7 @@ d = Ty.d_
 
 cValueTests :: BenchTest
 cValueTests = benchTestGroup
-  "C value test"
+  "C SMT eval test"
   [ constraintValueTest
     "ops"
     "foo"

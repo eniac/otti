@@ -17,7 +17,7 @@ import           Codegen.C.CToR1cs              ( fnToR1cs )
 import           Codegen.C                      ( checkFn
                                                 , evalFn
                                                 )
-import           Codegen.C.CUtils               ( parseToMap
+import           Codegen.C.Term                 ( parseToMap
                                                 , modelMapToExtMap
                                                 )
 import qualified Codegen.Circom.Compilation    as Comp
@@ -228,9 +228,9 @@ cmdVerify = ((.) . (.) . (.) . (.)) liftIO runVerify
 
 cmdCCheck :: String -> FilePath -> Cfg ()
 cmdCCheck name path = do
-  tu     <- liftIO $ parseC path
-  (_, r) <- checkFn tu name
-  liftIO $ case r of
+  tu       <- liftIO $ parseC path
+  bugModel <- checkFn tu name
+  liftIO $ case bugModel of
     Just s -> forM_ (Map.toList s)
       $ \(k, v) -> liftIO $ putStrLn $ unwords [k, ":", show v]
     Nothing -> putStrLn "No bug"
@@ -297,9 +297,9 @@ cmdCCheckProve
   -> Cfg ()
 cmdCCheckProve libsnark pkPath vkPath _inPath xPath wPath pfPath fnName cPath =
   do
-    tu      <- liftIO $ parseC cPath
-    (_, mR) <- checkFn tu fnName
-    let r     = Maybe.fromMaybe (error "No bug") mR
+    tu       <- liftIO $ parseC cPath
+    bugModel <- checkFn tu fnName
+    let r     = Maybe.fromMaybe (error "No bug") bugModel
         inMap = modelMapToExtMap r
     r1cs <- evalLog $ fnToR1cs @Order True (Just inMap) tu fnName
     liftIO $ R1cs.writeToR1csFile False r1cs "CC"

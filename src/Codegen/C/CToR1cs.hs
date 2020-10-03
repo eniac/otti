@@ -14,19 +14,16 @@ import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.Assert                 as Assert
 import qualified Language.C.Syntax.AST         as AST
 import qualified Codegen.Circify.Memory        as Mem
-import           Codegen.Circify                ( liftCircify )
 import qualified Codegen.Circify               as Circify
 import qualified IR.R1cs.Opt                   as R1csOpt
-import           Codegen.C                      ( codegenFn
-                                                , runC
+import           Codegen.C                      ( runC
                                                 , assertBug
+                                                , genFn
                                                 )
-import           Codegen.C.CUtils               ( InMap )
+import           Codegen.C.Term                 ( InMap )
 import           IR.SMT.ToPf                    ( toPf )
 import qualified IR.SMT.Opt                    as SmtOpt
-import           IR.R1cs                        ( R1CS(..)
-                                                , r1csShow
-                                                )
+import           IR.R1cs                        ( R1CS(..) )
 import           Data.Maybe                     ( isJust )
 import           Data.Dynamic                   ( Dynamic )
 import qualified Data.Set                      as Set
@@ -47,13 +44,11 @@ data FnTrans = FnTrans { assertions :: [Ty.TermBool]
 -- Returns a string describing it, if so.
 fnToSmt :: Bool -> Maybe InMap -> AST.CTranslUnit -> String -> Log FnTrans
 fnToSmt findBugs inVals tu name = do
-  let init = when (isJust inVals) $ Assert.liftAssert Assert.initValues
-  (((_, _), circState, memState), assertState) <-
+  (((), circState, memState), assertState) <-
     liftCfg $ Assert.runAssert $ runC inVals findBugs $ do
-      init
-      r <- codegenFn tu name
+      when (isJust inVals) $ Assert.liftAssert Assert.initValues
+      genFn tu name
       when findBugs assertBug
-      return r
   let public' = map snd $ Circify.inputs circState
   liftLog $ logIf "cToSmt" $ "Public: " ++ show public'
   return $ FnTrans { assertions = Assert.asserted assertState

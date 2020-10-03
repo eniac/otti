@@ -1,12 +1,12 @@
 {-# LANGUAGE DataKinds        #-}
 {-# LANGUAGE TypeApplications #-}
-module Codegen.CTest
+module Codegen.C.Test
   ( cTests
   )
 where
 import           BenchUtils
 import           Codegen.C
-import           Codegen.C.CUtils
+import           Codegen.C.Term
 import           Control.Monad
 import           Data.Either                    ( isRight )
 import qualified Data.Map                      as M
@@ -59,8 +59,8 @@ toSmtTests = benchTestGroup "SMT conversion" []
 
 ubCheckTest :: String -> String -> FilePath -> Bool -> BenchTest
 ubCheckTest name fnName path undef = benchTestCase name $ do
-  tu     <- parseC path
-  (_, r) <- evalCfgDefault $ checkFn tu fnName
+  tu <- parseC path
+  r  <- evalCfgDefault $ checkFn tu fnName
   undef @=? isJust r
 
 ubTests = benchTestGroup
@@ -106,7 +106,7 @@ satSmtCircuitTest name fnName path inputs = benchTestCase name $ do
   tu          <- parseC path
   assertState <- evalCfgDefault $ execAssert $ runC extInputs False $ do
     liftAssert initValues
-    codegenFn tu fnName
+    genFn tu fnName
   let assertions = asserted assertState
   let env        = fromJust $ vals assertState
   forM_ assertions $ \a -> do
@@ -142,7 +142,7 @@ satR1csTestInputs
 satR1csTestInputs name fnName path inputs = benchTestCase name $ do
   let extInputs = Just $ M.mapKeys (map Name) inputs
   tu          <- parseC path
-  assertState <- evalCfgDefault $ execAssert $ runC extInputs False $ codegenFn
+  assertState <- evalCfgDefault $ execAssert $ runC extInputs False $ genFn
     tu
     fnName
   let assertions = asserted assertState
