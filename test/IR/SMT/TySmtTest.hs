@@ -10,12 +10,8 @@ import           Data.Dynamic
 import qualified Data.Map.Strict               as Map
 import           Data.Maybe                     ( fromMaybe )
 import           GHC.TypeLits
-import           IR.SMT.TySmt                   ( Val )
 import qualified IR.SMT.TySmt                  as Smt
 import           Test.Tasty.HUnit
-import           Z3.Monad
-
-i = Smt.i_
 
 tySmtTests :: BenchTest
 tySmtTests = benchTestGroup
@@ -77,56 +73,6 @@ tySmtTests = benchTestGroup
   , genOverflowTest @4 Smt.BvSsubo True "high" 0 (-8)
   , genOverflowTest @4 Smt.BvSsubo False "low" (-3) 5
   , genOverflowTest @4 Smt.BvSsubo True "low" (-3) 6
-  , genZ3Test "bool sat"
-              (Smt.Eq (Smt.BoolLit True) (Smt.Var "a" Smt.SortBool))
-              Sat
-  , genZ3Test
-    "bool unsat"
-    (Smt.Eq (Smt.Not (Smt.Var "a" Smt.SortBool)) (Smt.Var "a" Smt.SortBool))
-    Unsat
-  , genZ3Test
-    "bv unsat"
-    (Smt.Eq
-      (Smt.BvBinExpr @4 Smt.BvAdd
-                        (Smt.Var "a" (Smt.SortBv 4))
-                        (Smt.IntToBv (Smt.IntLit 1))
-      )
-      (Smt.Var "a" (Smt.SortBv 4))
-    )
-    Unsat
-  , genZ3Test
-    "bv sat"
-    (Smt.Eq
-      (Smt.BvBinExpr @3 Smt.BvOr
-                        (Smt.Var "a" (Smt.SortBv 3))
-                        (Smt.IntToBv (Smt.IntLit 7))
-      )
-      (Smt.Var "a" (Smt.SortBv 3))
-    )
-    Sat
-  , genZ3ModelTest
-    "bv extract"
-    (Smt.Eq
-      ( Smt.mkDynBvExtract 0 2
-      $ Smt.mkDynamizeBv (Smt.IntToBv @32 (Smt.IntLit 7))
-      )
-      (Smt.Var "a" (Smt.SortBv 2))
-    )
-    [("a", i 3)]
-  , genZ3ModelTest
-    "bv sign ext"
-    (Smt.mkDynBvEq
-      (Smt.mkDynBvSext 8 $ Smt.mkDynamizeBv (Smt.IntToBv @3 (Smt.IntLit 7)))
-      (Smt.Var "a" (Smt.SortBv 8))
-    )
-    [("a", i 255)]
-  , genZ3ModelTest
-    "bv logical ext"
-    (Smt.mkDynBvEq
-      (Smt.mkDynBvUext 8 $ Smt.mkDynamizeBv (Smt.IntToBv @3 (Smt.IntLit 7)))
-      (Smt.Var "a" (Smt.SortBv 8))
-    )
-    [("a", i 7)]
   ]
 
 genOverflowTest
@@ -155,23 +101,3 @@ genEvalTest name ctx t v' = benchTestCase ("eval test: " ++ name) $ do
   let v = Smt.eval ctx t
   v' @=? v
 
-genZ3Test :: String -> Smt.TermBool -> Result -> BenchTest
-genZ3Test name term result = benchTestCase ("eval " ++ name) $ do
-  (actResult, _) <- evalZ3 $ do
-    z3t <- Smt.toZ3 term
-    Z3.Monad.assert z3t
-    (r, model) <- getModel
-    case model of
-      Just m -> do
-        m' <- modelToString m
-        return (r, Just m')
-      Nothing -> return (r, Nothing)
-  result @=? actResult
-
-genZ3ModelTest :: String -> Smt.TermBool -> [(String, Val)] -> BenchTest
-genZ3ModelTest name term modelEntries = benchTestCase ("eval " ++ name) $ do
-  model <- Smt.evalZ3Model term
-  forM_ modelEntries $ \(k, v) ->
-    fromMaybe (error $ unwords ["No model entry for", k, "in", show model])
-              (model Map.!? k)
-      @=? v

@@ -104,6 +104,7 @@ import           Data.Maybe                     ( fromMaybe
 import           IR.SMT.Assert                  ( liftAssert )
 import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
+import qualified Targets.SMT.TySmtToZ3         as ToZ3
 import           Text.Read                      ( readMaybe )
 import           Util.Control
 import           Util.Log
@@ -963,11 +964,11 @@ ctermGetVars t = case term t of
 
 ctermIsUndef :: CTerm -> Ty.TermBool
 ctermIsUndef t = case term t of
-  CBool _     -> udef t
-  CInt _ _ _  -> udef t
-  CDouble _   -> udef t
-  CFloat  _   -> udef t
-  CStruct _ l -> Ty.BoolNaryExpr Ty.And $ map (ctermIsUndef . snd) l
+  CBool{}     -> udef t
+  CInt{}      -> udef t
+  CDouble{}   -> udef t
+  CFloat{}    -> udef t
+  CStruct _ l -> Ty.BoolNaryExpr Ty.Or $ map (ctermIsUndef . snd) l
   _           -> error $ "nyi: ctermGetVars: " ++ show t
 
 doubleton :: a -> a -> [a]
@@ -990,12 +991,12 @@ parseToMap s = Map.fromList $ map pL $ filter (not . null) $ lines s
 
 -- Convert a model map (from Z3) to an ext map
 -- TODO: handle structures
-modelMapToExtMap :: Map.Map String Ty.Val -> InMap
+modelMapToExtMap :: Map.Map String ToZ3.Val -> InMap
 modelMapToExtMap m = Map.fromList $ map f $ Map.toList m
  where
   f (k, v) =
     let i = case v of
-          Ty.BVal b -> toInteger $ fromEnum b
-          Ty.IVal i -> toInteger i
-          _         -> error $ "Unhandled model entry value: " ++ show v
+          ToZ3.BVal b -> toInteger $ fromEnum b
+          ToZ3.IVal i -> toInteger i
+          _           -> error $ "Unhandled model entry value: " ++ show v
     in  (k, i)

@@ -28,6 +28,7 @@ import           IR.SMT.Assert                  ( MonadAssert
                                                 )
 import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
+import qualified Targets.SMT.TySmtToZ3         as ToZ3
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
@@ -629,20 +630,21 @@ evalC inMap findBugs act = do
 
 -- Can a fn exhibit undefined behavior?
 -- Returns a string describing it, if so.
-checkFn :: CTranslUnit -> String -> Cfg (Maybe (Map.Map String Ty.Val))
+checkFn :: CTranslUnit -> String -> Cfg (Maybe (Map.Map String ToZ3.Val))
 checkFn tu name = do
   assertions <- Assert.execAssert $ evalC Nothing True $ do
     genFn tu name
     assertBug
-  model <- liftIO $ Ty.evalZ3Model $ Ty.BoolNaryExpr
+  model <- liftIO $ ToZ3.evalZ3Model $ Ty.BoolNaryExpr
     Ty.And
     (Assert.asserted assertions)
   return $ if Map.null model then Nothing else Just model
 
-evalFn :: Bool -> CTranslUnit -> String -> Cfg (Map.Map String Ty.Val)
+evalFn :: Bool -> CTranslUnit -> String -> Cfg (Map.Map String ToZ3.Val)
 evalFn findBug tu name = do
   -- TODO: inputs?
   assertions <- Assert.execAssert $ evalC Nothing findBug $ do
     genFn tu name
     when findBug assertBug
-  liftIO $ Ty.evalZ3Model $ Ty.BoolNaryExpr Ty.And (Assert.asserted assertions)
+  liftIO $ ToZ3.evalZ3Model $ Ty.BoolNaryExpr Ty.And
+                                              (Assert.asserted assertions)

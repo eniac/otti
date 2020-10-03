@@ -11,6 +11,7 @@ import           IR.SMT.TySmtTest
 import           Parser.CircomTest
 import           Parser.CTest
 import           Test.Tasty
+import           Targets.ToZ3
 
 parserTests :: BenchTest
 parserTests = benchTestGroup "Parser tests" [cParserTests, circomParserTests]
@@ -33,7 +34,7 @@ irTests =
 
 
 allTests :: [BenchTest]
-allTests = [parserTests, irTests, generatorTests]
+allTests = [parserTests, irTests, generatorTests, tySmtToZ3Tests]
 
 main :: IO ()
 main = defaultMain $ testGroup "All tests" $ map getTest allTests

@@ -3,15 +3,19 @@ import           BenchUtils
 import           Codegen.C
 import           Control.Monad                  ( forM_ )
 import qualified Data.Map                      as M
-import           IR.SMT.TySmt                   ( Val )
+import           Targets.SMT.TySmtToZ3          ( Val
+                                                , i_
+                                                , b_
+                                                , d_
+                                                )
 import qualified IR.SMT.TySmt                  as Ty
 import           Parser.C
 import           Test.Tasty.HUnit
 import           Util.Cfg                       ( evalCfgDefault )
 
-i = Ty.i_
-b = Ty.b_
-d = Ty.d_
+i = i_
+b = b_
+d = d_
 
 cValueTests :: BenchTest
 cValueTests = benchTestGroup
@@ -377,5 +381,4 @@ constraintValueTest name fnName path expected = benchTestCase name $ do
     case M.lookup evar r of
       Just aval -> eval @=? aval
       Nothing -> error $ unwords ["No variable", show evar, "in model", show r]
-
 
