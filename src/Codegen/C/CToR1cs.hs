@@ -14,7 +14,6 @@ import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.Assert                 as Assert
 import qualified Language.C.Syntax.AST         as AST
 import qualified Codegen.Circify.Memory        as Mem
-import qualified Codegen.Circify               as Circify
 import qualified IR.R1cs.Opt                   as R1csOpt
 import           Codegen.C                      ( runC
                                                 , assertBug
@@ -49,6 +48,9 @@ fnToSmt findBugs inVals tu name = do
       when (isJust inVals) $ Assert.liftAssert Assert.initValues
       genFn tu name
       when findBugs assertBug
+  when (isJust inVals) $ case Assert.check assertState of
+    Left  e -> error e
+    Right _ -> return ()
   let public' = Set.toList $ Assert.public assertState
   liftLog $ logIf "cToSmt" $ "Public: " ++ show public'
   return $ FnTrans { assertions = Assert.asserted assertState

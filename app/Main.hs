@@ -40,7 +40,9 @@ import           Data.Proxy                     ( Proxy(..) )
 import           Parser.C                       ( parseC )
 import           Parser.Circom                  ( loadMain )
 import           System.Environment             ( getArgs )
-import           System.Exit                    ( exitFailure )
+import           System.Exit                    ( ExitCode(..)
+                                                , exitFailure
+                                                )
 import           System.IO                      ( IOMode(..)
                                                 , Handle
                                                 , IOMode
@@ -114,14 +116,26 @@ Commands:
 getArgOrExit :: Arguments -> Option -> Cfg String
 getArgOrExit a o = liftIO $ getArgOrExitWith patterns a o
 
+checkProcess :: FilePath -> [String] -> String -> IO ()
+checkProcess pgm args input = do
+  putStrLn $ "Running: " ++ pgm ++ unwords args
+  (code, stdout, stderr) <- readProcessWithExitCode pgm args input
+  unless (code == ExitSuccess) $ do
+    putStrLn "STDOUT"
+    putStrLn stdout
+    putStrLn "END STDOUT"
+    putStrLn "STDERR"
+    putStrLn stderr
+    putStrLn "END STDERR"
+    putStrLn $ pgm ++ " return code " ++ show code ++ ", see above."
+    exitFailure
 
 -- libsnark functions
 runSetup :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
 runSetup libsnark circuitPath pkPath vkPath = do
-  print "Running libsnark"
-  _ <- readProcess libsnark
-                   ["setup", "-V", vkPath, "-P", pkPath, "-C", circuitPath]
-                   ""
+  checkProcess libsnark
+               ["setup", "-V", vkPath, "-P", pkPath, "-C", circuitPath]
+               ""
   return ()
 
 runProve
@@ -132,29 +146,14 @@ runProve
   -> FilePath
   -> FilePath
   -> IO ()
-runProve libsnark pkPath vkPath xPath wPath pfPath = do
-  callProcess
-    libsnark
-    [ "prove"
-    , "-V"
-    , vkPath
-    , "-P"
-    , pkPath
-    , "-x"
-    , xPath
-    , "-w"
-    , wPath
-    , "-p"
-    , pfPath
-    ]
-  return ()
+runProve libsnark pkPath vkPath xPath wPath pfPath = checkProcess
+  libsnark
+  ["prove", "-V", vkPath, "-P", pkPath, "-x", xPath, "-w", wPath, "-p", pfPath]
+  ""
 
 runVerify :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
-runVerify libsnark vkPath xPath pfPath = do
-  _ <- readProcess libsnark
-                   ["verify", "-V", vkPath, "-x", xPath, "-p", pfPath]
-                   ""
-  return ()
+runVerify libsnark vkPath xPath pfPath =
+  checkProcess libsnark ["verify", "-V", vkPath, "-x", xPath, "-p", pfPath] ""
 
 order :: Integer
 order =
@@ -301,6 +300,8 @@ cmdCCheckProve libsnark pkPath vkPath _inPath xPath wPath pfPath fnName cPath =
     bugModel <- checkFn tu fnName
     let r     = Maybe.fromMaybe (error "No bug") bugModel
         inMap = modelMapToExtMap r
+    liftIO $ forM_ (Map.toList r) $ \(k, v) ->
+      liftIO $ putStrLn $ unwords [k, ":", show v]
     r1cs <- evalLog $ fnToR1cs @Order True (Just inMap) tu fnName
     case R1cs.r1csCheck r1cs of
       Right _ -> return ()

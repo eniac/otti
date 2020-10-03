@@ -1,5 +1,6 @@
 typedef struct Ps {
-    int x, y;
+    int x;
+    int y;
 } P;
 
 int foo(P p)

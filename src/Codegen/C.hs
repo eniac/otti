@@ -565,7 +565,7 @@ genFunDef f = do
       $ forM_ (Set.toList $ ctermGetVars rv)
       $ liftAssert
       . Assert.publicize
-  whenM (gets findUB) $ forM_ returnValue $ \r -> bugIf $ udef r
+  whenM (gets findUB) $ forM_ returnValue $ \r -> bugIf $ ctermIsUndef r
 
 genAsm :: CStringLiteral a -> C ()
 genAsm = undefined
@@ -604,7 +604,7 @@ genFn (CTranslUnit decls _) name = do
   registerFns decls
   genFunDef (findFn name decls)
 
-cLangDef :: Maybe (Map.Map [Ext] Integer) -> Bool -> LangDef Type CTerm
+cLangDef :: Maybe InMap -> Bool -> LangDef Type CTerm
 cLangDef inputs findBugs = LangDef { declare   = cDeclVar inputs findBugs
                                    , assign    = cCondAssign findBugs
                                    , setValues = cSetValues findBugs

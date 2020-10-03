@@ -102,3 +102,10 @@ newVar name sort = do
       (error $ unwords
         ["Already created variable", name, "with wrong sort:", show v]
       )
+
+check :: AssertState -> Either String ()
+check s = forM_ (asserted s) $ \c -> case vals s of
+  Just e -> if Ty.ValBool True == Ty.eval e c
+    then Right ()
+    else Left $ "Unsat constraint:\n" ++ show c ++ "\nin\n" ++ show e
+  Nothing -> Left "Missing values"

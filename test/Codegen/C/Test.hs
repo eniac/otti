@@ -6,7 +6,6 @@ module Codegen.C.Test
 where
 import           BenchUtils
 import           Codegen.C
-import           Codegen.C.Term
 import           Control.Monad
 import           Data.Either                    ( isRight )
 import qualified Data.Map                      as M
@@ -102,9 +101,8 @@ ubTests = benchTestGroup
 satSmtCircuitTest
   :: String -> String -> FilePath -> M.Map String Integer -> BenchTest
 satSmtCircuitTest name fnName path inputs = benchTestCase name $ do
-  let extInputs = Just $ M.mapKeys (replicate 1 . Name) inputs
   tu          <- parseC path
-  assertState <- evalCfgDefault $ execAssert $ runC extInputs False $ do
+  assertState <- evalCfgDefault $ execAssert $ runC (Just inputs) False $ do
     liftAssert initValues
     genFn tu fnName
   let assertions = asserted assertState
@@ -138,11 +136,10 @@ satSmtCircuitTests = benchTestGroup
   ]
 
 satR1csTestInputs
-  :: String -> String -> FilePath -> M.Map [String] Integer -> BenchTest
+  :: String -> String -> FilePath -> M.Map String Integer -> BenchTest
 satR1csTestInputs name fnName path inputs = benchTestCase name $ do
-  let extInputs = Just $ M.mapKeys (map Name) inputs
   tu          <- parseC path
-  assertState <- evalCfgDefault $ execAssert $ runC extInputs False $ genFn
+  assertState <- evalCfgDefault $ execAssert $ runC (Just inputs) False $ genFn
     tu
     fnName
   let assertions = asserted assertState
@@ -161,57 +158,48 @@ satR1csTests = benchTestGroup
   [ satR1csTestInputs "constant in if"
                       "sum"
                       "test/Code/C/if.c"
-                      (M.fromList [(["x"], 4)])
-  , satR1csTestInputs "skip if"
-                      "sum"
-                      "test/Code/C/if.c"
-                      (M.fromList [(["x"], 5)])
-  , satR1csTestInputs "loop" "sum" "test/Code/C/loop.c" (M.fromList [])
+                      (M.fromList [("x", 4)])
+  , satR1csTestInputs "skip if" "sum" "test/Code/C/if.c" (M.fromList [("x", 5)])
+  , satR1csTestInputs "loop"    "sum" "test/Code/C/loop.c" (M.fromList [])
   , satR1csTestInputs "add"
                       "add"
                       "test/Code/C/add_unsigned.c"
-                      (M.fromList [(["x"], 1), (["y"], 15)])
+                      (M.fromList [("x", 1), ("y", 15)])
   , satR1csTestInputs "shifts"
                       "shift_it"
                       "test/Code/C/shifts.c"
-                      (M.fromList [(["x"], 17), (["y"], 3)])
+                      (M.fromList [("x", 17), ("y", 3)])
   , satR1csTestInputs "fn calls"
                       "outer"
                       "test/Code/C/fn_call.c"
-                      (M.fromList [(["x"], 17), (["y"], 3)])
+                      (M.fromList [("x", 17), ("y", 3)])
   , satR1csTestInputs "majority"
                       "maj"
                       "test/Code/C/sha.c"
-                      (M.fromList [(["x"], 17), (["y"], 3), (["z"], 4)])
+                      (M.fromList [("x", 17), ("y", 3), ("z", 4)])
   , satR1csTestInputs "ch"
                       "ch"
                       "test/Code/C/sha.c"
-                      (M.fromList [(["x"], 17), (["y"], 3), (["z"], 4)])
+                      (M.fromList [("x", 17), ("y", 3), ("z", 4)])
   -- Set inputs specially because rotation is not SAT for 0 length (the
   -- default)
   , satR1csTestInputs "rot left"
                       "rotateleft"
                       "test/Code/C/sha.c"
-                      (M.fromList [(["x"], 17), (["n"], 30)])
+                      (M.fromList [("x", 17), ("n", 30)])
   -- Set inputs specially because rotation is not SAT for 0 length (the
   -- default)
   , satR1csTestInputs "rot right"
                       "rotateright"
                       "test/Code/C/sha.c"
-                      (M.fromList [(["x"], 14), (["n"], 1)])
+                      (M.fromList [("x", 14), ("n", 1)])
   , satR1csTestInputs "struct input"
                       "foo"
                       "test/Code/C/struct_inputs.c"
-                      (M.fromList [(["p", "x"], 14), (["p", "y"], 1)])
+                      (M.fromList [("p.x", 14), ("p.y", 1)])
   , satR1csTestInputs
     "nested struct input"
     "nested"
     "test/Code/C/struct_inputs.c"
-    (M.fromList
-      [ (["t", "p", "x"], 14)
-      , (["t", "p", "y"], 13)
-      , (["t", "q", "x"], 12)
-      , (["t", "q", "y"], 11)
-      ]
-    )
+    (M.fromList [("t.p.x", 14), ("t.p.y", 13), ("t.q.x", 12), ("t.q.y", 11)])
   ]

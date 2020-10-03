@@ -15,6 +15,7 @@ module Codegen.C.Term
   , cCondAssign
   , cSetValues
   , ctermGetVars
+  , ctermIsUndef
   -- Memory Operations
   , cLoad
   , cStore
@@ -75,13 +76,9 @@ module Codegen.C.Term
   , asDouble
   , asVar
   -- evaluation
-  , ctermEval
-  , cbaseParse
-  , cZeroInit
   , modelMapToExtMap
   -- input parsing
   , parseToMap
-  , Ext(..)
   , InMap
   )
 where
@@ -96,11 +93,6 @@ import           Control.Monad                  ( forM
                                                 )
 import           Control.Monad.State.Strict
 import qualified Data.BitVector                as Bv
-import           Data.Bifunctor                 ( second )
-import           Data.Dynamic                   ( Dynamic
-                                                , toDyn
-                                                )
-import qualified Data.List.Split               as Split
 import           Data.Foldable                 as Fold
 import qualified Data.Map.Strict               as Map
 import qualified Data.Set                      as Set
@@ -152,51 +144,6 @@ ctermDataTy t = case t of
   CStruct ty _     -> ty
   CStackPtr ty _ _ -> ty
 
-ctermEval :: Map.Map String Dynamic -> CTerm -> Mem Dynamic
-ctermEval env t = case term t of
-  CInt _ _ t'      -> return $ toDyn $ Ty.eval env t'
-  CBool   t'       -> return $ toDyn $ Ty.eval env t'
-  CDouble t'       -> return $ toDyn $ Ty.eval env t'
-  CFloat  t'       -> return $ toDyn $ Ty.eval env t'
-  CStackPtr _ t' _ -> return $ toDyn $ Ty.eval env t'
-  CStruct _ _t'    -> error "nyi"
-  CArray  _ i      -> toDyn . Ty.eval env . Mem.array <$> Mem.stackGetAlloc i
-
-cbaseParse :: Type.Type -> Integer -> CTermData
-cbaseParse ty value = case ty of
-  Type.Bool -> CBool (Ty.BoolLit (value /= 0))
-  _ | Type.isIntegerType ty ->
-    let n = Type.numBits ty
-    in  CInt (Type.isSignedInt ty)
-             n
-             (Ty.IntToDynBv n (Ty.IntLit (value `rem` (2 ^ toInteger n))))
-  _ -> error $ "Cannot init type: " ++ show ty
-
-cZeroInit :: Type.Type -> CTerm
-cZeroInit ty = mkCTerm
-  (case ty of
-    Type.Bool -> CBool (Ty.BoolLit False)
-    _ | Type.isIntegerType ty ->
-      let n = Type.numBits ty
-      in  CInt (Type.isSignedInt ty) n (Mem.bvNum False n 0)
-    Type.Struct fields -> CStruct ty $ second cZeroInit <$> fields
-    _                  -> error $ "Cannot init type: " ++ show ty
-  )
-  (Ty.BoolLit True)
-
--- Convert a model map (from Z3) to an ext map
--- TODO: handle structures
-modelMapToExtMap :: Map.Map String Ty.Val -> InMap
-modelMapToExtMap m = Map.fromList $ map f $ Map.toList m
- where
-  varToExtList s = maybe (Name s) Index (readMaybe s)
-  f (k, v) =
-    let i = case v of
-          Ty.BVal b -> toInteger $ fromEnum b
-          Ty.IVal i -> toInteger i
-          _         -> error $ "Unhandled model entry value: " ++ show v
-        e = map varToExtList $ Split.splitOneOf "." k
-    in  (e, i)
 
 
 asDouble :: CTermData -> Ty.TermDouble
@@ -392,6 +339,7 @@ cCondAssign trackUndef ty name value alternate = case alternate of
 cDeclVar
   :: Maybe InMap -> Bool -> Type.Type -> String -> Maybe String -> Mem CTerm
 cDeclVar inMap trackUndef ty smtName mUserName = do
+  liftLog $ logIf "cDeclVar" $ show trackUndef ++ "cDeclVar: " ++ smtName
   u <- liftAssert $ if trackUndef
     then do
       t <- Assert.newVar (udefName smtName) Ty.SortBool
@@ -455,10 +403,10 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
     -> Maybe String
     -> Assert.Assert ()
   getBaseInput f d s mS = whenJust inMap $ \iM ->
-    let v   = f <$> ((iM Map.!?) =<< (replicate 1 . Name <$> mS))
-        v'  = f <$> (iM Map.!? [Name s])
+    let v   = f <$> ((iM Map.!?) =<< mS)
+        v'  = f <$> (iM Map.!? s)
         v'' = d
-    in  Assert.setValue smtName $ fromMaybe v'' (v <|> v')
+    in  Assert.setValue s $ fromMaybe v'' (v <|> v')
 
 cIntLit :: Type.Type -> Integer -> CTerm
 cIntLit t v =
@@ -993,6 +941,15 @@ ctermGetVars t = case term t of
   CStruct _ l -> Set.unions $ map (ctermGetVars . snd) l
   _           -> error $ "nyi: ctermGetVars: " ++ show t
 
+ctermIsUndef :: CTerm -> Ty.TermBool
+ctermIsUndef t = case term t of
+  CBool _     -> udef t
+  CInt _ _ _  -> udef t
+  CDouble _   -> udef t
+  CFloat  _   -> udef t
+  CStruct _ l -> Ty.BoolNaryExpr Ty.And $ map (ctermIsUndef . snd) l
+  _           -> error $ "nyi: ctermGetVars: " ++ show t
+
 doubleton :: a -> a -> [a]
 doubleton x y = [x, y]
 
@@ -1002,17 +959,23 @@ cTrue = mkCTerm (CBool $ Ty.BoolLit True) (Ty.BoolLit False)
 cFalse :: CTerm
 cFalse = mkCTerm (CBool $ Ty.BoolLit False) (Ty.BoolLit False)
 
-type InMap = Map.Map [Ext] Integer
-data Ext = Name String | Index Int deriving (Show, Eq, Ord)
+type InMap = Map.Map String Integer
 
-parseToMap :: String -> Map.Map [Ext] Integer
+parseToMap :: String -> Map.Map String Integer
 parseToMap s = Map.fromList $ map pL $ filter (not . null) $ lines s
  where
-  -- path
-  pP = map pT . filter (not . null) . Split.splitOneOf "[]."
-  -- path token
-  pT t = maybe (Name t) Index $ readMaybe t
-  -- line
   pL l = case words l of
-    [l, r] -> (pP l, fromMaybe (error "No int on right") $ readMaybe r)
+    [l, r] -> (l, fromMaybe (error "No int on right") $ readMaybe r)
     _      -> error $ "Line " ++ show l ++ "does not have 2 tokens"
+
+-- Convert a model map (from Z3) to an ext map
+-- TODO: handle structures
+modelMapToExtMap :: Map.Map String Ty.Val -> InMap
+modelMapToExtMap m = Map.fromList $ map f $ Map.toList m
+ where
+  f (k, v) =
+    let i = case v of
+          Ty.BVal b -> toInteger $ fromEnum b
+          Ty.IVal i -> toInteger i
+          _         -> error $ "Unhandled model entry value: " ++ show v
+    in  (k, i)

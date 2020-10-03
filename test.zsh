@@ -21,6 +21,10 @@ stack run -- c-check-setup outer ./test/Code/C/fn_call.c
 stack run -- c-check-prove outer ./test/Code/C/fn_call.c
 stack run -- verify
 
+stack run -- c-check-setup bar ./test/Code/C/struct_inout.c
+stack run -- c-check-prove bar ./test/Code/C/struct_inout.c
+stack run -- verify
+
 C_c_sv=True stack run -- c-check-setup main ./test/Code/C/sv/assume.c
 C_c_sv=True stack run -- c-check-prove main ./test/Code/C/sv/assume.c
 C_c_sv=True stack run -- verify
