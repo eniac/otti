@@ -14,6 +14,7 @@ module Codegen.C.Term
   , cDeclInitVar
   , cCondAssign
   , cSetValues
+  , ctermGetVars
   -- Memory Operations
   , cLoad
   , cStore
@@ -80,7 +81,6 @@ module Codegen.C.Term
   , modelMapToExtMap
   -- input parsing
   , parseToMap
-  , parseVar
   , Ext(..)
   , InMap
   )
@@ -89,6 +89,7 @@ where
 import qualified Codegen.C.Type                as Type
 import           Codegen.Circify.Memory         ( Mem )
 import qualified Codegen.Circify.Memory        as Mem
+import           Control.Applicative            ( (<|>) )
 import           Control.Monad                  ( forM
                                                 , unless
                                                 , when
@@ -101,12 +102,16 @@ import           Data.Dynamic                   ( Dynamic
                                                 )
 import qualified Data.List.Split               as Split
 import           Data.Foldable                 as Fold
-import qualified Data.Map                      as Map
-import           Data.Maybe                     ( fromMaybe )
+import qualified Data.Map.Strict               as Map
+import qualified Data.Set                      as Set
+import           Data.Maybe                     ( fromMaybe
+                                                , isJust
+                                                )
 import           IR.SMT.Assert                  ( liftAssert )
 import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
 import           Text.Read                      ( readMaybe )
+import           Util.Control
 import           Util.Log
 
 
@@ -384,31 +389,76 @@ cCondAssign trackUndef ty name value alternate = case alternate of
   Nothing -> cDeclInitVar trackUndef ty name (cCast ty value)
 
 -- Declare a new variable, do not initialize it.
-cDeclVar :: Bool -> Type.Type -> String -> Mem CTerm
-cDeclVar trackUndef ty name = do
+cDeclVar
+  :: Maybe InMap -> Bool -> Type.Type -> String -> Maybe String -> Mem CTerm
+cDeclVar inMap trackUndef ty smtName mUserName = do
   u <- liftAssert $ if trackUndef
-    then Assert.newVar (udefName name) Ty.SortBool
+    then do
+      t <- Assert.newVar (udefName smtName) Ty.SortBool
+      getBaseInput (Ty.ValBool . (/= 0))
+                   (Ty.ValBool False)
+                   (udefName smtName)
+                   (udefName <$> mUserName)
+      return t
     else return (Ty.BoolLit False)
-  -- liftAssert $ Assert.assign u (Ty.BoolLit True)
   t <- case ty of
-    Type.Bool -> liftAssert $ CBool <$> Assert.newVar name Ty.SortBool
-    _ | Type.isIntegerType ty ->
-      liftAssert
-        $   CInt (Type.isSignedInt ty) (Type.numBits ty)
-        <$> Assert.newVar name (Ty.SortBv $ Type.numBits ty)
-    Type.Double -> liftAssert $ CDouble <$> Assert.newVar name Ty.sortDouble
-    Type.Float  -> liftAssert $ CFloat <$> Assert.newVar name Ty.sortFloat
+    Type.Bool -> liftAssert $ do
+      t <- CBool <$> Assert.newVar smtName Ty.SortBool
+      getBaseInput (Ty.ValBool . (/= 0)) (Ty.ValBool False) smtName mUserName
+      return t
+    _ | Type.isIntegerType ty -> liftAssert $ do
+      let n = Type.numBits ty
+      t <- liftAssert $ CInt (Type.isSignedInt ty) n <$> Assert.newVar
+        smtName
+        (Ty.SortBv n)
+      getBaseInput (Ty.ValDynBv . Bv.bitVec n)
+                   (Ty.ValDynBv $ Bv.bitVec n (0 :: Int))
+                   smtName
+                   mUserName
+      return t
+    Type.Double -> liftAssert $ do
+      t <- CDouble <$> Assert.newVar smtName Ty.sortDouble
+      getBaseInput (error "nyi: double input")
+                   (Ty.ValDouble 0)
+                   smtName
+                   mUserName
+      return t
+    Type.Float -> liftAssert $ do
+      t <- CDouble <$> Assert.newVar smtName Ty.sortFloat
+      getBaseInput (error "nyi: float input") (Ty.ValFloat 0) smtName mUserName
+      return t
     Type.Array (Just size) innerTy ->
       CArray ty <$> Mem.stackNewAlloc size 32 (Type.numBits innerTy)
     Type.Array Nothing _ -> return $ CArray ty Mem.stackIdUnknown
     Type.Ptr32 _         -> do
-      bv :: Bv <- liftAssert $ Assert.newVar name (Ty.SortBv 32)
+      bv :: Bv <- liftAssert $ Assert.newVar smtName (Ty.SortBv 32)
       return $ CStackPtr ty bv Mem.stackIdUnknown
     Type.Struct fields -> CStruct ty <$> forM
       fields
-      (\(f, fTy) -> (f, ) <$> cDeclVar trackUndef fTy (structVarName name f))
+      (\(f, fTy) -> (f, ) <$> cDeclVar inMap
+                                       trackUndef
+                                       fTy
+                                       (structVarName smtName f)
+                                       (flip structVarName f <$> mUserName)
+      )
     _ -> nyi $ "cDeclVar for type " ++ show ty
+  when (isJust mUserName && (Type.Bool == ty || Type.isIntegerType ty))
+    $ liftAssert
+    $ Assert.publicize smtName
   return $ mkCTerm t u
+ where
+  getBaseInput
+    :: Ty.SortClass s
+    => (Integer -> Ty.Value s)
+    -> Ty.Value s
+    -> String
+    -> Maybe String
+    -> Assert.Assert ()
+  getBaseInput f d s mS = whenJust inMap $ \iM ->
+    let v   = f <$> ((iM Map.!?) =<< (replicate 1 . Name <$> mS))
+        v'  = f <$> (iM Map.!? [Name s])
+        v'' = d
+    in  Assert.setValue smtName $ fromMaybe v'' (v <|> v')
 
 cIntLit :: Type.Type -> Integer -> CTerm
 cIntLit t v =
@@ -934,6 +984,14 @@ cIte condB t f =
           ["Cannot construct conditional with", show t, "and", show f]
   in  mkCTerm result (Ty.Ite condB (udef t) (udef f))
 
+ctermGetVars :: CTerm -> Set.Set String
+ctermGetVars t = case term t of
+  CBool b     -> Ty.vars b
+  CInt _ _ i  -> Ty.vars i
+  CDouble x   -> Ty.vars x
+  CFloat  x   -> Ty.vars x
+  CStruct _ l -> Set.unions $ map (ctermGetVars . snd) l
+  _           -> error $ "nyi: ctermGetVars: " ++ show t
 
 doubleton :: a -> a -> [a]
 doubleton x y = [x, y]
@@ -958,24 +1016,3 @@ parseToMap s = Map.fromList $ map pL $ filter (not . null) $ lines s
   pL l = case words l of
     [l, r] -> (pP l, fromMaybe (error "No int on right") $ readMaybe r)
     _      -> error $ "Line " ++ show l ++ "does not have 2 tokens"
-
-parseVar :: Map.Map [Ext] Integer -> Bool -> String -> Type.Type -> Maybe CTerm
-parseVar m undef vName = p m [Name vName]
- where
-  p :: Map.Map [Ext] Integer -> [Ext] -> Type.Type -> Maybe CTerm
-  p m prefix ty = case ty of
-    _ | basic ty -> do
-      t <- cbaseParse ty <$> Map.lookup (reverse prefix) m
-      let (Name h) : t' = reverse prefix
-      let undefPath     = Name (udefName h) : t'
-      let u = Ty.BoolLit $ maybe undef (/= 0) $ Map.lookup undefPath m
-      return $ mkCTerm t u
-    Type.Array Nothing _ty' -> error $ "Unsized array: " ++ show ty
-    -- TODO: Array (Just n) ty' -> forM [0..n-1] $ \i -> parseVar (Index i:prefix) ty'
-    Type.Struct fields      -> do
-      fs <- mapM
-        (\(fName, fTy) -> (fName, ) <$> p m (Name fName : prefix) fTy)
-        fields
-      return $ mkCTerm (CStruct ty fs) (Ty.BoolLit False)
-    _ -> error $ "Cannot parse: " ++ show ty
-    where basic t = Type.isIntegerType t || t == Type.Bool

@@ -40,10 +40,11 @@ data SmtOptCfg = SmtOptCfg { _allowSubBlowup :: Bool
                            } deriving (Show)
 
 defaultSmtOptCfg :: SmtOptCfg
-defaultSmtOptCfg = SmtOptCfg { _allowSubBlowup = False
-                             , _cFoldInSub     = True
-                             , _smtOpts        = ["cfee", "ee"]
-                             }
+defaultSmtOptCfg = SmtOptCfg
+  { _allowSubBlowup = False
+  , _cFoldInSub     = True
+  , _smtOpts        = ["cfee", "ee", "arrayElim", "cfee", "ee"]
+  }
 
 $(makeLenses ''SmtOptCfg)
 
@@ -170,7 +171,7 @@ options =
               "smt-opts"
               "Optimizations to perform over the Smt formula"
               "A comma-separated list. Options: {cfee, ee, cf, arrayElim}"
-              "cfee,ee"
+              "cfee,ee,arrayElim,cfee,ee"
   , CfgOption (streams . commaListLens)
               "streams"
               "Debug streams to emit"

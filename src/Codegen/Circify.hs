@@ -25,7 +25,6 @@ module Codegen.Circify
   , runCircify
   , typedef
   , untypedef
-  , makePublic
   , getTerm
   , VarName
   , SsaVal(..)
@@ -145,11 +144,12 @@ unknownVar var = error $ unwords ["Variable", var, "is unknown"]
 
 lsDeclareVar
   :: (Show ty)
-  => VarName
+  => Bool
+  -> VarName
   -> ty
   -> LexScope ty term
   -> Circify ty term (LexScope ty term)
-lsDeclareVar var ty scope = case M.lookup var (tys scope) of
+lsDeclareVar isInput var ty scope = case M.lookup var (tys scope) of
   Nothing -> do
     -- First we add type and version entries for this variable
     let withTyAndVer = scope { vers = M.insert var initialVersion $ vers scope
@@ -158,7 +158,8 @@ lsDeclareVar var ty scope = case M.lookup var (tys scope) of
         ssaVar = lsGetSsaVar var withTyAndVer
     -- Now we declare it to the SMT layer
     d    <- gets (declare . lang)
-    term <- liftMem $ d ty (ssaVarAsString ssaVar)
+    term <- liftMem
+      $ d ty (ssaVarAsString ssaVar) (if isInput then Just var else Nothing)
     return $ withTyAndVer { terms = M.insert ssaVar (Base term) $ terms scope }
   Just actualTy ->
     error $ unwords ["Already declared", var, "to have type", show actualTy]
@@ -259,14 +260,15 @@ fsGetFromLexScope i f scope = if i < nCurrentScopes scope
 
 fsDeclareVar
   :: Show ty
-  => VarName
+  => Bool
+  -> VarName
   -> ty
   -> FunctionScope ty term
   -> Circify ty term (FunctionScope ty term)
-fsDeclareVar var ty scope = if null (lexicalScopes scope)
+fsDeclareVar isInput var ty scope = if null (lexicalScopes scope)
   then error "Cannot decalre variable: no lexical scopes!"
   else do
-    head' <- lsDeclareVar var ty (head $ lexicalScopes scope)
+    head' <- lsDeclareVar isInput var ty (head $ lexicalScopes scope)
     return $ scope { lexicalScopes = head' : tail (lexicalScopes scope) }
 
 fsGetType :: VarName -> Int -> FunctionScope ty term -> ty
@@ -359,16 +361,16 @@ fsWithPrefix prefix ty = FunctionScope { guards         = []
 data LangDef ty term = LangDef
   {
     -- | Declare an uninitialized variable of the given type & name
-    declare :: ty -> String -> Mem term
+    declare :: ty   -- ^ type
+            -> String  -- ^ SMT name prefix
+            -> Maybe VarName -- ^ user name prefix
+            -> Mem term
     -- | Create a new variable of the given type, set to the given term.
     -- If the Maybe isJust, conditionally set the variable to the other term.
     -- Returns the term for the new variable, and the conditional term that
     -- represents the ITE that it has been assigned to.
   , assign  :: ty -> String -> term -> Maybe (Ty.TermBool, term) -> Mem (term, term)
   , setValues :: String -> term -> Assert ()
-    -- | Given the SMT var name, and the var name, and the type, set the value
-    -- of any SMT variables associated with the input.
-  , setInputs :: String -> Maybe VarName -> ty -> Mem ()
   }
 
 -- | Internal state of the compiler for code generation
@@ -380,7 +382,6 @@ data CircifyState ty term = CircifyState
   , prefix            :: [String]                -- ^ Curreny name prefix
   , fnCtr             :: Int                     -- ^ Inline fn-call #
   , lang              :: LangDef ty term         -- ^ Language bindings
-  , inputs            :: [(String, String)]      -- ^ Public inputs. (user name, SMT name) pairs
   }
 
 newtype Circify ty term a = Circify (StateT (CircifyState ty term) Mem a)
@@ -406,7 +407,6 @@ emptyCircifyState lang = CircifyState { callStack = []
                                       , prefix    = []
                                       , fnCtr     = 0
                                       , lang      = lang
-                                      , inputs    = []
                                       }
 
 compilerRunOnTop
@@ -564,40 +564,31 @@ compilerModifyTop
   :: (FunctionScope ty term -> FunctionScope ty term) -> Circify ty term ()
 compilerModifyTop f = compilerModifyTopM (return . f)
 
-declCommon :: (Show ty, Show term) => VarName -> ty -> Circify ty term ()
-declCommon var ty = do
-  isGlobal <- gets (null . callStack)
-  if isGlobal
-    then do
-      g  <- gets globals
-      g' <- lsDeclareVar var ty g
-      modify $ \s -> s { globals = g' }
-    else compilerModifyTopM $ \s -> fsDeclareVar var ty s
-
 declareInitVar
   :: (Show ty, Show term) => VarName -> ty -> SsaVal term -> Circify ty term ()
 declareInitVar var ty term = do
-  declCommon var ty
+  declareVar False var ty
   void $ argAssign (SLVar var) term
-
-makePublic :: VarName -> String -> Circify ty term ()
-makePublic var smtVar = modify $ \s -> s { inputs = (var, smtVar) : inputs s }
 
 declareVar
   :: (Show ty, Show term) => Bool -> VarName -> ty -> Circify ty term ()
 declareVar isInput var ty = do
-  declCommon var ty
-  smtName <- getSsaName (SLVar var)
-  when isInput $ makePublic var smtName
-  whenM (liftAssert Assert.isStoringValues) $ do
-    setInputs' <- gets (setInputs . lang)
-    liftLog
-      $  logIf "inputs"
-      $  "declareVar setting inputs: "
-      ++ show smtName
-      ++ " aka "
-      ++ show var
-    liftMem $ setInputs' smtName (if isInput then Just var else Nothing) ty
+  isGlobal <- gets (null . callStack)
+  if isGlobal
+    then do
+      g  <- gets globals
+      g' <- lsDeclareVar isInput var ty g
+      modify $ \s -> s { globals = g' }
+    else compilerModifyTopM $ \s -> fsDeclareVar isInput var ty s
+  --whenM (liftAssert Assert.isStoringValues) $ do
+  --  setInputs' <- gets (setInputs . lang)
+  --  liftLog
+  --    $  logIf "inputs"
+  --    $  "declareVar setting inputs: "
+  --    ++ show smtName
+  --    ++ " aka "
+  --    ++ show var
+  --  liftMem $ setInputs' smtName (if isInput then Just var else Nothing) ty
 
 nextVer :: SsaLVal -> Circify ty term ()
 nextVer v = compilerModifyInScope v fsNextVer lsNextVer

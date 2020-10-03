@@ -302,7 +302,6 @@ cmdCCheckProve libsnark pkPath vkPath _inPath xPath wPath pfPath fnName cPath =
     let r     = Maybe.fromMaybe (error "No bug") bugModel
         inMap = modelMapToExtMap r
     r1cs <- evalLog $ fnToR1cs @Order True (Just inMap) tu fnName
-    liftIO $ R1cs.writeToR1csFile False r1cs "CC"
     case R1cs.r1csCheck r1cs of
       Right _ -> return ()
       Left  e -> liftIO $ do

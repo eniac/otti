@@ -8,13 +8,11 @@ import           Codegen.Circify
 import           Codegen.Circify.Memory         ( MonadMem
                                                 , liftMem
                                                 , MemState
-                                                , Mem
                                                 )
 import           Control.Monad                  ( replicateM_
                                                 , forM
                                                 , join
                                                 )
-import           Control.Applicative            ( (<|>) )
 import           Control.Monad.State.Strict
 import           Control.Monad.Reader
 import qualified Data.Char                     as Char
@@ -24,6 +22,7 @@ import           Data.Maybe                     ( fromJust
                                                 , fromMaybe
                                                 , isJust
                                                 )
+import qualified Data.Set                      as Set
 import           IR.SMT.Assert                  ( MonadAssert
                                                 , liftAssert
                                                 )
@@ -561,7 +560,11 @@ genFunDef f = do
   forM_ args (genDecl EntryFnArg)
   genStmt body
   returnValue <- liftCircify popFunction
-  forM_ returnValue $ liftCircify . makePublic "return" . fromJust . asVar
+  forM_ returnValue $ \rv ->
+    liftCircify
+      $ forM_ (Set.toList $ ctermGetVars rv)
+      $ liftAssert
+      . Assert.publicize
   whenM (gets findUB) $ forM_ returnValue $ \r -> bugIf $ udef r
 
 genAsm :: CStringLiteral a -> C ()
@@ -601,34 +604,10 @@ genFn (CTranslUnit decls _) name = do
   registerFns decls
   genFunDef (findFn name decls)
 
-cSetInputs :: Maybe InMap -> Bool -> String -> Maybe VarName -> Type -> Mem ()
-cSetInputs inputs findBugs smtName mUserName ty = do
-  let inMap    = fromMaybe (error "Accessing missing inputs!") inputs
-      -- term provided under the user name
-      userTerm = do
-        userName <- mUserName
-        parseVar inMap False userName ty
-      -- term provided under the smt name. Undef, since internal?
-      smtTerm     = parseVar inMap True smtName ty
-      defaultTerm = cZeroInit ty
-      term        = fromMaybe defaultTerm (userTerm <|> smtTerm)
-  liftLog $ logIf "inputs" $ unwords
-    [ "C setting input:"
-    , show smtName
-    , show mUserName
-    , show userTerm
-    , show smtTerm
-    , show defaultTerm
-    , show term
-    ]
-  liftAssert $ cSetValues findBugs smtName term
-
-
 cLangDef :: Maybe (Map.Map [Ext] Integer) -> Bool -> LangDef Type CTerm
-cLangDef inputs findBugs = LangDef { declare   = cDeclVar findBugs
+cLangDef inputs findBugs = LangDef { declare   = cDeclVar inputs findBugs
                                    , assign    = cCondAssign findBugs
                                    , setValues = cSetValues findBugs
-                                   , setInputs = cSetInputs inputs findBugs
                                    }
 
 runC

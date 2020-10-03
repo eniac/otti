@@ -9,6 +9,10 @@ stack run -- c-setup outer ./test/Code/C/fn_call.c
 stack run -- -i <(echo x 1; echo y 4;) c-prove outer ./test/Code/C/fn_call.c
 stack run -- verify
 
+stack run -- c-setup bar ./test/Code/C/struct_inout.c
+stack run -- -i <(echo p.x 1; echo p.y 4;) c-prove bar ./test/Code/C/struct_inout.c
+stack run -- verify
+
 C_no_overflow=True stack run -- c-setup outer ./test/Code/C/fn_call.c
 C_no_overflow=True stack run -- -i <(echo x 1; echo y 4;) c-prove outer ./test/Code/C/fn_call.c
 C_no_overflow=True stack run -- verify

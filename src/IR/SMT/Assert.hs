@@ -5,6 +5,7 @@ module IR.SMT.Assert where
 import           Control.Monad                  ( )
 import           Control.Monad.State.Strict
 import qualified Data.Map.Strict               as M
+import qualified Data.Set                      as S
 import qualified Data.Dynamic                  as Dyn
 import           Data.Maybe                     ( isJust )
 import qualified IR.SMT.TySmt                  as Ty
@@ -18,9 +19,10 @@ import           Util.Cfg                       ( Cfg
 ---
 
 -- | State for keeping track of SMT-layer information
-data AssertState = AssertState { vars         :: M.Map String Dyn.Dynamic
-                               , asserted     :: [Ty.Term Ty.BoolSort]
-                               , vals         :: Maybe (M.Map String Dyn.Dynamic)
+data AssertState = AssertState { vars         :: !(M.Map String Dyn.Dynamic)
+                               , asserted     :: ![Ty.Term Ty.BoolSort]
+                               , vals         :: !(Maybe (M.Map String Dyn.Dynamic))
+                               , public       :: !(S.Set String)
                                }
                                deriving (Show)
 
@@ -39,8 +41,11 @@ instance (MonadAssert m) => MonadAssert (StateT s m) where
 ---
 
 emptyAssertState :: AssertState
-emptyAssertState =
-  AssertState { vars = M.empty, asserted = [], vals = Nothing }
+emptyAssertState = AssertState { vars     = M.empty
+                               , asserted = []
+                               , vals     = Nothing
+                               , public   = S.empty
+                               }
 
 initValues :: Assert ()
 initValues = modify $ \s -> s { vals = Just M.empty }
@@ -59,6 +64,9 @@ setValue :: Ty.SortClass s => String -> Ty.Value s -> Assert ()
 setValue variable value = do
   liftLog $ logIf "witness" $ show variable ++ " -> " ++ show value
   modify $ \s -> s { vals = M.insert variable (Dyn.toDyn value) <$> vals s }
+
+publicize :: String -> Assert ()
+publicize n = modify $ \s -> s { public = S.insert n $ public s }
 
 runAssert :: Assert a -> Cfg (a, AssertState)
 runAssert (Assert act) = evalLog $ runStateT act emptyAssertState

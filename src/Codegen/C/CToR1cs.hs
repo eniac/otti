@@ -44,12 +44,12 @@ data FnTrans = FnTrans { assertions :: [Ty.TermBool]
 -- Returns a string describing it, if so.
 fnToSmt :: Bool -> Maybe InMap -> AST.CTranslUnit -> String -> Log FnTrans
 fnToSmt findBugs inVals tu name = do
-  (((), circState, memState), assertState) <-
+  (((), _, memState), assertState) <-
     liftCfg $ Assert.runAssert $ runC inVals findBugs $ do
       when (isJust inVals) $ Assert.liftAssert Assert.initValues
       genFn tu name
       when findBugs assertBug
-  let public' = map snd $ Circify.inputs circState
+  let public' = Set.toList $ Assert.public assertState
   liftLog $ logIf "cToSmt" $ "Public: " ++ show public'
   return $ FnTrans { assertions = Assert.asserted assertState
                    , public     = public'
@@ -71,6 +71,6 @@ fnToR1cs findBugs inVals tu fnName = do
   logIf "inputs" $ "Public inputs: " ++ show pubVars
   newSmt <- SmtOpt.opt (arraySizes fn) pubVars (assertions fn)
   r      <- toPf @n (vals fn) pubVars (arraySizes fn) newSmt
-  logIf "inputs" $ "R1cs: " ++ unlines
+  logIf "r1csvars" $ "R1cs: " ++ unlines
     (map (\(n, s) -> show n ++ ": " ++ show s) $ IntMap.toList $ numSigs r)
   R1csOpt.opt r
