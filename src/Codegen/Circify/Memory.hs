@@ -22,23 +22,6 @@ bvNum signed width val
 ones :: Int -> Ty.TermDynBv
 ones width = bvNum False width ((2 :: Integer) ^ width - 1)
 
----
---- Loading, storing, getting, setting
----
-
-loadBlock
-  :: Ty.Term (Ty.ArraySort Ty.DynBvSort Ty.DynBvSort) -- ^ Array
-  -> Ty.TermDynBv -- ^ Index
-  -> Ty.TermDynBv
-loadBlock = Ty.Select
-
-storeBlock
-  :: Ty.Term (Ty.ArraySort Ty.DynBvSort Ty.DynBvSort) -- ^ Array
-  -> Ty.TermDynBv -- ^ Index
-  -> Ty.TermDynBv -- ^ Value
-  -> Ty.Term (Ty.ArraySort Ty.DynBvSort Ty.DynBvSort)
-storeBlock = Ty.Store
-
 -- | Cast a node to a new width
 -- If the new width is larger, use unsigned extension
 -- If the new width is smaller, slice
@@ -214,7 +197,7 @@ stackAllocCons idxWidth' elems =
       m =
           foldl
               (\a (i, e) -> if Ty.dynBvWidth e == valWidth'
-                then Ty.Store a (Ty.DynBvLit $ Bv.bitVec idxWidth' i) e
+                then Ty.mkStore a (Ty.DynBvLit $ Bv.bitVec idxWidth' i) e
                 else error $ "Bad size: " ++ show e
               )
               base
@@ -250,7 +233,7 @@ stackLoad id offset = do
     $  error
     $  "Bad index size: "
     ++ show offset
-  return $ Ty.Select (array alloc) offset
+  return $ Ty.mkSelect (array alloc) offset
 
 stackStore
   :: StackAllocId -- ^ Allocation to load from
@@ -270,7 +253,7 @@ stackStore id offset value guard = do
     $  "Bad value size: "
     ++ show value
   let a      = array alloc
-      alloc' = alloc { array = Ty.Ite guard (Ty.Store a offset value) a }
+      alloc' = alloc { array = Ty.mkIte guard (Ty.mkStore a offset value) a }
   modify
     $ \s -> s { stackAllocations = Map.insert id alloc' $ stackAllocations s }
 

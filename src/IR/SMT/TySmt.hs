@@ -57,12 +57,15 @@ module IR.SMT.TySmt
   , mkDynBvBinExpr
   , mkDynBvConcat
   , mkDynBvBinPred
-  , mkDynBvEq
+  , mkEq
+  , mkIte
   , mkDynamizeBv
   , mkStatifyBv
   , mkDynBvUnExpr
   , mkDynBvUext
   , mkDynBvSext
+  , mkSelect
+  , mkStore
   , SortClass(..)
   , TermBv
   , TermDynBv
@@ -82,9 +85,13 @@ module IR.SMT.TySmt
   , valAsPf
   , valAsBool
   , valAsDynBv
+  , SortError(..)
   )
 where
 
+import           Control.Exception              ( Exception
+                                                , throw
+                                                )
 import           Control.Monad                  ( liftM
                                                 , liftM2
                                                 , liftM3
@@ -435,12 +442,9 @@ deriving instance Typeable (Term s)
 --     (BoolLit l, BoolLit r) -> l == r
 
 
-mkVar :: forall s . SortClass s => String -> Term s
-mkVar name = Var name (Maybe.fromJust (sorted @s))
-
 
 widthErr :: Term s -> Maybe String -> Int -> Int -> a
-widthErr term width expected actual = error $ unwords
+widthErr term width expected actual = throw $ SortError $ unwords
   [ "In"
   , show term
   , "a width"
@@ -467,7 +471,7 @@ mkDynBvExtract start width t =
   let w = dynBvWidth t
   in  if start + width <= w
         then DynBvExtract start width t
-        else error $ unwords
+        else throw $ SortError $ unwords
           [ "DynBvExtract too long!"
           , "start ="
           , show start
@@ -507,22 +511,42 @@ mkDynBvSext newW a =
   let oldW = dynBvWidth a
   in  if newW >= oldW
         then DynBvSext newW (newW - oldW) a
-        else error "bv_sext shrink"
+        else throw $ SortError "bv_sext shrink"
 
 mkDynBvUext :: Int -> TermDynBv -> TermDynBv
 mkDynBvUext newW a =
   let oldW = dynBvWidth a
   in  if newW >= oldW
         then DynBvUext newW (newW - oldW) a
-        else error "bv_uext shrink"
+        else throw $ SortError "bv_uext shrink"
 
-mkDynBvEq :: TermDynBv -> TermDynBv -> TermBool
-mkDynBvEq a b =
-  let aw = dynBvWidth a
-      bw = dynBvWidth b
-  in  if aw == bw
+mkEq :: forall s . SortClass s => Term s -> Term s -> TermBool
+mkEq a b =
+  let aS = sort a
+      bS = sort b
+  in  if aS == bS
         then Eq a b
-        else widthErr (Eq a b) (Just "the second width") aw bw
+        else
+          throw
+          $  SortError
+          $  "Different sorts in eq: "
+          ++ show aS
+          ++ " and "
+          ++ show bS
+
+mkIte :: forall s . SortClass s => TermBool -> Term s -> Term s -> Term s
+mkIte c a b =
+  let aS = checkSort @s (show a) $ sort a
+      bS = checkSort @s (show b) $ sort b
+  in  if aS == bS
+        then Ite c a b
+        else
+          throw
+          $  SortError
+          $  "Different sorts in Ite: "
+          ++ show aS
+          ++ " and "
+          ++ show bS
 
 dynBvWidth :: TermDynBv -> Int
 dynBvWidth t = case t of
@@ -539,12 +563,12 @@ dynBvWidth t = case t of
   Ite _ tt _           -> dynBvWidth tt
   Var _ s              -> case s of
     SortBv w -> w
-    _        -> error "Can't deduce vare bitwidth"
+    _        -> throw $ SortError "Can't deduce vare bitwidth"
   Exists _ _ tt -> dynBvWidth tt
   Let    _ _ tt -> dynBvWidth tt
   Select a _    -> case sort a of
     SortArray _ (SortBv w) -> w
-    _                      -> error "Invalid array sort"
+    _                      -> throw $ SortError "Invalid array sort"
 
 sort :: forall s . SortClass s => Term s -> Sort
 sort t = case sorted @s of
@@ -568,11 +592,85 @@ sort t = case sorted @s of
     IntToDynBv w _       -> SortBv w
     Select     a _       -> case sort a of
       SortArray _ s' -> s'
-      _              -> error "Invalid array sort"
-    Store _ k v -> SortArray (sort k) (sort v)
+      _              -> throw $ SortError "Invalid array sort"
+    Store _ k v     -> SortArray (sort k) (sort v)
     ConstArray ks v -> SortArray ks (sort v)
 
-    _ -> error $ "Unreachable: " ++ show t ++ " should have static sort"
+    _ ->
+      throw
+        $  SortError
+        $  "Unreachable: "
+        ++ show t
+        ++ " should have static sort"
+
+mkVar :: forall s . SortClass s => String -> Sort -> Term s
+mkVar name sort' = Var name (checkSort @s ("Variable " ++ show name) sort')
+
+newtype SortError = SortError String
+     deriving (Show, Typeable)
+
+instance Exception SortError
+
+
+checkSort :: forall s . SortClass s => String -> Sort -> Sort
+checkSort thing sort' = case sorted @s of
+  Just sort'' -> if sort' == sort''
+    then sort'
+    else
+      throw
+      $  SortError
+      $  thing
+      ++ " constructed as a "
+      ++ show sort'
+      ++ " but typed as a "
+      ++ show sort''
+  Nothing -> sort'
+
+mkStore
+  :: forall k v
+   . (SortClass k, SortClass v)
+  => Term (ArraySort k v)
+  -> Term k
+  -> Term v
+  -> Term (ArraySort k v)
+mkStore a k' v' =
+  let aS = checkSort @(ArraySort k v) (show a) $ sort a
+      kS = checkSort @k (show k') $ sort k'
+      vS = checkSort @v (show v') $ sort v'
+  in  if SortArray kS vS == aS
+        then Store a k' v'
+        else throw $ SortError $ unwords
+          [ "Cannot build store"
+          , show a
+          , show k'
+          , show v'
+          , "since the array has sort"
+          , show aS
+          , "and the key-value pair are for an array of sort"
+          , show (SortArray kS vS)
+          ]
+
+mkSelect
+  :: forall k v
+   . (SortClass k, SortClass v)
+  => Term (ArraySort k v)
+  -> Term k
+  -> Term v
+mkSelect a k' =
+  let aS = checkSort @(ArraySort k v) (show a) $ sort a
+      kS = checkSort @k (show k') $ sort k'
+  in  case aS of
+        SortArray kS' vS | checkSort @v "value" vS `seq` kS' == kS ->
+          Select a k'
+        _ -> throw $ SortError $ unwords
+          [ "Cannot build select"
+          , show a
+          , show k'
+          , "since the array has sort"
+          , show aS
+          , "and the key has sort"
+          , show kS
+          ]
 
 -- |
 -- Given a function that optionally transforms a term, traverses the term
@@ -1053,7 +1151,8 @@ eval e t = case t of
         width = dynBvWidth t'
     in  if Bv.width inner == width
           then ValBv inner
-          else error $ "bitwidth mis-match while evaluating " ++ show t
+          else
+            throw $ SortError $ "bitwidth mis-match while evaluating " ++ show t
   -- TODO: check this
   RoundFpToDynBv w _ t' ->
     let i :: Integer = round $ asRepr $ eval e t' in ValDynBv $ Bv.bitVec w i
@@ -1061,7 +1160,8 @@ eval e t = case t of
     let inner = valAsDynBv $ eval e t'
     in  if Bv.width inner == w
           then ValDynBv $ bvUnFn o inner
-          else error $ "bitwidth mis-match while evaluating " ++ show t
+          else
+            throw $ SortError $ "bitwidth mis-match while evaluating " ++ show t
   DynBvLit bv -> ValDynBv bv
   DynBvUext _ wDelta t' ->
     ValDynBv $ Bv.zeroExtend wDelta $ valAsDynBv $ eval e t'
@@ -1071,13 +1171,15 @@ eval e t = case t of
     let a' = valAsDynBv $ eval e a
     in  if s + w <= Bv.width a'
           then ValDynBv $ Bv.extract (s + w - 1) s a'
-          else error $ "bitwidth mis-match while evaluating " ++ show t
+          else
+            throw $ SortError $ "bitwidth mis-match while evaluating " ++ show t
   DynBvBinExpr o w a b ->
     let a' = valAsDynBv $ eval e a
         b' = valAsDynBv $ eval e b
     in  if w == Bv.width a' && w == Bv.width b'
           then ValDynBv $ bvBinFn o a' b'
-          else error $ "bitwidth mis-match while evaluating " ++ show t
+          else
+            throw $ SortError $ "bitwidth mis-match while evaluating " ++ show t
   DynBvConcat _ a b ->
     ValDynBv $ Bv.concat [valAsDynBv $ eval e a, valAsDynBv $ eval e b]
   DynBvBinPred o w a b ->
@@ -1085,12 +1187,14 @@ eval e t = case t of
         b' = valAsDynBv $ eval e b
     in  if w == Bv.width a' && w == Bv.width b'
           then ValBool $ bvBinPredFn o a' b'
-          else error $ "bitwidth mis-match while evaluating " ++ show t
+          else
+            throw $ SortError $ "bitwidth mis-match while evaluating " ++ show t
   DynamizeBv w a ->
     let a' = valAsBv $ eval e a
     in  if w == Bv.width a'
           then ValDynBv a'
-          else error $ "bitwidth mis-match while evaluating " ++ show t
+          else
+            throw $ SortError $ "bitwidth mis-match while evaluating " ++ show t
   IntToDynBv w i -> ValDynBv $ Bv.bitVec w $ valAsInt $ eval e i
 
   IntLit i       -> ValInt i

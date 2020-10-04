@@ -206,7 +206,7 @@ instance Bitable CTermData where
     --CStackPtr ty _ _ -> Type.numBits ty
     _          -> error $ "Cannot serialize: " ++ show c
   serialize c = case c of
-    CBool b     -> Ty.Ite b (Mem.bvNum False 1 1) (Mem.bvNum False 1 0)
+    CBool b     -> Ty.mkIte b (Mem.bvNum False 1 1) (Mem.bvNum False 1 0)
     CInt _ _ bv -> bv
     CDouble d   -> Ty.mkDynamizeBv $ Ty.FpToBv d
     CFloat  d   -> Ty.mkDynamizeBv $ Ty.FpToBv d
@@ -220,7 +220,7 @@ instance Bitable CTermData where
     t | Type.isIntegerType t -> CInt (Type.isSignedInt t) (Type.numBits t) bv
     Type.Double              -> CDouble $ Ty.BvToFp $ Ty.mkStatifyBv @64 bv
     Type.Float               -> CFloat $ Ty.BvToFp $ Ty.mkStatifyBv @32 bv
-    Type.Bool                -> CBool $ Ty.mkDynBvEq bv (Mem.bvNum False 1 1)
+    Type.Bool                -> CBool $ Ty.mkEq bv (Mem.bvNum False 1 1)
     Type.Struct fs ->
       let
         sizes  = map (Type.numBits . snd) fs
@@ -664,7 +664,7 @@ cDiv = cWrapBinArith "/"
                      True
 isDivZero :: Bool -> Bv -> Bool -> Bv -> Maybe Ty.TermBool
 isDivZero _s _i _s' i' =
-  Just $ Ty.mkDynBvEq i' (Ty.DynBvLit (Bv.zeros (Ty.dynBvWidth i')))
+  Just $ Ty.mkEq i' (Ty.DynBvLit (Bv.zeros (Ty.dynBvWidth i')))
 
 -- TODO: CPP reference says that % requires integral arguments
 cRem = cWrapBinArith "%"
@@ -807,7 +807,7 @@ cWrapCmp name bvF doubleF a b = convert (integralPromotion a)
       mkCTerm (CBool t) pUdef
 
 cEq, cNe, cLt, cGt, cLe, cGe :: CTerm -> CTerm -> CTerm
-cEq = cWrapCmp "==" (const Ty.mkDynBvEq) Ty.Eq
+cEq = cWrapCmp "==" (const Ty.mkEq) Ty.mkEq
 cNe = ((.) . (.)) cNot cEq
 cLt = cWrapCmp "<"
                (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSlt else Ty.BvUlt))
@@ -853,7 +853,7 @@ cCast toTy node = case term node of
       (CFloat $ (if fromS then Ty.DynSbvToFp else Ty.DynUbvToFp) t)
       (udef node)
     Type.Bool ->
-      mkCTerm (CBool $ Ty.Not $ Ty.Eq (Mem.bvNum False fromW 0) t) (udef node)
+      mkCTerm (CBool $ Ty.Not $ Ty.mkEq (Mem.bvNum False fromW 0) t) (udef node)
     _ -> error $ unwords ["Bad cast from", show t, "to", show toTy]
   CDouble t -> case toTy of
     _ | Type.isIntegerType toTy ->
@@ -868,7 +868,7 @@ cCast toTy node = case term node of
                 (Ty.FpBinExpr
                   Ty.FpAdd
                   t
-                  (Ty.Ite (Ty.FpUnPred Ty.FpIsPositive t) negHalf half)
+                  (Ty.mkIte (Ty.FpUnPred Ty.FpIsPositive t) negHalf half)
                 )
             )
             (udef node)
@@ -890,7 +890,7 @@ cCast toTy node = case term node of
                 (Ty.FpBinExpr
                   Ty.FpAdd
                   t
-                  (Ty.Ite (Ty.FpUnPred Ty.FpIsPositive t) negHalf half)
+                  (Ty.mkIte (Ty.FpUnPred Ty.FpIsPositive t) negHalf half)
                 )
             )
             (udef node)
@@ -903,7 +903,7 @@ cCast toTy node = case term node of
     then cCast toTy $ mkCTerm (CInt False (Ty.dynBvWidth t) t) (udef node)
     else if toTy == Type.Bool
       then mkCTerm
-        (CBool $ Ty.Not $ Ty.Eq (Mem.bvNum False (Type.numBits ty) 0) t)
+        (CBool $ Ty.Not $ Ty.mkEq (Mem.bvNum False (Type.numBits ty) 0) t)
         (udef node)
       else if Type.isPointer toTy
         -- TODO: Not quite right: widths
@@ -922,7 +922,7 @@ cCast toTy node = case term node of
     _ -> error $ unwords ["Bad cast from", show node, "to", show toTy]
  where
   boolToBv :: Ty.TermBool -> Int -> Bv
-  boolToBv b w = Ty.Ite b (Mem.bvNum False w 1) (Mem.bvNum False w 0)
+  boolToBv b w = Ty.mkIte b (Mem.bvNum False w 1) (Mem.bvNum False w 0)
 
 -- A ITE based on a CTerm condition.
 cCond :: CTerm -> CTerm -> CTerm -> CTerm
@@ -936,22 +936,22 @@ cIte :: Ty.TermBool -> CTerm -> CTerm -> CTerm
 cIte condB t f =
   let
     result = case (term t, term f) of
-      (CBool   tB, CBool fB  ) -> CBool $ Ty.Ite condB tB fB
-      (CDouble tB, CDouble fB) -> CDouble $ Ty.Ite condB tB fB
-      (CFloat  tB, CFloat fB ) -> CFloat $ Ty.Ite condB tB fB
+      (CBool   tB, CBool fB  ) -> CBool $ Ty.mkIte condB tB fB
+      (CDouble tB, CDouble fB) -> CDouble $ Ty.mkIte condB tB fB
+      (CFloat  tB, CFloat fB ) -> CFloat $ Ty.mkIte condB tB fB
       (CStackPtr tTy tB tId, CStackPtr fTy fB fId) | tTy == fTy && tId == fId ->
-        CStackPtr tTy (Ty.Ite condB tB fB) tId
+        CStackPtr tTy (Ty.mkIte condB tB fB) tId
       (CInt s w i, CInt s' w' i') ->
         let sign  = s && s' -- Not really sure is this is correct b/c of ranks.
             width = max w w'
         in  CInt sign width
-              $ Ty.Ite condB (intResize s width i) (intResize s' width i')
+              $ Ty.mkIte condB (intResize s width i) (intResize s' width i')
       (CStruct aTy a, CStruct bTy b) | aTy == bTy ->
         CStruct aTy $ zipWith (\(f, aV) (_, bV) -> (f, cIte condB aV bV)) a b
       _ ->
         error $ unwords
           ["Cannot construct conditional with", show t, "and", show f]
-  in  mkCTerm result (Ty.Ite condB (udef t) (udef f))
+  in  mkCTerm result (Ty.mkIte condB (udef t) (udef f))
 
 ctermGetVars :: CTerm -> Set.Set String
 ctermGetVars t = case term t of

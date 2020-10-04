@@ -16,18 +16,21 @@ import qualified Z3.Monad                      as Z3
 
 i = i_
 
-genZ3Test :: String -> Smt.TermBool -> Z3.Result -> BenchTest
-genZ3Test name term result = benchTestCase ("eval " ++ name) $ do
-  (actResult, _) <- Z3.evalZ3 $ do
-    z3t <- toZ3 term
-    Z3.assert z3t
-    (r, model) <- Z3.getModel
-    case model of
-      Just m -> do
-        m' <- Z3.modelToString m
-        return (r, Just m')
-      Nothing -> return (r, Nothing)
-  result @=? actResult
+genZ3Test :: Bool -> String -> Smt.TermBool -> Z3.Result -> BenchTest
+genZ3Test isError name term result =
+  benchTestCase ("eval " ++ name)
+    $ (if isError then assertRaises @Smt.SortError "should error" else id)
+    $ do
+        (actResult, _) <- Z3.evalZ3 $ do
+          z3t <- toZ3 term
+          Z3.assert z3t
+          (r, model) <- Z3.getModel
+          case model of
+            Just m -> do
+              m' <- Z3.modelToString m
+              return (r, Just m')
+            Nothing -> return (r, Nothing)
+        result @=? actResult
 
 genZ3ModelTest :: String -> Smt.TermBool -> [(String, Val)] -> BenchTest
 genZ3ModelTest name term modelEntries = benchTestCase ("eval " ++ name) $ do
@@ -40,54 +43,134 @@ genZ3ModelTest name term modelEntries = benchTestCase ("eval " ++ name) $ do
 tySmtToZ3Tests :: BenchTest
 tySmtToZ3Tests = benchTestGroup
   "TySmt to Z3"
-  [ genZ3Test "bool sat"
-              (Smt.Eq (Smt.BoolLit True) (Smt.Var "a" Smt.SortBool))
+  [ genZ3Test False
+              "bool sat"
+              (Smt.mkEq (Smt.BoolLit True) (Smt.mkVar "a" Smt.SortBool))
               Z3.Sat
   , genZ3Test
+    False
     "bool unsat"
-    (Smt.Eq (Smt.Not (Smt.Var "a" Smt.SortBool)) (Smt.Var "a" Smt.SortBool))
-    Z3.Unsat
-  , genZ3Test
-    "bv unsat"
-    (Smt.Eq
-      (Smt.BvBinExpr @4 Smt.BvAdd
-                        (Smt.Var "a" (Smt.SortBv 4))
-                        (Smt.IntToBv (Smt.IntLit 1))
-      )
-      (Smt.Var "a" (Smt.SortBv 4))
+    (Smt.mkEq (Smt.Not (Smt.mkVar "a" Smt.SortBool))
+              (Smt.mkVar "a" Smt.SortBool)
     )
     Z3.Unsat
   , genZ3Test
+    False
+    "bv unsat"
+    (Smt.mkEq
+      (Smt.BvBinExpr @4 Smt.BvAdd
+                        (Smt.mkVar "a" (Smt.SortBv 4))
+                        (Smt.IntToBv (Smt.IntLit 1))
+      )
+      (Smt.mkVar "a" (Smt.SortBv 4))
+    )
+    Z3.Unsat
+  , genZ3Test
+    False
     "bv sat"
-    (Smt.Eq
+    (Smt.mkEq
       (Smt.BvBinExpr @3 Smt.BvOr
-                        (Smt.Var "a" (Smt.SortBv 3))
+                        (Smt.mkVar "a" (Smt.SortBv 3))
                         (Smt.IntToBv (Smt.IntLit 7))
       )
-      (Smt.Var "a" (Smt.SortBv 3))
+      (Smt.mkVar "a" (Smt.SortBv 3))
+    )
+    Z3.Sat
+  , genZ3Test False
+              "array 0"
+              (Smt.BoolNaryExpr Smt.And [Smt.mkEq aVar zArray])
+              Z3.Sat
+  , genZ3Test
+    False
+    "array 1"
+    (Smt.BoolNaryExpr
+      Smt.And
+      [Smt.mkEq aVar zArray, Smt.mkEq (Smt.mkSelect aVar (bv3 0)) (bv3 0)]
+    )
+    Z3.Sat
+  , genZ3Test
+    False
+    "array 2"
+    (Smt.BoolNaryExpr
+      Smt.And
+      [ Smt.mkEq aVar zArray
+      , Smt.mkEq (Smt.mkSelect (Smt.mkStore aVar (bv3 1) (bv3 1)) (bv3 0))
+                 (bv3 0)
+      ]
+    )
+    Z3.Sat
+  , genZ3Test
+    False
+    "array 3"
+    (Smt.BoolNaryExpr
+      Smt.And
+      [ Smt.mkEq aVar zArray
+      , Smt.mkEq (Smt.mkSelect (Smt.mkStore aVar (bv3 1) (bv3 1)) (bv3 1))
+                 (bv3 1)
+      ]
+    )
+    Z3.Sat
+  , genZ3Test
+    True
+    "sort error eq"
+    (Smt.BoolNaryExpr
+      Smt.And
+      [ Smt.mkEq aVar zArray
+      , Smt.mkEq (Smt.mkSelect (Smt.mkStore aVar (bv3 1) (bv3 1)) (bv3 1))
+                 (bv4 1)
+      ]
+    )
+    Z3.Sat
+  , genZ3Test
+    True
+    "sort error idx"
+    (Smt.BoolNaryExpr
+      Smt.And
+      [ Smt.mkEq aVar zArray
+      , Smt.mkEq (Smt.mkSelect (Smt.mkStore aVar (bv4 1) (bv3 1)) (bv3 1))
+                 (bv3 1)
+      ]
+    )
+    Z3.Sat
+  , genZ3Test
+    True
+    "sort error value"
+    (Smt.BoolNaryExpr
+      Smt.And
+      [ Smt.mkEq aVar zArray
+      , Smt.mkEq (Smt.mkSelect (Smt.mkStore aVar (bv3 1) (bv4 1)) (bv3 1))
+                 (bv3 1)
+      ]
     )
     Z3.Sat
   , genZ3ModelTest
     "bv extract"
-    (Smt.Eq
+    (Smt.mkEq
       ( Smt.mkDynBvExtract 0 2
       $ Smt.mkDynamizeBv (Smt.IntToBv @32 (Smt.IntLit 7))
       )
-      (Smt.Var "a" (Smt.SortBv 2))
+      (Smt.mkVar "a" (Smt.SortBv 2))
     )
     [("a", i 3)]
   , genZ3ModelTest
     "bv sign ext"
-    (Smt.mkDynBvEq
+    (Smt.mkEq
       (Smt.mkDynBvSext 8 $ Smt.mkDynamizeBv (Smt.IntToBv @3 (Smt.IntLit 7)))
-      (Smt.Var "a" (Smt.SortBv 8))
+      (Smt.mkVar "a" (Smt.SortBv 8))
     )
     [("a", i 255)]
   , genZ3ModelTest
     "bv logical ext"
-    (Smt.mkDynBvEq
+    (Smt.mkEq
       (Smt.mkDynBvUext 8 $ Smt.mkDynamizeBv (Smt.IntToBv @3 (Smt.IntLit 7)))
-      (Smt.Var "a" (Smt.SortBv 8))
+      (Smt.mkVar "a" (Smt.SortBv 8))
     )
     [("a", i 7)]
   ]
+ where
+  bv3 :: Integer -> Smt.TermDynBv
+  bv3 = Smt.DynBvLit . Bv.bitVec 3
+  bv4 :: Integer -> Smt.TermDynBv
+  bv4    = Smt.DynBvLit . Bv.bitVec 4
+  zArray = Smt.ConstArray @Smt.DynBvSort (Smt.SortBv 3) (bv3 0)
+  aVar   = Smt.mkVar "a" (Smt.SortArray (Smt.SortBv 3) (Smt.SortBv 3))

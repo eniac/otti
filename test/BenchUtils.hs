@@ -1,3 +1,6 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE TypeApplications #-}
 module BenchUtils where
 
 import           Criterion.Main
@@ -5,6 +8,29 @@ import           Test.Tasty
 import           Test.Tasty.Golden
 import           Test.Tasty.HUnit
 import           Test.Tasty.QuickCheck
+import qualified Control.Exception
+import           Data.Proxy
+import           Data.Typeable
+
+{- | Asserts that a specific exception is raised by a given action.
+ - Stolen from testpack. Thanks!
+ - -}
+assertRaises
+  :: forall e a
+   . (Show a, Control.Exception.Exception e, Show e)
+  => String
+  -> IO a
+  -> IO ()
+assertRaises msg action = do
+  r <- Control.Exception.try @e action
+  case r of
+    Left e -> return ()
+    Right _ ->
+      assertFailure
+        $  msg
+        ++ "\nReceived no exception, but was expecting exception"
+        ++ (show $ typeOf $ Proxy @e)
+
 
 -- Thanks to CRAIG DISSELKOEN for this benchmarking/testing framework setup.
 -- He wrote the code in this file.
@@ -46,4 +72,3 @@ benchTestGroup name bts = BenchTest
   { getTest  = testGroup name $ map getTest bts
   , getBench = bgroup name $ map getBench bts
   }
-

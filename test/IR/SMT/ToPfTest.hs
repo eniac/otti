@@ -106,19 +106,17 @@ toPfTests = benchTestGroup
     , constraintCountTest "and4 3 repeats"
                           [BoolNaryExpr And [bv "a", bv "b", bv "a", bv "a"]]
                           4
-    , constraintCountTest "ite" [Ite (bv "a") (bv "b") (bv "c")] 3
+    , constraintCountTest "ite" [mkIte (bv "a") (bv "b") (bv "c")] 3
     -- two for EQ, one to force
-    , constraintCountTest "eq"  [Eq (bv "a") (bv "b")]           3
+    , constraintCountTest "eq"  [mkEq (bv "a") (bv "b")]           3
     ]
   , benchTestGroup
     "bvToPf constraint counts"
-    [ constraintCountTest "5"
-                          [mkDynBvEq (int "a" 4) (IntToDynBv 4 $ IntLit 5)]
-                          4
+    [ constraintCountTest "5" [mkEq (int "a" 4) (IntToDynBv 4 $ IntLit 5)] 4
     , constraintCountTest
       "5 = x + y"
-      [ mkDynBvEq (mkDynBvBinExpr BvAdd (int "x" 4) (int "y" 4))
-                  (IntToDynBv 4 $ IntLit 5)
+      [ mkEq (mkDynBvBinExpr BvAdd (int "x" 4) (int "y" 4))
+             (IntToDynBv 4 $ IntLit 5)
       ]
       10
     , constraintCountTest "x < y"
@@ -128,8 +126,8 @@ toPfTests = benchTestGroup
                           (4 + 3 + 1)
     , constraintCountTest
       "17 = x >> y (logical)"
-      [ mkDynBvEq (mkDynBvBinExpr BvLshr (int "x" 16) (int "y" 16))
-                  (IntToDynBv 16 $ IntLit 17)
+      [ mkEq (mkDynBvBinExpr BvLshr (int "x" 16) (int "y" 16))
+             (IntToDynBv 16 $ IntLit 17)
       ]
       (let inputBounds = 17 * 2
            shiftRBound = 1
@@ -141,8 +139,8 @@ toPfTests = benchTestGroup
       )
     , constraintCountTest
       "17 = x >> y (arithmetic)"
-      [ mkDynBvEq (mkDynBvBinExpr BvAshr (int "x" 16) (int "y" 16))
-                  (IntToDynBv 16 $ IntLit 17)
+      [ mkEq (mkDynBvBinExpr BvAshr (int "x" 16) (int "y" 16))
+             (IntToDynBv 16 $ IntLit 17)
       ]
       (let inputBounds   = 17 * 2
            shiftRBound   = 1

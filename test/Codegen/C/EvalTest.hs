@@ -8,7 +8,6 @@ import           Targets.SMT.TySmtToZ3          ( Val
                                                 , b_
                                                 , d_
                                                 )
-import qualified IR.SMT.TySmt                  as Ty
 import           Parser.C
 import           Test.Tasty.HUnit
 import           Util.Cfg                       ( evalCfgDefault )

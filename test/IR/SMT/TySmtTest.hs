@@ -4,11 +4,9 @@
 {-# LANGUAGE TypeApplications    #-}
 module IR.SMT.TySmtTest where
 import           BenchUtils
-import           Control.Monad                  ( forM_ )
 import qualified Data.BitVector                as Bv
 import           Data.Dynamic
 import qualified Data.Map.Strict               as Map
-import           Data.Maybe                     ( fromMaybe )
 import           GHC.TypeLits
 import qualified IR.SMT.TySmt                  as Smt
 import           Test.Tasty.HUnit
@@ -20,17 +18,21 @@ tySmtTests = benchTestGroup
                 Map.empty
                 (Smt.BoolLit True)
                 (Smt.ValBool True)
-  , genEvalTest "integer expression, with bound variable"
-                (Map.fromList [("a", toDyn (Smt.ValInt 4))])
-                (Smt.IntBinExpr Smt.IntSub (Smt.mkVar "a") (Smt.IntLit 1))
-                (Smt.ValInt 3)
+  , genEvalTest
+    "integer expression, with bound variable"
+    (Map.fromList [("a", toDyn (Smt.ValInt 4))])
+    (Smt.IntBinExpr Smt.IntSub (Smt.mkVar "a" Smt.SortInt) (Smt.IntLit 1))
+    (Smt.ValInt 3)
   , genEvalTest
     "field expression, with bound variables"
     (Map.fromList [("a", toDyn (Smt.ValPf @5 4)), ("b", toDyn (Smt.ValPf @5 3))]
     )
     (Smt.PfNaryExpr
       Smt.PfMul
-      [Smt.mkVar "a", Smt.IntToPf @5 (Smt.IntLit 3), Smt.mkVar "b"]
+      [ Smt.mkVar "a" (Smt.SortPf 5)
+      , Smt.IntToPf @5 (Smt.IntLit 3)
+      , Smt.mkVar "b" (Smt.SortPf 5)
+      ]
     )
     (Smt.ValPf @5 1)
   , genEvalTest
@@ -54,9 +56,10 @@ tySmtTests = benchTestGroup
     (Map.fromList [("a", toDyn (Smt.ValPf @17 4))])
     (Smt.IntToPf @17
       (Smt.BvToInt
-        (Smt.BvBinExpr Smt.BvLshr
-                       (Smt.IntToBv @5 (Smt.PfToInt @17 (Smt.mkVar "a")))
-                       (Smt.IntToBv @5 (Smt.IntLit 1))
+        (Smt.BvBinExpr
+          Smt.BvLshr
+          (Smt.IntToBv @5 (Smt.PfToInt @17 (Smt.mkVar "a" (Smt.SortPf 17))))
+          (Smt.IntToBv @5 (Smt.IntLit 1))
         )
       )
     )
@@ -100,4 +103,3 @@ genEvalTest
 genEvalTest name ctx t v' = benchTestCase ("eval test: " ++ name) $ do
   let v = Smt.eval ctx t
   v' @=? v
-
