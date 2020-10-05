@@ -322,6 +322,14 @@ cValueTests = benchTestGroup
                         "test/Code/C/ref.c"
                         [("f0_fig__return", i 0)]
   --, constraintValueTest "void return" "foo" "test/Code/C/void.c" [ ("f0_foo__return", i 1) ]
+  , constraintValueTest "struct pointer"
+                        "main"
+                        "test/Code/C/struct_ptr.c"
+                        [("f0_main__return", i 2)]
+  , constraintValueTest "array struct pointer"
+                        "array"
+                        "test/Code/C/struct_ptr.c"
+                        [("f0_array__return", i 2)]
   ]
 
 cRealTests :: BenchTest
