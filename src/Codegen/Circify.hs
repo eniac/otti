@@ -34,6 +34,7 @@ module Codegen.Circify
   , liftTermFun2M
   , liftTermFun3
   , declareVar
+  , declareGlobal
   , ssaAssign
   , argAssign
   , deref
@@ -570,25 +571,20 @@ declareInitVar var ty term = do
   declareVar False var ty
   void $ argAssign (SLVar var) term
 
+-- | Declares a global variable
+declareGlobal :: (Show ty, Show term) => Bool -> VarName -> ty -> Circify ty term ()
+declareGlobal isInput var ty = do
+  g  <- gets globals
+  g' <- lsDeclareVar isInput var ty g
+  modify $ \s -> s { globals = g' }
+
 declareVar
   :: (Show ty, Show term) => Bool -> VarName -> ty -> Circify ty term ()
 declareVar isInput var ty = do
   isGlobal <- gets (null . callStack)
   if isGlobal
-    then do
-      g  <- gets globals
-      g' <- lsDeclareVar isInput var ty g
-      modify $ \s -> s { globals = g' }
+    then declareGlobal isInput var ty
     else compilerModifyTopM $ \s -> fsDeclareVar isInput var ty s
-  --whenM (liftAssert Assert.isStoringValues) $ do
-  --  setInputs' <- gets (setInputs . lang)
-  --  liftLog
-  --    $  logIf "inputs"
-  --    $  "declareVar setting inputs: "
-  --    ++ show smtName
-  --    ++ " aka "
-  --    ++ show var
-  --  liftMem $ setInputs' smtName (if isInput then Just var else Nothing) ty
 
 nextVer :: SsaLVal -> Circify ty term ()
 nextVer v = compilerModifyInScope v fsNextVer lsNextVer

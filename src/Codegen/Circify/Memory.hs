@@ -131,6 +131,9 @@ data MemState = MemState { stackAllocations :: Map.Map StackAllocId StackAlloc
                          , nextStackId :: StackAllocId
                          }
 
+getSize :: StackAllocId -> Mem Int
+getSize id = gets (size . (Map.! id) . stackAllocations)
+
 instance Show MemState where
   show s =
     unlines

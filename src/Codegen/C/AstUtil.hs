@@ -15,6 +15,8 @@ module Codegen.C.AstUtil
   , isTypedef
   , storageFromSpec
   , isStorageSpec
+  , defStruct
+  , getStruct
   )
 where
 import           Codegen.C.Type
@@ -66,6 +68,12 @@ cParseIntType l = case l of
 maybeToEither :: b -> Maybe a -> Either b a
 maybeToEither = flip maybe Right . Left
 
+defStruct :: String -> Type -> Circify Type term ()
+defStruct n = typedef ("struct " ++ n)
+
+getStruct :: String -> Circify Type term (Maybe Type)
+getStruct n = untypedef ("struct " ++ n)
+
 parseBaseTy :: [CTypeSpec] -> Circify Type term (Either String Type)
 parseBaseTy ty = case ty of
   [CVoidType{}] -> return $ Right Void
@@ -83,13 +91,13 @@ parseBaseTy ty = case ty of
       let entries = concat <$> sequence listMaybeEntryLists
           s       = Struct . map (\(id, ty, _) -> (id, ty)) <$> entries
       forM_ s
-        $ \s -> forM_ mIdent $ \i -> typedef ("struct " ++ identToVarName i) s
+        $ \s -> forM_ mIdent $ \i -> defStruct (identToVarName i) s
       return s
     Nothing -> case mIdent of
       Just ident ->
         let n = identToVarName ident
         in  maybeToEither ("Missing struct definition for " ++ n)
-              <$> untypedef ("struct " ++ n)
+              <$> getStruct n
       Nothing -> do
         text <- liftIO $ nodeText $ head ty
         return $ error $ "struct without declaration or name: " ++ text

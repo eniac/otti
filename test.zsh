@@ -36,3 +36,7 @@ stack run -- verify
 stack run -- c-setup struct_sum ./test/Code/C/array_8.c
 stack run -- -i ./test/Code/C/inputs/array_8_struct_sum.in c-prove struct_sum ./test/Code/C/array_8.c
 stack run -- verify
+
+C_pequin_io=True C_no_overflow=True stack run -- c-setup compute ./test/Code/C/pequin/mm_flat.c
+C_pequin_io=True C_no_overflow=True C_loop_bound=3 stack run -- -i ./test/Code/C/pequin/inputs/mm_flat.i c-prove compute ./test/Code/C/pequin/mm_flat.c
+stack run -- verify

@@ -474,6 +474,7 @@ genStmt stmt = do
       replicateM_ bound (liftCircify popGuard)
     CReturn expr _ -> forM_ expr $ \e -> do
       toReturn <- genExpr e
+      liftLog $ logIf "return" $ "Returning: " ++ show toReturn
       liftCircify $ doReturn $ ssaValAsTerm "return" toReturn
     CLabel _ inner _ _ -> genStmt inner
     _                  -> do
@@ -547,6 +548,43 @@ genInit ty i = case (ty, i) of
   _ -> error $ unwords ["Cannot initialize type", show ty, "from", show i]
 
 ---
+--- Pequin conventions
+---
+
+pequinOutStructName = "Out"
+pequinOutGlobalName = "output_global"
+pequinOutLocalName = "output"
+pequinInStructName = "In"
+pequinInGlobalName = "input_global"
+pequinInLocalName = "input"
+
+pequinSetup :: C ()
+pequinSetup = liftCircify $ do
+  -- Declare a global input, and create a local reference to it.
+  inTy <- fromMaybe (error $ "No struct " ++ pequinInStructName)
+    <$> getStruct pequinInStructName
+  declareGlobal True pequinInGlobalName inTy
+  inRef <- getRef (SLVar pequinInGlobalName)
+  declareVar False pequinInLocalName (Ptr32 inTy)
+  void $ argAssign (SLVar pequinInLocalName) inRef
+  -- Same for output.
+  outTy <- fromMaybe (error $ "No struct " ++ pequinInStructName)
+    <$> getStruct pequinOutStructName
+  declareGlobal False pequinOutGlobalName outTy
+  outRef <- getRef (SLVar pequinOutGlobalName)
+  declareVar False pequinOutLocalName (Ptr32 outTy)
+  void $ argAssign (SLVar pequinOutLocalName) outRef
+  liftLog $ logIf "pequin" "Done with pequin setup"
+  return ()
+
+pequinTeardown :: C ()
+pequinTeardown = do
+  outTerm <- liftCircify $ getTerm (SLVar pequinOutGlobalName)
+  liftLog $ logIf "pequin" "Done with pequin teardown"
+  pubVars <- liftMem $ ctermGetVars pequinOutGlobalName $ ssaValAsTerm "pequin return" outTerm
+  liftAssert $ forM_ (Set.toList pubVars) Assert.publicize
+
+---
 --- High level codegen (translation unit, etc)
 ---
 
@@ -558,15 +596,20 @@ genFunDef f = do
   retTy <- liftCircify $ unwrap <$> fnRetTy f
   liftCircify $ pushFunction name $ noneIfVoid retTy
   -- Declare the arguments and execute the body
-  forM_ args (genDecl EntryFnArg)
+  pequinIo <- liftCfg $ asks (Cfg._pequinIo . Cfg._cCfg)
+  if pequinIo then pequinSetup else forM_ args (genDecl EntryFnArg)
+  liftLog $ logIf "funDef" $ "Starting: " ++ name
   genStmt body
+  liftLog $ logIf "funDef" $ "Popping: " ++ name
   returnValue <- liftCircify popFunction
-  forM_ returnValue $ \rv ->
-    liftCircify
-      $ forM_ (Set.toList $ ctermGetVars rv)
-      $ liftAssert
-      . Assert.publicize
-  whenM (gets findUB) $ forM_ returnValue $ \r -> bugIf $ ctermIsUndef r
+  if pequinIo
+    then pequinTeardown
+    else do
+      liftLog $ logIf "funDef" $ "Ret: " ++ show returnValue
+      forM_ returnValue $ \rv -> do
+        pubVars <- liftMem $ ctermGetVars "return" rv
+        liftAssert $ forM_ (Set.toList pubVars) Assert.publicize
+      whenM (gets findUB) $ forM_ returnValue $ \r -> bugIf $ ctermIsUndef r
 
 genAsm :: CStringLiteral a -> C ()
 genAsm = undefined

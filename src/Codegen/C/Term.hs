@@ -953,14 +953,28 @@ cIte condB t f =
           ["Cannot construct conditional with", show t, "and", show f]
   in  mkCTerm result (Ty.mkIte condB (udef t) (udef f))
 
-ctermGetVars :: CTerm -> Set.Set String
-ctermGetVars t = case term t of
-  CBool b     -> Ty.vars b
-  CInt _ _ i  -> Ty.vars i
-  CDouble x   -> Ty.vars x
-  CFloat  x   -> Ty.vars x
-  CStruct _ l -> Set.unions $ map (ctermGetVars . snd) l
-  _           -> error $ "nyi: ctermGetVars: " ++ show t
+ctermGetVars :: String -> CTerm -> Mem (Set.Set String)
+ctermGetVars name t = do
+  liftLog $ logIf "outputs" $ "Getting outputs at " ++ name ++ " : " ++ show t
+  case term t of
+    CBool b     -> return $ Ty.vars b
+    CInt _ _ i  -> return $ Ty.vars i
+    CDouble x   -> return $ Ty.vars x
+    CFloat  x   -> return $ Ty.vars x
+    CStruct _ l -> fmap Set.unions $ forM l $ \(fName, fTerm) ->
+      ctermGetVars (structVarName name fName) fTerm
+    CArray _elemTy id -> do
+      size <- Mem.getSize id
+      fmap Set.unions $ forM [0 .. (size - 1)] $ \i -> do
+        off  <- fmap snd $ cLoad $ cAdd (arrayToPointer t) $ cIntLit Type.S32 $ toInteger i
+        liftLog $ logIf "outputs::debug" $ unwords ["Idx", show i, ":", show off]
+        let elemName = name ++ "." ++ show i
+        off' <- liftAssert $ alias False elemName off
+        liftAssert $ cSetValues False elemName off
+        ctermGetVars (name ++ "." ++ show i) off'
+    _ -> error $ "nyi: ctermGetVars: " ++ show t
+
+
 
 ctermIsUndef :: CTerm -> Ty.TermBool
 ctermIsUndef t = case term t of
