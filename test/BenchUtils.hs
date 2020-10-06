@@ -3,7 +3,6 @@
 {-# LANGUAGE TypeApplications #-}
 module BenchUtils where
 
-import           Criterion.Main
 import           Test.Tasty
 import           Test.Tasty.Golden
 import           Test.Tasty.HUnit
@@ -37,7 +36,7 @@ assertRaises msg action = do
 
 data BenchTest = BenchTest {
     getTest  :: TestTree
-  , getBench :: Benchmark
+  --, getBench :: Benchmark
 }
 
 -- Gipeda can't deal with double-quotes in names of benchmarks.
@@ -52,13 +51,13 @@ replaceDoubleQuotes = map ifDoubleThenSingle
 benchTestCase :: String -> IO () -> BenchTest
 benchTestCase name act = BenchTest
   { getTest  = testCase name act
-  , getBench = bench (replaceDoubleQuotes name) $ nfIO act
+  --, getBench = bench (replaceDoubleQuotes name) $ nfIO act
   }
 
 benchTestProperty :: Testable a => String -> a -> BenchTest
 benchTestProperty name prop = BenchTest
   { getTest  = testProperty name prop
-  , getBench = bench (replaceDoubleQuotes name) $ nfIO $ return ()
+  --, getBench = bench (replaceDoubleQuotes name) $ nfIO $ return ()
   }
 
 --benchGoldenVsString :: String -> FilePath -> IO ByteString -> BenchTest
@@ -70,5 +69,5 @@ benchTestProperty name prop = BenchTest
 benchTestGroup :: String -> [BenchTest] -> BenchTest
 benchTestGroup name bts = BenchTest
   { getTest  = testGroup name $ map getTest bts
-  , getBench = bgroup name $ map getBench bts
+  --, getBench = bgroup name $ map getBench bts
   }

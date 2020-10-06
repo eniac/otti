@@ -87,7 +87,6 @@ tests:
     - tasty-hunit
     - QuickCheck
     - tasty-quickcheck
-    - criterion
     - directory
     - bytestring
     - mtl >= 2.2.2
