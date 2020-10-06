@@ -50,7 +50,8 @@ import           System.IO                      ( IOMode(..)
 import           System.IO.Error                ( isDoesNotExistError )
 import qualified System.IO                      ( openFile )
 import           System.Console.Docopt
-import           System.Process
+import           System.Directory               ( doesFileExist )
+import           System.Process                 ( readProcessWithExitCode )
 import           Util.Log
 import           Util.Cfg                       ( Cfg )
 import qualified Util.Cfg                      as Cfg
@@ -115,6 +116,18 @@ Commands:
 
 getArgOrExit :: Arguments -> Option -> Cfg String
 getArgOrExit a o = liftIO $ getArgOrExitWith patterns a o
+
+getExistingFilePath :: Arguments -> Option -> Cfg FilePath
+getExistingFilePath a o = do
+  p <- getArgOrExit a o
+  e <- liftIO $ doesFileExist p
+  if e
+    then return p
+    else
+      error
+      $  "File "
+      ++ show p
+      ++ " does not exist"
 
 checkProcess :: FilePath -> [String] -> String -> IO ()
 checkProcess pgm args input = do
@@ -321,82 +334,82 @@ main = do
   let
     cmd :: Cfg () = case True of
       _ | args `isPresent` command "emit-r1cs" -> do
-        circomPath <- args `getArgOrExit` longOption "circom"
+        circomPath <- args `getExistingFilePath` longOption "circom"
         let asJson = args `isPresent` longOption "json"
         r1csPath <- args `getArgOrExit` shortOption 'C'
         cmdEmitR1cs asJson circomPath r1csPath
       _ | args `isPresent` command "count-terms" -> do
-        circomPath <- args `getArgOrExit` longOption "circom"
+        circomPath <- args `getExistingFilePath` longOption "circom"
         cmdCountTerms circomPath
       _ | args `isPresent` command "setup" -> do
-        libsnark   <- args `getArgOrExit` longOption "libsnark"
-        circomPath <- args `getArgOrExit` longOption "circom"
+        libsnark   <- args `getExistingFilePath` longOption "libsnark"
+        circomPath <- args `getExistingFilePath` longOption "circom"
         r1csPath   <- args `getArgOrExit` shortOption 'C'
         pkPath     <- args `getArgOrExit` shortOption 'P'
         vkPath     <- args `getArgOrExit` shortOption 'V'
         cmdSetup libsnark circomPath r1csPath pkPath vkPath
       _ | args `isPresent` command "prove" -> do
-        libsnark   <- args `getArgOrExit` longOption "libsnark"
-        circomPath <- args `getArgOrExit` longOption "circom"
-        pkPath     <- args `getArgOrExit` shortOption 'P'
-        vkPath     <- args `getArgOrExit` shortOption 'V'
-        inPath     <- args `getArgOrExit` shortOption 'i'
+        libsnark   <- args `getExistingFilePath` longOption "libsnark"
+        circomPath <- args `getExistingFilePath` longOption "circom"
+        pkPath     <- args `getExistingFilePath` shortOption 'P'
+        vkPath     <- args `getExistingFilePath` shortOption 'V'
+        inPath     <- args `getExistingFilePath` shortOption 'i'
         xPath      <- args `getArgOrExit` shortOption 'x'
         wPath      <- args `getArgOrExit` shortOption 'w'
         pfPath     <- args `getArgOrExit` shortOption 'p'
         cmdProve libsnark pkPath vkPath inPath xPath wPath pfPath circomPath
       _ | args `isPresent` command "verify" -> do
-        libsnark <- args `getArgOrExit` longOption "libsnark"
-        vkPath   <- args `getArgOrExit` shortOption 'V'
-        xPath    <- args `getArgOrExit` shortOption 'x'
-        pfPath   <- args `getArgOrExit` shortOption 'p'
+        libsnark <- args `getExistingFilePath` longOption "libsnark"
+        vkPath   <- args `getExistingFilePath` shortOption 'V'
+        xPath    <- args `getExistingFilePath` shortOption 'x'
+        pfPath   <- args `getExistingFilePath` shortOption 'p'
         cmdVerify libsnark vkPath xPath pfPath
       _ | args `isPresent` command "c-check" -> do
         fnName <- args `getArgOrExit` argument "fn-name"
-        path   <- args `getArgOrExit` argument "path"
+        path   <- args `getExistingFilePath` argument "path"
         cmdCCheck fnName path
       _ | args `isPresent` command "c-eval" -> do
         fnName <- args `getArgOrExit` argument "fn-name"
-        path   <- args `getArgOrExit` argument "path"
+        path   <- args `getExistingFilePath` argument "path"
         cmdCEval fnName path
       _ | args `isPresent` command "c-emit-r1cs" -> do
         fnName   <- args `getArgOrExit` argument "fn-name"
-        path     <- args `getArgOrExit` argument "path"
+        path     <- args `getExistingFilePath` argument "path"
         r1csPath <- args `getArgOrExit` shortOption 'C'
         cmdCEmitR1cs False fnName path r1csPath
       _ | args `isPresent` command "c-setup" -> do
-        libsnark <- args `getArgOrExit` longOption "libsnark"
+        libsnark <- args `getExistingFilePath` longOption "libsnark"
         fnName   <- args `getArgOrExit` argument "fn-name"
-        cPath    <- args `getArgOrExit` argument "path"
+        cPath    <- args `getExistingFilePath` argument "path"
         r1csPath <- args `getArgOrExit` shortOption 'C'
         pkPath   <- args `getArgOrExit` shortOption 'P'
         vkPath   <- args `getArgOrExit` shortOption 'V'
         cmdCSetup False libsnark fnName cPath r1csPath pkPath vkPath
       _ | args `isPresent` command "c-prove" -> do
-        libsnark <- args `getArgOrExit` longOption "libsnark"
+        libsnark <- args `getExistingFilePath` longOption "libsnark"
         fnName   <- args `getArgOrExit` argument "fn-name"
-        cPath    <- args `getArgOrExit` argument "path"
-        pkPath   <- args `getArgOrExit` shortOption 'P'
-        vkPath   <- args `getArgOrExit` shortOption 'V'
-        inPath   <- args `getArgOrExit` shortOption 'i'
+        cPath    <- args `getExistingFilePath` argument "path"
+        pkPath   <- args `getExistingFilePath` shortOption 'P'
+        vkPath   <- args `getExistingFilePath` shortOption 'V'
+        inPath   <- args `getExistingFilePath` shortOption 'i'
         xPath    <- args `getArgOrExit` shortOption 'x'
         wPath    <- args `getArgOrExit` shortOption 'w'
         pfPath   <- args `getArgOrExit` shortOption 'p'
         cmdCProve libsnark pkPath vkPath inPath xPath wPath pfPath fnName cPath
       _ | args `isPresent` command "c-check-setup" -> do
-        libsnark <- args `getArgOrExit` longOption "libsnark"
+        libsnark <- args `getExistingFilePath` longOption "libsnark"
         fnName   <- args `getArgOrExit` argument "fn-name"
-        cPath    <- args `getArgOrExit` argument "path"
+        cPath    <- args `getExistingFilePath` argument "path"
         r1csPath <- args `getArgOrExit` shortOption 'C'
         pkPath   <- args `getArgOrExit` shortOption 'P'
         vkPath   <- args `getArgOrExit` shortOption 'V'
         cmdCSetup True libsnark fnName cPath r1csPath pkPath vkPath
       _ | args `isPresent` command "c-check-prove" -> do
-        libsnark <- args `getArgOrExit` longOption "libsnark"
+        libsnark <- args `getExistingFilePath` longOption "libsnark"
         fnName   <- args `getArgOrExit` argument "fn-name"
-        cPath    <- args `getArgOrExit` argument "path"
-        pkPath   <- args `getArgOrExit` shortOption 'P'
-        vkPath   <- args `getArgOrExit` shortOption 'V'
+        cPath    <- args `getExistingFilePath` argument "path"
+        pkPath   <- args `getExistingFilePath` shortOption 'P'
+        vkPath   <- args `getExistingFilePath` shortOption 'V'
         inPath   <- args `getArgOrExit` shortOption 'i'
         xPath    <- args `getArgOrExit` shortOption 'x'
         wPath    <- args `getArgOrExit` shortOption 'w'
