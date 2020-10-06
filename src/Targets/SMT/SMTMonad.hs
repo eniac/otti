@@ -8,7 +8,9 @@ import           Data.Char                      ( digitToInt )
 import           Data.List                      ( foldl' )
 import           Data.List.Split
 import qualified Data.Map.Strict               as M
-import           Data.Maybe                     ( catMaybes )
+import           Data.Maybe                     ( catMaybes
+                                                , fromMaybe
+                                                )
 import           Z3.Monad                       ( Sort )
 import qualified Z3.Monad                      as Z
 
@@ -32,19 +34,19 @@ instance Z.MonadZ3 SMT where
 
 -- | Run SMT computation
 runSMT
-  :: Maybe Integer -- ^ Optional timeout
+  :: Maybe Int -- ^ Optional timeout
   -> SMT a         -- ^ Verification computation
   -> IO (a, SMTState)
 runSMT mTimeout (SMT act) =
-  Z.evalZ3With Nothing (Z.opt "timeout" (5000 :: Int))
+  Z.evalZ3With Nothing (Z.opt "timeout" $ fromMaybe 5000 mTimeout)
     $ runStateT act emptySMTState
 
 -- | Eval computation: link
-evalSMT :: Maybe Integer -> SMT a -> IO a
+evalSMT :: Maybe Int -> SMT a -> IO a
 evalSMT mt act = fst <$> runSMT mt act
 
 -- | Exec computation:     link
-execSMT :: Maybe Integer -> SMT a -> IO SMTState
+execSMT :: Maybe Int -> SMT a -> IO SMTState
 execSMT mt act = snd <$> runSMT mt act
 
 ---
