@@ -13,7 +13,7 @@ module IR.SMT.Opt
 where
 
 import           IR.SMT.TySmt
-import           IR.SMT.ArrayElim               ( elimArrays )
+import           IR.SMT.OblivArray              ( elimOblivArrays )
 
 import           Control.Monad.State.Strict
 import           Control.Monad.Reader
@@ -199,12 +199,13 @@ isConst t = case t of
   _          -> False
 
 constFoldEq :: OptMetadata -> [TermBool] -> Log [TermBool]
-constFoldEq meta ts = go ts
+constFoldEq meta = go
  where
   -- While processing makes progress, process.
-  go ts' = do
-    (continue, ts'') <- processAll ts'
-    if continue then go ts'' else return ts'
+  -- TODO: use progress pass?
+  go ts = do
+    (continue, ts') <- processAll ts
+    if continue then go ts' else return ts
   noElim = protected meta
 
   -- Returns the result of one pass of constant folding and eq-elim. Also
@@ -366,7 +367,7 @@ eqElimOpt =
 
 arrayElimOpt :: Opt
 arrayElimOpt =
-  Opt { fn = elimArrays . arraySizes, name = "arrayElim", cfg = return }
+  Opt { fn = elimOblivArrays . arraySizes, name = "arrayElim", cfg = return }
 
 opts :: Map.Map String Opt
 opts = Map.fromList
