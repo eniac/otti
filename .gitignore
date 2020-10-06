@@ -6,5 +6,5 @@ compiler.cabal
 .stack-work
 comp
 scratch
-inputs
+./inputs
 *.jq
