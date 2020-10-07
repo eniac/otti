@@ -273,7 +273,7 @@ cSetValues trackUndef name t = do
 alias :: Bool -> String -> CTerm -> Assert.Assert CTerm
 alias trackUndef name t = do
   u <- Assert.newVar (udefName name) Ty.SortBool
-  when trackUndef $ Assert.assign (udef t) u
+  when trackUndef $ Assert.assign u (udef t)
   d <- case term t of
     CBool b -> do
       let sort = Ty.SortBool
@@ -433,7 +433,7 @@ cIntLit :: Type.Type -> Integer -> CTerm
 cIntLit t v =
   let s = Type.isSignedInt t
       w = Type.numBits t
-  in  mkCTerm (CInt s w (Ty.IntToDynBv w (Ty.IntLit v))) (Ty.BoolLit False)
+  in  mkCTerm (CInt s w (Ty.DynBvLit $ Bv.bitVec w v)) (Ty.BoolLit False)
 
 cDoubleLit :: Double -> CTerm
 cDoubleLit v = mkCTerm (CDouble $ Ty.Fp64Lit v) (Ty.BoolLit False)

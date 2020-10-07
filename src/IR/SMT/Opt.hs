@@ -22,13 +22,14 @@ import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 , fromDyn
                                                 , dynTypeRep
+                                                , fromDynamic
                                                 )
-import           Data.Functor.Identity
 import           Data.List                      ( intercalate )
 import qualified Data.Map.Strict               as Map
-import           Data.Maybe                     ( fromMaybe )
+import           Data.Maybe                     ( isJust
+                                                , fromMaybe
+                                                )
 import qualified Data.Set                      as Set
-import           Data.Typeable                  ( typeOf )
 import           Util.Cfg                       ( Cfg
                                                 , MonadCfg(..)
                                                 , _smtOptCfg
@@ -41,11 +42,12 @@ import           Util.ShowMap                   ( ShowMap )
 
 type ArraySizes = ShowMap (Term (ArraySort DynBvSort DynBvSort)) Int
 
-data OptMetadata = OptMetadata { protected :: !(Set.Set String)
-                               , eqElimNoBlowup :: !Bool
-                               , cFoldInEqElim    :: !Bool
-                               , arraySizes :: !ArraySizes
-                               }
+data OptMetadata = OptMetadata
+  { protected      :: !(Set.Set String)
+  , eqElimNoBlowup :: !Bool
+  , cFoldInEqElim  :: !Bool
+  , arraySizes     :: !ArraySizes
+  }
 newOptMetadata :: Set.Set String -> ArraySizes -> OptMetadata
 newOptMetadata p s = OptMetadata { protected      = p
                                  , eqElimNoBlowup = False
@@ -53,10 +55,11 @@ newOptMetadata p s = OptMetadata { protected      = p
                                  , arraySizes     = s
                                  }
 
-data Opt = Opt { fn :: OptMetadata -> [TermBool] -> Log [TermBool]
-               , name :: String
-               , cfg  :: OptMetadata -> Cfg OptMetadata
-               }
+data Opt = Opt
+  { fn   :: OptMetadata -> [TermBool] -> Log [TermBool]
+  , name :: String
+  , cfg  :: OptMetadata -> Cfg OptMetadata
+  }
 
 -- Folds constants (literals) away.
 -- The end result is either
@@ -183,9 +186,10 @@ constantFoldOpt :: Opt
 constantFoldOpt =
   Opt { fn = const (return . map constantFold), name = "cf", cfg = return }
 
-data ConstFoldEqState = ConstFoldEqState { terms :: [TermBool]
-                                         , consts :: Map.Map String Dynamic
-                                         }
+data ConstFoldEqState = ConstFoldEqState
+  { terms  :: [TermBool]
+  , consts :: Map.Map String Dynamic
+  }
 
 newtype ConstFoldEq a = ConstFoldEq (StateT ConstFoldEqState Log a)
     deriving (Functor, Applicative, Monad, MonadState ConstFoldEqState)
@@ -214,7 +218,7 @@ constFoldEq meta = go
   processAll allTerms = do
     let ConstFoldEq action = forM_ allTerms process
     result <- execStateT action (ConstFoldEqState [] Map.empty)
-    logIf "cfee" $ "Substs:\n  " ++ intercalate
+    logIf "smt::opt::cfee" $ "Substs:\n  " ++ intercalate
       "\n  "
       (map show $ Map.toList $ consts result)
     return (not $ Map.null $ consts result, terms result)
@@ -281,12 +285,13 @@ constantFoldEqOpt = Opt { fn = constFoldEq, name = "cfee", cfg = return }
 --
 -- One complication is that we handle a set of protected variables, which cannot be eliminated
 
-data EqElimState = EqElimState { assertions :: [TermBool]
-                               , subs :: Map.Map String Dynamic
-                               }
+data EqElimState = EqElimState
+  { assertions :: [TermBool]
+  , subs       :: Map.Map String Dynamic
+  }
 
-newtype EqElim a = EqElim (StateT EqElimState Identity a)
-    deriving (Functor, Applicative, Monad, MonadState EqElimState)
+newtype EqElim a = EqElim (StateT EqElimState Log a)
+    deriving (Functor, Applicative, Monad, MonadState EqElimState, MonadLog)
 
 
 sub :: SortClass s => String -> Dynamic -> Term s -> Term s
@@ -299,12 +304,16 @@ sub name_ value = mapTerm visit
       else Nothing
     _ -> Nothing
 
+type TermMem = Term (ArraySort DynBvSort DynBvSort)
+
 dynamize :: (forall s . SortClass s => Term s -> Term s) -> Dynamic -> Dynamic
 dynamize f t
-  | ty == typeOf (BoolLit True) = toDyn
+  | isJust (fromDynamic @TermBool t) = toDyn
   $ f (fromDyn t (error "unreachable") :: TermBool)
-  | ty == typeOf (IntToDynBv 0 (IntLit 0)) = toDyn
+  | isJust (fromDynamic @TermDynBv t) = toDyn
   $ f (fromDyn t (error "unreachable") :: TermDynBv)
+  | isJust (fromDynamic @TermMem t) = toDyn
+  $ f (fromDyn t (error "unreachable") :: TermMem)
   | otherwise = error $ "Cannot dynamize " ++ show ty
   where ty = dynTypeRep t
 
@@ -316,14 +325,19 @@ inTerm name_ = reduceTerm visit False (||)
     Var name' _ -> Just $ name' == name_
     _           -> Nothing
 
-eqElim :: OptMetadata -> [TermBool] -> [TermBool]
-eqElim meta ts =
-  let EqElim   action = forM_ ts process
-      Identity result = execStateT action (EqElimState [] Map.empty)
-  in  assertions result
+eqElim :: OptMetadata -> [TermBool] -> Log [TermBool]
+eqElim meta ts = do
+  let EqElim action = forM_ ts process
+  result <- execStateT action (EqElimState [] Map.empty)
+  return $ assertions result
  where
-  subbable :: SortClass s => Term s -> Bool
-  subbable term = not (eqElimNoBlowup meta) || nNodes term == 1
+  subbable :: SortClass s => String -> Sort -> Term s -> Bool
+  subbable v s t =
+    (not (eqElimNoBlowup meta) || nNodes t == 1)
+      &&              v
+      `Set.notMember` noElim
+      &&              not (v `inTerm` t)
+      &&              not (isArray s)
   noElim = protected meta
   cFoldFn :: SortClass s => Term s -> Term s
   cFoldFn = if cFoldInEqElim meta then constantFold else id
@@ -332,11 +346,13 @@ eqElim meta ts =
   process assertion = do
     a' <- applyStoredSubs assertion
     case a' of
-      -- Removing the isConst condition makes this more aggressive
-      Eq (Var v s) t | v `Set.notMember` noElim && subbable t ->
-        if v `inTerm` t then addAssertion (Eq (Var v s) t) else addSub v t
-      Eq t (Var v s) | v `Set.notMember` noElim && subbable t ->
-        if v `inTerm` t then addAssertion (Eq (Var v s) t) else addSub v t
+      -- Combining these cases is tough b/c the sorts may differ
+      Eq (Var v s) t | subbable v s t -> do
+        liftLog $ logIf "smt::opt::ee" $ "Elim: " ++ v ++ " = " ++ show t
+        addSub v t
+      Eq t (Var v s) | subbable v s t -> do
+        liftLog $ logIf "smt::opt::ee" $ "Elim: " ++ v ++ " = " ++ show t
+        addSub v t
       _ -> addAssertion a'
 
   applyStoredSubs :: SortClass s => Term s -> EqElim (Term s)
@@ -346,6 +362,10 @@ eqElim meta ts =
 
   addAssertion :: TermBool -> EqElim ()
   addAssertion a = modify $ \s -> s { assertions = a : assertions s }
+
+  isArray :: Sort -> Bool
+  isArray (SortArray{}) = True
+  isArray _             = False
 
   addSub :: SortClass s => String -> Term s -> EqElim ()
   addSub v t =
@@ -362,24 +382,36 @@ eqElimCfg m = do
   return $ m { eqElimNoBlowup = o, cFoldInEqElim = c }
 
 eqElimOpt :: Opt
-eqElimOpt =
-  Opt { fn = ((.) . (.)) return eqElim, name = "ee", cfg = eqElimCfg }
+eqElimOpt = Opt { fn = eqElim, name = "ee", cfg = eqElimCfg }
 
 arrayElimOpt :: Opt
 arrayElimOpt =
   Opt { fn = elimOblivArrays . arraySizes, name = "arrayElim", cfg = return }
 
+-- | Flattens ANDs
+flattenAnds :: TermBool -> [TermBool]
+flattenAnds t = case t of
+  BoolNaryExpr And conjuncts -> concatMap flattenAnds conjuncts
+  _                          -> [t]
+
+flattenAndsOpt :: Opt
+flattenAndsOpt = Opt { fn   = \_ ts -> return $ concatMap flattenAnds ts
+                     , name = "flattenAnds"
+                     , cfg  = return
+                     }
+
 opts :: Map.Map String Opt
 opts = Map.fromList
   [ (name o, o)
-  | o <- [eqElimOpt, constantFoldOpt, constantFoldEqOpt, arrayElimOpt]
+  | o <- [eqElimOpt, constantFoldOpt, constantFoldEqOpt, arrayElimOpt, flattenAndsOpt]
   ]
 
 logAssertions :: String -> [TermBool] -> Log ()
-logAssertions context as = logIfM "opt" $ do
+logAssertions context as = logIfM "smt::opt" $ do
   liftIO $ putStrLn $ context ++ ":"
   forM_ as $ \a -> liftIO $ putStrLn $ "  " ++ show a
   return $ show (length as) ++ " assertions"
+
 
 -- Optimize, ensuring that the variables in `p` continue to exist.
 opt :: ArraySizes -> Set.Set String -> [TermBool] -> Log [TermBool]

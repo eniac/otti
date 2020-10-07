@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 module Codegen.Circify.Memory where
 import           Control.Monad.State.Strict
 import qualified Data.Map.Strict               as Map
@@ -112,12 +113,20 @@ setBits element structure index =
 type MemSort = Ty.ArraySort Ty.DynBvSort Ty.DynBvSort
 type TermMem = Ty.Term MemSort
 
-data StackAlloc = StackAlloc { idxWidth :: Int
-                             , valWidth :: Int
-                             , array    :: TermMem
-                             , size     :: Int
-                             } deriving (Show)
+data StackAlloc = StackAlloc
+  { idxWidth :: Int
+  , valWidth :: Int
+  , nextVer  :: Int
+  , size     :: Int
+  }
+  deriving Show
 type StackAllocId = Int
+
+arrayName :: StackAllocId -> StackAlloc -> String
+arrayName id alloc = "alloc_" ++ show id ++ "_v" ++ show (nextVer alloc)
+
+arraySort :: StackAlloc -> Ty.Sort
+arraySort a = Ty.SortArray (Ty.SortBv $ idxWidth a) (Ty.SortBv $ valWidth a)
 
 -- Return the index and value widths
 termMemWidths :: TermMem -> (Int, Int)
@@ -126,10 +135,11 @@ termMemWidths t = case Ty.sort t of
   s -> error $ "Bad memory term sort " ++ show s
 
 -- | State for keeping track of Mem-layer information
-data MemState = MemState { stackAllocations :: Map.Map StackAllocId StackAlloc
-                         , sizes :: SMap.ShowMap TermMem Int
-                         , nextStackId :: StackAllocId
-                         }
+data MemState = MemState
+  { stackAllocations :: Map.Map StackAllocId StackAlloc
+  , sizes            :: SMap.ShowMap TermMem Int
+  , nextStackId      :: StackAllocId
+  }
 
 getSize :: StackAllocId -> Mem Int
 getSize id = gets (size . (Map.! id) . stackAllocations)
@@ -186,9 +196,11 @@ stackAlloc array' size' idxWidth' valWidth' = do
   i <- takeNextStackId
   let a = StackAlloc { idxWidth = idxWidth'
                      , valWidth = valWidth'
-                     , array    = array'
+                     , nextVer  = 0
                      , size     = size'
                      }
+  v <- liftAssert $ Assert.newVar @MemSort (arrayName i a) (arraySort a)
+  liftAssert $ Assert.assign v array'
   modify $ \s -> s { stackAllocations = Map.insert i a $ stackAllocations s }
   return i
 
@@ -198,13 +210,13 @@ stackAllocCons idxWidth' elems =
       valWidth' = Ty.dynBvWidth $ head elems
       base      = Ty.ConstArray (Ty.SortBv idxWidth') (bvNum False valWidth' 0)
       m =
-          foldl
-              (\a (i, e) -> if Ty.dynBvWidth e == valWidth'
-                then Ty.mkStore a (Ty.DynBvLit $ Bv.bitVec idxWidth' i) e
-                else error $ "Bad size: " ++ show e
-              )
-              base
-            $ zip [(0 :: Integer) ..] elems
+        foldl
+            (\a (i, e) -> if Ty.dynBvWidth e == valWidth'
+              then Ty.mkStore a (Ty.DynBvLit $ Bv.bitVec idxWidth' i) e
+              else error $ "Bad size: " ++ show e
+            )
+            base
+          $ zip [(0 :: Integer) ..] elems
   in  do
         modify $ \st -> st { sizes = SMap.insert base s $ sizes st }
         stackAlloc m s idxWidth' valWidth'
@@ -236,7 +248,7 @@ stackLoad id offset = do
     $  error
     $  "Bad index size: "
     ++ show offset
-  return $ Ty.mkSelect (array alloc) offset
+  return $ Ty.mkSelect (Ty.mkVar (arrayName id alloc) (arraySort alloc)) offset
 
 stackStore
   :: StackAllocId -- ^ Allocation to load from
@@ -255,8 +267,10 @@ stackStore id offset value guard = do
     $  error
     $  "Bad value size: "
     ++ show value
-  let a      = array alloc
-      alloc' = alloc { array = Ty.mkIte guard (Ty.mkStore a offset value) a }
+  let a      = Ty.mkVar (arrayName id alloc) (arraySort alloc)
+      alloc' = alloc { nextVer = 1 + nextVer alloc }
+  a' <- liftAssert $ Assert.newVar (arrayName id alloc') (arraySort alloc')
+  liftAssert $ Assert.assign a' $ Ty.mkIte guard (Ty.mkStore a offset value) a
   modify
     $ \s -> s { stackAllocations = Map.insert id alloc' $ stackAllocations s }
 
