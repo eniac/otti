@@ -94,7 +94,7 @@ newVar name sort = do
   let allVars = vars s0
   case M.lookup name allVars of
     Nothing -> do
-      let v = Ty.Var @s name sort
+      let v = Ty.mkVar @s name sort
       modify $ \s -> s { vars = M.insert name (Dyn.toDyn v) $ vars s }
       return v
     Just v -> return $ Dyn.fromDyn
