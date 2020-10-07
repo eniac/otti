@@ -98,7 +98,7 @@ toZ3 t = case t of
       end     = start + newSize - 1
       newSize = fromInteger $ natVal (Proxy :: Proxy i)
   BvBinExpr o l r -> tyBinZ3Bin (bvBinOpToZ3 o) l r
-  BvBinPred o l r -> tyBinZ3Bin (bvBinPredToZ3 o) l r
+  BvBinPred o l r -> tyBinZ3Bin (bvBinPredToZ3 o $ bvWidth l) l r
   IntToBv i       -> toZ3 i >>= Z.mkInt2bv (width t)
    where
     width :: forall n . KnownNat n => TermBv n -> Int
@@ -120,7 +120,7 @@ toZ3 t = case t of
   DynBvSext   _ wDelta b -> toZ3 b >>= Z.mkSignExt wDelta
   DynBvUext   _ wDelta b -> toZ3 b >>= Z.mkZeroExt wDelta
   DynBvConcat _ l      r -> tyBinZ3Bin Z.mkConcat l r
-  DynBvBinPred o _ l r   -> tyBinZ3Bin (bvBinPredToZ3 o) l r
+  DynBvBinPred o w l r   -> tyBinZ3Bin (bvBinPredToZ3 o w) l r
   DynBvExtract s w i     -> toZ3 i >>= Z.mkExtract (w + s - 1) s
   IntToDynBv w i         -> toZ3 i >>= Z.mkInt2bv w
 
@@ -280,7 +280,7 @@ toZ3 t = case t of
     BvOr   -> Z.mkBvor
     BvAnd  -> Z.mkBvand
     BvXor  -> Z.mkBvxor
-  bvBinPredToZ3 o = case o of
+  bvBinPredToZ3 o w = case o of
     BvUgt   -> Z.mkBvugt
     BvUlt   -> Z.mkBvult
     BvUge   -> Z.mkBvuge
@@ -299,9 +299,26 @@ toZ3 t = case t of
       y <- Z.mkBvsubNoUnderflow a b
       Z.mkAnd [x, y] >>= Z.mkNot
     BvSmulo -> \a b -> do
-      x <- Z.mkBvmulNoOverflow a b True
-      y <- Z.mkBvmulNoUnderflow a b
-      Z.mkAnd [x, y] >>= Z.mkNot
+      let w' = 2 * w
+      a' <- Z.mkSignExt w a
+      b' <- Z.mkSignExt w b
+      p <- Z.mkBvmul a' b'
+      maxP <- Z.mkBvNum w' ((2::Integer) ^ (w - 1) - 1)
+      minP <- Z.mkBvNum w' (negate $ (2::Integer) ^ (w - 1))
+      overflow <- Z.mkBvsgt p maxP
+      underflow <- Z.mkBvslt p minP
+      -- NB: This seems like it really should work, but Z3 gives the wrong
+      -- result, claiming that (-7) * (-1) overflows in 4 signed bits.
+      -- z <- Z.mkBvNum w (0 :: Int)
+      -- negA <- Z.mkBvslt a z
+      -- negB <- Z.mkBvslt b z
+      -- negRes <- Z.mkXor negA negB
+      -- posRes <- Z.mkNot negRes
+      -- x <- Z.mkBvmulNoOverflow a b True >>= Z.mkNot
+      -- overflow <- Z.mkAnd [posRes, x]
+      -- y <- Z.mkBvmulNoUnderflow a b >>= Z.mkNot
+      -- underflow <- Z.mkAnd[negRes, y]
+      Z.mkOr [overflow, underflow]
 
 -- Returns Nothing if UNSAT, or a string description of the model.
 evalZ3 :: TermBool -> IO (Maybe String)

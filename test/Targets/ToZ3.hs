@@ -110,6 +110,19 @@ tySmtToZ3Tests = benchTestGroup
       ]
     )
     Z3.Sat
+  , genOverflowTest "smult overflow"     Smt.BvSmulo 4 (-4) (-2) True
+  , genOverflowTest "smult no overflow"  Smt.BvSmulo 4 (-7) (-1) False
+  , genOverflowTest "smult no overflow+" Smt.BvSmulo 4 7    1    False
+  , genOverflowTest "smult underflow"    Smt.BvSmulo 4 (-3) 3    True
+  , genOverflowTest "smult no underflow" Smt.BvSmulo 4 (-4) 2    False
+  , genOverflowTest "sadd overflow"      Smt.BvSaddo 4 4    4    True
+  , genOverflowTest "sadd no overflow"   Smt.BvSaddo 4 (-6) (-1) False
+  , genOverflowTest "sadd underflow"     Smt.BvSaddo 4 (-4) (-5) True
+  , genOverflowTest "sadd no underflow"  Smt.BvSaddo 4 (-4) (-4) False
+  , genOverflowTest "ssub overflow"      Smt.BvSsubo 4 4    (-4) True
+  , genOverflowTest "ssub no overflow"   Smt.BvSsubo 4 4    (-3) False
+  , genOverflowTest "ssub underflow"     Smt.BvSsubo 4 (-4) 5    True
+  , genOverflowTest "ssub no underflow"  Smt.BvSsubo 4 (-4) 4    False
   , genZ3Test
     True
     "sort error eq"
@@ -174,3 +187,14 @@ tySmtToZ3Tests = benchTestGroup
   bv4    = Smt.DynBvLit . Bv.bitVec 4
   zArray = Smt.ConstArray @Smt.DynBvSort (Smt.SortBv 3) (bv3 0)
   aVar   = Smt.mkVar "a" (Smt.SortArray (Smt.SortBv 3) (Smt.SortBv 3))
+  genOverflowTest
+    :: String -> Smt.BvBinPred -> Int -> Integer -> Integer -> Bool -> BenchTest
+  genOverflowTest name o w a b overflows = genZ3Test
+    False
+    name
+    (Smt.DynBvBinPred o
+                      w
+                      (Smt.DynBvLit $ Bv.bitVec w a)
+                      (Smt.DynBvLit $ Bv.bitVec w b)
+    )
+    (if overflows then Z3.Sat else Z3.Unsat)

@@ -78,6 +78,7 @@ module IR.SMT.TySmt
   , sort
   , ComputableFp
   , dynBvWidth
+  , bvWidth
   , asVarName
   , mkVar
   , sortDouble
@@ -569,6 +570,9 @@ dynBvWidth t = case t of
   Select a _    -> case sort a of
     SortArray _ (SortBv w) -> w
     _                      -> throw $ SortError "Invalid array sort"
+
+bvWidth :: forall n. KnownNat n => Term (BvSort n) -> Int
+bvWidth _ = fromIntegral $ natVal $ Proxy @n
 
 sort :: forall s . SortClass s => Term s -> Sort
 sort t = case sorted @s of
