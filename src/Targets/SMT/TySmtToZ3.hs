@@ -25,10 +25,13 @@ import qualified Data.Binary.IEEE754           as IEEE754
 import           Data.Bits
 import qualified Data.BitVector                as Bv
 import           Data.Char                      ( digitToInt )
-import           Data.List                      ( foldl' )
+import           Data.List                      ( foldl'
+                                                , isInfixOf
+                                                )
 import           Data.List.Split                ( splitOn )
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
+import           Data.Maybe                     ( catMaybes )
 import           Data.Proxy                     ( Proxy(..) )
 import           GHC.TypeLits
 import           IR.SMT.TySmt
@@ -300,12 +303,12 @@ toZ3 t = case t of
       Z.mkAnd [x, y] >>= Z.mkNot
     BvSmulo -> \a b -> do
       let w' = 2 * w
-      a' <- Z.mkSignExt w a
-      b' <- Z.mkSignExt w b
-      p <- Z.mkBvmul a' b'
-      maxP <- Z.mkBvNum w' ((2::Integer) ^ (w - 1) - 1)
-      minP <- Z.mkBvNum w' (negate $ (2::Integer) ^ (w - 1))
-      overflow <- Z.mkBvsgt p maxP
+      a'        <- Z.mkSignExt w a
+      b'        <- Z.mkSignExt w b
+      p         <- Z.mkBvmul a' b'
+      maxP      <- Z.mkBvNum w' ((2 :: Integer) ^ (w - 1) - 1)
+      minP      <- Z.mkBvNum w' (negate $ (2 :: Integer) ^ (w - 1))
+      overflow  <- Z.mkBvsgt p maxP
       underflow <- Z.mkBvslt p minP
       -- NB: This seems like it really should work, but Z3 gives the wrong
       -- result, claiming that (-7) * (-1) overflows in 4 signed bits.
@@ -375,20 +378,21 @@ evalZ3Model term = do
       let modelLines = splitOn "\n" str
       vs <- forM (init modelLines) $ \line ->
         return $ case splitOn " -> " line of
-          [var, "true" ] -> (var, BVal True)
-          [var, "false"] -> (var, BVal False)
+          [var, "true" ] -> Just (var, BVal True)
+          [var, "false"] -> Just (var, BVal False)
           [var, strVal] ->
             let maybeVal = drop 1 strVal
             in
               case maybeVal of
               -- Special values
-                '_' : ' ' : '-' : 'z' : 'e' : 'r' : 'o' : _ -> (var, NegZ)
-                '_' : ' ' : '+' : 'z' : 'e' : 'r' : 'o' : _ -> (var, DVal 0)
-                '_' : ' ' : 'N' : 'a' : 'N' : _ -> (var, NaN)
+                '_' : ' ' : '-' : 'z' : 'e' : 'r' : 'o' : _ -> Just (var, NegZ)
+                '_' : ' ' : '+' : 'z' : 'e' : 'r' : 'o' : _ ->
+                  Just (var, DVal 0)
+                '_' : ' ' : 'N' : 'a' : 'N' : _ -> Just (var, NaN)
                  -- Binary
-                'b' : n -> (var, IVal $ readBin n)
+                'b' : n -> Just (var, IVal $ readBin n)
                  -- Hex
-                'x' : _ -> (var, IVal (read ('0' : maybeVal) :: Int))
+                'x' : _ -> Just (var, IVal (read ('0' : maybeVal) :: Int))
                 -- Non-special floating point
                 'f' : 'p' : ' ' : rest ->
                   let
@@ -402,11 +406,16 @@ evalZ3Model term = do
                         .|. ((exp .&. 0x7ff) `shiftL` 52)
                         .|. ((sign .&. 0x1) `shiftL` 63)
                   in
-                    (var, DVal $ IEEE754.wordToDouble $ fromIntegral result)
+                    Just
+                      (var, DVal $ IEEE754.wordToDouble $ fromIntegral result)
+                -- Array, skip.
+                _ | "as const" `isInfixOf` maybeVal -> Nothing
                 -- Did not recognize the pattern
                 _ -> error $ unwords ["Bad line", show line]
-          _ -> error $ unwords ["Bad model", show model]
-      return $ Map.fromList vs
+          -- Damn arrays
+          _ -> Nothing
+          --_ -> error $ unwords ["Bad model", show model]
+      return $ Map.fromList $ catMaybes vs
  where
   readBin :: String -> Int
   readBin = foldr

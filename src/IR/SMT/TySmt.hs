@@ -571,7 +571,7 @@ dynBvWidth t = case t of
     SortArray _ (SortBv w) -> w
     _                      -> throw $ SortError "Invalid array sort"
 
-bvWidth :: forall n. KnownNat n => Term (BvSort n) -> Int
+bvWidth :: forall n . KnownNat n => Term (BvSort n) -> Int
 bvWidth _ = fromIntegral $ natVal $ Proxy @n
 
 sort :: forall s . SortClass s => Term s -> Sort

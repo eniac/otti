@@ -181,10 +181,11 @@ asVar t = case term t of
   CFloat  t'  -> Ty.asVarName t'
   _           -> error $ "Var name unsupported for " ++ show t
 
-data CTerm = CTerm { term :: CTermData
-                   , udef :: Ty.TermBool
-                   }
-                   deriving (Show, Eq)
+data CTerm = CTerm
+  { term :: CTermData
+  , udef :: Ty.TermBool
+  }
+  deriving (Show, Eq)
 
 -- Checks widths
 mkCTerm :: CTermData -> Ty.TermBool -> CTerm
@@ -378,7 +379,7 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
                    mUserName
       return t
     Type.Float -> liftAssert $ do
-      t <- CDouble <$> Assert.newVar smtName Ty.sortFloat
+      t <- CFloat <$> Assert.newVar smtName Ty.sortFloat
       getBaseInput (error "nyi: float input") (Ty.ValFloat 0) smtName mUserName
       return t
     Type.Array (Just size) innerTy -> do
@@ -724,20 +725,31 @@ cWrapUnArith
      => Ty.Term (Ty.FpSort f)
      -> Ty.Term (Ty.FpSort f)
      )
+  -> Maybe (Bool -> Bv -> Maybe Ty.TermBool)
   -> CTerm
   -> CTerm
-cWrapUnArith name bvF doubleF a =
-  let t = case term $ integralPromotion a of
-        CDouble d  -> CDouble $ doubleF d
-        CInt _ w i -> CInt True w $ bvF i
+cWrapUnArith name bvF doubleF ubF a =
+  let (t, u) = case term $ integralPromotion a of
+        CDouble d  -> (CDouble $ doubleF d, Nothing)
+        CInt s w i -> (CInt True w $ bvF i, join $ ubF <*> pure s <*> pure i)
         _          -> error $ unwords ["Cannot do", name, "on", show a]
-  in  mkCTerm t (udef a)
+  in  mkCTerm t $ maybe (udef a) (binOr $ udef a) u
 
 cPos, cNeg, cBitNot :: CTerm -> CTerm
-cPos = cWrapUnArith "unary +" id id
-cNeg =
-  cWrapUnArith "unary -" (Ty.mkDynBvUnExpr Ty.BvNeg) (Ty.FpUnExpr Ty.FpNeg)
-cBitNot = cWrapUnArith "~" (Ty.mkDynBvUnExpr Ty.BvNot) (Ty.FpUnExpr Ty.FpNeg)
+cPos = cWrapUnArith "unary +" id id Nothing
+cNeg = cWrapUnArith "unary -"
+                    (Ty.mkDynBvUnExpr Ty.BvNeg)
+                    (Ty.FpUnExpr Ty.FpNeg)
+                    (Just notMin)
+ where
+  notMin s i = if s
+    then
+      let w      = Ty.dynBvWidth i
+          intMin = Mem.bvNum True w (negate $ (2 :: Integer) ^ (w - 1))
+      in  Just $ Ty.mkEq i intMin
+    else Nothing
+cBitNot =
+  cWrapUnArith "~" (Ty.mkDynBvUnExpr Ty.BvNot) (Ty.FpUnExpr Ty.FpNeg) Nothing
 
 cWrapBinLogical
   :: String
@@ -751,8 +763,8 @@ cWrapBinLogical name f a b =
       mkCTerm (CBool $ f a' b') (Ty.BoolNaryExpr Ty.Or [udef a, udef b])
     _ -> error $ unwords ["Cannot do", name, "on", show a, "and", show b]
 cOr, cAnd :: CTerm -> CTerm -> CTerm
-cOr = cWrapBinLogical "||" (((.) . (.)) (Ty.BoolNaryExpr Ty.Or) doubleton)
-cAnd = cWrapBinLogical "&&" (((.) . (.)) (Ty.BoolNaryExpr Ty.And) doubleton)
+cOr = cWrapBinLogical "||" binOr
+cAnd = cWrapBinLogical "&&" binAnd
 
 cWrapUnLogical :: String -> (Ty.TermBool -> Ty.TermBool) -> CTerm -> CTerm
 cWrapUnLogical name f a = case term $ cCast Type.Bool a of
@@ -842,10 +854,15 @@ cCast toTy node = case term node of
     _           -> error $ unwords ["Bad cast from", show t, "to", show toTy]
   CInt fromS fromW t -> case toTy of
     _ | Type.isIntegerType toTy ->
-      let toW = Type.numBits toTy
-          toS = Type.isSignedInt toTy
-          t'  = intResize fromS toW t
-      in  mkCTerm (CInt toS toW t') (udef node)
+      let
+        toW = Type.numBits toTy
+        toS = Type.isSignedInt toTy
+        t'  = intResize fromS toW t
+        u   = if toS && toW < fromW
+          then binOr (udef node) (Ty.Not $ Ty.mkEq t (intResize toS fromW t'))
+          else udef node
+      in
+        mkCTerm (CInt toS toW t') u
     Type.Double -> mkCTerm
       (CDouble $ (if fromS then Ty.DynSbvToFp else Ty.DynUbvToFp) t)
       (udef node)
@@ -966,8 +983,14 @@ ctermGetVars name t = do
     CArray _elemTy id -> do
       size <- Mem.getSize id
       fmap Set.unions $ forM [0 .. (size - 1)] $ \i -> do
-        off  <- fmap snd $ cLoad $ cAdd (arrayToPointer t) $ cIntLit Type.S32 $ toInteger i
-        liftLog $ logIf "outputs::debug" $ unwords ["Idx", show i, ":", show off]
+        off <-
+          fmap snd
+          $ cLoad
+          $ cAdd (arrayToPointer t)
+          $ cIntLit Type.S32
+          $ toInteger i
+        liftLog $ logIf "outputs::debug" $ unwords
+          ["Idx", show i, ":", show off]
         let elemName = name ++ "." ++ show i
         off' <- liftAssert $ alias False elemName off
         liftAssert $ cSetValues False elemName off
@@ -985,8 +1008,11 @@ ctermIsUndef t = case term t of
   CStruct _ l -> Ty.BoolNaryExpr Ty.Or $ map (ctermIsUndef . snd) l
   _           -> error $ "nyi: ctermGetVars: " ++ show t
 
-doubleton :: a -> a -> [a]
-doubleton x y = [x, y]
+binOr :: Ty.TermBool -> Ty.TermBool -> Ty.TermBool
+binOr a b = Ty.BoolNaryExpr Ty.Or [a, b]
+
+binAnd :: Ty.TermBool -> Ty.TermBool -> Ty.TermBool
+binAnd a b = Ty.BoolNaryExpr Ty.And [a, b]
 
 cTrue :: CTerm
 cTrue = mkCTerm (CBool $ Ty.BoolLit True) (Ty.BoolLit False)

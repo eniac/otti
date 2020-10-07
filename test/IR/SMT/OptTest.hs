@@ -11,6 +11,8 @@ import qualified Data.Set                      as Set
 import           IR.SMT.TySmt
 import           Test.Tasty.HUnit
 import qualified Util.ShowMap                  as SMap
+import           Util.Cfg
+import           Util.Log
 
 
 constantFree :: SortClass s => Term s -> Bool
@@ -45,7 +47,9 @@ mkCFoldTest name original mExpected =
 mkEqElimTest :: String -> Set.Set String -> [TermBool] -> Int -> BenchTest
 mkEqElimTest name protected original nExpected =
   benchTestCase (if null name then show original else name) $ do
-    let actual = eqElim (newOptMetadata protected SMap.empty) original
+    actual <- evalCfgDefault $ evalLog $ eqElim
+      (newOptMetadata protected SMap.empty)
+      original
     when (nExpected /= length actual) $ forM_ actual print
     nExpected @=? length actual
 

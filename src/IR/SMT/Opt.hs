@@ -403,7 +403,13 @@ flattenAndsOpt = Opt { fn   = \_ ts -> return $ concatMap flattenAnds ts
 opts :: Map.Map String Opt
 opts = Map.fromList
   [ (name o, o)
-  | o <- [eqElimOpt, constantFoldOpt, constantFoldEqOpt, arrayElimOpt, flattenAndsOpt]
+  | o <-
+    [ eqElimOpt
+    , constantFoldOpt
+    , constantFoldEqOpt
+    , arrayElimOpt
+    , flattenAndsOpt
+    ]
   ]
 
 logAssertions :: String -> [TermBool] -> Log ()

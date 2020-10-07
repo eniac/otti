@@ -121,13 +121,7 @@ getExistingFilePath :: Arguments -> Option -> Cfg FilePath
 getExistingFilePath a o = do
   p <- getArgOrExit a o
   e <- liftIO $ doesFileExist p
-  if e
-    then return p
-    else
-      error
-      $  "File "
-      ++ show p
-      ++ " does not exist"
+  if e then return p else error $ "File " ++ show p ++ " does not exist"
 
 checkProcess :: FilePath -> [String] -> String -> IO ()
 checkProcess pgm args input = do

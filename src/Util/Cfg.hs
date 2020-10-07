@@ -64,7 +64,8 @@ data CCfg = CCfg { _printfOutput :: Bool
                  , _pequinIo :: Bool
                  } deriving (Show)
 
-defaultCCfg = CCfg { _printfOutput = True, _svExtensions = False, _pequinIo = False }
+defaultCCfg =
+  CCfg { _printfOutput = True, _svExtensions = False, _pequinIo = False }
 
 $(makeLenses ''CCfg)
 
@@ -168,11 +169,12 @@ options =
               "Perform constant folding during Smt substitutions"
               ""
               "False"
-  , CfgOption (smtOptCfg . smtOpts . commaListLens)
-              "smt-opts"
-              "Optimizations to perform over the Smt formula"
-              "A comma-separated list. Options: {cfee, ee, cf, arrayElim, flattenAnds}"
-              "cfee,ee,arrayElim,flattenAnds,cfee,ee"
+  , CfgOption
+    (smtOptCfg . smtOpts . commaListLens)
+    "smt-opts"
+    "Optimizations to perform over the Smt formula"
+    "A comma-separated list. Options: {cfee, ee, cf, arrayElim, flattenAnds}"
+    "cfee,ee,arrayElim,flattenAnds,cfee,ee"
   , CfgOption (streams . commaListLens)
               "streams"
               "Debug streams to emit"
@@ -194,12 +196,11 @@ options =
     "Apply sv conventions"
     "Handle __VERIFIER_error, __VERIFIER_assert, __VERIFIER_assume, __VERIFIER_nondet_<type> in accordance with the competition"
     "False"
-  , CfgOption
-    (cCfg . pequinIo . showReadLens)
-    "pequin-io"
-    "Use pequin IO conventions"
-    "Input is a struct In *, output is a struct Out *"
-    "False"
+  , CfgOption (cCfg . pequinIo . showReadLens)
+              "pequin-io"
+              "Use pequin IO conventions"
+              "Input is a struct In *, output is a struct Out *"
+              "False"
   , CfgOption (help . showReadLens)
               "help"
               "Prints cfg help and exits"

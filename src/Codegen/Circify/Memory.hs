@@ -210,13 +210,13 @@ stackAllocCons idxWidth' elems =
       valWidth' = Ty.dynBvWidth $ head elems
       base      = Ty.ConstArray (Ty.SortBv idxWidth') (bvNum False valWidth' 0)
       m =
-        foldl
-            (\a (i, e) -> if Ty.dynBvWidth e == valWidth'
-              then Ty.mkStore a (Ty.DynBvLit $ Bv.bitVec idxWidth' i) e
-              else error $ "Bad size: " ++ show e
-            )
-            base
-          $ zip [(0 :: Integer) ..] elems
+          foldl
+              (\a (i, e) -> if Ty.dynBvWidth e == valWidth'
+                then Ty.mkStore a (Ty.DynBvLit $ Bv.bitVec idxWidth' i) e
+                else error $ "Bad size: " ++ show e
+              )
+              base
+            $ zip [(0 :: Integer) ..] elems
   in  do
         modify $ \st -> st { sizes = SMap.insert base s $ sizes st }
         stackAlloc m s idxWidth' valWidth'

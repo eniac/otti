@@ -53,8 +53,8 @@ cParseIntTypeLength l = case l of
   -- Not quite right
   []                         -> Just 32
   [CIntType{} ]              -> Just 32
-  [CLongType{}]              -> Just 32
-  [CLongType{}, CIntType{} ] -> Just 32
+  [CLongType{}]              -> Just 64
+  [CLongType{}, CIntType{} ] -> Just 64
   [CLongType{}, CLongType{}] -> Just 64
   [CLongType{}, CLongType{}, CIntType{}] -> Just 64
   _                          -> Nothing
@@ -90,8 +90,7 @@ parseBaseTy ty = case ty of
       listMaybeEntryLists <- mapM cSplitDeclaration decls
       let entries = concat <$> sequence listMaybeEntryLists
           s       = Struct . map (\(id, ty, _) -> (id, ty)) <$> entries
-      forM_ s
-        $ \s -> forM_ mIdent $ \i -> defStruct (identToVarName i) s
+      forM_ s $ \s -> forM_ mIdent $ \i -> defStruct (identToVarName i) s
       return s
     Nothing -> case mIdent of
       Just ident ->
@@ -236,3 +235,4 @@ isAlignSpec _            = False
 isTypedef :: CStorageSpecifier a -> Bool
 isTypedef CTypedef{} = True
 isTypedef _          = False
+

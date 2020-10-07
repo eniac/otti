@@ -40,13 +40,14 @@ import           Util.Control
 import           Util.Log
 
 
-data CState = CState { funs          :: Map.Map FunctionName CFunDef
-                     , loopBound     :: Int
-                     , findUB        :: Bool
-                     , bugConditions :: [Ty.TermBool]
-                     , assumptions   :: [Ty.TermBool]
-                     , nonDetCtr     :: Int
-                     }
+data CState = CState
+  { funs          :: Map.Map FunctionName CFunDef
+  , loopBound     :: Int
+  , findUB        :: Bool
+  , bugConditions :: [Ty.TermBool]
+  , assumptions   :: [Ty.TermBool]
+  , nonDetCtr     :: Int
+  }
 
 newtype C a = C (StateT CState (Circify Type CTerm) a)
     deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem, MonadCircify Type CTerm, MonadCfg)
@@ -95,6 +96,7 @@ getFunction funName = do
 -- Record that a bug happens if some condition is met (on this path!)
 bugIf :: Ty.TermBool -> C ()
 bugIf c = do
+  liftLog $ logIf "bugIf" $ "Bug if: " ++ show c
   g <- liftCircify getGuard
   modify $ \s ->
     s { bugConditions = Ty.BoolNaryExpr Ty.And [g, c] : bugConditions s }
@@ -145,9 +147,28 @@ ssaStructSet n = liftTermFun2 "cStructSet" (cStructSet n)
 genVar :: Ident -> C CSsaVal
 genVar (Ident name _ _) = liftCircify $ getTerm $ SLVar name
 
+-- https://en.cppreference.com/w/c/language/integer_constant
+cIntConstant :: Integer -> Flags CIntFlag -> CTerm
+cIntConstant i fs = case tys of
+  ty : _ -> cIntLit ty i
+  []     -> error $ show i ++ " does not fit in any int type"
+ where
+  l   = testFlag FlagLong fs
+  ll  = testFlag FlagLongLong fs
+  s   = not $ testFlag FlagUnsigned fs
+  two = 2 :: Integer
+  fitsIn i t =
+    let n = numBits t
+    in  if isSignedInt t
+          then (i >= -(two ^ (n - 1))) && i < (two ^ (n - 1))
+          else i >= 0 && i < (two ^ n)
+  tys = filter (fitsIn i) $ map (flip makeIntTy s) $ filter
+    (\size -> (not l && not ll) || size >= 64)
+    [32, 64]
+
 genConst :: CConst -> C CTerm
 genConst c = case c of
-  CIntConst  (CInteger i _ _) _ -> return $ cIntLit S32 i
+  CIntConst  (CInteger i _ f) _ -> return $ cIntConstant i f
   CCharConst (CChar c _     ) _ -> return $ cIntLit S8 $ toInteger $ Char.ord c
   CCharConst CChars{}         _ -> error "Chars const unsupported"
   CFloatConst (Language.C.Syntax.Constants.CFloat str) _ ->
@@ -240,16 +261,22 @@ genSpecialFunction fnName args = do
   case fnName of
     "printf" | specifialPrintf -> do
       -- skip fstring
-      when bugs $ forM_ (tail args) (bugIf . ssaBool)
+      when bugs $ forM_ (tail args) (bugIf . udef . ssaValAsTerm "printf udef")
       -- Not quite right. Should be # chars.
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_error" | svExtensions -> do
+      when bugs $ bugIf (Ty.BoolLit True)
+      return $ Just $ Base $ cIntLit S32 1
+    "reach_error" | svExtensions -> do
       when bugs $ bugIf (Ty.BoolLit True)
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_assert" | svExtensions -> do
       when bugs $ bugIf $ Ty.Not $ ssaBool $ head args
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_assume" | svExtensions -> do
+      when bugs $ assume $ ssaBool $ head args
+      return $ Just $ Base $ cIntLit S32 1
+    "assume_abort_if_not" | svExtensions -> do
       when bugs $ assume $ ssaBool $ head args
       return $ Just $ Base $ cIntLit S32 1
     _ | isNonDet fnName -> do
@@ -263,11 +290,15 @@ genSpecialFunction fnName args = do
  where
   nonDetTy :: String -> Type
   nonDetTy s = case drop (length "__VERIFIER_nondet_") s of
-    "int"   -> S32
-    "uint"  -> U32
-    "long"  -> S64
-    "ulong" -> U64
-    _       -> error $ "Unknown nondet suffix in: " ++ s
+    "char"   -> S8
+    "uchar"  -> U8
+    "int"    -> S32
+    "uint"   -> U32
+    "long"   -> S64
+    "ulong"  -> U64
+    "float"  -> Float
+    "double" -> Double
+    _        -> error $ "Unknown nondet suffix in: " ++ s
   isNonDet = List.isPrefixOf "__VERIFIER_nondet_"
 
 genExpr :: CExpr -> C CSsaVal
@@ -581,7 +612,9 @@ pequinTeardown :: C ()
 pequinTeardown = do
   outTerm <- liftCircify $ getTerm (SLVar pequinOutGlobalName)
   liftLog $ logIf "pequin" "Done with pequin teardown"
-  pubVars <- liftMem $ ctermGetVars pequinOutGlobalName $ ssaValAsTerm "pequin return" outTerm
+  pubVars <- liftMem $ ctermGetVars pequinOutGlobalName $ ssaValAsTerm
+    "pequin return"
+    outTerm
   liftAssert $ forM_ (Set.toList pubVars) Assert.publicize
 
 ---
@@ -609,7 +642,10 @@ genFunDef f = do
       forM_ returnValue $ \rv -> do
         pubVars <- liftMem $ ctermGetVars "return" rv
         liftAssert $ forM_ (Set.toList pubVars) Assert.publicize
-      whenM (gets findUB) $ forM_ returnValue $ \r -> bugIf $ ctermIsUndef r
+      svExtensions <- Cfg.liftCfg $ asks (Cfg._svExtensions . Cfg._cCfg)
+      ub           <- gets findUB
+      when (ub && not svExtensions) $ forM_ returnValue $ \r ->
+        bugIf $ ctermIsUndef r
 
 genAsm :: CStringLiteral a -> C ()
 genAsm = undefined
