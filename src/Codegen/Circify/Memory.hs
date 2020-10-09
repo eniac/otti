@@ -199,8 +199,13 @@ stackAlloc array' size' idxWidth' valWidth' = do
                      , nextVer  = 0
                      , size     = size'
                      }
-  v <- liftAssert $ Assert.newVar @MemSort (arrayName i a) (arraySort a)
-  liftAssert $ Assert.assign v array'
+  liftAssert $ do
+    let name = arrayName i a
+    v <- Assert.newVar @MemSort name (arraySort a)
+    Assert.assign v array'
+    Assert.evalAndSetValue @MemSort name $ Ty.ConstArray
+      (Ty.SortBv idxWidth')
+      (Ty.DynBvLit $ Bv.bitVec valWidth' (0 :: Integer))
   modify $ \s -> s { stackAllocations = Map.insert i a $ stackAllocations s }
   return i
 
@@ -269,8 +274,12 @@ stackStore id offset value guard = do
     ++ show value
   let a      = Ty.mkVar (arrayName id alloc) (arraySort alloc)
       alloc' = alloc { nextVer = 1 + nextVer alloc }
-  a' <- liftAssert $ Assert.newVar (arrayName id alloc') (arraySort alloc')
-  liftAssert $ Assert.assign a' $ Ty.mkIte guard (Ty.mkStore a offset value) a
+  let name = arrayName id alloc'
+  liftAssert $ do
+    a' <- Assert.newVar name (arraySort alloc')
+    let ite = Ty.mkIte guard (Ty.mkStore a offset value) a
+    Assert.assign a' ite
+    Assert.evalAndSetValue name ite
   modify
     $ \s -> s { stackAllocations = Map.insert id alloc' $ stackAllocations s }
 

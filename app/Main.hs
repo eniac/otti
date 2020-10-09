@@ -27,6 +27,7 @@ import qualified Codegen.Circom.CompTypes      as CompT
 import qualified Codegen.Circom.Linking        as Link
 import           Control.Monad
 import           Control.Monad.IO.Class
+import qualified Targets.SMT.TySmtToZ3         as ToZ3
 import qualified IR.R1cs                       as R1cs
 import qualified IR.R1cs.Opt                   as Opt
 import qualified Parser.Circom.Inputs          as Parse
@@ -234,17 +235,22 @@ cmdVerify = ((.) . (.) . (.) . (.)) liftIO runVerify
 
 cmdCCheck :: String -> FilePath -> Cfg ()
 cmdCCheck name path = do
-  tu       <- liftIO $ parseC path
-  bugModel <- checkFn tu name
-  liftIO $ case bugModel of
-    Just s -> forM_ (Map.toList s)
-      $ \(k, v) -> liftIO $ putStrLn $ unwords [k, ":", show v]
-    Nothing -> putStrLn "No bug"
+  tu  <- liftIO $ parseC path
+  res <- evalLog $ do
+    res <- checkFn tu name
+    logIf "time::z3" $ "Z3 Time: " ++ show (ToZ3.time res)
+    return res
+  if ToZ3.sat res
+    then do
+      liftIO $ putStrLn "Bug!"
+      forM_ (Map.toList $ ToZ3.model res)
+        $ \(k, v) -> liftIO $ putStrLn $ unwords [k, ":", show v]
+    else liftIO $ putStrLn "No bug!"
 
 cmdCEval :: String -> FilePath -> Cfg ()
 cmdCEval name path = do
   tu <- liftIO $ parseC path
-  r  <- evalFn False tu name
+  r  <- evalLog $ evalFn False tu name
   forM_ (Map.toList r) $ \(k, v) -> liftIO $ putStrLn $ unwords [k, ":", show v]
 
 cmdCEmitR1cs :: Bool -> String -> FilePath -> FilePath -> Cfg ()
@@ -303,9 +309,10 @@ cmdCCheckProve
   -> Cfg ()
 cmdCCheckProve libsnark pkPath vkPath _inPath xPath wPath pfPath fnName cPath =
   do
-    tu       <- liftIO $ parseC cPath
-    bugModel <- checkFn tu fnName
-    let r     = Maybe.fromMaybe (error "No bug") bugModel
+    tu  <- liftIO $ parseC cPath
+    res <- evalLog $ checkFn tu fnName
+    unless (ToZ3.sat res) $ error "No bug!"
+    let r     = ToZ3.model res
         inMap = modelMapToExtMap r
     liftIO $ forM_ (Map.toList r) $ \(k, v) ->
       liftIO $ putStrLn $ unwords [k, ":", show v]

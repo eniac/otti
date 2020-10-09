@@ -9,9 +9,7 @@ import           Codegen.C
 import           Control.Monad
 import           Data.Either                    ( isRight )
 import qualified Data.Map                      as M
-import           Data.Maybe                     ( fromJust
-                                                , isJust
-                                                )
+import           Data.Maybe                     ( fromJust )
 import qualified Data.Set                      as Set
 import           IR.R1cs                        ( r1csCheck )
 import           IR.SMT.Assert                  ( AssertState(..)
@@ -25,6 +23,7 @@ import           IR.SMT.ToPf                    ( toPf )
 import qualified IR.SMT.TySmt                  as Ty
 import           Parser.C
 import           Test.Tasty.HUnit
+import           Targets.SMT.TySmtToZ3
 import           Util.Log
 import qualified Util.ShowMap                  as SMap
 import           Util.Cfg                       ( evalCfgDefault )
@@ -59,8 +58,8 @@ toSmtTests = benchTestGroup "SMT conversion" []
 ubCheckTest :: String -> String -> FilePath -> Bool -> BenchTest
 ubCheckTest name fnName path undef = benchTestCase name $ do
   tu <- parseC path
-  r  <- evalCfgDefault $ checkFn tu fnName
-  undef @=? isJust r
+  r  <- evalCfgDefault $ evalLog $ checkFn tu fnName
+  undef @=? sat r
 
 ubTests = benchTestGroup
   "UB Checks"

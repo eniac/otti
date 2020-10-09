@@ -51,6 +51,7 @@ library:
   - deepseq >= 1.4.4 && < 1.5
   - unordered-containers >= 0.2.10 && < 0.3
   - hashable >= 1.2.7 && < 1.3
+  - time >= 1.8 && < 1.9
 
 executables:
   compiler-exe:

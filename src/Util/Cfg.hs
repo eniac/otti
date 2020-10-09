@@ -37,6 +37,7 @@ import           Lens.Simple
 data SmtOptCfg = SmtOptCfg { _allowSubBlowup :: Bool
                            , _cFoldInSub     :: Bool
                            , _smtOpts        :: [String]
+                           , _optForZ3       :: Bool
                            } deriving (Show)
 
 defaultSmtOptCfg :: SmtOptCfg
@@ -44,6 +45,7 @@ defaultSmtOptCfg = SmtOptCfg
   { _allowSubBlowup = False
   , _cFoldInSub     = True
   , _smtOpts        = ["cfee", "ee", "arrayElim", "flattenAnds", "cfee", "ee"]
+  , _optForZ3       = False
   }
 
 $(makeLenses ''SmtOptCfg)
@@ -175,6 +177,12 @@ options =
     "Optimizations to perform over the Smt formula"
     "A comma-separated list. Options: {cfee, ee, cf, arrayElim, flattenAnds}"
     "cfee,ee,arrayElim,flattenAnds,cfee,ee"
+  , CfgOption
+    (smtOptCfg . optForZ3 . showReadLens)
+    "opt-z3"
+    "Optimize the z3 inputs"
+    ""
+    "False"
   , CfgOption (streams . commaListLens)
               "streams"
               "Debug streams to emit"

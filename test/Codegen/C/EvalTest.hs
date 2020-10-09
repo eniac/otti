@@ -11,6 +11,7 @@ import           Targets.SMT.TySmtToZ3          ( Val
 import           Parser.C
 import           Test.Tasty.HUnit
 import           Util.Cfg                       ( evalCfgDefault )
+import           Util.Log                       ( evalLog )
 
 i = i_
 b = b_
@@ -383,7 +384,7 @@ constraintValueTest
   :: String -> String -> FilePath -> [(String, Val)] -> BenchTest
 constraintValueTest name fnName path expected = benchTestCase name $ do
   tu <- parseC path
-  r  <- evalCfgDefault $ evalFn False tu fnName
+  r  <- evalCfgDefault $ evalLog $ evalFn False tu fnName
   forM_ expected $ \(evar, eval) -> do
     case M.lookup evar r of
       Just aval -> eval @=? aval

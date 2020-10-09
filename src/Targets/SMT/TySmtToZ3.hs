@@ -2,8 +2,10 @@
 {-# LANGUAGE ScopedTypeVariables    #-}
 {-# LANGUAGE TypeApplications       #-}
 {-# LANGUAGE TypeOperators          #-}
+{-# LANGUAGE TupleSections          #-}
 module Targets.SMT.TySmtToZ3
   ( toZ3
+  , Z3Result(..)
   , valToZ3
   , sortToZ3
   , evalZ3
@@ -21,6 +23,7 @@ where
 import           Control.Monad                  ( forM
                                                 , foldM
                                                 )
+import           Control.Monad.IO.Class         ( liftIO )
 import qualified Data.Binary.IEEE754           as IEEE754
 import           Data.Bits
 import qualified Data.BitVector                as Bv
@@ -33,10 +36,14 @@ import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
 import           Data.Maybe                     ( catMaybes )
 import           Data.Proxy                     ( Proxy(..) )
+import           Data.Time.Clock.System         ( getSystemTime
+                                                , SystemTime(..)
+                                                )
 import           GHC.TypeLits
 import           IR.SMT.TySmt
 import           Z3.Monad                       ( MonadZ3 )
 import qualified Z3.Monad                      as Z
+import           Util.Log
 
 sortToZ3 :: forall z . MonadZ3 z => Sort -> z Z.Sort
 sortToZ3 s = case s of
@@ -366,15 +373,20 @@ instance Show Val where
   show NegZ     = "-0"
   show NaN      = "NaN"
 
+data Z3Result = Z3Result { time :: Double, sat :: Bool, model :: Map String Val}
+
 -- | Returns Nothing if UNSAT, or an association between variables and string if SAT
-evalZ3Model :: TermBool -> IO (Map String Val)
+evalZ3Model :: TermBool -> Log Z3Result
 evalZ3Model term = do
   -- We have to do this because the bindings are broken.
   -- Eventually we will just fix the bindings
-  model <- evalZ3 term
-  case model of
-    Nothing  -> return Map.empty
-    Just str -> do
+  -- liftIO $ putStrLn $ "Term: " ++ show (length $ show term)
+  start     <- liftIO $ getSystemTime
+  model     <- liftIO $ ((length $ show term) `seq` evalZ3 term)
+  end       <- liftIO $ getSystemTime
+  (m, sat') <- case model of
+    Nothing  -> return (Map.empty, False)
+    Just str -> (, True) <$> do
       let modelLines = splitOn "\n" str
       vs <- forM (init modelLines) $ \line ->
         return $ case splitOn " -> " line of
@@ -416,6 +428,8 @@ evalZ3Model term = do
           _ -> Nothing
           --_ -> error $ unwords ["Bad model", show model]
       return $ Map.fromList $ catMaybes vs
+  let seconds = (fromInteger (tDiffNanos end start) :: Double) / 1.0e9
+  return Z3Result { time = seconds, sat = sat', model = m }
  where
   readBin :: String -> Int
   readBin = foldr
@@ -426,6 +440,12 @@ evalZ3Model term = do
     0
   toDec :: String -> Integer
   toDec = foldl' (\acc x -> acc * 2 + fromIntegral (digitToInt x)) 0
+tDiffNanos :: SystemTime -> SystemTime -> Integer
+tDiffNanos a b =
+  let sDiff = toInteger (systemSeconds a) - toInteger (systemSeconds b)
+      nDiff = toInteger (systemNanoseconds a) - toInteger (systemNanoseconds b)
+  in  sDiff * ((10 :: Integer) ^ (9 :: Integer)) + nDiff
+
 
 asInteger :: Val -> Integer
 asInteger v = case v of

@@ -13,6 +13,8 @@ import           Targets.SMT.TySmtToZ3
 import qualified IR.SMT.TySmt                  as Smt
 import           Test.Tasty.HUnit
 import qualified Z3.Monad                      as Z3
+import           Util.Cfg                       ( evalCfgDefault )
+import           Util.Log
 
 i = i_
 
@@ -34,10 +36,10 @@ genZ3Test isError name term result =
 
 genZ3ModelTest :: String -> Smt.TermBool -> [(String, Val)] -> BenchTest
 genZ3ModelTest name term modelEntries = benchTestCase ("eval " ++ name) $ do
-  model <- evalZ3Model term
+  model' <- model <$> (evalCfgDefault $ evalLog $ evalZ3Model term)
   forM_ modelEntries $ \(k, v) ->
-    fromMaybe (error $ unwords ["No model entry for", k, "in", show model])
-              (model Map.!? k)
+    fromMaybe (error $ unwords ["No model entry for", k, "in", show model'])
+              (model' Map.!? k)
       @=? v
 
 tySmtToZ3Tests :: BenchTest

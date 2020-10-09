@@ -1,11 +1,8 @@
 module Parser.CTest where
 import           BenchUtils
 import           Control.Monad                  ( unless )
-import           Data.Either                    ( fromLeft
-                                                , isRight
-                                                )
+import           Data.Either                    ( isRight )
 import           Parser.C
-import           Utils
 
 cParserTests :: BenchTest
 cParserTests = benchTestGroup "C parser" [testAdd, testMemcpy]
