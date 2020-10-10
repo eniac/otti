@@ -104,7 +104,7 @@ instance (MonadCfg m) => MonadCfg (StateT s m) where
   liftCfg = lift . liftCfg
 
 evalCfg :: Cfg a -> CfgState -> IO a
-evalCfg (Cfg action) = runReaderT action
+evalCfg (Cfg action) cfg = setFromEnv cfg >>= runReaderT action
 
 --TODO: This is helpful for getting stream output from tests. Worth it?
 evalCfgDefault :: Cfg a -> IO a
@@ -170,7 +170,7 @@ options =
               "smt-cfold-in-sub"
               "Perform constant folding during Smt substitutions"
               ""
-              "False"
+              "True"
   , CfgOption
     (smtOptCfg . smtOpts . commaListLens)
     "smt-opts"

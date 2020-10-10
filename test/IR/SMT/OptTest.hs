@@ -44,13 +44,21 @@ mkCFoldTest name original mExpected =
       Nothing -> return ()
     isReduced actual @? "Is reduced"
 
-mkEqElimTest :: String -> Set.Set String -> [TermBool] -> Int -> BenchTest
-mkEqElimTest name protected original nExpected =
+mkEqElimTest
+  :: Bool -> String -> Set.Set String -> [TermBool] -> Int -> BenchTest
+mkEqElimTest allowBlowup name protected original nExpected =
   benchTestCase (if null name then show original else name) $ do
-    actual <- evalCfgDefault $ evalLog $ eqElim
-      (newOptMetadata protected SMap.empty)
-      original
-    when (nExpected /= length actual) $ forM_ actual print
+    let elim = evalLog $ eqElim (newOptMetadata protected SMap.empty) original
+    actual <- evalCfg
+      elim
+      (defaultCfgState
+        { _smtOptCfg = (_smtOptCfg defaultCfgState) { _allowSubBlowup = allowBlowup
+                                                    }
+        }
+      )
+    when (nExpected /= length actual) $ do
+      putStrLn "Actual:"
+      forM_ actual $ \a -> putStrLn $ "  " ++ show a
     nExpected @=? length actual
 
 
@@ -118,11 +126,13 @@ optTests = benchTestGroup
     ]
   , benchTestGroup
     "equality elimination"
-    [ mkEqElimTest "one"
+    [ mkEqElimTest True
+                   "one"
                    (Set.fromList ["b", "c", "d"])
                    [Eq (v "a") (v "b"), Eq (v "a") (o [v "d", v "c"])]
                    1
     , mkEqElimTest
+      True
       "larger"
       (Set.fromList ["b", "d"])
       [ Eq (v "a") (o [v "d", v "c"])
@@ -131,6 +141,7 @@ optTests = benchTestGroup
       ]
       1
     , mkEqElimTest
+      True
       "larger2"
       (Set.fromList ["b", "c"])
       [ Eq (v "a") (o [v "d", v "c"])
@@ -138,6 +149,15 @@ optTests = benchTestGroup
       , Eq (v "d") (v "c")
       ]
       1
+    , mkEqElimTest
+      False
+      "larger2 no blowup"
+      (Set.fromList ["b", "c"])
+      [ Eq (v "a") (o [v "d", v "e"])
+      , Eq (v "a") (x [v "a", v "c"])
+      , Eq (v "d") (v "c")
+      ]
+      2
     ]
   ]
  where

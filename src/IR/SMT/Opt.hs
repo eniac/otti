@@ -30,8 +30,7 @@ import           Data.Maybe                     ( isJust
                                                 , fromMaybe
                                                 )
 import qualified Data.Set                      as Set
-import           Util.Cfg                       ( Cfg
-                                                , MonadCfg(..)
+import           Util.Cfg                       ( MonadCfg(..)
                                                 , _smtOptCfg
                                                 , _allowSubBlowup
                                                 , _cFoldInSub
@@ -44,21 +43,14 @@ type ArraySizes = ShowMap (Term (ArraySort DynBvSort DynBvSort)) Int
 
 data OptMetadata = OptMetadata
   { protected      :: !(Set.Set String)
-  , eqElimNoBlowup :: !Bool
-  , cFoldInEqElim  :: !Bool
   , arraySizes     :: !ArraySizes
-  }
+  } deriving (Show)
 newOptMetadata :: Set.Set String -> ArraySizes -> OptMetadata
-newOptMetadata p s = OptMetadata { protected      = p
-                                 , eqElimNoBlowup = False
-                                 , cFoldInEqElim  = False
-                                 , arraySizes     = s
-                                 }
+newOptMetadata p s = OptMetadata { protected = p, arraySizes = s }
 
 data Opt = Opt
   { fn   :: OptMetadata -> [TermBool] -> Log [TermBool]
   , name :: String
-  , cfg  :: OptMetadata -> Cfg OptMetadata
   }
 
 -- Folds constants (literals) away.
@@ -183,8 +175,7 @@ constantFold = mapTerm visit
   negateBool a       = Not a
 
 constantFoldOpt :: Opt
-constantFoldOpt =
-  Opt { fn = const (return . map constantFold), name = "cf", cfg = return }
+constantFoldOpt = Opt { fn = const (return . map constantFold), name = "cf" }
 
 data ConstFoldEqState = ConstFoldEqState
   { terms  :: [TermBool]
@@ -257,7 +248,7 @@ constFoldEq meta = go
     }
 
 constantFoldEqOpt :: Opt
-constantFoldEqOpt = Opt { fn = constFoldEq, name = "cfee", cfg = return }
+constantFoldEqOpt = Opt { fn = constFoldEq, name = "cfee" }
 
 
 -- The equality elimination algorithm is a one-pass sweep over a list of
@@ -327,66 +318,62 @@ inTerm name_ = reduceTerm visit False (||)
 
 eqElim :: OptMetadata -> [TermBool] -> Log [TermBool]
 eqElim meta ts = do
+  allowBlowup <- liftCfg $ asks (_allowSubBlowup . _smtOptCfg)
+  cFold       <- liftCfg $ asks (_cFoldInSub . _smtOptCfg)
+  let subbable :: SortClass s => String -> Sort -> Term s -> Bool
+      subbable v s t =
+        (allowBlowup || nNodes t == 1)
+          &&              v
+          `Set.notMember` noElim
+          &&              not (v `inTerm` t)
+          &&              not (isArray s)
+      noElim = protected meta
+      cFoldFn :: SortClass s => Term s -> Term s
+      cFoldFn = if cFold then constantFold else id
+
+      process :: TermBool -> EqElim ()
+      process assertion = do
+        a' <- applyStoredSubs assertion
+        case a' of
+          -- Combining these cases is tough b/c the sorts may differ
+          Eq (Var v s) t | subbable v s t -> do
+            liftLog $ logIf "smt::opt::ee" $ "Elim: " ++ v ++ " = " ++ show t
+            addSub v t
+          Eq t (Var v s) | subbable v s t -> do
+            liftLog $ logIf "smt::opt::ee" $ "Elim: " ++ v ++ " = " ++ show t
+            addSub v t
+          _ -> addAssertion a'
+
+      applyStoredSubs :: SortClass s => Term s -> EqElim (Term s)
+      applyStoredSubs term = do
+        allSubFn <- gets $ foldr (.) id . map (uncurry sub) . Map.toList . subs
+        return $ cFoldFn $ allSubFn term
+
+      addAssertion :: TermBool -> EqElim ()
+      addAssertion a = modify $ \s -> s { assertions = a : assertions s }
+
+      isArray :: Sort -> Bool
+      isArray (SortArray{}) = True
+      isArray _             = False
+
+      addSub :: SortClass s => String -> Term s -> EqElim ()
+      addSub v t =
+        let t' = toDyn $ cFoldFn t
+        in  modify $ \s -> s
+              { assertions = map (sub v t') $ assertions s
+              , subs = Map.insert v t' $ Map.map (dynamize $ sub v t') $ subs s
+              }
+
+  logIf "smt::opt::ee" $ "EqElim meta: " ++ show meta
   let EqElim action = forM_ ts process
   result <- execStateT action (EqElimState [] Map.empty)
   return $ assertions result
- where
-  subbable :: SortClass s => String -> Sort -> Term s -> Bool
-  subbable v s t =
-    (not (eqElimNoBlowup meta) || nNodes t == 1)
-      &&              v
-      `Set.notMember` noElim
-      &&              not (v `inTerm` t)
-      &&              not (isArray s)
-  noElim = protected meta
-  cFoldFn :: SortClass s => Term s -> Term s
-  cFoldFn = if cFoldInEqElim meta then constantFold else id
-
-  process :: TermBool -> EqElim ()
-  process assertion = do
-    a' <- applyStoredSubs assertion
-    case a' of
-      -- Combining these cases is tough b/c the sorts may differ
-      Eq (Var v s) t | subbable v s t -> do
-        liftLog $ logIf "smt::opt::ee" $ "Elim: " ++ v ++ " = " ++ show t
-        addSub v t
-      Eq t (Var v s) | subbable v s t -> do
-        liftLog $ logIf "smt::opt::ee" $ "Elim: " ++ v ++ " = " ++ show t
-        addSub v t
-      _ -> addAssertion a'
-
-  applyStoredSubs :: SortClass s => Term s -> EqElim (Term s)
-  applyStoredSubs term = do
-    allSubFn <- gets $ foldr (.) id . map (uncurry sub) . Map.toList . subs
-    return $ cFoldFn $ allSubFn term
-
-  addAssertion :: TermBool -> EqElim ()
-  addAssertion a = modify $ \s -> s { assertions = a : assertions s }
-
-  isArray :: Sort -> Bool
-  isArray (SortArray{}) = True
-  isArray _             = False
-
-  addSub :: SortClass s => String -> Term s -> EqElim ()
-  addSub v t =
-    let t' = toDyn $ cFoldFn t
-    in  modify $ \s -> s
-          { assertions = map (sub v t') $ assertions s
-          , subs = Map.insert v t' $ Map.map (dynamize $ sub v t') $ subs s
-          }
-
-eqElimCfg :: OptMetadata -> Cfg OptMetadata
-eqElimCfg m = do
-  o <- asks (_allowSubBlowup . _smtOptCfg)
-  c <- asks (_cFoldInSub . _smtOptCfg)
-  return $ m { eqElimNoBlowup = o, cFoldInEqElim = c }
 
 eqElimOpt :: Opt
-eqElimOpt = Opt { fn = eqElim, name = "ee", cfg = eqElimCfg }
+eqElimOpt = Opt { fn = eqElim, name = "ee" }
 
 arrayElimOpt :: Opt
-arrayElimOpt =
-  Opt { fn = elimOblivArrays . arraySizes, name = "arrayElim", cfg = return }
+arrayElimOpt = Opt { fn = elimOblivArrays . arraySizes, name = "arrayElim" }
 
 -- | Flattens ANDs
 flattenAnds :: TermBool -> [TermBool]
@@ -395,10 +382,8 @@ flattenAnds t = case t of
   _                          -> [t]
 
 flattenAndsOpt :: Opt
-flattenAndsOpt = Opt { fn   = \_ ts -> return $ concatMap flattenAnds ts
-                     , name = "flattenAnds"
-                     , cfg  = return
-                     }
+flattenAndsOpt =
+  Opt { fn = \_ ts -> return $ concatMap flattenAnds ts, name = "flattenAnds" }
 
 opts :: Map.Map String Opt
 opts = Map.fromList
@@ -422,12 +407,7 @@ logAssertions context as = logIfM "smt::opt" $ do
 -- Optimize, ensuring that the variables in `p` continue to exist.
 opt :: ArraySizes -> Set.Set String -> [TermBool] -> Log [TermBool]
 opt sizes p ts = do
-  let m0 = OptMetadata { protected      = p
-                       , eqElimNoBlowup = False
-                       , cFoldInEqElim  = False
-                       , arraySizes     = sizes
-                       }
-  m'        <- liftCfg $ foldM (flip cfg) m0 (Map.elems opts)
+  let m' = OptMetadata { protected = p, arraySizes = sizes }
   optsToRun <- liftCfg $ asks (_smtOpts . _smtOptCfg)
   logAssertions "initial" ts
   foldM

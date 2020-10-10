@@ -35,9 +35,7 @@ import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
 import qualified Util.Cfg                      as Cfg
-import           Util.Cfg                       ( Cfg
-                                                , MonadCfg(..)
-                                                )
+import           Util.Cfg                       ( MonadCfg(..) )
 import           Util.Control
 import           Util.Log
 
