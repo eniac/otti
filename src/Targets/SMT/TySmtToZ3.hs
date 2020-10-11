@@ -233,8 +233,6 @@ toZ3 t = case t of
     s' <- sortToZ3 s
     v' <- toZ3 v
     Z.mkConstArray s' v'
-  NewArray   -> nyi "NewArray not supported in z3"
-  ArrayLit{} -> nyi "ArrayLit not supported in z3"
  where
   tyNaryZ3Nary
     :: (SortClass s', MonadZ3 z) => ([Z.AST] -> z Z.AST) -> [Term s'] -> z Z.AST

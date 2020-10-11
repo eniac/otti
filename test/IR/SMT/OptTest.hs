@@ -10,7 +10,6 @@ import qualified Data.BitVector                as Bv
 import qualified Data.Set                      as Set
 import           IR.SMT.TySmt
 import           Test.Tasty.HUnit
-import qualified Util.ShowMap                  as SMap
 import           Util.Cfg
 import           Util.Log
 
@@ -48,7 +47,7 @@ mkEqElimTest
   :: Bool -> String -> Set.Set String -> [TermBool] -> Int -> BenchTest
 mkEqElimTest allowBlowup name protected original nExpected =
   benchTestCase (if null name then show original else name) $ do
-    let elim = evalLog $ eqElim (newOptMetadata protected SMap.empty) original
+    let elim = evalLog $ eqElim protected original
     actual <- evalCfg
       elim
       (defaultCfgState

@@ -9,6 +9,7 @@ module Util.Log
   , logIf
   , logIfM
   , MonadLog
+  , MonadIO
   , emptyLogState
   , liftLog
   , evalLog
@@ -40,7 +41,7 @@ class Monad m => MonadLog m where
   liftLog :: Log a -> m a
 instance MonadLog Log where
   liftLog = id
-instance (MonadLog m) => MonadLog (StateT s m) where
+instance MonadLog m => MonadLog (StateT s m) where
   liftLog = lift . liftLog
 instance (Monoid w, MonadLog m) => MonadLog (WriterT w m) where
   liftLog = lift . liftLog
@@ -59,10 +60,10 @@ logIf stream msg = do
   enabled <- gets (S.member stream . streams)
   when enabled $ liftIO $ putStrLn msg
 
-logIfM :: String -> Log String -> Log ()
+logIfM :: MonadLog m => String -> m String -> m ()
 logIfM stream msg = do
-  enabled <- gets (S.member stream . streams)
-  when enabled $ msg >>= liftIO . putStrLn
+  enabled <- liftLog $ gets (S.member stream . streams)
+  when enabled $ msg >>= liftLog . liftIO . putStrLn
 
 evalLog :: Log a -> Cfg a
 evalLog l = do

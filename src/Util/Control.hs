@@ -3,6 +3,7 @@ module Util.Control
   , whenJust
   , whileJustM
   , whileM
+  , unlessM
   )
 where
 
@@ -10,6 +11,9 @@ import           Control.Monad
 
 whenM :: Monad m => m Bool -> m () -> m ()
 whenM condition action = condition >>= flip when action
+
+unlessM :: Monad m => m Bool -> m () -> m ()
+unlessM condition action = condition >>= flip unless action
 
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenJust test body = maybe (return ()) body test

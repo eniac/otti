@@ -89,9 +89,7 @@ runMemReplacePass pass = mapM (mapTermM visit)
         visitVar pass name sort
         return $ Just t
       Exists{}   -> error "nyi: existential memories"
-      ArrayLit{} -> error "nyi: memories with specified entries"
       Let{}      -> error "nyi: let bindings for memories"
-      NewArray{} -> error "nyi: memories without a default value"
       Select{}   -> error "nyi: selecting a member from an array"
     Nothing -> case t of
       Select array idx -> do

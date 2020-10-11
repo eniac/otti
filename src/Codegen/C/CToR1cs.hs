@@ -23,11 +23,12 @@ import           Codegen.C.Term                 ( InMap )
 import           IR.SMT.ToPf                    ( toPf )
 import qualified IR.SMT.Opt                    as SmtOpt
 import           IR.R1cs                        ( R1CS(..) )
-import           Data.Maybe                     ( isJust )
+import qualified Data.Foldable                 as Fold
 import           Data.Dynamic                   ( Dynamic )
-import qualified Data.Set                      as Set
-import qualified Data.Map.Strict               as Map
 import qualified Data.IntMap.Strict            as IntMap
+import qualified Data.Map.Strict               as Map
+import           Data.Maybe                     ( isJust )
+import qualified Data.Set                      as Set
 import           GHC.TypeNats                   ( KnownNat )
 import           Util.Log
 import           Util.Cfg                       ( liftCfg )
@@ -53,7 +54,7 @@ fnToSmt findBugs inVals tu name = do
     Right _ -> return ()
   let public' = Set.toList $ Assert.public assertState
   liftLog $ logIf "cToSmt" $ "Public: " ++ show public'
-  return $ FnTrans { assertions = Assert.asserted assertState
+  return $ FnTrans { assertions = Fold.toList $ Assert.asserted assertState
                    , public     = public'
                    , vals       = Assert.vals assertState
                    , arraySizes = Mem.sizes memState

@@ -17,6 +17,7 @@ import           Control.Monad                  ( replicateM_
 import           Control.Monad.State.Strict
 import           Control.Monad.Reader
 import qualified Data.Char                     as Char
+import qualified Data.Foldable                 as Fold
 import qualified Data.List                     as List
 import qualified Data.Map                      as Map
 import           Data.Maybe                     ( fromJust
@@ -717,7 +718,7 @@ checkFn tu name =  do
     assertBug
   let public' = Set.toList $ Assert.public assertState
   let sizes' = Mem.sizes memState
-  let a = Assert.asserted $ assertState
+  let a = Fold.toList $ Assert.asserted $ assertState
   doOpt <- liftCfg $ asks (Cfg._optForZ3 . Cfg._smtOptCfg)
   a' <- if doOpt then Opt.opt sizes' (Set.fromList public') a else return a
   ToZ3.evalZ3Model $ Ty.BoolNaryExpr Ty.And a'
@@ -728,6 +729,6 @@ evalFn findBug tu name = do
   assertions <- liftCfg $ Assert.execAssert $ evalC Nothing findBug $ do
     genFn tu name
     when findBug assertBug
-  z3res <- ToZ3.evalZ3Model $ Ty.BoolNaryExpr Ty.And
-                                              (Assert.asserted assertions)
+  let a = Fold.toList $ Assert.asserted assertions
+  z3res <- ToZ3.evalZ3Model $ Ty.BoolNaryExpr Ty.And a
   return $ ToZ3.model z3res

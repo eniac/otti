@@ -1,6 +1,8 @@
 {-# LANGUAGE AllowAmbiguousTypes    #-}
 {-# LANGUAGE ConstraintKinds        #-}
 {-# LANGUAGE DataKinds              #-}
+{-# LANGUAGE DeriveGeneric          #-}
+{-# LANGUAGE DeriveAnyClass         #-}
 {-# LANGUAGE FlexibleContexts       #-}
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -106,6 +108,7 @@ import           Data.Dynamic                   ( Dynamic
                                                 , toDyn
                                                 )
 import           Data.Fixed                     ( mod' )
+import           Data.Hashable  ( Hashable(hashWithSalt))
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
 import qualified Data.Maybe                    as Maybe
@@ -114,19 +117,20 @@ import           Data.Set                       ( Set )
 import qualified Data.Set                      as Set
 import           Data.Typeable                  ( cast )
 import           GHC.TypeLits
+import           GHC.Generics (Generic)
 import           Prelude                 hiding ( exp )
 import qualified IR.SMT.TySmt.DefaultMap       as DMap
 import           IR.SMT.TySmt.DefaultMap        ( DefaultMap )
 
-data IntSort = IntSort deriving (Show,Ord,Eq,Typeable)
-data BoolSort = BoolSort deriving (Show,Ord,Eq,Typeable)
-data DynBvSort = DynBvSort Int deriving (Show,Ord,Eq,Typeable)
-data BvSort (n :: Nat) = BvSort Int deriving (Show,Ord,Eq,Typeable)
-data PfSort (n :: Nat) = PfSort Integer deriving (Show,Ord,Eq,Typeable)
-data FpSort f = FpSort Int Int deriving (Show,Ord,Eq,Typeable)
-data ArraySort k v = ArraySort deriving (Show,Ord,Eq,Typeable)
+data IntSort = IntSort deriving (Show,Ord,Eq,Typeable,Generic,Hashable)
+data BoolSort = BoolSort deriving (Show,Ord,Eq,Typeable,Generic,Hashable)
+data DynBvSort = DynBvSort !Int deriving (Show,Ord,Eq,Typeable,Generic,Hashable)
+data BvSort (n :: Nat) = BvSort !Int deriving (Show,Ord,Eq,Typeable,Generic,Hashable)
+data PfSort (n :: Nat) = PfSort !Integer deriving (Show,Ord,Eq,Typeable,Generic,Hashable)
+data FpSort f = FpSort !Int !Int deriving (Show,Ord,Eq,Typeable,Generic,Hashable)
+data ArraySort k v = ArraySort deriving (Show,Ord,Eq,Typeable,Generic,Hashable)
 
-class (Show n, Typeable n, Ord n, Eq n) => SortClass n where
+class (Show n, Typeable n, Ord n, Eq n, Hashable n) => SortClass n where
   sorted :: Maybe Sort
 
 instance SortClass IntSort where
@@ -235,27 +239,45 @@ instance ComputableFp Float where
   fromBits = IEEE754.wordToFloat . fromIntegral . Bv.nat
 
 data Value s where
-    ValBool ::Bool -> Value BoolSort
-    ValInt ::Integer -> Value IntSort
-    ValBv ::KnownNat n => Bv.BV -> Value (BvSort n)
-    ValDynBv ::Bv.BV -> Value DynBvSort
-    ValPf ::KnownNat n => Integer -> Value (PfSort n)
-    ValFloat ::Float -> Value F32
-    ValDouble ::Double -> Value F64
-    ValArray ::DefaultMap (Value a) (Value b) -> Value (ArraySort a b)
+    ValBool   :: !Bool -> Value BoolSort
+    ValInt    :: !Integer -> Value IntSort
+    ValBv     :: KnownNat n => !Bv.BV -> Value (BvSort n)
+    ValDynBv  :: !Bv.BV -> Value DynBvSort
+    ValPf     :: KnownNat n => !Integer -> Value (PfSort n)
+    ValFloat  :: !Float -> Value F32
+    ValDouble :: !Double -> Value F64
+    ValArray  :: !(DefaultMap (Value a) (Value b)) -> Value (ArraySort a b)
 
 deriving instance Typeable (Value s)
 deriving instance Show (Value s)
 deriving instance Eq (Value s)
 deriving instance Ord (Value s)
+instance Hashable (Value s) where
+  hashWithSalt s v = case v of
+    ValBool b -> s # t 0 # b
+    ValInt b -> s # t 0 # b
+    ValBv b -> s # t 0 # (HashBv b)
+    ValDynBv b -> s # t 0 # (HashBv b)
+    ValPf i -> s # t 0 # i
+    ValFloat i -> s # t 0 # i
+    ValDouble i -> s # t 0 # i
+    ValArray m -> s # t 0 # m
+   where
+    -- Help type inference
+    t :: Int -> Int
+    t = id
+
+newtype HashBv = HashBv Bv.BV
+instance Hashable HashBv where
+  hashWithSalt s (HashBv b) = s # Bv.size b # Bv.nat b
 
 data Sort = SortInt
           | SortBool
-          | SortBv Int
-          | SortPf Integer
-          | SortFp Int Int
-          | SortArray Sort Sort
-          deriving (Show,Ord,Eq,Typeable)
+          | SortBv !Int
+          | SortPf !Integer
+          | SortFp !Int !Int
+          | SortArray !Sort !Sort
+          deriving (Show,Ord,Eq,Typeable,Generic,Hashable)
 
 sortDouble :: Sort
 sortDouble = SortFp 11 53
@@ -263,7 +285,7 @@ sortDouble = SortFp 11 53
 sortFloat :: Sort
 sortFloat = SortFp 8 24
 
-data BoolNaryOp = And | Or | Xor deriving (Show,Ord,Eq,Typeable)
+data BoolNaryOp = And | Or | Xor deriving (Show,Ord,Eq,Typeable,Generic, Hashable)
 
 -- Return the identity for the associative operator
 boolNaryId :: BoolNaryOp -> TermBool
@@ -272,19 +294,19 @@ boolNaryId o = case o of
   Or  -> BoolLit False
   Xor -> BoolLit False
 
-data BoolBinOp = Implies deriving (Show,Ord,Eq,Typeable)
+data BoolBinOp = Implies deriving (Show,Ord,Eq,Typeable,Generic,Hashable)
 
-data IntNaryOp = IntAdd | IntMul deriving (Show, Ord, Eq, Typeable)
+data IntNaryOp = IntAdd | IntMul deriving (Show, Ord, Eq, Typeable, Generic, Hashable)
 data IntBinOp = IntSub | IntDiv | IntMod | IntShl | IntShr | IntPow
-              deriving (Show, Ord, Eq, Typeable)
+              deriving (Show, Ord, Eq, Typeable, Generic, Hashable)
 data IntUnOp = IntNeg | IntAbs
-             deriving (Show, Ord, Eq, Typeable)
+             deriving (Show, Ord, Eq, Typeable, Generic, Hashable)
 data IntBinPred = IntLt | IntLe | IntGt | IntGe
-                deriving (Show, Ord, Eq, Typeable)
+                deriving (Show, Ord, Eq, Typeable, Generic, Hashable)
 
 data BvUnOp = BvNeg
             | BvNot
-            deriving (Show, Ord, Eq, Typeable)
+            deriving (Show, Ord, Eq, Typeable, Generic, Hashable)
 
 data BvBinOp = BvShl
              | BvLshr
@@ -297,7 +319,7 @@ data BvBinOp = BvShl
              | BvOr
              | BvAnd
              | BvXor
-             deriving (Show, Ord, Eq, Typeable)
+             deriving (Show, Ord, Eq, Typeable, Generic, Hashable)
 
 data BvBinPred = BvUgt
                | BvUlt
@@ -310,11 +332,11 @@ data BvBinPred = BvUgt
                | BvSaddo
                | BvSsubo
                | BvSmulo
-               deriving (Show, Ord, Eq, Typeable)
+               deriving (Show, Ord, Eq, Typeable, Generic, Hashable)
 
-data PfNaryOp = PfAdd | PfMul deriving (Show, Ord, Eq, Typeable)
-data PfUnOp = PfNeg | PfRecip deriving (Show, Ord, Eq, Typeable)
-data PfBinPred = PfEq | PfNe deriving (Show, Ord, Eq, Typeable)
+data PfNaryOp = PfAdd | PfMul deriving (Show, Ord, Eq, Typeable, Generic, Hashable)
+data PfUnOp = PfNeg | PfRecip deriving (Show, Ord, Eq, Typeable, Generic, Hashable)
+data PfBinPred = PfEq | PfNe deriving (Show, Ord, Eq, Typeable, Generic, Hashable)
 
 data FpBinOp = FpAdd
              | FpSub
@@ -323,20 +345,20 @@ data FpBinOp = FpAdd
              | FpRem
              | FpMax
              | FpMin
-             deriving (Show, Ord, Eq, Typeable)
+             deriving (Show, Ord, Eq, Typeable, Generic, Hashable)
 
 data FpUnOp = FpNeg
             | FpAbs
             | FpSqrt
             | FpRound
-            deriving (Show, Ord, Eq, Typeable)
+            deriving (Show, Ord, Eq, Typeable, Generic, Hashable)
 
 data FpBinPred = FpLe
                | FpLt
                | FpEq
                | FpGe
                | FpGt
-               deriving (Show, Ord, Eq, Typeable)
+               deriving (Show, Ord, Eq, Typeable, Generic, Hashable)
 
 data FpUnPred = FpIsNormal
               | FpIsSubnormal
@@ -345,10 +367,11 @@ data FpUnPred = FpIsNormal
               | FpIsNaN
               | FpIsNegative
               | FpIsPositive
-              deriving (Show, Ord, Eq, Typeable)
+              deriving (Show, Ord, Eq, Typeable, Generic, Hashable)
 
 
 type TermBv n = Term (BvSort n)
+type TermFp f = Term (FpSort f)
 type TermDynBv = Term DynBvSort
 type TermBool = Term BoolSort
 type TermInt = Term IntSort
@@ -359,90 +382,82 @@ type TermArray k v = Term (ArraySort k v)
 
 data Term s where
     -- Boolean terms
-    BoolLit      ::Bool -> TermBool
-    BoolBinExpr  ::BoolBinOp -> TermBool -> TermBool -> TermBool
-    BoolNaryExpr ::BoolNaryOp -> [TermBool] -> TermBool
-    Not          ::TermBool -> TermBool
+    BoolLit      :: !Bool -> TermBool
+    BoolBinExpr  :: !BoolBinOp -> !TermBool -> !TermBool -> TermBool
+    BoolNaryExpr :: !BoolNaryOp -> ![TermBool] -> TermBool
+    Not          :: !TermBool -> TermBool
 
     -- Core terms
-    Ite    ::TermBool -> Term s -> Term s -> Term s
-    Var    ::String -> Sort -> Term s
-    Let    ::(SortClass s) => String -> Term s -> Term t -> Term t
-    Exists ::String -> Sort -> Term t -> Term t
-    Eq     ::SortClass s => Term s -> Term s -> TermBool
+    Ite    :: !TermBool -> !(Term s) -> !(Term s) -> Term s
+    Var    :: !String -> !Sort -> Term s
+    Let    ::SortClass s => !String -> !(Term s) -> !(Term t) -> Term t
+    Exists :: !String -> !Sort -> !(Term t) -> Term t
+    Eq     ::SortClass s => !(Term s) -> !(Term s) -> TermBool
 
     -- Bit-vector terms
-    BvConcat  ::(KnownNat n, KnownNat m) => TermBv n -> TermBv m -> TermBv (n + m)
-    BvExtract ::(KnownNat n, KnownNat i, i <= n) => Int -> TermBv n -> TermBv i
-    BvBinExpr ::KnownNat n => BvBinOp -> TermBv n -> TermBv n -> TermBv n
-    BvUnExpr  ::KnownNat n => BvUnOp -> TermBv n -> TermBv n
-    BvBinPred ::KnownNat n => BvBinPred -> TermBv n -> TermBv n -> TermBool
-    IntToBv   ::KnownNat n => TermInt -> TermBv n
-    FpToBv    ::(ComputableFp f) => Term (FpSort f) -> Term (BvSort (Size f))
+    BvConcat  ::(KnownNat n, KnownNat m) => !(TermBv n) -> !(TermBv m) -> TermBv (n + m)
+    BvExtract ::(KnownNat n, KnownNat i, i <= n) => !Int -> !(TermBv n) -> TermBv i
+    BvBinExpr ::KnownNat n => !BvBinOp -> !(TermBv n) -> !(TermBv n) -> TermBv n
+    BvUnExpr  ::KnownNat n => !BvUnOp -> !(TermBv n) -> TermBv n
+    BvBinPred ::KnownNat n => !BvBinPred -> !(TermBv n) -> TermBv n -> TermBool
+    IntToBv   ::KnownNat n => !TermInt -> TermBv n
+    FpToBv    ::(ComputableFp f) => !(Term (FpSort f)) -> Term (BvSort (Size f))
 
-    DynamizeBv ::KnownNat n => Int -> TermBv n -> TermDynBv
-    DynBvExtract ::Int -> Int -> TermDynBv -> TermDynBv
-    DynBvConcat  ::Int -> TermDynBv -> TermDynBv -> TermDynBv
-    DynBvBinExpr ::BvBinOp -> Int -> TermDynBv -> TermDynBv -> TermDynBv
-    DynBvBinPred ::BvBinPred -> Int -> TermDynBv -> TermDynBv -> TermBool
-    DynBvUnExpr  ::BvUnOp -> Int -> TermDynBv -> TermDynBv
-    DynBvLit     ::Bv.BV -> TermDynBv
+    DynamizeBv ::KnownNat n => !Int -> !(TermBv n) -> TermDynBv
+    DynBvExtract :: !Int -> !Int -> !TermDynBv -> TermDynBv
+    DynBvConcat  :: !Int -> !TermDynBv -> !TermDynBv -> TermDynBv
+    DynBvBinExpr :: !BvBinOp -> !Int -> !TermDynBv -> !TermDynBv -> TermDynBv
+    DynBvBinPred :: !BvBinPred -> !Int -> !TermDynBv -> !TermDynBv -> TermBool
+    DynBvUnExpr  :: !BvUnOp -> !Int -> !TermDynBv -> TermDynBv
+    DynBvLit     :: !Bv.BV -> TermDynBv
     -- width, extension amount, inner
-    DynBvUext    ::Int -> Int -> TermDynBv -> TermDynBv
+    DynBvUext    :: !Int -> !Int -> !TermDynBv -> TermDynBv
     -- width, extension amount, inner
-    DynBvSext    ::Int -> Int -> TermDynBv -> TermDynBv
-    IntToDynBv   ::Int -> TermInt -> TermDynBv
-    StatifyBv ::KnownNat n => TermDynBv -> TermBv n
+    DynBvSext    :: !Int -> !Int -> !TermDynBv -> TermDynBv
+    IntToDynBv   :: !Int -> !TermInt -> TermDynBv
+    StatifyBv ::KnownNat n => !TermDynBv -> TermBv n
     -- width, signedness, floating point number
-    RoundFpToDynBv ::(ComputableFp f) => Int -> Bool -> Term (FpSort f) -> TermDynBv
+    RoundFpToDynBv ::(ComputableFp f) => !Int -> !Bool -> !(Term (FpSort f)) -> TermDynBv
 
     -- Integer terms
-    IntLit        ::Integer -> TermInt
-    IntUnExpr     ::IntUnOp -> TermInt -> TermInt
-    IntBinExpr    ::IntBinOp -> TermInt -> TermInt -> TermInt
-    IntNaryExpr   ::IntNaryOp -> [TermInt] -> TermInt
-    IntBinPred    ::IntBinPred -> TermInt -> TermInt -> TermBool
-    PfToInt       ::(KnownNat n) => TermPf n -> TermInt
-    BvToInt       ::(KnownNat n) => TermBv n -> TermInt
-    SignedBvToInt ::(KnownNat n) => TermBv n -> TermInt
-    BoolToInt     ::TermBool -> TermInt
+    IntLit        :: !Integer -> TermInt
+    IntUnExpr     :: !IntUnOp -> !TermInt -> TermInt
+    IntBinExpr    :: !IntBinOp -> !TermInt -> !TermInt -> TermInt
+    IntNaryExpr   :: !IntNaryOp -> ![TermInt] -> TermInt
+    IntBinPred    :: !IntBinPred -> !TermInt -> !TermInt -> TermBool
+    PfToInt       ::(KnownNat n) => !(TermPf n) -> TermInt
+    BvToInt       ::(KnownNat n) => !(TermBv n) -> TermInt
+    SignedBvToInt ::(KnownNat n) => !(TermBv n) -> TermInt
+    BoolToInt     :: !TermBool -> TermInt
 
     -- Floating point terms
-    Fp64Lit   ::Double -> Term F64
-    Fp32Lit   ::Float -> Term F32
-    FpUnExpr  ::(ComputableFp f) => FpUnOp -> Term (FpSort f) -> Term (FpSort f)
-    FpBinExpr ::(ComputableFp f) => FpBinOp -> Term (FpSort f) -> Term (FpSort f) -> Term (FpSort f)
-    FpFma     ::(ComputableFp f) => Term (FpSort f) -> Term (FpSort f) -> Term (FpSort f) -> Term (FpSort f)
-    FpBinPred ::(ComputableFp f) => FpBinPred -> Term (FpSort f) -> Term (FpSort f) -> TermBool
-    FpUnPred  ::(ComputableFp f) => FpUnPred -> Term (FpSort f) -> TermBool
-    IntToFp   ::(ComputableFp f) => TermInt -> Term (FpSort f)
-    BvToFp    ::(ComputableFp f) => Term (BvSort (Size f)) -> Term (FpSort f)
-    FpToFp    ::(ComputableFp f1, ComputableFp f2) => Term (FpSort f1) -> Term (FpSort f2)
-    DynUbvToFp    ::(ComputableFp f) => Term DynBvSort -> Term (FpSort f)
-    DynSbvToFp    ::(ComputableFp f) => Term DynBvSort -> Term (FpSort f)
+    Fp64Lit   :: !Double -> Term F64
+    Fp32Lit   :: !Float -> Term F32
+    FpUnExpr  ::(ComputableFp f) => !FpUnOp -> TermFp f -> TermFp f
+    FpBinExpr ::(ComputableFp f) => !FpBinOp -> TermFp f -> TermFp f -> TermFp f
+    FpFma     ::(ComputableFp f) => !(TermFp f) -> TermFp f -> TermFp f -> TermFp f
+    FpBinPred ::(ComputableFp f) => !FpBinPred -> !(TermFp f) -> TermFp f -> TermBool
+    FpUnPred  ::(ComputableFp f) => !FpUnPred -> !(TermFp f) -> TermBool
+    IntToFp   ::(ComputableFp f) => !TermInt -> TermFp f
+    BvToFp    ::(ComputableFp f) => !(TermBv (Size f)) -> TermFp f
+    FpToFp    ::(ComputableFp f1, ComputableFp f2) => !(TermFp f1) -> TermFp f2
+    DynUbvToFp    ::(ComputableFp f) => !(Term DynBvSort) -> TermFp f
+    DynSbvToFp    ::(ComputableFp f) => !(Term DynBvSort) -> TermFp f
 
     -- Prime field terms
-    PfUnExpr   ::KnownNat n => PfUnOp -> TermPf n -> TermPf n
-    PfNaryExpr ::KnownNat n => PfNaryOp -> [TermPf n] -> TermPf n
-    IntToPf    ::KnownNat n => TermInt -> TermPf n
+    PfUnExpr   ::KnownNat n => !PfUnOp -> !(TermPf n) -> TermPf n
+    PfNaryExpr ::KnownNat n => !PfNaryOp -> !([TermPf n]) -> TermPf n
+    IntToPf    ::KnownNat n => !TermInt -> TermPf n
 
     -- Array terms
-    Select   ::(SortClass k, SortClass v) => Term (ArraySort k v) -> Term k -> Term v
-    Store    ::(SortClass k, SortClass v) => Term (ArraySort k v) -> Term k -> Term v -> Term (ArraySort k v)
+    Select   ::(SortClass k, SortClass v) => !(TermArray k v) -> !(Term k) -> Term v
+    Store    ::(SortClass k, SortClass v) => !(TermArray k v) -> !(Term k) -> !(Term v) -> Term (ArraySort k v)
     -- domain, value
-    ConstArray ::(SortClass k, SortClass v) => Sort -> Term v -> Term (ArraySort k v)
-    NewArray ::(SortClass k, SortClass v) => Term (ArraySort k v)
-    ArrayLit ::(SortClass k, SortClass v) => Map.Map (Value k) (Value v) -> Term (ArraySort k v)
+    ConstArray ::(SortClass k, SortClass v) => !Sort -> !(Term v) -> TermArray k v
 
 
 deriving instance Show (Term s)
 deriving instance Typeable (Term s)
-
---instance Eq (Term s) where
---   a == b = case (a, b) of
---     (BoolLit l, BoolLit r) -> l == r
-
-
 
 widthErr :: Term s -> Maybe String -> Int -> Int -> a
 widthErr term width expected actual = throw $ SortError $ unwords
@@ -752,8 +767,6 @@ mapTerm f t = case f t of
     Select a k            -> Select (mapTerm f a) (mapTerm f k)
     Store a k v           -> Store (mapTerm f a) (mapTerm f k) (mapTerm f v)
     ConstArray s i        -> ConstArray s (mapTerm f i)
-    NewArray              -> t
-    ArrayLit{}            -> t
   Just s -> s
 
 -- |
@@ -834,8 +847,6 @@ mapTermM f t = do
       Select a k            -> liftM2 Select (rec a) (rec k)
       Store a k v           -> liftM3 Store (rec a) (rec k) (rec v)
       ConstArray s i        -> liftM (ConstArray s) (rec i)
-      NewArray              -> return t
-      ArrayLit{}            -> return t
     Just s -> return $ s
  where
   rec :: SortClass s' => Term s' -> m (Term s')
@@ -930,8 +941,6 @@ reduceTerm mapF i foldF t = case mapF t of
       (foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF k))
       (reduceTerm mapF i foldF v)
     ConstArray _s v -> reduceTerm mapF i foldF v
-    NewArray        -> i
-    ArrayLit{}      -> i
   Just s -> s
 
 asVarName :: Term s -> Maybe String
@@ -1084,17 +1093,6 @@ modulus _ = natVal (Proxy :: Proxy n)
 size :: forall n . KnownNat n => TermBv n -> Int
 size _ = fromIntegral $ natVal $ Proxy @n
 
-newArray
-  :: forall k v
-   . (Typeable k, Typeable v)
-  => Term (ArraySort k v)
-  -> Maybe (Value v)
-  -> Value (ArraySort k v)
-newArray _t v = case v of
-  Just v' ->
-    ValArray $ (DMap.emptyWithDefault v' :: (DefaultMap (Value k) (Value v)))
-  Nothing -> ValArray $ (DMap.empty :: (DefaultMap (Value k) (Value v)))
-
 eval :: forall s . Typeable s => Env -> Term s -> Value s
 eval e t = case t of
   BoolLit b -> ValBool b
@@ -1241,8 +1239,83 @@ eval e t = case t of
     ValArray $ DMap.insert (eval e k) (eval e v) (valAsArray $ eval e a)
   -- Not quite right
   ConstArray _ v -> newArray t $ Just $ eval e v
-  NewArray       -> newArray t Nothing
-  ArrayLit m     -> ValArray $ DMap.fromMap m
+
+newArray
+  :: forall k v
+   . (Typeable k, Typeable v)
+  => Term (ArraySort k v)
+  -> Maybe (Value v)
+  -> Value (ArraySort k v)
+newArray _t v = case v of
+  Just v' ->
+    ValArray $ (DMap.emptyWithDefault v' :: (DefaultMap (Value k) (Value v)))
+  Nothing -> ValArray $ (DMap.empty :: (DefaultMap (Value k) (Value v)))
+
+(#) :: Hashable a => Int -> a -> Int
+(#) = hashWithSalt
+
+instance SortClass sort => Hashable (Term sort) where
+  hashWithSalt s term =
+    case term of
+      BoolLit b -> s # t 0 # b
+      BoolBinExpr o a b -> s # t 1 # o # a # b
+      BoolNaryExpr o bs -> s # t 2 # o # bs
+      Not b -> s # t 3 # b
+      Ite c a b -> s # t 4 # c # a # b
+      Var n sort -> s # t 5 # n # sort
+      Let n v b -> s # t 6 # n # v # b
+      Exists v sort b -> s # t 7 # v # sort # b
+      Eq a b -> s # t 8 # a # b
+      BvConcat a b -> s # t 9 # a # b
+      BvExtract a b -> s # t 10 # a # b
+      BvBinExpr o a b -> s # t 12 # o # a # b
+      BvUnExpr o b -> s # t 11 # o # b
+      BvBinPred o a b -> s # t 12 # o # a # b
+      IntToBv b -> s # t 13 # b
+      FpToBv b -> s # t 13 # b
+      DynamizeBv i b -> s # t 14 # i # b
+      DynBvConcat w a b -> s # t 15 # w # a # b
+      DynBvExtract w a b -> s # t 16 # w # a # b
+      DynBvBinExpr o w a b -> s # t 17 # o # w # a # b
+      DynBvUnExpr o w b -> s # t 18 # o # w # b
+      DynBvBinPred o w a b -> s # t 19 # o # w # a # b
+      DynBvLit b -> s # t 20 # (HashBv b)
+      DynBvUext w e b -> s # t 21 # w # e # b
+      DynBvSext w e b -> s # t 22 # w # e # b
+      IntToDynBv w b -> s # t 23 # w # b
+      StatifyBv b -> s # t 24 # b
+      RoundFpToDynBv w si fp -> s # t 25 # w # si # fp
+      IntLit i -> s # t 26 # i
+      IntUnExpr o i -> s # t 27 # o # i
+      IntBinExpr o a b -> s # t 28 # o # a # b
+      IntNaryExpr o is -> s # t 29 # o # is
+      IntBinPred o a b -> s # t 30 # o # a # b
+      PfToInt p -> s # t 31 # p
+      BvToInt b -> s # t 32 # b
+      SignedBvToInt b -> s # t 33 # b
+      BoolToInt b -> s # t 34 # b
+      Fp64Lit b -> s # t 35 # b
+      Fp32Lit b -> s # t 36 # b
+      FpUnExpr o b -> s # t 37 # o # b
+      FpBinExpr o a b -> s # t 38 # o # a # b
+      FpFma a b c -> s # t 39 # a # b # c
+      FpBinPred o a b -> s # t 40 # o # a # b
+      FpUnPred o b -> s # t 41 # o # b
+      IntToFp i -> s # t 42 # i
+      BvToFp b -> s # t 43 # b
+      FpToFp b -> s # t 44 # b
+      DynUbvToFp b -> s # t 45 # b
+      DynSbvToFp b -> s # t 46 # b
+      PfUnExpr o p -> s # t 47 # o # p
+      PfNaryExpr o ps -> s # t 48 # o # ps
+      IntToPf i -> s # t 49 # i
+      Select a i -> s # t 50 # a # i
+      Store a i v -> s # t 51 # a # i # v
+      ConstArray ks v -> s # t 52 # ks # v
+   where
+    -- Hash tags
+    t :: Int -> Int
+    t = id
 
 
 -- Tries to case the values to the same type
@@ -1384,7 +1457,5 @@ instance Eq (Term s) where
     && (((a2_abY3 == b2_abY6)) && ((a3_abY4 == b3_abY7)))
     )
   (==) (ConstArray s1 t1) (ConstArray s2 t2) = (s1 == s2) && (t1 == t2)
-  (==) (NewArray        ) (NewArray        ) = True
-  (==) (ArrayLit a      ) (ArrayLit b      ) = a == b
   (==) _                  _                  = False
 -- END (MOSTLY) AUTOGENERATED

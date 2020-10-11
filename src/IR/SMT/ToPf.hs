@@ -63,6 +63,7 @@ import           Util.Cfg                       ( MonadCfg(..)
                                                 , _optEqs
                                                 )
 import           Util.Log
+import           Util.Show
 
 type PfVar = String
 type SmtVals = Map.Map String Dynamic
@@ -73,7 +74,7 @@ type ArraySizes = ShowMap (TermArray DynBvSort DynBvSort) Int
 data ToPfConfig = ToPfConfig { assumeNoBvOverflow :: Bool
                              , optEq :: Bool
                              , assumeInputsInRange :: Bool
-                             }
+                             } deriving (Show)
 
 data ToPfState n = ToPfState { r1cs :: R1CS PfVar n
                              , bools :: AliasMap TermBool (LSig n)
@@ -111,6 +112,9 @@ configureFromEnv = do
                     , assumeInputsInRange = c
                     }
     }
+  logIfM "toPf::cfg" $ do
+    c <- gets cfg
+    return $ "Cfg: " ++ pShow c
 
 -- # Constraints
 

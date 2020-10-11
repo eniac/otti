@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 module Util.AliasMap
   ( AliasMap
   , lookup
@@ -24,7 +25,7 @@ data AliasMap k v = AliasMap { base :: !(ShowMap k v)
 
 -- Lift an access of the base map
 getBase :: (Show k, Eq k) => (k -> ShowMap k v -> a) -> k -> AliasMap k v -> a
-getBase f k m = f (dealias k m) (base m)
+getBase !f !k !m = f (dealias k m) (base m)
 
 -- Lift a modification of the base map
 modBase
@@ -33,11 +34,11 @@ modBase
   -> k
   -> AliasMap k v
   -> AliasMap k v
-modBase f k m = m { base = getBase f k m }
+modBase !f !k !m = m { base = getBase f k m }
 
 -- Follow aliases
 dealias :: (Show k, Eq k) => k -> AliasMap k v -> k
-dealias k m = case SMap.lookup k (aliases m) of
+dealias !k !m = case SMap.lookup k (aliases m) of
   Just k' -> dealias k' m
   Nothing -> k
 
@@ -47,7 +48,7 @@ lookup = getBase SMap.lookup
 
 -- Create alias
 alias :: (Show k, Eq k) => k -> k -> AliasMap k v -> AliasMap k v
-alias k k' m = case SMap.lookup k (aliases m) of
+alias !k !k' !m = case SMap.lookup k (aliases m) of
   Just k'' -> error $ unwords
     [ "Cannot alias"
     , show k
@@ -68,7 +69,7 @@ alias k k' m = case SMap.lookup k (aliases m) of
 
 -- Insert value
 insert :: (Show k, Eq k) => k -> v -> AliasMap k v -> AliasMap k v
-insert k v = modBase (flip SMap.insert v) k
+insert !k !v = modBase (flip SMap.insert v) k
 
 -- Empty map
 empty :: AliasMap k v
@@ -76,7 +77,7 @@ empty = AliasMap SMap.empty SMap.empty
 
 -- Adjsut an existing entry
 adjust :: (Show k, Eq k) => (v -> v) -> k -> AliasMap k v -> AliasMap k v
-adjust f = modBase (SMap.adjust f)
+adjust !f = modBase (SMap.adjust f)
 
 -- Is an entry mapped to a value?
 member :: (Show k, Eq k) => k -> AliasMap k v -> Bool
@@ -84,11 +85,11 @@ member = getBase SMap.member
 
 -- Is an entry mapped to a value or aliaed?
 memberOrAlias :: (Show k, Eq k) => k -> AliasMap k v -> Bool
-memberOrAlias k m = SMap.member k (aliases m) || member k m
+memberOrAlias !k !m = SMap.member k (aliases m) || member k m
 
 insertWith
   :: (Show k, Eq k) => (v -> v -> v) -> k -> v -> AliasMap k v -> AliasMap k v
-insertWith f k v = modBase (\k -> SMap.insertWith f k v) k
+insertWith !f !k !v = modBase (\k -> SMap.insertWith f k v) k
 
 instance (Show k, Eq k, Show v) => Show (AliasMap k v) where
   show a =

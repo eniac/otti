@@ -8,6 +8,7 @@ import           BenchUtils
 import           Codegen.C
 import           Control.Monad
 import           Data.Either                    ( isRight )
+import qualified Data.Foldable                 as Fold
 import qualified Data.Map                      as M
 import           Data.Maybe                     ( fromJust )
 import qualified Data.Set                      as Set
@@ -147,7 +148,7 @@ satR1csTestInputs name fnName path inputs = benchTestCase name $ do
   cs <- evalCfgDefault $ evalLog $ toPf @Order (Just env)
                                                Set.empty
                                                SMap.empty
-                                               assertions
+                                               (Fold.toList assertions)
   -- Check R1CS satisfaction
   let checkResult = r1csCheck cs
   isRight checkResult @? show checkResult

@@ -1,6 +1,11 @@
 #!/usr/bin/env zsh
 # Runs end-to-end workflow tests.
 set -ex
+
+function num_constraints() {
+  cat C | head -n 1 | awk '{ print $3 }'
+}
+
 stack run -- setup --circom ./test/Code/Circom/bitify4.circom --libsnark libsnark-frontend/build/src/main
 stack run -- prove --circom ./test/Code/Circom/bitify4.circom --libsnark libsnark-frontend/build/src/main -i ./test/Code/Circom/bitify4.in
 stack run -- verify --circom ./test/Code/Circom/bitify4.circom --libsnark libsnark-frontend/build/src/main
@@ -40,3 +45,4 @@ stack run -- verify
 C_pequin_io=True C_no_overflow=True stack run -- c-setup compute ./test/Code/C/pequin/mm_flat.c
 C_pequin_io=True C_no_overflow=True C_loop_bound=3 stack run -- -i ./test/Code/C/pequin/inputs/mm_flat.i c-prove compute ./test/Code/C/pequin/mm_flat.c
 stack run -- verify
+[[ $(num_constraints) = 27 ]]

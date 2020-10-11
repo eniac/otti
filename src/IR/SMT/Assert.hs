@@ -8,6 +8,9 @@ import qualified Data.Map.Strict               as M
 import qualified Data.Set                      as S
 import qualified Data.Dynamic                  as Dyn
 import           Data.Maybe                     ( isJust )
+import           Data.Sequence                  ( Seq )
+import qualified Data.Foldable                 as F
+import qualified Data.Sequence                 as Seq
 import qualified IR.SMT.TySmt                  as Ty
 import           Util.Log
 import           Util.Cfg                       ( Cfg
@@ -20,7 +23,7 @@ import           Util.Cfg                       ( Cfg
 
 -- | State for keeping track of SMT-layer information
 data AssertState = AssertState { vars         :: !(M.Map String Dyn.Dynamic)
-                               , asserted     :: ![Ty.Term Ty.BoolSort]
+                               , asserted     :: !(Seq (Ty.Term Ty.BoolSort))
                                , vals         :: !(Maybe (M.Map String Dyn.Dynamic))
                                , public       :: !(S.Set String)
                                }
@@ -42,7 +45,7 @@ instance (MonadAssert m) => MonadAssert (StateT s m) where
 
 emptyAssertState :: AssertState
 emptyAssertState = AssertState { vars     = M.empty
-                               , asserted = []
+                               , asserted = Seq.empty
                                , vals     = Nothing
                                , public   = S.empty
                                }
@@ -80,7 +83,7 @@ execAssert act = snd <$> runAssert act
 assert :: Ty.Term Ty.BoolSort -> Assert ()
 assert a = do
   liftLog $ logIf "assertions" $ "ASSERT: " ++ show a
-  modify (\s -> s { asserted = a : asserted s })
+  modify (\s -> s { asserted = asserted s Seq.|> a })
 
 assign :: Ty.SortClass s => Ty.Term s -> Ty.Term s -> Assert ()
 assign a b = assert $ Ty.mkEq a b
@@ -104,7 +107,7 @@ newVar name sort = do
       )
 
 check :: AssertState -> Either String ()
-check s = forM_ (asserted s) $ \c -> case vals s of
+check s = forM_ (F.toList $ asserted s) $ \c -> case vals s of
   Just e -> if Ty.ValBool True == Ty.eval e c
     then Right ()
     else Left $ "Unsat constraint:\n" ++ show c ++ "\nin\n" ++ show e

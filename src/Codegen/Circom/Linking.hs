@@ -43,7 +43,7 @@ import           Data.Proxy                     ( Proxy(Proxy) )
 import           Util.Log
 
 newtype LinkState s n a = LinkState (StateT (R1CS s n) Log a)
-    deriving (Functor, Applicative, Monad, MonadState (R1CS s n), MonadLog)
+    deriving (Functor, Applicative, Monad, MonadState (R1CS s n), MonadIO, MonadLog)
 
 type Namespace = GlobalSignal
 
@@ -147,7 +147,7 @@ localValuesFromValues m =
 type ExtValues = Map.Map IndexedIdent Dynamic
 
 newtype WitCompWriter a = WitCompWriter (WriterT GlobalValues Log a)
-    deriving (Functor, Applicative, Monad, MonadWriter GlobalValues, MonadLog)
+    deriving (Functor, Applicative, Monad, MonadWriter GlobalValues, MonadIO, MonadLog)
 
 computeWitnessesIn
   :: forall n
