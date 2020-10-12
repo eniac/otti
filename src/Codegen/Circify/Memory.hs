@@ -1,5 +1,7 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeApplications #-}
 module Codegen.Circify.Memory where
 import           Control.Monad.State.Strict
@@ -10,6 +12,7 @@ import qualified IR.SMT.TySmt                  as Ty
 import           IR.SMT.Assert                 as Assert
 import           Util.Log
 import           Util.Cfg                       ( MonadCfg )
+import           Util.Control                   ( MonadDeepState(..) )
 import qualified Util.ShowMap                  as SMap
 
 bvNum :: Bool -> Int -> Integer -> Ty.TermDynBv
@@ -157,7 +160,7 @@ instance Show MemState where
                     (Map.toAscList $ stackAllocations s)
 
 newtype Mem a = Mem (StateT MemState Assert.Assert a)
-    deriving (Functor, Applicative, Monad, MonadState MemState, MonadIO, MonadLog, Assert.MonadAssert, MonadCfg)
+    deriving (Functor, Applicative, Monad, MonadState MemState, MonadIO, MonadLog, Assert.MonadAssert, MonadCfg, MonadDeepState (AssertState, MemState))
 
 class Monad m => MonadMem m where
   liftMem :: Mem a -> m a
@@ -215,13 +218,13 @@ stackAllocCons idxWidth' elems =
       valWidth' = Ty.dynBvWidth $ head elems
       base      = Ty.ConstArray (Ty.SortBv idxWidth') (bvNum False valWidth' 0)
       m =
-          foldl
-              (\a (i, e) -> if Ty.dynBvWidth e == valWidth'
-                then Ty.mkStore a (Ty.DynBvLit $ Bv.bitVec idxWidth' i) e
-                else error $ "Bad size: " ++ show e
-              )
-              base
-            $ zip [(0 :: Integer) ..] elems
+        foldl
+            (\a (i, e) -> if Ty.dynBvWidth e == valWidth'
+              then Ty.mkStore a (Ty.DynBvLit $ Bv.bitVec idxWidth' i) e
+              else error $ "Bad size: " ++ show e
+            )
+            base
+          $ zip [(0 :: Integer) ..] elems
   in  do
         modify $ \st -> st { sizes = SMap.insert base s $ sizes st }
         stackAlloc m s idxWidth' valWidth'

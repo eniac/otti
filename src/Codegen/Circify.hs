@@ -44,6 +44,7 @@ module Codegen.Circify
   , doReturn
   , ssaValAsTerm
   , getSsaName
+  , getVer
   )
 where
 
@@ -75,7 +76,9 @@ import           IR.SMT.Assert                  ( Assert
                                                 , liftAssert
                                                 )
 import           Util.Cfg                       ( MonadCfg )
-import           Util.Control                   ( whenM )
+import           Util.Control                   ( MonadDeepState(..)
+                                                , whenM
+                                                )
 import           Util.Log
 
 {-|
@@ -293,6 +296,9 @@ fsGetNextSsaVar var i = fsGetFromLexScope i (lsGetNextSsaVar var)
 fsGetTerm :: VarName -> Int -> FunctionScope ty term -> SsaVal term
 fsGetTerm var i = fsGetFromLexScope i (lsGetTerm var)
 
+fsGetVer :: VarName -> Int -> FunctionScope ty term -> Version
+fsGetVer var i = fsGetFromLexScope i (lsGetVer var)
+
 fsSetTerm
   :: SsaVal term
   -> VarName
@@ -398,7 +404,7 @@ data CircifyState ty term = CircifyState
   }
 
 newtype Circify ty term a = Circify (StateT (CircifyState ty term) Mem a)
-    deriving (Functor, Applicative, Monad, MonadState (CircifyState ty term), MonadIO, MonadLog, MonadMem, MonadAssert, MonadCfg)
+    deriving (Functor, Applicative, Monad, MonadState (CircifyState ty term), MonadIO, MonadLog, MonadMem, MonadAssert, MonadCfg, MonadDeepState ((Assert.AssertState, Mem.MemState), CircifyState ty term))
 
 class Monad m => MonadCircify ty term m | m -> term, m -> ty where
   liftCircify :: Circify ty term a -> m a
@@ -619,6 +625,9 @@ setValueRaw var cterm = whenM computingValues $ do
 
 getTerm :: SsaLVal -> Circify ty term (SsaVal term)
 getTerm var = compilerGetsInScope var fsGetTerm lsGetTerm
+
+getVer :: SsaLVal -> Circify ty term Version
+getVer var = compilerGetsInScope var fsGetVer lsGetVer
 
 setTerm :: SsaLVal -> SsaVal term -> Circify ty term ()
 setTerm n v = compilerModifyInScope n (fsSetTerm v) (lsSetTerm v)

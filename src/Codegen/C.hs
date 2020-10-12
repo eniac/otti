@@ -1,4 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE LambdaCase                 #-}
 module Codegen.C where
 import           Codegen.C.Type
@@ -51,7 +53,7 @@ data CState = CState
   }
 
 newtype C a = C (StateT CState (Circify Type CTerm) a)
-    deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem, MonadCircify Type CTerm, MonadCfg)
+    deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem, MonadCircify Type CTerm, MonadCfg, MonadDeepState (((Assert.AssertState, Mem.MemState), CircifyState Type CTerm), CState))
 
 emptyCState :: Bool -> CState
 emptyCState findBugs = CState { funs          = Map.empty
@@ -70,8 +72,30 @@ cfgFromEnv = do
 
 -- Loops
 
-getLoopBound :: C Int
-getLoopBound = gets loopBound
+-- | Right indicates this bound is constant
+getForLoopBound :: CStat -> CStat -> C (Either Int Int)
+getForLoopBound loop body = do
+  s <- liftCfg $ asks (Cfg._constLoops . Cfg._cCfg)
+  d <- gets loopBound
+  if s
+    then do
+      cI <- constIterations loop body
+      logIf "c::const::iter" $ "constant iterations: " ++ show cI
+      return $ maybe (Left d) Right cI
+    else return $ Left d
+
+constIterations :: CStat -> CStat -> C (Maybe Int)
+constIterations stmt body = do
+  logIf "c::const::iter" "isConst?"
+  case getConstIterations stmt of
+    Just (ident, nIter) -> do
+      oldState <- deepGet -- Save state, all the way down to assertions
+      oldV     <- liftCircify $ getVer (SLVar ident)
+      genStmt body
+      newV <- liftCircify $ getVer (SLVar ident)
+      deepPut oldState -- Restore old state.
+      return $ if oldV == newV then Just (fromInteger nIter) else Nothing
+    Nothing -> return Nothing
 
 setLoopBound :: Int -> C ()
 setLoopBound bound = modify (\s -> s { loopBound = bound })
@@ -459,6 +483,7 @@ genAssignOp op l r = case op of
           lvalue <- evalLVal l
           genAssign l (liftTermFun2 (show op) f lvalue r)
 
+
 ---
 --- Statements
 ---
@@ -487,17 +512,23 @@ genStmt stmt = do
         _                 -> return ()
       -- Make a guard on the bound to guard execution of the loop
       -- Execute up to the loop bound
-      bound <- getLoopBound
-      replicateM_ bound $ do
-        test <- genExpr $ fromMaybe (error "Missing test in for-loop") check
-        liftCircify $ pushGuard (ssaBool test)
-        genStmt body
-        -- increment the variable
-        forM_ incr $ \inc -> genExpr inc
-      replicateM_ bound (liftCircify popGuard)
-      -- TODO: assert end
+      bound <- getForLoopBound stmt body
+      case bound of
+        Right b -> do
+          replicateM_ b $ do
+            genStmt body
+            forM_ incr $ \inc -> genExpr inc
+        Left b -> do
+          replicateM_ b $ do
+            test <- genExpr $ fromMaybe (error "Missing test in for-loop") check
+            liftCircify $ pushGuard (ssaBool test)
+            genStmt body
+            -- increment the variable
+            forM_ incr $ \inc -> genExpr inc
+          replicateM_ b (liftCircify popGuard)
+          -- TODO: assert end
     CWhile check body isDoWhile _ -> do
-      bound <- getLoopBound
+      bound <- gets loopBound
       let addGuard = genExpr check >>= liftCircify . pushGuard . ssaBool
       replicateM_ bound $ do
         unless isDoWhile addGuard

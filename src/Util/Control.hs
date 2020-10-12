@@ -1,13 +1,22 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Util.Control
   ( whenM
   , whenJust
   , whileJustM
   , whileM
   , unlessM
+  , MonadDeepState(..)
   )
 where
 
-import           Control.Monad
+import           Control.Monad                  ( unless
+                                                , when
+                                                )
+import Control.Monad.State.Strict
+import           Data.Functor.Identity          ( Identity )
 
 whenM :: Monad m => m Bool -> m () -> m ()
 whenM condition action = condition >>= flip when action
@@ -30,3 +39,18 @@ whileM condition step = do
   b <- condition
   if b then step *> whileM condition step else pure ()
 
+class (Monad m) => MonadDeepState s m | m -> s where
+  deepGet :: m s
+  deepPut :: s -> m ()
+
+instance MonadDeepState () Identity where
+  deepGet = pure ()
+  deepPut = const $ pure ()
+
+instance MonadDeepState () IO where
+  deepGet = pure ()
+  deepPut = const $ pure ()
+
+instance MonadDeepState s m => MonadDeepState (s, s') (StateT s' m) where
+  deepGet = liftM2 (,) (lift deepGet) get
+  deepPut (s, s') = lift (deepPut s) >> put s'

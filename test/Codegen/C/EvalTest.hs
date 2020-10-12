@@ -163,7 +163,7 @@ cValueTests = benchTestGroup
   , constraintValueTest "for unbound"
                         "foo"
                         "test/Code/C/for_unbound.c"
-                        [("f0_foo__return", i 5)] -- I'm actually not sure what we want to do here...
+                        [("f0_foo__return", i 100)] -- The static loop bound pass gets this
   , constraintValueTest "do while bound"
                         "foo"
                         "test/Code/C/do_while.c"

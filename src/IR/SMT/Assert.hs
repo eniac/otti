@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module IR.SMT.Assert where
@@ -12,10 +13,11 @@ import           Data.Sequence                  ( Seq )
 import qualified Data.Foldable                 as F
 import qualified Data.Sequence                 as Seq
 import qualified IR.SMT.TySmt                  as Ty
-import           Util.Log
+import           Util.Control                   ( MonadDeepState(..) )
 import           Util.Cfg                       ( Cfg
                                                 , MonadCfg
                                                 )
+import           Util.Log
 
 ---
 --- Monad defintions
@@ -91,6 +93,12 @@ assign a b = assert $ Ty.mkEq a b
 implies :: Ty.Term Ty.BoolSort -> Ty.Term Ty.BoolSort -> Assert ()
 implies a b = assert $ Ty.BoolBinExpr Ty.Implies a b
 
+save :: Assert AssertState
+save = get
+
+restore :: AssertState -> Assert ()
+restore = put
+
 newVar :: forall s . Ty.SortClass s => String -> Ty.Sort -> Assert (Ty.Term s)
 newVar name sort = do
   s0 <- get
@@ -112,3 +120,7 @@ check s = forM_ (F.toList $ asserted s) $ \c -> case vals s of
     then Right ()
     else Left $ "Unsat constraint:\n" ++ show c ++ "\nin\n" ++ show e
   Nothing -> Left "Missing values"
+
+instance MonadDeepState AssertState Assert where
+  deepGet = get
+  deepPut = put

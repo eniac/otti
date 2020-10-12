@@ -64,10 +64,11 @@ $(makeLenses ''ToPfCfg)
 data CCfg = CCfg { _printfOutput :: Bool
                  , _svExtensions :: Bool
                  , _pequinIo :: Bool
+                 , _constLoops :: Bool
                  } deriving (Show)
 
 defaultCCfg =
-  CCfg { _printfOutput = True, _svExtensions = False, _pequinIo = False }
+  CCfg { _printfOutput = True, _svExtensions = False, _pequinIo = False, _constLoops = True }
 
 $(makeLenses ''CCfg)
 
@@ -209,6 +210,11 @@ options =
               "Use pequin IO conventions"
               "Input is a struct In *, output is a struct Out *"
               "False"
+  , CfgOption (cCfg . constLoops . showReadLens)
+              "const-loops"
+              "Detect constant-iteration loops and special-case them"
+              "Detects incrementally increasing loops"
+              "True"
   , CfgOption (help . showReadLens)
               "help"
               "Prints cfg help and exits"

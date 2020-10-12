@@ -1,5 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
+{-# LANGUAGE PatternSynonyms     #-}
 module Codegen.C.AstUtil
   ( ctype
   , cDeclToType
@@ -17,6 +18,7 @@ module Codegen.C.AstUtil
   , isStorageSpec
   , defStruct
   , getStruct
+  , getConstIterations
   )
 where
 import           Codegen.C.Type
@@ -236,3 +238,46 @@ isTypedef :: CStorageSpecifier a -> Bool
 isTypedef CTypedef{} = True
 isTypedef _          = False
 
+-- | If this is a for loop whose header is constitent with a fixed number of
+-- iterations, returns the number of iteration and the variable that must be
+-- constant within to loop for that number of iterations to hold.
+getConstIterations :: CStat -> Maybe (String, Integer)
+getConstIterations stmt = case stmt of
+  CFor init test step _ _ -> do
+    (i0, start) <- asConstInit init
+    (i1, end  ) <- test >>= asConstUpperBound
+    (i2, incr ) <- step >>= asIncrement
+    when (i0 /= i1 || i1 /= i2) $ mempty
+    -- ceiling((end - start) / incr)
+    return $ (identToVarName i0, ((end - start - 1) `div` incr) + 1)
+  _ -> Nothing
+ where
+  asConstInit :: Either (Maybe CExpr) CDecl -> Maybe (Ident, Integer)
+  asConstInit init = case init of
+    Left (Just (CAssign CAssignOp (CVar ident _) (ConstIntExpr c) _)) ->
+      Just (ident, c)
+    Right (CDecl _declSpec [(Just (CDeclr (Just ident) _ _ _ _), Just (CInitExpr (ConstIntExpr c) _), _)] _)
+      -> Just (ident, c)
+    _ -> Nothing
+
+  asConstUpperBound :: CExpr -> Maybe (Ident, Integer)
+  asConstUpperBound expr = case expr of
+    CBinary CLeOp (CVar ident _) (ConstIntExpr c) _ -> Just (ident, c)
+    CBinary CLeqOp (CVar ident _) (ConstIntExpr c) _ -> Just (ident, c + 1)
+    _ -> Nothing
+
+  asIncrement :: CExpr -> Maybe (Ident, Integer)
+  asIncrement expr = case expr of
+    CAssign CAssignOp (CVar i0 _) (CBinary CAddOp (CVar i1 _) (ConstIntExpr c) _) _
+      | i0 == i1 && c > 0
+      -> Just (i0, c)
+    CAssign CAssignOp (CVar i0 _) (CBinary CAddOp (ConstIntExpr c) (CVar i1 _) _) _
+      | i0 == i1 && c > 0
+      -> Just (i0, c)
+    CUnary CPostIncOp (CVar i0 _) _ -> Just (i0, 1)
+    CUnary CPreIncOp  (CVar i0 _) _ -> Just (i0, 1)
+    _                               -> Nothing
+
+
+pattern ConstIntExpr :: Integer -> CExpression a
+pattern ConstIntExpr c <- CConst (CIntConst (CInteger c _ _) _)
