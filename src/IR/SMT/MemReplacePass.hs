@@ -67,37 +67,37 @@ runMemReplacePass pass = mapM (mapTermM visit)
     Just Refl -> case t of
       ConstArray sort value -> do
         value' <- rec value
-        liftLog $ logIf "mem::replace::pass" $ "visitConstArray: " ++ show t
+        logIf "mem::replace::pass" $ "visitConstArray: " ++ show t
         visitConstArray pass value sort value'
         return $ Just $ ConstArray sort value'
       Store array idx value -> do
         array' <- rec array
         idx'   <- rec idx
         value' <- rec value
-        liftLog $ logIf "mem::replace::pass" $ "visitStore: " ++ show t
+        logIf "mem::replace::pass" $ "visitStore: " ++ show t
         visitStore pass array idx value array' idx' value'
         return $ Just $ Store array' idx' value'
       Ite c a b -> do
         c' <- rec c
         a' <- rec a
         b' <- rec b
-        liftLog $ logIf "mem::replace::pass" $ "visitIte: " ++ show t
+        logIf "mem::replace::pass" $ "visitIte: " ++ show t
         visitIte pass c a b c' a' b'
         return $ Just $ Ite c' a' b'
       Var name sort -> do
-        liftLog $ logIf "mem::replace::pass" $ "visitVar: " ++ show t
+        logIf "mem::replace::pass" $ "visitVar: " ++ show t
         visitVar pass name sort
         return $ Just t
-      Exists{}   -> error "nyi: existential memories"
-      Let{}      -> error "nyi: let bindings for memories"
-      Select{}   -> error "nyi: selecting a member from an array"
+      Exists{} -> error "nyi: existential memories"
+      Let{}    -> error "nyi: let bindings for memories"
+      Select{} -> error "nyi: selecting a member from an array"
     Nothing -> case t of
       Select array idx -> do
         array'' <- rec array
         idx''   <- rec idx
         Just <$> case cast (array'', idx'') of
           Just (array', idx') -> do
-            liftLog $ logIf "mem::replace::pass" $ "visitSelect: " ++ show t
+            logIf "mem::replace::pass" $ "visitSelect: " ++ show t
             mReplaced <- visitSelect pass (fCast array) (fCast idx) array' idx'
             return $ fCast $ fromMaybe (Select array' idx') mReplaced
           Nothing -> return $ Select array'' idx''
@@ -106,7 +106,7 @@ runMemReplacePass pass = mapM (mapTermM visit)
         a1' <- rec a1
         Just <$> case cast (a0', a1') of
           Just (a0'', a1'') -> do
-            liftLog $ logIf "mem::replace::pass" $ "visitEq: " ++ show t
+            logIf "mem::replace::pass" $ "visitEq: " ++ show t
             mReplaced <- visitEq pass (fCast a0) (fCast a1) a0'' a1''
             return $ fromMaybe (mkEq a0'' a1'') mReplaced
           _ -> return $ Eq a0' a1'

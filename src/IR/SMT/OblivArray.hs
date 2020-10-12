@@ -99,7 +99,7 @@ findNonObliviousArrays ts = P.runToFixPoint pass SMap.empty
   markNotOblivious a = do
     alreadyMarked <- gets (SMap.member a . fst)
     unless alreadyMarked $ do
-      liftLog $ logIf "array::elim::mark" $ "Marking: " ++ show a
+      logIf "array::elim::mark" $ "Marking: " ++ show a
       P.modify $ SMap.insert a ()
       P.setProgress
 
@@ -130,7 +130,7 @@ findNonObliviousArrays ts = P.runToFixPoint pass SMap.empty
 
   pass :: Progress ArraySet ()
   pass = do
-    liftLog $ logIf "array::elim::mark" "Start mark pass"
+    logIf "array::elim::mark" "Start mark pass"
     void $ runMemReplacePass onePass ts
 
 -- | Propagate static array size through a formula.
@@ -139,8 +139,8 @@ propSizes initSizes ts = P.runToFixPoint pass initSizes
  where
   equateSizes :: TermMem -> TermMem -> Progress ArraySizes ()
   equateSizes a b = do
-    liftLog $ logIf "array::elim::sizes" $ unlines
-      ["Equating sizes:", "  " ++ show a, "  " ++ show b]
+    logIf "array::elim::sizes"
+      $ unlines ["Equating sizes:", "  " ++ show a, "  " ++ show b]
     mAS <- P.gets $ SMap.lookup a
     mBS <- P.gets $ SMap.lookup b
     case (mAS, mBS) of
@@ -164,7 +164,7 @@ propSizes initSizes ts = P.runToFixPoint pass initSizes
 
   pass :: Progress ArraySizes ()
   pass = do
-    liftLog $ logIf "array::elim::sizes" "Start sizes pass"
+    logIf "array::elim::sizes" "Start sizes pass"
     -- We traverse forwards and then backwards, since assertions fall in
     -- assignment order, and natural propagation can go either way.
     void $ runMemReplacePass onePass (ts ++ reverse ts)
@@ -211,12 +211,7 @@ replaceObliviousArrays arraySizes nonOblivious ts = evalStateT pass SMap.empty
 
   store :: TermMem -> [TermDynBv] -> ArrayElim ()
   store t l = do
-    liftLog
-      $  logIf "array::elim::replace"
-      $  "Replace: "
-      ++ show t
-      ++ " -> "
-      ++ show l
+    logIf "array::elim::replace" $ "Replace: " ++ show t ++ " -> " ++ show l
     modify $ SMap.insert t l
 
   visitors = (defaultMemReplacePass :: MemReplacePass ArrayElim)

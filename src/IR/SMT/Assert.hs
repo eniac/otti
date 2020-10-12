@@ -65,7 +65,7 @@ evalAndSetValue variable term = do
 
 setValue :: Ty.SortClass s => String -> Ty.Value s -> Assert ()
 setValue variable value = do
-  liftLog $ logIf "witness" $ show variable ++ " -> " ++ show value
+  logIf "witness" $ show variable ++ " -> " ++ show value
   modify $ \s -> s { vals = M.insert variable (Dyn.toDyn value) <$> vals s }
 
 publicize :: String -> Assert ()
@@ -82,7 +82,7 @@ execAssert act = snd <$> runAssert act
 
 assert :: Ty.Term Ty.BoolSort -> Assert ()
 assert a = do
-  liftLog $ logIf "assertions" $ "ASSERT: " ++ show a
+  logIf "assertions" $ "ASSERT: " ++ show a
   modify (\s -> s { asserted = asserted s Seq.|> a })
 
 assign :: Ty.SortClass s => Ty.Term s -> Ty.Term s -> Assert ()

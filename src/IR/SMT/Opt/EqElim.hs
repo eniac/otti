@@ -41,16 +41,17 @@ import           Util.Control                   ( unlessM )
 import           Util.Log
 
 data EqElimFns = EqElimFns
-  { asSub :: TermBool -> Maybe (String, Dynamic)
+  { asSub    :: TermBool -> Maybe (String, Dynamic)
   , preCheck :: TermBool -> TermBool
   }
 
 data ConstFoldEqState = ConstFoldEqState
   { _terms  :: !(IntMap.IntMap TermBool)
   , _uses   :: !(HMap.HashMap String IntSet.IntSet)
-  , _queue :: Seq.Seq Int
+  , _queue  :: Seq.Seq Int
   , _queued :: IntSet.IntSet
-  } deriving (Show)
+  }
+  deriving Show
 
 $(makeLenses ''ConstFoldEqState)
 
@@ -111,15 +112,10 @@ eqElimGen fns ts =
     forM_ mI $ \i -> do
       modify $ over terms $ IntMap.adjust (preCheck fns) i
       a <- gets ((IntMap.! i) . view terms)
-      liftLog
-        $  logIf "smt::opt::cfee::debug"
-        $  "Check "
-        ++ show i
-        ++ " : "
-        ++ show a
+      logIf "smt::opt::cfee::debug" $ "Check " ++ show i ++ " : " ++ show a
       forM_ (asSub fns a) $ \(var, val) -> do
         vUses <- gets (fromMaybe IntSet.empty . HMap.lookup var . view uses)
-        liftLog $ logIf "smt::opt::cfee::debug" $ "Sub in " ++ show vUses
+        logIf "smt::opt::cfee::debug" $ "Sub in " ++ show vUses
         modify $ over terms $ IntMap.delete i
         forM_ (IntSet.toList vUses) $ \useI -> do
           when (useI /= i) $ do

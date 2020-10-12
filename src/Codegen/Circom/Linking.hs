@@ -77,47 +77,45 @@ link
   -> LD.LowDegCompCtx (Prime n)
   -> LinkState GlobalSignal n ()
 link namespace invocation ctx =
-  let c =
-          Maybe.fromMaybe
-              (error $ "Missing invocation " ++ show invocation ++ " from cache")
-            $      CompT.cache ctx
-            Map.!? invocation
+  let
+    c =
+      Maybe.fromMaybe
+          (error $ "Missing invocation " ++ show invocation ++ " from cache")
+        $      CompT.cache ctx
+        Map.!? invocation
 
-      newSignals :: [Signal]
-      newSignals = map SigLocal $ CompT.ctxOrderedSignals c
+    newSignals :: [Signal]
+    newSignals = map SigLocal $ CompT.ctxOrderedSignals c
 
-      newConstraints :: Seq.Seq (LD.QEQ GlobalSignal (Prime n))
-      newConstraints =
-          Seq.reverse
-            $ Seq.fromList
-            $ map (sigMapQeq (joinName namespace))
-            $ LD.constraints
-            $ CompT.baseCtx c
+    newConstraints :: Seq.Seq (LD.QEQ GlobalSignal (Prime n))
+    newConstraints =
+      Seq.reverse
+        $ Seq.fromList
+        $ map (sigMapQeq (joinName namespace))
+        $ LD.constraints
+        $ CompT.baseCtx c
 
-      components :: Seq.Seq (IndexedIdent, Comp.TemplateInvocation (Prime n))
-      components =
-          Seq.reverse
-            $ foldMap (uncurry $ extractComponents [])
-            $ Map.assocs
-            $ CompT.env c
-  in  do
-        liftLog
-          $  logIf "r1cs::link::namespace"
-          $  "Linking namespace: "
-          ++ show namespace
-        -- add our signals
-        modify (r1csAddSignals (map (joinName namespace) newSignals))
-        -- link sub-modules
-        mapM_ (\(loc, inv) -> link (prependNamespace loc namespace) inv ctx)
-              components
-        -- add our constraints
-        liftLog
-          $ logIf "r1cs::link::cons"
-          $ unlines
-          $ map (Char8.unpack . encode)
-          $ Fold.toList newConstraints
-        modify $ r1csAddConstraints newConstraints
-        return ()
+    components :: Seq.Seq (IndexedIdent, Comp.TemplateInvocation (Prime n))
+    components =
+      Seq.reverse
+        $ foldMap (uncurry $ extractComponents [])
+        $ Map.assocs
+        $ CompT.env c
+  in
+    do
+      logIf "r1cs::link::namespace" $ "Linking namespace: " ++ show namespace
+      -- add our signals
+      modify (r1csAddSignals (map (joinName namespace) newSignals))
+      -- link sub-modules
+      mapM_ (\(loc, inv) -> link (prependNamespace loc namespace) inv ctx)
+            components
+      -- add our constraints
+      logIf "r1cs::link::cons"
+        $ unlines
+        $ map (Char8.unpack . encode)
+        $ Fold.toList newConstraints
+      modify $ r1csAddConstraints newConstraints
+      return ()
 
 execLink :: KnownNat n => LinkState s n a -> R1CS s n -> Log (R1CS s n)
 execLink (LinkState s) = execStateT s
@@ -138,9 +136,10 @@ linkMain m = do
   return s { publicInputs = IntSet.fromAscList $ take n [2 ..] }
 
 type GlobalValues = Map.Map GlobalSignal Integer
-data LocalValues = LocalValues { stringValues :: !(Map.Map String Dynamic)
-                               , values :: !(Map.Map Signal Dynamic)
-                               }
+data LocalValues = LocalValues
+  { stringValues :: !(Map.Map String Dynamic)
+  , values       :: !(Map.Map Signal Dynamic)
+  }
 localValuesFromValues :: Map.Map Signal Dynamic -> LocalValues
 localValuesFromValues m =
   LocalValues (Map.fromList $ map (first show) $ Map.toList m) m

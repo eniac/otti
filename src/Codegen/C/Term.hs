@@ -254,7 +254,7 @@ udefName s = s ++ "_undef"
 
 cSetValues :: Bool -> String -> CTerm -> Assert.Assert ()
 cSetValues trackUndef name t = do
-  liftLog $ logIf "values" $ "Setting " ++ show name ++ " to " ++ show t
+  logIf "values" $ "Setting " ++ show name ++ " to " ++ show t
   case term t of
     CBool b    -> Assert.evalAndSetValue name b
     CInt _ _ i -> Assert.evalAndSetValue name i
@@ -346,7 +346,7 @@ cCondAssign trackUndef ty name value alternate = case alternate of
 cDeclVar
   :: Maybe InMap -> Bool -> Type.Type -> String -> Maybe String -> Mem CTerm
 cDeclVar inMap trackUndef ty smtName mUserName = do
-  liftLog $ logIf "cDeclVar" $ show trackUndef ++ "cDeclVar: " ++ smtName
+  logIf "cDeclVar" $ show trackUndef ++ "cDeclVar: " ++ smtName
   u <- liftAssert $ if trackUndef
     then do
       t <- Assert.newVar (udefName smtName) Ty.SortBool
@@ -972,7 +972,7 @@ cIte condB t f =
 
 ctermGetVars :: String -> CTerm -> Mem (Set.Set String)
 ctermGetVars name t = do
-  liftLog $ logIf "outputs" $ "Getting outputs at " ++ name ++ " : " ++ show t
+  logIf "outputs" $ "Getting outputs at " ++ name ++ " : " ++ show t
   case term t of
     CBool b     -> return $ Ty.vars b
     CInt _ _ i  -> return $ Ty.vars i
@@ -989,8 +989,7 @@ ctermGetVars name t = do
           $ cAdd (arrayToPointer t)
           $ cIntLit Type.S32
           $ toInteger i
-        liftLog $ logIf "outputs::debug" $ unwords
-          ["Idx", show i, ":", show off]
+        logIf "outputs::debug" $ unwords ["Idx", show i, ":", show off]
         let elemName = name ++ "." ++ show i
         off' <- liftAssert $ alias False elemName off
         liftAssert $ cSetValues False elemName off

@@ -101,9 +101,7 @@ run r1cs = do
     c <- getC id'
     -- If it is a linear sub, `v` -> `t`
     whenJust (asLinearSub (publicInputs r1cs) (fst c)) $ \(v, t) -> do
-      liftLog $ logIf "r1cs::opt::lin::sub" $ show $ map
-        show
-        (numSigs r1cs IntMap.! v)
+      logIf "r1cs::opt::lin::sub" $ show $ map show (numSigs r1cs IntMap.! v)
       -- Get constraints that use `v`
       vUses <- gets (IntSet.toList . (IntMap.! v) . view uses)
       -- Set constraint to zero

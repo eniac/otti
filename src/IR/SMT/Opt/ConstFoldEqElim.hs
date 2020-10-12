@@ -160,9 +160,10 @@ data ConstFoldEqState = ConstFoldEqState
   { _terms  :: !(IntMap.IntMap TermBool)
   , _uses   :: !(HMap.HashMap String IntSet.IntSet)
   , _consts :: !(HMap.HashMap String Dynamic)
-  , _queue :: Seq.Seq Int
+  , _queue  :: Seq.Seq Int
   , _queued :: IntSet.IntSet
-  } deriving (Show)
+  }
+  deriving Show
 
 $(makeLenses ''ConstFoldEqState)
 
@@ -232,12 +233,7 @@ constFoldEqElim noElim ts =
       cs <- gets $ _consts
       modify $ over terms $ IntMap.adjust (constantFold . subAll cs) i
       a <- gets ((IntMap.! i) . view terms)
-      liftLog
-        $  logIf "smt::opt::cfee::debug"
-        $  "Check "
-        ++ show i
-        ++ " : "
-        ++ show a
+      logIf "smt::opt::cfee::debug" $ "Check " ++ show i ++ " : " ++ show a
       let subst = case a of
             Eq (Var v _s) t | v `Set.notMember` noElim && isConst t ->
               Just (v, toDyn t)
@@ -247,7 +243,7 @@ constFoldEqElim noElim ts =
       forM_ subst $ \(var, val) -> do
         modify $ over consts $ HMap.insert var val
         vUses <- gets (fromMaybe IntSet.empty . HMap.lookup var . view uses)
-        liftLog $ logIf "smt::opt::cfee::debug" $ "Sub in " ++ show vUses
+        logIf "smt::opt::cfee::debug" $ "Sub in " ++ show vUses
         modify $ over uses $ HMap.delete var
         modify $ over terms $ IntMap.delete i
         forM_ (IntSet.toList vUses) $ \useI -> do

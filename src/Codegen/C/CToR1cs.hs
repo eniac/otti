@@ -53,7 +53,7 @@ fnToSmt findBugs inVals tu name = do
     Left  e -> error e
     Right _ -> return ()
   let public' = Set.toList $ Assert.public assertState
-  liftLog $ logIf "cToSmt" $ "Public: " ++ show public'
+  logIf "cToSmt" $ "Public: " ++ show public'
   return $ FnTrans { assertions = Fold.toList $ Assert.asserted assertState
                    , public     = public'
                    , vals       = Assert.vals assertState

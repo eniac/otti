@@ -572,7 +572,8 @@ declareInitVar var ty term = do
   void $ argAssign (SLVar var) term
 
 -- | Declares a global variable
-declareGlobal :: (Show ty, Show term) => Bool -> VarName -> ty -> Circify ty term ()
+declareGlobal
+  :: (Show ty, Show term) => Bool -> VarName -> ty -> Circify ty term ()
 declareGlobal isInput var ty = do
   g  <- gets globals
   g' <- lsDeclareVar isInput var ty g
@@ -781,7 +782,7 @@ popFunction = do
 
 typedef :: Show ty => VarName -> ty -> Circify ty term ()
 typedef name ty = do
-  liftLog $ logIf "typedef" $ "typedef " ++ name ++ " to " ++ show ty
+  logIf "typedef" $ "typedef " ++ name ++ " to " ++ show ty
   modify $ \s -> case M.lookup name (typedefs s) of
     Nothing -> s { typedefs = M.insert name ty $ typedefs s }
     Just t  -> error $ unwords ["Already td'd", name, "to", show t]

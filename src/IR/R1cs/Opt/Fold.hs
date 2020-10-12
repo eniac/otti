@@ -26,9 +26,10 @@ import           Lens.Simple                    ( makeLenses
                                                 )
 import           Util.Log
 
-data FoldState = FoldState { _reps :: !(IntMap Int)
-                           , _classes :: !(IntMap IntSet)
-                           }
+data FoldState = FoldState
+  { _reps    :: !(IntMap Int)
+  , _classes :: !(IntMap IntSet)
+  }
 
 emptyFoldState :: FoldState
 emptyFoldState = FoldState IntMap.empty IntMap.empty
@@ -47,12 +48,7 @@ ensure x = do
 
 equate :: Int -> Int -> Fold ()
 equate x y = do
-  liftLog
-    $  logIf "r1cs::opt::fold::debug"
-    $  "equate "
-    ++ show x
-    ++ " with "
-    ++ show y
+  logIf "r1cs::opt::fold::debug" $ "equate " ++ show x ++ " with " ++ show y
   ensure x
   ensure y
   xRep   <- gets $ (IntMap.! x) . view reps

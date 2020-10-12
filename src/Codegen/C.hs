@@ -66,7 +66,7 @@ cfgFromEnv :: C ()
 cfgFromEnv = do
   bound <- Cfg.liftCfg $ asks $ Cfg._loopBound
   modify $ \s -> s { loopBound = bound }
-  liftLog $ logIf "loop" $ "Setting loop bound to " ++ show bound
+  logIf "loop" $ "Setting loop bound to " ++ show bound
 
 -- Loops
 
@@ -97,7 +97,7 @@ getFunction funName = do
 -- Record that a bug happens if some condition is met (on this path!)
 bugIf :: Ty.TermBool -> C ()
 bugIf c = do
-  liftLog $ logIf "bugIf" $ "Bug if: " ++ show c
+  logIf "bugIf" $ "Bug if: " ++ show c
   g <- liftCircify getGuard
   modify $ \s ->
     s { bugConditions = Ty.BoolNaryExpr Ty.And [g, c] : bugConditions s }
@@ -304,7 +304,7 @@ genSpecialFunction fnName args = do
 
 genExpr :: CExpr -> C CSsaVal
 genExpr expr = do
-  liftLog $ logIfM "expr" $ do
+  logIfM "expr" $ do
     t <- liftIO $ nodeText expr
     return $ "Expr: " ++ t
   case expr of
@@ -465,7 +465,7 @@ genAssignOp op l r = case op of
 
 genStmt :: CStat -> C ()
 genStmt stmt = do
-  liftLog $ logIfM "stmt" $ do
+  logIfM "stmt" $ do
     t <- liftIO $ nodeText stmt
     return $ "Stmt: " ++ t
   case stmt of
@@ -506,7 +506,7 @@ genStmt stmt = do
       replicateM_ bound (liftCircify popGuard)
     CReturn expr _ -> forM_ expr $ \e -> do
       toReturn <- genExpr e
-      liftLog $ logIf "return" $ "Returning: " ++ show toReturn
+      logIf "return" $ "Returning: " ++ show toReturn
       liftCircify $ doReturn $ ssaValAsTerm "return" toReturn
     CLabel _ inner _ _ -> genStmt inner
     _                  -> do
@@ -523,8 +523,8 @@ data DeclType = FnArg -- ^ Argument to a called function. Internally defined.
 -- @isInput@: whether the declared variables are inputs to the constraint system (vs. witnesses)
 genDecl :: DeclType -> CDecl -> C ()
 genDecl dType d@(CDecl specs decls _) = do
-  liftLog $ logIf "decls" "genDecl:"
-  liftLog $ logIfM "decls" $ liftIO $ nodeText d
+  logIf "decls" "genDecl:"
+  logIfM "decls" $ liftIO $ nodeText d
   -- At the top level, we ignore types we don't understand.
   skipBadTypes <- liftCircify $ gets (null . callStack)
   when (null specs) $ error "Expected specifier in declaration"
@@ -606,13 +606,13 @@ pequinSetup = liftCircify $ do
   outRef <- getRef (SLVar pequinOutGlobalName)
   declareVar False pequinOutLocalName (Ptr32 outTy)
   void $ argAssign (SLVar pequinOutLocalName) outRef
-  liftLog $ logIf "pequin" "Done with pequin setup"
+  logIf "pequin" "Done with pequin setup"
   return ()
 
 pequinTeardown :: C ()
 pequinTeardown = do
   outTerm <- liftCircify $ getTerm (SLVar pequinOutGlobalName)
-  liftLog $ logIf "pequin" "Done with pequin teardown"
+  logIf "pequin" "Done with pequin teardown"
   pubVars <- liftMem $ ctermGetVars pequinOutGlobalName $ ssaValAsTerm
     "pequin return"
     outTerm
@@ -632,14 +632,14 @@ genFunDef f = do
   -- Declare the arguments and execute the body
   pequinIo <- liftCfg $ asks (Cfg._pequinIo . Cfg._cCfg)
   if pequinIo then pequinSetup else forM_ args (genDecl EntryFnArg)
-  liftLog $ logIf "funDef" $ "Starting: " ++ name
+  logIf "funDef" $ "Starting: " ++ name
   genStmt body
-  liftLog $ logIf "funDef" $ "Popping: " ++ name
+  logIf "funDef" $ "Popping: " ++ name
   returnValue <- liftCircify popFunction
   if pequinIo
     then pequinTeardown
     else do
-      liftLog $ logIf "funDef" $ "Ret: " ++ show returnValue
+      logIf "funDef" $ "Ret: " ++ show returnValue
       forM_ returnValue $ \rv -> do
         pubVars <- liftMem $ ctermGetVars "return" rv
         liftAssert $ forM_ (Set.toList pubVars) Assert.publicize
@@ -711,16 +711,16 @@ evalC inMap findBugs act = do
 -- Can a fn exhibit undefined behavior?
 -- Returns a string describing it, if so.
 checkFn :: CTranslUnit -> String -> Log ToZ3.Z3Result
-checkFn tu name =  do
+checkFn tu name = do
   (((), _, memState), assertState) <-
     liftCfg $ Assert.runAssert $ runC Nothing True $ do
-    genFn tu name
-    assertBug
+      genFn tu name
+      assertBug
   let public' = Set.toList $ Assert.public assertState
-  let sizes' = Mem.sizes memState
-  let a = Fold.toList $ Assert.asserted $ assertState
+  let sizes'  = Mem.sizes memState
+  let a       = Fold.toList $ Assert.asserted $ assertState
   doOpt <- liftCfg $ asks (Cfg._optForZ3 . Cfg._smtOptCfg)
-  a' <- if doOpt then Opt.opt sizes' (Set.fromList public') a else return a
+  a'    <- if doOpt then Opt.opt sizes' (Set.fromList public') a else return a
   ToZ3.evalZ3Model $ Ty.BoolNaryExpr Ty.And a'
 
 evalFn :: Bool -> CTranslUnit -> String -> Log (Map.Map String ToZ3.Val)

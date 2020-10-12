@@ -71,18 +71,21 @@ type SmtVals = Map.Map String Dynamic
 type LSig n = (LC PfVar (Prime n), Maybe (Prime n))
 type ArraySizes = ShowMap (TermArray DynBvSort DynBvSort) Int
 
-data ToPfConfig = ToPfConfig { assumeNoBvOverflow :: Bool
-                             , optEq :: Bool
-                             , assumeInputsInRange :: Bool
-                             } deriving (Show)
+data ToPfConfig = ToPfConfig
+  { assumeNoBvOverflow  :: Bool
+  , optEq               :: Bool
+  , assumeInputsInRange :: Bool
+  }
+  deriving Show
 
-data ToPfState n = ToPfState { r1cs :: R1CS PfVar n
-                             , bools :: AliasMap TermBool (LSig n)
-                             , ints :: AliasMap TermDynBv (BvEntry n)
-                             , next :: Int
-                             , cfg  :: ToPfConfig
-                             , arraySizes :: ArraySizes
-                             }
+data ToPfState n = ToPfState
+  { r1cs       :: R1CS PfVar n
+  , bools      :: AliasMap TermBool (LSig n)
+  , ints       :: AliasMap TermDynBv (BvEntry n)
+  , next       :: Int
+  , cfg        :: ToPfConfig
+  , arraySizes :: ArraySizes
+  }
 
 
 newtype ToPf n a = ToPf (StateT (ToPfState n) Log a)
@@ -122,7 +125,7 @@ enforce :: KnownNat n => QEQ PfVar (Prime n) -> ToPf n ()
 enforce qeq = do
   ensureVarsQeq qeq
   modify (\s -> s { r1cs = r1csAddConstraint qeq $ r1cs s })
-  liftLog $ logIf "toPfCon" $ qeqShow qeq
+  logIf "toPfCon" $ qeqShow qeq
 
 enforceCheck :: KnownNat n => (LSig n, LSig n, LSig n) -> ToPf n ()
 enforceCheck ((a, av), (b, bv), (c, cv)) = do
@@ -159,7 +162,7 @@ asVar var value = do
   modify $ \s -> s { r1cs = r1csEnsureSignal var $ r1cs s }
   case value of
     Just v -> do
-      liftLog $ logIf "toPfVal" $ var ++ " -> " ++ primeShow v
+      logIf "toPfVal" $ var ++ " -> " ++ primeShow v
       modify $ \s -> s { r1cs = r1csSetSignalVal var v $ r1cs s }
     _ -> return ()
   return (LD.lcSig var, value)
@@ -371,9 +374,11 @@ bitsize x = if x == 0 then 0 else 1 + bitsize (x `div` 2)
 
 -- The integer entry holds a (signal, width) pair
 -- The bits list has low order bits at low indices
-data BvEntry n = BvEntry { int :: Maybe (LSig n, Int)
-                         , bits :: Maybe [LSig n]
-                         } deriving (Show)
+data BvEntry n = BvEntry
+  { int  :: Maybe (LSig n, Int)
+  , bits :: Maybe [LSig n]
+  }
+  deriving Show
 
 bvEntryEmpty :: BvEntry n
 bvEntryEmpty = BvEntry { int = Nothing, bits = Nothing }
@@ -470,7 +475,7 @@ lazyInt = gets (assumeNoBvOverflow . cfg)
 -- Require `x` to fit in `width` unsigned bits
 bitify :: KnownNat n => String -> LSig n -> Int -> ToPf n [LSig n]
 bitify ctx x width = do
-  liftLog $ logIf "toPf" $ "bitify: " ++ ctx
+  logIf "toPf" $ "bitify: " ++ ctx
   sigs <- nbits ctx $ asBits width $ snd x
   let sum' = foldr1 lcAdd $ zipWith lcScale (map twoPow [0 ..]) sigs
   enforceCheck (lcZero, lcZero, lcSub sum' x)
@@ -479,7 +484,7 @@ bitify ctx x width = do
 -- Does `number` fit in `w` `signed` bits?
 inBits :: KnownNat n => Bool -> Int -> LSig n -> ToPf n (LSig n)
 inBits signed w number = do
-  liftLog $ logIf "toPf" "inBits"
+  logIf "toPf" "inBits"
   bs <- nbits "inBits" $ asBits w $ snd number
   binEq number $ deBitify signed bs
 
@@ -497,10 +502,10 @@ bvToPf env term = do
   entry <- getIntM term
   s     <- get
   when (isNothing entry) $ do
-    liftLog $ logIf "toPf::cache" $ "Cache " ++ show (ints s)
-    liftLog $ logIf "toPf" $ "Cache miss " ++ show term
+    logIf "toPf::cache" $ "Cache " ++ show (ints s)
+    logIf "toPf" $ "Cache miss " ++ show term
     bvToPfUncached term
-  unless (isNothing entry) $ liftLog $ logIf "toPf" $ "Cache hit " ++ show term
+  unless (isNothing entry) $ logIf "toPf" $ "Cache hit " ++ show term
  where
   unhandledOp = unhandled "bv operator in bvToPf"
   bvOpKind :: BvBinOp -> BvOpKind
@@ -728,43 +733,32 @@ handleAlias env a = case a of
           else do
             let rBool = fromJust $ cast t
             _ <- boolToPf env rBool
-            liftLog
-              $  logIf "toPf"
-              $  "Alias "
-              ++ show boolV
-              ++ " to "
-              ++ show rBool
+            logIf "toPf" $ "Alias " ++ show boolV ++ " to " ++ show rBool
             modify $ \st -> st { bools = AMap.alias boolV rBool $ bools st }
             return True
         Nothing ->
           let intV = fromJust (cast v)
-          in
-            if AMap.memberOrAlias intV (ints s)
-              then return False
-              else do
-                let rInt = fromJust $ cast t
-                bvToPf env rInt
-                liftLog
-                  $  logIf "toPf"
-                  $  "Alias "
-                  ++ show intV
-                  ++ " to "
-                  ++ show rInt
-                modify $ \st -> st { ints = AMap.alias intV rInt $ ints st }
-                return True
+          in  if AMap.memberOrAlias intV (ints s)
+                then return False
+                else do
+                  let rInt = fromJust $ cast t
+                  bvToPf env rInt
+                  logIf "toPf" $ "Alias " ++ show intV ++ " to " ++ show rInt
+                  modify $ \st -> st { ints = AMap.alias intV rInt $ ints st }
+                  return True
   _ -> return False
 
 -- # Top Level
 
 enforceAsPf :: KnownNat n => Maybe SmtVals -> TermBool -> ToPf n ()
 enforceAsPf env b = do
-  liftLog $ logIf "toPf" $ "enforce: " ++ show b
+  logIf "toPf" $ "enforce: " ++ show b
   doOpt    <- gets (optEq . cfg)
   wasAlias <- if doOpt then handleAlias env b else return False
-  liftLog $ logIf "toPf" $ "wasAlias: " ++ show wasAlias
+  logIf "toPf" $ "wasAlias: " ++ show wasAlias
   unless wasAlias $ boolToPf env b >>= enforceTrue
   r <- gets $ r1csStats . r1cs
-  liftLog $ logIf "toPf" $ "R1cs: " ++ r
+  logIf "toPf" $ "R1cs: " ++ r
 
 runToPf :: KnownNat n => ToPf n a -> ToPfState n -> Log (a, ToPfState n)
 runToPf (ToPf f) = runStateT f

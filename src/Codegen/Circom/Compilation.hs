@@ -247,7 +247,7 @@ compStatementNoReturn s = case ast s of
     return ()
  where
   assert' (Base b) = do
-    liftLog $ logIf "circomAssert" $ show b
+    logIf "circomAssert" $ show b
     modify $ \c -> c { baseCtx = assert b (baseCtx c) }
   assert' t = spanE (ann s) $ "Cannot constain " ++ show t ++ " to zero"
 
