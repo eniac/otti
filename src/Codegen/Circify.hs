@@ -532,15 +532,6 @@ liftTermFun2M name f x1 x2 = case (x1, x2) of
   (Base c1, Base c2) -> Base <$> f c1 c2
   _ -> error $ "Cannot apply c function " ++ name ++ " to " ++ show (x1, x2)
 
-compilerRunInLValScope
-  :: SsaLVal
-  -> (FunctionScope ty term -> Circify ty term (a, FunctionScope ty term))
-  -> (LexScope ty term -> Circify ty term (a, LexScope ty term))
-  -> Circify ty term a
-compilerRunInLValScope lval fF lF = do
-  idx <- compilerFindScope lval
-  compilerRunInScopeIdx idx fF lF
-
 compilerModifyInScope
   :: SsaLVal
   -> (VarName -> Int -> FunctionScope ty term -> FunctionScope ty term)
