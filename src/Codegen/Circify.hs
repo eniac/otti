@@ -371,11 +371,12 @@ fsWithPrefix prefix ty = FunctionScope { guards         = []
 data LangDef ty term = LangDef
   {
     -- | Declare an uninitialized variable of the given type & name
-    declare
-      :: ty   -- ^ type
-      -> String  -- ^ SMT name prefix
-      -> Maybe VarName -- ^ user name prefix
-      -> Mem term
+    --   The first name is required, and is an SMT name that should be a prefix of all generated SMT variables
+    --   The second name is optional, and is a user-visible name.
+    --   If present, this varaiable is user-visible, and if values are being
+    --   computed, the @declare@ function is responsible for getting its value
+    --   from the user.
+    declare :: ty -> String -> Maybe VarName -> Mem term
     -- | Create a new variable of the given type, set to the given term.
     -- If the Maybe isJust, conditionally set the variable to the other term.
     -- Returns the term for the new variable, and the conditional term that
@@ -745,7 +746,8 @@ deref val = case val of
 returnValueName :: String
 returnValueName = "return"
 
-pushFunction :: (Show ty, Show term) => String -> Maybe ty -> Circify ty term ()
+pushFunction
+  :: (Show ty, Show term) => String -> Maybe ty -> Circify ty term ()
 pushFunction name ty = do
   p <- gets prefix
   c <- gets fnCtr
