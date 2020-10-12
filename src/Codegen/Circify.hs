@@ -34,6 +34,7 @@ module Codegen.Circify
   , liftTermFun2M
   , liftTermFun3
   , declareVar
+  , declareInitVar
   , declareGlobal
   , ssaAssign
   , argAssign
@@ -74,7 +75,7 @@ import           IR.SMT.Assert                  ( Assert
                                                 , liftAssert
                                                 )
 import           Util.Cfg                       ( MonadCfg )
-import           Util.Control
+import           Util.Control                   ( whenM )
 import           Util.Log
 
 {-|
@@ -97,14 +98,16 @@ type Version = Int
 type VarName = String
 
 data SsaVar = SsaVar VarName Version
-                deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show)
 
 -- TODO rename
-data LexScope ty term = LexScope { tys :: M.Map VarName ty
-                                 , vers :: M.Map VarName Version
-                                 , terms :: M.Map SsaVar (SsaVal term)
-                                 , lsPrefix :: String
-                                 } deriving (Show)
+data LexScope ty term = LexScope
+  { tys      :: M.Map VarName ty
+  , vers     :: M.Map VarName Version
+  , terms    :: M.Map SsaVar (SsaVal term)
+  , lsPrefix :: String
+  }
+  deriving Show
 printLs :: LexScope ty term -> IO ()
 printLs s =
   putStr
@@ -117,7 +120,11 @@ printLs s =
 data ScopeIdx = ScopeGlobal
               | ScopeIdx { lsIdx :: Int, fsIdx :: Int } deriving (Show)
 
-data Ref = Ref { scopeIdx :: ScopeIdx , refVarName :: VarName } deriving (Show)
+data Ref = Ref
+  { scopeIdx   :: ScopeIdx
+  , refVarName :: VarName
+  }
+  deriving Show
 
 -- Something that can be written to in a lexical system.
 -- Either a name in the current scope, or an absolute reference to another scope.
@@ -220,16 +227,18 @@ guardConditions g = case g of
   Guard c    -> [c]
   Break _ cs -> map Ty.Not cs
 
-data FunctionScope ty term = FunctionScope { -- Condition for current path
-                                     guards :: [Guard]
+data FunctionScope ty term = FunctionScope
+  { -- Condition for current path
+    guards         :: [Guard]
                                      -- Stack of lexical scopes. Innermost first.
-                                   , lexicalScopes     :: [LexScope ty term]
-                                   , nCurrentScopes    :: Int
+  , lexicalScopes  :: [LexScope ty term]
+  , nCurrentScopes :: Int
                                      -- number of next ls
-                                   , lsCtr             :: Int
-                                   , fsPrefix          :: String
-                                   , retTy             :: Maybe ty
-                                   } deriving (Show)
+  , lsCtr          :: Int
+  , fsPrefix       :: String
+  , retTy          :: Maybe ty
+  }
+  deriving Show
 
 listModify :: Functor m => Int -> (a -> m a) -> [a] -> m [a]
 listModify 0 f (x : xs) = (: xs) `fmap` f x
@@ -362,27 +371,29 @@ fsWithPrefix prefix ty = FunctionScope { guards         = []
 data LangDef ty term = LangDef
   {
     -- | Declare an uninitialized variable of the given type & name
-    declare :: ty   -- ^ type
-            -> String  -- ^ SMT name prefix
-            -> Maybe VarName -- ^ user name prefix
-            -> Mem term
+    declare
+      :: ty   -- ^ type
+      -> String  -- ^ SMT name prefix
+      -> Maybe VarName -- ^ user name prefix
+      -> Mem term
     -- | Create a new variable of the given type, set to the given term.
     -- If the Maybe isJust, conditionally set the variable to the other term.
     -- Returns the term for the new variable, and the conditional term that
     -- represents the ITE that it has been assigned to.
-  , assign  :: ty -> String -> term -> Maybe (Ty.TermBool, term) -> Mem (term, term)
+  , assign
+      :: ty -> String -> term -> Maybe (Ty.TermBool, term) -> Mem (term, term)
   , setValues :: String -> term -> Assert ()
   }
 
 -- | Internal state of the compiler for code generation
 data CircifyState ty term = CircifyState
-  { callStack         :: [FunctionScope ty term] -- ^ Function scopes
-  , nFrames           :: Int                     -- ^ Number of them
-  , globals           :: LexScope ty term        -- ^ Global scope
-  , typedefs          :: M.Map VarName ty        -- ^ Type aliases
-  , prefix            :: [String]                -- ^ Curreny name prefix
-  , fnCtr             :: Int                     -- ^ Inline fn-call #
-  , lang              :: LangDef ty term         -- ^ Language bindings
+  { callStack :: [FunctionScope ty term] -- ^ Function scopes
+  , nFrames   :: Int                     -- ^ Number of them
+  , globals   :: LexScope ty term        -- ^ Global scope
+  , typedefs  :: M.Map VarName ty        -- ^ Type aliases
+  , prefix    :: [String]                -- ^ Curreny name prefix
+  , fnCtr     :: Int                     -- ^ Inline fn-call #
+  , lang      :: LangDef ty term         -- ^ Language bindings
   }
 
 newtype Circify ty term a = Circify (StateT (CircifyState ty term) Mem a)

@@ -547,9 +547,8 @@ genDecl dType d@(CDecl specs decls _) = do
         Left  err -> unless skipBadTypes $ error err
         Right ty  -> case mInit of
           Just init -> do
-            liftCircify $ declareVar False name ty
             rhs <- genInit ty init
-            void $ liftCircify $ argAssign (SLVar name) rhs
+            liftCircify $ declareInitVar name ty rhs
           Nothing -> do
             liftCircify $ declareVar (dType == EntryFnArg) name ty
             whenM (gets findUB) $ when (dType /= FnArg) $ do
@@ -597,15 +596,13 @@ pequinSetup = liftCircify $ do
     <$> getStruct pequinInStructName
   declareGlobal True pequinInGlobalName inTy
   inRef <- getRef (SLVar pequinInGlobalName)
-  declareVar False pequinInLocalName (Ptr32 inTy)
-  void $ argAssign (SLVar pequinInLocalName) inRef
+  declareInitVar pequinInLocalName (Ptr32 inTy) inRef
   -- Same for output.
   outTy <- fromMaybe (error $ "No struct " ++ pequinInStructName)
     <$> getStruct pequinOutStructName
   declareGlobal False pequinOutGlobalName outTy
   outRef <- getRef (SLVar pequinOutGlobalName)
-  declareVar False pequinOutLocalName (Ptr32 outTy)
-  void $ argAssign (SLVar pequinOutLocalName) outRef
+  declareInitVar pequinOutLocalName (Ptr32 outTy) outRef
   logIf "pequin" "Done with pequin setup"
   return ()
 
