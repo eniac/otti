@@ -4,7 +4,8 @@ module IR.SMT.OptTest
   )
 where
 import           BenchUtils
-import           IR.SMT.Opt
+import           IR.SMT.Opt.EqElim
+import           IR.SMT.Opt.ConstFoldEqElim
 import           Control.Monad
 import qualified Data.BitVector                as Bv
 import qualified Data.Set                      as Set
@@ -47,7 +48,7 @@ mkEqElimTest
   :: Bool -> String -> Set.Set String -> [TermBool] -> Int -> BenchTest
 mkEqElimTest allowBlowup name protected original nExpected =
   benchTestCase (if null name then show original else name) $ do
-    let elim = evalLog $ eqElim protected original
+    let elim = evalLog $ eqElimFn protected original
     actual <- evalCfg
       elim
       (defaultCfgState

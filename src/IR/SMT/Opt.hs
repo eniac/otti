@@ -1,62 +1,70 @@
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE Rank2Types #-}
 module IR.SMT.Opt
   ( opt
-  , constantFold
-  , eqElim
   , OptMetadata(..)
   , newOptMetadata
   )
 where
 
 import           IR.SMT.TySmt
-import           IR.SMT.OblivArray              ( elimOblivArrays )
+import           IR.SMT.Opt.Mem.OblivArray      ( elimOblivArrays )
+import           IR.SMT.Opt.Mem.Trace           ( tracePass )
 import           IR.SMT.Opt.ConstFoldEqElim     ( constantFold
                                                 , constFoldEqElim
                                                 )
 import           IR.SMT.Opt.EqElim              ( eqElim )
+import qualified IR.SMT.Opt.Assert             as OA
+import qualified IR.SMT.Assert                 as A
 
-import           Control.Monad.State.Strict
-import           Control.Monad.Reader
+import           Control.Monad.State.Strict     ( forM_
+                                                , liftM2
+                                                )
+import           Control.Monad.Reader           ( asks )
 import qualified Data.Map.Strict               as Map
 import           Data.Maybe                     ( fromMaybe )
 import qualified Data.Set                      as Set
 import           Util.Cfg                       ( MonadCfg(..)
                                                 , _smtOpts
                                                 , _smtOptCfg
+                                                , _checkOpts
                                                 )
+import           Util.Control                   ( whenM )
 import           Util.Log
 import           Util.ShowMap                   ( ShowMap )
 
 type ArraySizes = ShowMap (Term (ArraySort DynBvSort DynBvSort)) Int
 
 data OptMetadata = OptMetadata
-  { protected      :: !(Set.Set String)
-  , arraySizes     :: !ArraySizes
-  } deriving (Show)
+  { protected  :: !(Set.Set String)
+  , arraySizes :: !ArraySizes
+  }
+  deriving Show
 
 newOptMetadata :: Set.Set String -> ArraySizes -> OptMetadata
 newOptMetadata p s = OptMetadata { protected = p, arraySizes = s }
 
 data Opt = Opt
-  { fn   :: OptMetadata -> [TermBool] -> Log [TermBool]
+  { fn   :: OA.Assert ()
   , name :: String
   }
 
 constantFoldOpt :: Opt
-constantFoldOpt = Opt { fn = const (return . map constantFold), name = "cf" }
+constantFoldOpt =
+  Opt { fn = OA.modifyAssertions (return . map constantFold), name = "cf" }
 
 constantFoldEqOpt :: Opt
-constantFoldEqOpt = Opt { fn = constFoldEqElim . protected, name = "cfee" }
+constantFoldEqOpt = Opt { fn = constFoldEqElim, name = "cfee" }
 
 eqElimOpt :: Opt
-eqElimOpt = Opt { fn = eqElim . protected, name = "ee" }
+eqElimOpt = Opt { fn = eqElim, name = "ee" }
 
 arrayElimOpt :: Opt
-arrayElimOpt = Opt { fn = elimOblivArrays . arraySizes, name = "arrayElim" }
+arrayElimOpt = Opt { fn = elimOblivArrays, name = "arrayElim" }
+
+memOpt :: Opt
+memOpt = Opt { fn = tracePass, name = "trace" }
 
 -- | Flattens ANDs
 flattenAnds :: TermBool -> [TermBool]
@@ -65,42 +73,46 @@ flattenAnds t = case t of
   _                          -> [t]
 
 flattenAndsOpt :: Opt
-flattenAndsOpt =
-  Opt { fn = \_ ts -> return $ concatMap flattenAnds ts, name = "flattenAnds" }
+flattenAndsOpt = Opt
+  { fn   = OA.modifyAssertions (return . concatMap flattenAnds)
+  , name = "flattenAnds"
+  }
 
 opts :: Map.Map String Opt
-opts = Map.fromList
-  [ (name o, o)
-  | o <-
-    [ eqElimOpt
-    , constantFoldOpt
-    , constantFoldEqOpt
-    , arrayElimOpt
-    , flattenAndsOpt
-    ]
+opts = Map.fromList $ map
+  (\o -> (name o, o))
+  [ eqElimOpt
+  , constantFoldOpt
+  , constantFoldEqOpt
+  , arrayElimOpt
+  , flattenAndsOpt
+  , memOpt
   ]
-
-logAssertions :: String -> [TermBool] -> Log ()
-logAssertions context as = logIfM "smt::opt" $ do
-  liftIO $ putStrLn $ context ++ ":"
-  forM_ as $ \a -> liftIO $ putStrLn $ "  " ++ show a
-  return $ show (length as) ++ " assertions"
 
 
 -- Optimize, ensuring that the variables in `p` continue to exist.
-opt :: ArraySizes -> Set.Set String -> [TermBool] -> Log [TermBool]
-opt sizes p ts = do
-  let m' = OptMetadata { protected = p, arraySizes = sizes }
+opt :: ArraySizes -> A.AssertState -> Log OA.AssertState
+opt sizes a = do
+  let a' = OA.fromAssertState sizes a
   optsToRun <- liftCfg $ asks (_smtOpts . _smtOptCfg)
-  logAssertions "initial" ts
-  foldM
-    (\a oname -> do
-      let o =
-            fromMaybe (error $ "No optimization named: " ++ oname)
-              $ Map.lookup oname opts
-      a' <- fn o m' a
-      logAssertions ("Post " ++ show oname) a'
-      return a'
-    )
-    ts
-    optsToRun
+  let optimize = do
+        OA.logAssertions "smt::opt" "initial"
+        forM_ optsToRun $ \oname -> do
+          let o =
+                fromMaybe (error $ "No optimization named: " ++ oname)
+                  $ Map.lookup oname opts
+          fn o
+          OA.logAssertions "smt::opt" ("Post " ++ show oname)
+          whenM
+              (liftM2 (&&)
+                      OA.isStoringValues
+                      (liftCfg $ asks (_checkOpts . _smtOptCfg))
+              )
+            $ do
+                logIf "smt::opt" "Checking system"
+                r <- OA.check
+                case r of
+                  Left  m  -> error m
+                  Right () -> return ()
+                logIf "smt::opt" "Checked"
+  OA.execAssert optimize a'

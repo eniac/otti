@@ -93,12 +93,6 @@ assign a b = assert $ Ty.mkEq a b
 implies :: Ty.Term Ty.BoolSort -> Ty.Term Ty.BoolSort -> Assert ()
 implies a b = assert $ Ty.BoolBinExpr Ty.Implies a b
 
-save :: Assert AssertState
-save = get
-
-restore :: AssertState -> Assert ()
-restore = put
-
 newVar :: forall s . Ty.SortClass s => String -> Ty.Sort -> Assert (Ty.Term s)
 newVar name sort = do
   s0 <- get

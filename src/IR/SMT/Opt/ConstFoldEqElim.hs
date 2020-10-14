@@ -10,6 +10,8 @@ module IR.SMT.Opt.ConstFoldEqElim
   )
 where
 import           IR.SMT.TySmt
+import qualified IR.SMT.Opt.Assert             as OA
+import           IR.SMT.Opt.Assert              ( Assert )
 
 import           Control.Monad.State.Strict
 import qualified Data.BitVector                as Bv
@@ -184,8 +186,14 @@ isConst t = case t of
   IntLit{}   -> True
   _          -> False
 
-constFoldEqElim :: Set.Set String -> [TermBool] -> Log [TermBool]
-constFoldEqElim noElim ts =
+constFoldEqElim :: Assert ()
+constFoldEqElim = do
+  noElim <- gets (OA._public)
+  OA.modifyAssertions (constFoldEqElimFn noElim)
+  OA.refresh
+
+constFoldEqElimFn :: Set.Set String -> [TermBool] -> Log [TermBool]
+constFoldEqElimFn noElim ts =
   filter (/= BoolLit True)
     .   map snd
     .   IntMap.toAscList

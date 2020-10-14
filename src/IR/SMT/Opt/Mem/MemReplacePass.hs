@@ -9,7 +9,7 @@ Description : Generic SMT traversal for visiting and optionally replacing memory
               That is, interactions with terms which are sorted as arrays from
               dynamic bitvectors to dynamic bitvectors.
 -}
-module IR.SMT.MemReplacePass
+module IR.SMT.Opt.Mem.MemReplacePass
   ( MemReplacePass(..)
   , runMemReplacePass
   , defaultMemReplacePass

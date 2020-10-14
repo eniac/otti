@@ -12,6 +12,7 @@ where
 import           Control.Monad
 import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.Assert                 as Assert
+import qualified IR.SMT.Opt.Assert             as OptAssert
 import qualified Language.C.Syntax.AST         as AST
 import qualified Codegen.Circify.Memory        as Mem
 import qualified IR.R1cs.Opt                   as R1csOpt
@@ -23,10 +24,7 @@ import           Codegen.C.Term                 ( InMap )
 import           IR.SMT.ToPf                    ( toPf )
 import qualified IR.SMT.Opt                    as SmtOpt
 import           IR.R1cs                        ( R1CS(..) )
-import qualified Data.Foldable                 as Fold
-import           Data.Dynamic                   ( Dynamic )
 import qualified Data.IntMap.Strict            as IntMap
-import qualified Data.Map.Strict               as Map
 import           Data.Maybe                     ( isJust )
 import qualified Data.Set                      as Set
 import           GHC.TypeNats                   ( KnownNat )
@@ -34,9 +32,7 @@ import           Util.Log
 import           Util.Cfg                       ( liftCfg )
 import qualified Util.ShowMap                  as SMap
 
-data FnTrans = FnTrans { assertions :: [Ty.TermBool]
-                       , public :: [String]
-                       , vals   :: Maybe (Map.Map String Dynamic)
+data FnTrans = FnTrans { system :: Assert.AssertState
                        , arraySizes :: SMap.ShowMap (Ty.TermArray Ty.DynBvSort Ty.DynBvSort) Int
                        }
 
@@ -54,11 +50,7 @@ fnToSmt findBugs inVals tu name = do
     Right _ -> return ()
   let public' = Set.toList $ Assert.public assertState
   logIf "cToSmt" $ "Public: " ++ show public'
-  return $ FnTrans { assertions = Fold.toList $ Assert.asserted assertState
-                   , public     = public'
-                   , vals       = Assert.vals assertState
-                   , arraySizes = Mem.sizes memState
-                   }
+  return $ FnTrans { system = assertState, arraySizes = Mem.sizes memState }
 
 fnToR1cs
   :: forall n
@@ -70,10 +62,15 @@ fnToR1cs
   -> Log (R1CS String n)
 fnToR1cs findBugs inVals tu fnName = do
   fn <- fnToSmt findBugs inVals tu fnName
-  let pubVars = Set.fromList $ if findBugs then [] else public fn
+  let sys     = system fn
+  let sys' = if findBugs then sys { Assert.public = Set.empty } else sys
+  let pubVars = Assert.public sys'
   logIf "inputs" $ "Public inputs: " ++ show pubVars
-  newSmt <- SmtOpt.opt (arraySizes fn) pubVars (assertions fn)
-  r      <- toPf @n (vals fn) pubVars (arraySizes fn) newSmt
+  newSmt <- SmtOpt.opt (arraySizes fn) (system fn)
+  r      <- toPf @n (OptAssert._vals newSmt)
+                    pubVars
+                    (arraySizes fn)
+                    (OptAssert.listAssertions newSmt)
   logIf "r1csvars" $ "R1cs: " ++ unlines
     (map (\(n, s) -> show n ++ ": " ++ show s) $ IntMap.toList $ numSigs r)
   R1csOpt.opt r

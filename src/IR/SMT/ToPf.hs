@@ -43,6 +43,7 @@ import qualified Data.Bits                     as Bits
 import qualified Data.BitVector                as Bv
 import           Data.Dynamic                   ( Dynamic
                                                 , fromDyn
+                                                , fromDynamic
                                                 )
 import           Data.Field.Galois              ( Prime
                                                 , toP
@@ -760,13 +761,27 @@ enforceAsPf env b = do
   r <- gets $ r1csStats . r1cs
   logIf "toPf" $ "R1cs: " ++ r
 
-runToPf :: KnownNat n => ToPf n a -> ToPfState n -> Log (a, ToPfState n)
-runToPf (ToPf f) = runStateT f
-
 publicizeInputs :: Set.Set PfVar -> ToPf n ()
 publicizeInputs is = do
   modify $ \s -> s { r1cs = r1csAddSignals (Set.toList is) $ r1cs s }
   forM_ is $ \i -> modify $ \s -> s { r1cs = r1csPublicizeSignal i $ r1cs s }
+
+-- | Ensure that the provided @inputs@ have an R1CS value assigned to
+-- them, consistent with the SMT value found in @values@. A no-op if
+-- @values@ is [Nothing].
+ensureInputValues :: KnownNat n => Maybe SmtVals -> Set.Set PfVar -> ToPf n ()
+ensureInputValues values inputs = forM_ values $ \values ->
+  forM_ inputs $ \input -> do
+    let value = case Map.lookup input values of
+          Nothing   -> error $ "Missing value for input: " ++ show input
+          Just dval -> case fromDynamic dval of
+            Just b  -> toInteger $ fromEnum $ valAsBool b
+            Nothing -> case fromDynamic dval of
+              Just b  -> Bv.int $ valAsDynBv b
+              Nothing -> error $ "Bad input type: " ++ show dval
+    let v = toP value
+    logIf "toPfVal" $ input ++ " -> " ++ primeShow v
+    modify $ \s -> s { r1cs = r1csSetSignalVal input v $ r1cs s }
 
 toPf
   :: KnownNat n
@@ -776,9 +791,14 @@ toPf
   -> [TermBool]
   -> Log (R1CS PfVar n)
 toPf env inputs arraySizes' bs = do
-  logIf "toPfVal" $ show env
-  r <- r1cs . snd <$> runToPf
-    (configureFromEnv >> publicizeInputs inputs >> forM_ bs (enforceAsPf env))
-    emptyState { arraySizes = arraySizes' }
+  let ToPf a = do
+        configureFromEnv
+        publicizeInputs inputs
+        forM_ bs (enforceAsPf env)
+        -- After enforcement, we ensure the inputs have values
+        -- because if an input is missing from the constraints
+        -- it will not yet have an assigned value.
+        ensureInputValues env inputs
+  r <- r1cs <$> execStateT a emptyState { arraySizes = arraySizes' }
   logIf "toPf" "Done with toPf"
   return r

@@ -38,6 +38,7 @@ data SmtOptCfg = SmtOptCfg { _allowSubBlowup :: Bool
                            , _cFoldInSub     :: Bool
                            , _smtOpts        :: [String]
                            , _optForZ3       :: Bool
+                           , _checkOpts      :: Bool
                            } deriving (Show)
 
 defaultSmtOptCfg :: SmtOptCfg
@@ -46,6 +47,7 @@ defaultSmtOptCfg = SmtOptCfg
   , _cFoldInSub     = True
   , _smtOpts        = ["cfee", "ee", "arrayElim", "flattenAnds", "cfee", "ee"]
   , _optForZ3       = False
+  , _checkOpts      = False
   }
 
 $(makeLenses ''SmtOptCfg)
@@ -183,6 +185,12 @@ options =
     "opt-z3"
     "Optimize the z3 inputs"
     ""
+    "False"
+  , CfgOption
+    (smtOptCfg . checkOpts . showReadLens)
+    "smt-check-opts"
+    "Check the SMT system after each optimization"
+    "Takes additional time"
     "False"
   , CfgOption (streams . commaListLens)
               "streams"

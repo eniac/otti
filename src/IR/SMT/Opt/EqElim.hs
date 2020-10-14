@@ -6,12 +6,14 @@
 {-# LANGUAGE GADTs #-}
 module IR.SMT.Opt.EqElim
   ( eqElim
+  , eqElimFn
   , eqElimGen
   , EqElimFns(..)
   )
 where
 import           IR.SMT.TySmt
-
+import qualified IR.SMT.Opt.Assert             as OA
+import           IR.SMT.Opt.Assert              ( Assert )
 import           IR.SMT.Opt.ConstFoldEqElim     ( constantFold )
 import           Control.Monad.State.Strict
 import           Control.Monad.Reader
@@ -149,8 +151,14 @@ inTerm name_ = reduceTerm visit False (||)
     Var name' _ -> Just $ name' == name_
     _           -> Nothing
 
-eqElim :: Set.Set String -> [TermBool] -> Log [TermBool]
-eqElim noElim ts = do
+eqElim :: Assert ()
+eqElim = do
+  noElim <- gets (OA._public)
+  OA.modifyAssertions (eqElimFn noElim)
+  OA.refresh
+
+eqElimFn :: Set.Set String -> [TermBool] -> Log [TermBool]
+eqElimFn noElim ts = do
   allowBlowup <- liftCfg $ asks (_allowSubBlowup . _smtOptCfg)
   cFold       <- liftCfg $ asks (_cFoldInSub . _smtOptCfg)
   let preCheck' = if cFold then constantFold else id

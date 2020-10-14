@@ -60,7 +60,7 @@ which access their tape in a data-indepedant way.
 
 -}
 
-module IR.SMT.OblivArray
+module IR.SMT.Opt.Mem.OblivArray
   ( elimOblivArrays
   )
 where
@@ -71,7 +71,9 @@ import           Data.Maybe                     ( fromMaybe
                                                 , listToMaybe
                                                 )
 import           IR.SMT.TySmt
-import           IR.SMT.MemReplacePass
+import qualified IR.SMT.Opt.Assert             as OA
+import           IR.SMT.Opt.Assert              ( Assert )
+import           IR.SMT.Opt.Mem.MemReplacePass
 import qualified Util.ShowMap                  as SMap
 import           Util.ShowMap                   ( ShowMap )
 import           Util.Control                   ( whenM )
@@ -196,8 +198,8 @@ replaceObliviousArrays arraySizes nonOblivious ts = evalStateT pass SMap.empty
   size t =
     fromMaybe (error $ "No size for " ++ show t) $ SMap.lookup t arraySizes
 
-  getValues :: TermMem -> ArrayElim [TermDynBv]
-  getValues array = gets
+  getTerms :: TermMem -> ArrayElim [TermDynBv]
+  getTerms array = gets
     (fromMaybe (error $ "No value list for " ++ show array) . SMap.lookup array)
 
   atIndex :: Int -> [a] -> a
@@ -222,12 +224,12 @@ replaceObliviousArrays arraySizes nonOblivious ts = evalStateT pass SMap.empty
                                 v'
     , visitStore      = \a i v a' i' v' -> case asConstInt i' of
                           Just ci | isOblivious (Store a i v) ->
-                            (modList ci v' <$> getValues a')
+                            (modList ci v' <$> getTerms a')
                               >>= store (Store a' i' v')
                           _ -> return ()
     , visitIte        = \c t f c' t' f' ->
                           when (isOblivious (Ite c t f))
-                            $ liftM2 (zipWith (Ite c')) (getValues t') (getValues f')
+                            $ liftM2 (zipWith (Ite c')) (getTerms t') (getTerms f')
                             >>= store (Ite c' t' f')
     , visitVar        = \name sort ->
                           let var = Var name sort
@@ -236,21 +238,24 @@ replaceObliviousArrays arraySizes nonOblivious ts = evalStateT pass SMap.empty
                                 [0 .. (size var - 1)]
     , visitSelect     = \a _ a' i' -> case asConstInt i' of
                           Just ci | isOblivious a ->
-                            Just . atIndex ci <$> getValues a'
+                            Just . atIndex ci <$> getTerms a'
                           _ -> return Nothing
     , visitEq         = \a _ a' b' -> if isOblivious a
                           then Just . BoolNaryExpr And <$> liftM2 (zipWith mkEq)
-                                                                  (getValues a')
-                                                                  (getValues b')
+                                                                  (getTerms a')
+                                                                  (getTerms b')
                           else return Nothing
     }
 
   ArrayElim pass = runMemReplacePass visitors ts
 
 
-elimOblivArrays :: ArraySizes -> [TermBool] -> Log [TermBool]
-elimOblivArrays sizes ts = do
-  nonOblivious <- findNonObliviousArrays ts
-  sizes'       <- propSizes sizes ts
-  logIf "array::elim" $ "Array sizes: " ++ show sizes'
-  replaceObliviousArrays sizes' nonOblivious ts
+elimOblivArrays :: Assert ()
+elimOblivArrays = do
+  -- TODO: push Asssert deeper?
+  sizes <- gets (OA._sizes)
+  OA.modifyAssertions $ \ts -> do
+    nonOblivious <- findNonObliviousArrays ts
+    sizes'       <- propSizes sizes ts
+    logIf "array::elim" $ "Array sizes: " ++ show sizes'
+    replaceObliviousArrays sizes' nonOblivious ts

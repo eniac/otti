@@ -262,6 +262,7 @@ cSetValues trackUndef name t = do
     CDouble d  -> Assert.evalAndSetValue name d
     CStruct _ty fs ->
       forM_ fs $ \(f, t) -> cSetValues trackUndef (structVarName name f) t
+    CArray {} -> return ()
     _ -> error $ "Cannot set value for a term: " ++ show t
   when trackUndef $ Assert.evalAndSetValue (udefName name) (udef t)
 
