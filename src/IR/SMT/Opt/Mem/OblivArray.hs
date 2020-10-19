@@ -82,6 +82,7 @@ import           Util.Cfg                       ( MonadCfg(..) )
 import           Util.Log
 import qualified Util.Progress                 as P
 import           Util.Progress                  ( Progress )
+import           Util.Show
 
 type MemSort = ArraySort DynBvSort DynBvSort
 type TermMem = Term MemSort
@@ -141,9 +142,9 @@ propSizes :: ArraySizes -> [TermBool] -> Log ArraySizes
 propSizes initSizes ts = P.runToFixPoint pass initSizes
  where
   equateSizes :: TermMem -> TermMem -> Progress ArraySizes ()
-  equateSizes a b = do
-    logIf "array::elim::sizes"
-      $ unlines ["Equating sizes:", "  " ++ show a, "  " ++ show b]
+  equateSizes a b = unless (isConstArray a || isConstArray b) $ do
+    --logIf "array::elim::sizes"
+    -- $ unlines ["Equating sizes:", "  " ++ show a, "  " ++ show b]
     mAS <- P.gets $ SMap.lookup a
     mBS <- P.gets $ SMap.lookup b
     case (mAS, mBS) of
@@ -152,9 +153,15 @@ propSizes initSizes ts = P.runToFixPoint pass initSizes
         , "size " ++ show aS ++ ": " ++ show a
         , "size " ++ show bS ++ ": " ++ show b
         ]
-      (Just aS, Nothing) -> P.setProgress >> P.modify (SMap.insert b aS)
-      (Nothing, Just bS) -> P.setProgress >> P.modify (SMap.insert a bS)
+      (Just aS, Nothing) -> setSize b aS
+      (Nothing, Just bS) -> setSize a bS
       (Nothing, Nothing) -> return ()
+
+  setSize :: TermMem -> Int -> Progress ArraySizes()
+  setSize t s = do
+    P.setProgress
+    P.modify (SMap.insert t s)
+    logIf "array::elim::sizes" $ unwords ["Size", show s, show t]
 
   onePass = defaultMemReplacePass
     { visitStore = \a i v _ _ _ -> equateSizes (Store a i v) a
@@ -164,6 +171,10 @@ propSizes initSizes ts = P.runToFixPoint pass initSizes
                      equateSizes (Ite c t f) f
     , visitEq    = \a b _ _ -> equateSizes a b >> return Nothing
     }
+
+  isConstArray :: TermMem -> Bool
+  isConstArray (ConstArray {}) = True
+  isConstArray _ = False
 
   pass :: Progress ArraySizes ()
   pass = do
@@ -219,19 +230,19 @@ replaceObliviousArrays arraySizes nonOblivious = evalStateT pass SMap.empty
 
   store :: TermMem -> [TermDynBv] -> Obliv ()
   store t l = do
-    logIf "array::elim::replace" $ "Replace: " ++ show t ++ " -> " ++ show l
+    logIf "array::elim::replace" $ "Replace: " ++ show t ++ " -> " ++ show (take 10 l)
     modify $ SMap.insert t l
 
   visitors = (defaultMemReplacePass :: MemReplacePass Obliv)
     { visitConstArray = \v sort v' ->
                           let c = ConstArray sort v
-                          in  when (isOblivious c) $ store c $ replicate
-                                (size c)
-                                v'
+                          in  when (isOblivious c) $ store c $ repeat v'
     , visitStore      = \a i v a' i' v' -> case asConstInt i' of
-                          Just ci | isOblivious (Store a i v) ->
-                            (modList ci v' <$> getTerms a')
-                              >>= store (Store a' i' v')
+                          Just ci | isOblivious (Store a i v) -> do
+                            logIf "array::elim::store" $ "Store: " ++ show (Store a i v)
+                            l' <- modList ci v' <$> getTerms a'
+                            logIf "array::elim::store" $ " => " ++ show l'
+                            store (Store a' i' v') l'
                           _ -> return ()
     , visitIte        = \c t f c' t' f' ->
                           when (isOblivious (Ite c t f))
@@ -267,5 +278,6 @@ elimOblivArrays = do
   sizes <- gets (OA._sizes)
   as <- gets OA.listAssertions
   nonOblivious <- liftLog $ findNonObliviousArrays as
+  logIf "array::elim::sizes" $ "Initial sizes: " ++ pShow sizes
   sizes'       <- liftLog $ propSizes sizes as
   replaceObliviousArrays sizes' nonOblivious

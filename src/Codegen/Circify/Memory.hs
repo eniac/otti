@@ -204,6 +204,7 @@ stackAlloc array' size' idxWidth' valWidth' = do
                      }
   liftAssert $ do
     let name = arrayName i a
+    logIf "mem" $ unwords ["stackAlloc", name, "size", show size', "id", show i]
     v <- Assert.newVar @MemSort name (arraySort a)
     Assert.assign v array'
     Assert.evalAndSetValue @MemSort name $ Ty.ConstArray
@@ -228,14 +229,22 @@ stackNewAlloc
   -> Mem StackAllocId -- ^ id of allocation
 stackNewAlloc size' idxWidth' valWidth' = do
   let a = Ty.ConstArray (Ty.SortBv idxWidth') (bvNum False valWidth' 0)
-  modify $ \s -> s { sizes = SMap.insert a size' $ sizes s }
-  stackAlloc a size' idxWidth' valWidth'
+  id <- stackAlloc a size' idxWidth' valWidth'
+  v <- stackGetAllocVar id
+  modify $ \s -> s { sizes = SMap.insert v size' $ sizes s }
+  return id
+
 
 
 stackGetAlloc :: StackAllocId -> Mem StackAlloc
 stackGetAlloc id = do
   mAlloc <- Map.lookup id <$> gets stackAllocations
   return $ fromMaybe (error $ "No stack allocation id: " ++ show id) mAlloc
+
+stackGetAllocVar :: StackAllocId -> Mem TermMem
+stackGetAllocVar id = do
+  alloc <- stackGetAlloc id
+  return $ Ty.mkVar (arrayName id alloc) (arraySort alloc)
 
 stackLoad
   :: StackAllocId -- ^ Allocation to load from
