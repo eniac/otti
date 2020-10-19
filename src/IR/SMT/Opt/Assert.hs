@@ -39,6 +39,7 @@ module IR.SMT.Opt.Assert
   , deleteAssertion
   , logAssertions
   , modifyAssertions
+  , modifyAssertionsWith
   )
 where
 import           Control.Monad                  ( )
@@ -245,6 +246,14 @@ modifyAssertions f = do
     (map snd $ IMap.toList a)
   modify $ set assertions a'
   refresh
+
+modifyAssertionsWith :: MonadAssert m => (Ty.TermBool -> m Ty.TermBool) -> m ()
+modifyAssertionsWith f = do
+  idxs  <- liftAssert $ listAssertionIdxs
+  forM_ (ISet.toAscList idxs) $ \i -> do
+    a' <- liftAssert (getAssertion i) >>= f
+    liftAssert $ modify $ over assertions $ IMap.insert i a'
+  liftAssert refresh
 
 refresh :: Assert ()
 refresh = modify $ \s -> set index (indexFormula $ view assertions s) s

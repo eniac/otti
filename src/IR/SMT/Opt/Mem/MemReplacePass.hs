@@ -13,6 +13,7 @@ module IR.SMT.Opt.Mem.MemReplacePass
   ( MemReplacePass(..)
   , runMemReplacePass
   , defaultMemReplacePass
+  , TMem
   )
 where
 
@@ -23,7 +24,9 @@ import           Data.Typeable                  ( cast
                                                 )
 import           Data.Maybe                     ( fromMaybe )
 import           IR.SMT.TySmt
-import           Util.Log
+import           Util.Log                       ( logIf
+                                                , MonadLog
+                                                )
 
 type TMem = Term (ArraySort DynBvSort DynBvSort)
 type TBv = TermDynBv
@@ -36,12 +39,12 @@ data MemReplacePass m = MemReplacePass
 
     -- No previous sort, since it is unchanged
     visitConstArray :: TBv -> Sort -> TBv -> m ()
-  , visitEq :: TMem -> TMem -> TMem -> TMem -> m (Maybe TermBool)
+  , visitEq         :: TMem -> TMem -> TMem -> TMem -> m (Maybe TermBool)
   , visitIte :: TermBool -> TMem -> TMem -> TermBool -> TMem -> TMem -> m ()
-  , visitStore :: TMem -> TBv -> TBv -> TMem -> TBv -> TBv -> m ()
-  , visitSelect :: TMem -> TBv -> TMem -> TBv -> m (Maybe TBv)
+  , visitStore      :: TMem -> TBv -> TBv -> TMem -> TBv -> TBv -> m ()
+  , visitSelect     :: TMem -> TBv -> TMem -> TBv -> m (Maybe TBv)
     -- No previous children, as they do not change.
-  , visitVar :: String -> Sort -> m ()
+  , visitVar        :: String -> Sort -> m ()
   }
 
 defaultMemReplacePass :: Monad m => MemReplacePass m
@@ -55,8 +58,8 @@ defaultMemReplacePass = MemReplacePass
   }
 
 runMemReplacePass
-  :: forall m . MonadLog m => MemReplacePass m -> [TermBool] -> m [TermBool]
-runMemReplacePass pass = mapM (mapTermM visit)
+  :: forall m . MonadLog m => MemReplacePass m -> TermBool -> m TermBool
+runMemReplacePass pass = mapTermM visit
  where
   -- Force cast
   fCast :: (Typeable a, Typeable b) => a -> b

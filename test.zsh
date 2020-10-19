@@ -39,7 +39,7 @@ stack run -- -i ./test/Code/C/inputs/array_8_sum.in c-prove sum ./test/Code/C/ar
 stack run -- verify
 
 stack run -- c-setup struct_sum ./test/Code/C/array_8.c
-stack run -- -i ./test/Code/C/inputs/array_8_struct_sum.in c-prove struct_sum ./test/Code/C/array_8.c
+C_smt_check_opts=True stack run -- -i ./test/Code/C/inputs/array_8_struct_sum.in c-prove struct_sum ./test/Code/C/array_8.c
 stack run -- verify
 
 C_pequin_io=True C_no_overflow=True stack run -- c-setup compute ./test/Code/C/pequin/mm_flat.c
@@ -47,10 +47,10 @@ C_pequin_io=True C_no_overflow=True C_loop_bound=3 stack run -- -i ./test/Code/C
 stack run -- verify
 [[ $(num_constraints) = 27 ]]
 
-C_smt_opts=cfee,ee,trace C_smt_check_opts=True stack run -- c-setup flex test/Code/C/benes_arrays.c
-C_smt_opts=cfee,ee,trace C_smt_check_opts=True stack run -- -i <(echo x 1; echo y 1) c-prove flex test/Code/C/benes_arrays.c
+C_smt_opts=cfee,ee,benes C_smt_check_opts=True stack run -- c-setup flex test/Code/C/benes_arrays.c
+C_smt_opts=cfee,ee,benes C_smt_check_opts=True stack run -- -i <(echo x 1; echo y 1) c-prove flex test/Code/C/benes_arrays.c
 stack run -- verify
 
-C_smt_opts=cfee,ee,trace C_smt_check_opts=True stack run -- c-setup flex test/Code/C/benes_arrays.c
-C_smt_opts=cfee,ee,trace C_smt_check_opts=True stack run -- -i <(echo x 0; echo y 0) c-prove flex test/Code/C/benes_arrays.c
+C_smt_opts=cfee,ee,benes C_smt_check_opts=True stack run -- c-setup flex test/Code/C/benes_arrays.c
+C_smt_opts=cfee,ee,benes C_smt_check_opts=True stack run -- -i <(echo x 0; echo y 0) c-prove flex test/Code/C/benes_arrays.c
 stack run -- verify

@@ -4,7 +4,8 @@
 
 = Interface
 
-Machinery for extracting memrory traces from SMT formulas.
+Machinery for extracting memrory traces from SMT formulas, and checking them
+using Benes routing.
 
 That is, given a conjunction of assertions including
 
@@ -37,7 +38,13 @@ That is, given a conjunction of assertions including
      val  is ITE(store & enabled, select value, select value)
 5. Removes the ITE assignments.
 
-This *access list* is not checked by this module to be consistent with memory semantics.
+This *access list* is then checked to be consistent with memory semantics.
+
+* it is address-sorted.
+* for each read
+   * if this read is first for the address, then the default is read.
+   * if the read is not first for the address, the read value agrees with the
+     last value from this address.
 
 = Implementation
 
@@ -58,11 +65,8 @@ This *access list* is not checked by this module to be consistent with memory se
 -}
 
 
-module IR.SMT.Opt.Mem.Trace
-  ( extractTraces
-  , tracePass
-  , Trace(..)
-  , Access(..)
+module IR.SMT.Opt.Mem.Benes
+  ( benesPass
   )
 where
 
@@ -167,9 +171,9 @@ extractSelects var = do
       return $ Just t
     _ -> return Nothing
   replaceInAssertion :: TermBool -> SelectReplace TermBool
-  replaceInAssertion t = head <$> MemRep.runMemReplacePass
+  replaceInAssertion t = MemRep.runMemReplacePass
     (MemRep.defaultMemReplacePass { MemRep.visitSelect = visitSelect })
-    [t]
+    t
 
   replaceInAll :: [Int] -> SelectReplace ()
   replaceInAll is = forM_ is $ \i -> do
@@ -364,9 +368,9 @@ indexTrace (Trace name size def accesses) =
         $ zipWith (\i (Access r a v) -> (r, i, a, v)) idxs accesses
 
 
--- For debugging, for now
-tracePass :: Assert ()
-tracePass = do
+-- Entry point to the Benes-routing memory transformation
+benesPass :: Assert ()
+benesPass = do
   ts <- extractTraces
   logIf "smt::opt::trace" $ pShow ts
   forM_ ts checkTrace

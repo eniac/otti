@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GADTs #-}
 {-|
 Module      : OblivArray
@@ -133,7 +134,7 @@ findNonObliviousArrays ts = P.runToFixPoint pass SMap.empty
   pass :: Progress ArraySet ()
   pass = do
     logIf "array::elim::mark" "Start mark pass"
-    void $ runMemReplacePass onePass ts
+    void $ mapM (runMemReplacePass onePass) ts
 
 -- | Propagate static array size through a formula.
 propSizes :: ArraySizes -> [TermBool] -> Log ArraySizes
@@ -169,13 +170,13 @@ propSizes initSizes ts = P.runToFixPoint pass initSizes
     logIf "array::elim::sizes" "Start sizes pass"
     -- We traverse forwards and then backwards, since assertions fall in
     -- assignment order, and natural propagation can go either way.
-    void $ runMemReplacePass onePass (ts ++ reverse ts)
+    void $ mapM (runMemReplacePass onePass) (ts ++ reverse ts)
 
 type TermListMap = ShowMap TermMem [TermDynBv]
 type ArraySizes = ShowMap TermMem Int
 
-newtype ArrayElim a = ArrayElim (StateT TermListMap Log a)
- deriving (MonadLog, MonadCfg, Functor, Applicative, Monad, MonadState TermListMap)
+newtype Obliv a = Obliv (StateT TermListMap Assert a)
+ deriving (MonadLog, MonadCfg, Functor, Applicative, Monad, MonadState TermListMap, OA.MonadAssert)
 
 modList :: Int -> a -> [a] -> [a]
 modList _ _ []      = error "oob modList"
@@ -183,8 +184,8 @@ modList 0 v (_ : t) = v : t
 modList i v (h : t) = h : modList (i - 1) v t
 
 
-replaceObliviousArrays :: ArraySizes -> ArraySet -> [TermBool] -> Log [TermBool]
-replaceObliviousArrays arraySizes nonOblivious ts = evalStateT pass SMap.empty
+replaceObliviousArrays :: ArraySizes -> ArraySet -> Assert ()
+replaceObliviousArrays arraySizes nonOblivious = evalStateT pass SMap.empty
  where
   asConstInt :: TermDynBv -> Maybe Int
   asConstInt t = case t of
@@ -198,7 +199,7 @@ replaceObliviousArrays arraySizes nonOblivious ts = evalStateT pass SMap.empty
   size t =
     fromMaybe (error $ "No size for " ++ show t) $ SMap.lookup t arraySizes
 
-  getTerms :: TermMem -> ArrayElim [TermDynBv]
+  getTerms :: TermMem -> Obliv [TermDynBv]
   getTerms array = gets
     (fromMaybe (error $ "No value list for " ++ show array) . SMap.lookup array)
 
@@ -211,12 +212,17 @@ replaceObliviousArrays arraySizes nonOblivious ts = evalStateT pass SMap.empty
     SortArray _ v -> v
     _             -> error $ "Sort " ++ show s ++ " is not an array sort"
 
-  store :: TermMem -> [TermDynBv] -> ArrayElim ()
+  idxWidth :: Sort -> Int
+  idxWidth s = case s of
+    SortArray (SortBv i) _ -> i
+    _             -> error $ "Sort " ++ show s ++ " is not an array(Bv,_) sort"
+
+  store :: TermMem -> [TermDynBv] -> Obliv ()
   store t l = do
     logIf "array::elim::replace" $ "Replace: " ++ show t ++ " -> " ++ show l
     modify $ SMap.insert t l
 
-  visitors = (defaultMemReplacePass :: MemReplacePass ArrayElim)
+  visitors = (defaultMemReplacePass :: MemReplacePass Obliv)
     { visitConstArray = \v sort v' ->
                           let c = ConstArray sort v
                           in  when (isOblivious c) $ store c $ replicate
@@ -231,11 +237,16 @@ replaceObliviousArrays arraySizes nonOblivious ts = evalStateT pass SMap.empty
                           when (isOblivious (Ite c t f))
                             $ liftM2 (zipWith (Ite c')) (getTerms t') (getTerms f')
                             >>= store (Ite c' t' f')
-    , visitVar        = \name sort ->
+    , visitVar        = \name sort -> do
                           let var = Var name sort
-                          in  when (isOblivious var) $ store var $ map
-                                (\i -> Var (name ++ "_" ++ show i) (valueSort sort))
-                                [0 .. (size var - 1)]
+                          when (isOblivious var) $ do
+                            let varName i = name ++ "_" ++ show i
+                            let w = idxWidth sort
+                            ts :: [TermDynBv] <- forM [0.. (size var - 1)] $ \i -> do
+                              let s = mkSelect (Var name sort) $ DynBvLit $ Bv.bitVec w i
+                              OA.newVar (varName i) (valueSort sort) s
+                            store var ts
+                            
     , visitSelect     = \a _ a' i' -> case asConstInt i' of
                           Just ci | isOblivious a ->
                             Just . atIndex ci <$> getTerms a'
@@ -247,15 +258,14 @@ replaceObliviousArrays arraySizes nonOblivious ts = evalStateT pass SMap.empty
                           else return Nothing
     }
 
-  ArrayElim pass = runMemReplacePass visitors ts
+  Obliv pass = OA.modifyAssertionsWith $ runMemReplacePass visitors
 
 
 elimOblivArrays :: Assert ()
 elimOblivArrays = do
   -- TODO: push Asssert deeper?
   sizes <- gets (OA._sizes)
-  OA.modifyAssertions $ \ts -> do
-    nonOblivious <- findNonObliviousArrays ts
-    sizes'       <- propSizes sizes ts
-    logIf "array::elim" $ "Array sizes: " ++ show sizes'
-    replaceObliviousArrays sizes' nonOblivious ts
+  as <- gets OA.listAssertions
+  nonOblivious <- liftLog $ findNonObliviousArrays as
+  sizes'       <- liftLog $ propSizes sizes as
+  replaceObliviousArrays sizes' nonOblivious
