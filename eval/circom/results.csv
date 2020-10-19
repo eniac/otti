@@ -1,0 +1,13 @@
+benchmark,path,compiler,constraints,wall_time
+sha256_2,/home/aozdemir/repos/llcl/circomlib/test/circuits/sha256_2_test.circom,circify,30134,55.058044672012329
+sha256_2,/home/aozdemir/repos/llcl/circomlib/test/circuits/sha256_2_test.circom,circom,30134,92.077483177185059
+mimc,/home/aozdemir/repos/llcl/circomlib/test/circuits/mimc_test.circom,circify,364,0.079336404800415039
+mimc,/home/aozdemir/repos/llcl/circomlib/test/circuits/mimc_test.circom,circom,364,0.20714282989501953
+poseidon,/home/aozdemir/repos/llcl/circomlib/test/circuits/poseidon_test.circom,circify,303,0.32139945030212402
+poseidon,/home/aozdemir/repos/llcl/circomlib/test/circuits/poseidon_test.circom,circom,303,0.82562041282653809
+mux4,/home/aozdemir/repos/llcl/circomlib/test/circuits/mux4_1.circom,circify,9,0.051677227020263672
+mux4,/home/aozdemir/repos/llcl/circomlib/test/circuits/mux4_1.circom,circom,9,0.23819804191589355
+binsub,/home/aozdemir/repos/llcl/circomlib/test/circuits/binsub_test.circom,circify,49,0.061815023422241211
+binsub,/home/aozdemir/repos/llcl/circomlib/test/circuits/binsub_test.circom,circom,49,0.21610116958618164
+eddsa,/home/aozdemir/repos/llcl/circomlib/test/circuits/eddsaposeidon_test.circom,circify,4208,1.1251842975616455
+eddsa,/home/aozdemir/repos/llcl/circomlib/test/circuits/eddsaposeidon_test.circom,circom,4208,18.196294784545898
