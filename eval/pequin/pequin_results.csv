@@ -1,5 +1,6 @@
 benchmark,compiler,constraints
 mm5,pequin,125
+u32log2,pequin,124
 ptrs,pequin,1993
 ptrs-benes,pequin,1993
 u32sqrt,pequin,703

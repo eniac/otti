@@ -3,3 +3,6 @@ results.png: plot.R results.csv
 
 results.csv: run.zsh pequin_results.csv
 	zsh run.zsh
+
+clean:
+	rm -rf tmp*

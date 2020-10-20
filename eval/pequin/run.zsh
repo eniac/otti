@@ -44,6 +44,8 @@ paths=(
              ~/repos/llcl/compiler/mm_flat_5.c
     u32sqrt
              ~/repos/llcl/compiler/test/Code/C/sqrt.c
+    u32log2
+             ~/repos/llcl/compiler/test/Code/C/pequin/log.c
     ptrs
              ~/repos/llcl/compiler/test/Code/C/pequin/ptrchase_8_8.c
     ptrs-benes
@@ -54,6 +56,8 @@ envvars=(
     mm5
              ""
     u32sqrt
+             ""
+    u32log2
              ""
     ptrs
              ""
