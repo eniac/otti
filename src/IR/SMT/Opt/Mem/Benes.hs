@@ -95,15 +95,18 @@ import           Lens.Simple                    ( over
                                                 )
 import           IR.SMT.TySmt
 import qualified IR.SMT.Opt.Assert             as A
-import qualified IR.SMT.Opt.Mem.MemReplacePass as MemRep
+import           IR.SMT.Opt.Mem.Util           as MemU
+                                                ( MemReplacePass(visitSelect)
+                                                , TMem
+                                                , TBv
+                                                , defaultMemReplacePass
+                                                , runMemReplacePass
+                                                )
 import           IR.SMT.Opt.Assert              ( Assert )
 import qualified Util.ShowMap                  as SMap
 import           Util.Show                      ( pShow )
 import           Util.Log                       ( logIf )
 
-
-type TBv = TermDynBv
-type TMem = Term (ArraySort DynBvSort DynBvSort)
 
 -- | A root: (name, array sort, array size, index of assertion creating it, default value)
 data Root = Root String Sort Int Int TBv deriving Show
@@ -171,8 +174,8 @@ extractSelects var = do
       return $ Just t
     _ -> return Nothing
   replaceInAssertion :: TermBool -> SelectReplace TermBool
-  replaceInAssertion t = MemRep.runMemReplacePass
-    (MemRep.defaultMemReplacePass { MemRep.visitSelect = visitSelect })
+  replaceInAssertion t = MemU.runMemReplacePass
+    (MemU.defaultMemReplacePass { MemU.visitSelect = visitSelect })
     t
 
   replaceInAll :: [Int] -> SelectReplace ()

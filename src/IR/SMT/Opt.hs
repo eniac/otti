@@ -10,7 +10,7 @@ where
 
 import           IR.SMT.TySmt
 import           IR.SMT.Opt.Mem.OblivArray      ( elimOblivArrays )
-import           IR.SMT.Opt.Mem.Benes           ( benesPass )
+import           IR.SMT.Opt.Mem.NonObliv        ( memPass )
 import           IR.SMT.Opt.ConstFoldEqElim     ( constantFold
                                                 , constFoldEqElim
                                                 )
@@ -64,7 +64,7 @@ arrayElimOpt :: Opt
 arrayElimOpt = Opt { fn = elimOblivArrays, name = "arrayElim" }
 
 memOpt :: Opt
-memOpt = Opt { fn = benesPass, name = "benes" }
+memOpt = Opt { fn = memPass, name = "mem" }
 
 -- | Flattens ANDs
 flattenAnds :: TermBool -> [TermBool]

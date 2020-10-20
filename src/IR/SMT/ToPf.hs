@@ -732,17 +732,17 @@ handleAlias env a = case a of
         Just boolV -> if AMap.memberOrAlias boolV (bools s)
           then return False
           else do
-            let rBool = fromJust $ cast t
+            let rBool = fromMaybe (error $ "Not bool: " ++ show t) $ cast t
             _ <- boolToPf env rBool
             logIf "toPf" $ "Alias " ++ show boolV ++ " to " ++ show rBool
             modify $ \st -> st { bools = AMap.alias boolV rBool $ bools st }
             return True
         Nothing ->
-          let intV = fromJust (cast v)
+          let intV = fromMaybe (error $ "Not int: " ++ show t) $ cast v
           in  if AMap.memberOrAlias intV (ints s)
                 then return False
                 else do
-                  let rInt = fromJust $ cast t
+                  let rInt = fromMaybe (error $ "Not int: " ++ show t) $ cast t
                   bvToPf env rInt
                   logIf "toPf" $ "Alias " ++ show intV ++ " to " ++ show rInt
                   modify $ \st -> st { ints = AMap.alias intV rInt $ ints st }

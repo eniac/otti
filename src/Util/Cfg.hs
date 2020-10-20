@@ -39,15 +39,26 @@ data SmtOptCfg = SmtOptCfg { _allowSubBlowup :: Bool
                            , _smtOpts        :: [String]
                            , _optForZ3       :: Bool
                            , _checkOpts      :: Bool
+                           , _benesThresh    :: Int
                            } deriving (Show)
 
 defaultSmtOptCfg :: SmtOptCfg
 defaultSmtOptCfg = SmtOptCfg
   { _allowSubBlowup = False
   , _cFoldInSub     = True
-  , _smtOpts        = ["cfee", "ee", "arrayElim", "flattenAnds", "cfee", "ee"]
+  , _smtOpts        = [ "cfee"
+                      , "ee"
+                      , "arrayElim"
+                      , "flattenAnds"
+                      , "cfee"
+                      , "ee"
+                      , "mem"
+                      , "cfee"
+                      , "ee"
+                      ]
   , _optForZ3       = False
   , _checkOpts      = False
+  , _benesThresh    = 50
   }
 
 $(makeLenses ''SmtOptCfg)
@@ -69,8 +80,11 @@ data CCfg = CCfg { _printfOutput :: Bool
                  , _constLoops :: Bool
                  } deriving (Show)
 
-defaultCCfg =
-  CCfg { _printfOutput = True, _svExtensions = False, _pequinIo = False, _constLoops = True }
+defaultCCfg = CCfg { _printfOutput = True
+                   , _svExtensions = False
+                   , _pequinIo     = False
+                   , _constLoops   = True
+                   }
 
 $(makeLenses ''CCfg)
 
@@ -178,20 +192,24 @@ options =
     (smtOptCfg . smtOpts . commaListLens)
     "smt-opts"
     "Optimizations to perform over the Smt formula"
-    "A comma-separated list. Options: {cfee, ee, cf, arrayElim, flattenAnds}"
-    "cfee,ee,arrayElim,flattenAnds,cfee,ee"
+    "A comma-separated list. Options: {cfee, ee, cf, arrayElim, flattenAnds, benes, arrayLin}"
+    "cfee,ee,arrayElim,flattenAnds,cfee,ee,benes,cfee,ee"
+  , CfgOption (smtOptCfg . optForZ3 . showReadLens)
+              "opt-z3"
+              "Optimize the z3 inputs"
+              ""
+              "False"
+  , CfgOption (smtOptCfg . checkOpts . showReadLens)
+              "smt-check-opts"
+              "Check the SMT system after each optimization"
+              "Takes additional time"
+              "False"
   , CfgOption
-    (smtOptCfg . optForZ3 . showReadLens)
-    "opt-z3"
-    "Optimize the z3 inputs"
+    (smtOptCfg . benesThresh . showReadLens)
+    "smt-benes-thresh"
+    "The array size at which a benes network is used instead of a linear scan"
     ""
-    "False"
-  , CfgOption
-    (smtOptCfg . checkOpts . showReadLens)
-    "smt-check-opts"
-    "Check the SMT system after each optimization"
-    "Takes additional time"
-    "False"
+    "50"
   , CfgOption (streams . commaListLens)
               "streams"
               "Debug streams to emit"

@@ -47,10 +47,14 @@ C_pequin_io=True C_no_overflow=True C_loop_bound=3 stack run -- -i ./test/Code/C
 stack run -- verify
 [[ $(num_constraints) = 27 ]]
 
-C_smt_opts=cfee,ee,benes C_smt_check_opts=True stack run -- c-setup flex test/Code/C/benes_arrays.c
-C_smt_opts=cfee,ee,benes C_smt_check_opts=True stack run -- -i <(echo x 1; echo y 1) c-prove flex test/Code/C/benes_arrays.c
+C_smt_opts=cfee,ee,mem C_smt_check_opts=True stack run -- c-setup flex test/Code/C/benes_arrays.c
+C_smt_opts=cfee,ee,mem C_smt_check_opts=True stack run -- -i <(echo x 1; echo y 1) c-prove flex test/Code/C/benes_arrays.c
 stack run -- verify
 
-C_smt_opts=cfee,ee,benes C_smt_check_opts=True stack run -- c-setup flex test/Code/C/benes_arrays.c
-C_smt_opts=cfee,ee,benes C_smt_check_opts=True stack run -- -i <(echo x 0; echo y 0) c-prove flex test/Code/C/benes_arrays.c
+C_smt_opts=cfee,ee,mem C_smt_check_opts=True stack run -- c-setup flex test/Code/C/benes_arrays.c
+C_smt_opts=cfee,ee,mem C_smt_check_opts=True stack run -- -i <(echo x 0; echo y 0) c-prove flex test/Code/C/benes_arrays.c
+stack run -- verify
+
+C_smt_benes_thresh=1 C_smt_opts=cfee,ee,mem C_smt_check_opts=True stack run -- c-setup flex test/Code/C/benes_arrays.c
+C_smt_benes_thresh=1 C_smt_opts=cfee,ee,mem C_smt_check_opts=True stack run -- -i <(echo x 1; echo y 1) c-prove flex test/Code/C/benes_arrays.c
 stack run -- verify

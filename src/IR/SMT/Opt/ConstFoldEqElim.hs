@@ -82,8 +82,9 @@ constantFold = mapTerm visit
       let a' = constantFold a
           b' = constantFold b
       in  case (a', b') of
-            (BoolLit a'', BoolLit b'') -> Just $ BoolLit (a'' == b'')
-            _                          -> Just $ Eq a' b'
+            (BoolLit  a'', BoolLit b'' ) -> Just $ BoolLit (a'' == b'')
+            (DynBvLit a'', DynBvLit b'') -> Just $ BoolLit (a'' == b'')
+            _                            -> Just $ Eq a' b'
     IntToDynBv w i ->
       let i' = constantFold i
       in  Just $ case i' of
@@ -93,8 +94,9 @@ constantFold = mapTerm visit
       let a' = constantFold a
           b' = constantFold b
       in  case (a', b') of
+            (DynBvLit a'', b'') | a'' == 0 && op == BvAdd -> Just $ b''
             (DynBvLit a'', DynBvLit b'') -> Just $ DynBvLit $ o a'' b''
-            _                            -> Just $ DynBvBinExpr op w a' b'
+            _ -> Just $ DynBvBinExpr op w a' b'
      where
       bvizeIntOp f x y = Bv.bitVec (Bv.size x) $ f (Bv.uint x) (Bv.uint y)
       o = case op of

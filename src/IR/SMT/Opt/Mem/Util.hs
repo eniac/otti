@@ -3,33 +3,95 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
-Module      : MemReplacePass
-Description : Generic SMT traversal for visiting and optionally replacing memory interactions.
+Module      : Util
+Description : General SMT Mem traversals
 
-              That is, interactions with terms which are sorted as arrays from
-              dynamic bitvectors to dynamic bitvectors.
+= MemReplace Pass
+
+For visiting and optionally replacing memory interactions.
+
+That is, interactions with terms which are sorted as arrays from dynamic
+bitvectors to dynamic bitvectors.
 -}
-module IR.SMT.Opt.Mem.MemReplacePass
-  ( MemReplacePass(..)
+module IR.SMT.Opt.Mem.Util
+  ( ArraySizes
+  , propSizes
+  , TBv
+  , TMem
+  , MemReplacePass(..)
   , runMemReplacePass
   , defaultMemReplacePass
-  , TMem
   )
 where
-
+import           Control.Monad.State.Strict     ( void
+                                                , unless
+                                                )
+import           IR.SMT.TySmt
+import qualified Util.ShowMap                  as SMap
+import           Util.ShowMap                   ( ShowMap )
+import           Util.Log                       ( logIf
+                                                , Log
+                                                , MonadLog
+                                                )
+import qualified Util.Progress                 as P
+import           Util.Progress                  ( Progress )
 import           Data.Typeable                  ( cast
                                                 , Typeable
                                                 , eqT
                                                 , (:~:)(..)
                                                 )
 import           Data.Maybe                     ( fromMaybe )
-import           IR.SMT.TySmt
-import           Util.Log                       ( logIf
-                                                , MonadLog
-                                                )
 
-type TMem = Term (ArraySort DynBvSort DynBvSort)
-type TBv = TermDynBv
+
+type TBv = Term DynBvSort
+type MemSort = ArraySort DynBvSort DynBvSort
+type TMem = Term MemSort
+type ArraySizes = ShowMap TMem Int
+
+isConstArray :: TMem -> Bool
+isConstArray (ConstArray{}) = True
+isConstArray _              = False
+
+-- | Propagate static array size through a formula.
+propSizes :: ArraySizes -> [TermBool] -> Log ArraySizes
+propSizes initSizes ts = P.runToFixPoint pass initSizes
+ where
+  equateSizes :: TMem -> TMem -> Progress ArraySizes ()
+  equateSizes a b = unless (isConstArray a || isConstArray b) $ do
+    mAS <- P.gets $ SMap.lookup a
+    mBS <- P.gets $ SMap.lookup b
+    case (mAS, mBS) of
+      (Just aS, Just bS) -> unless (aS == bS) $ error $ unlines
+        [ "Unequal array sizes:"
+        , "size " ++ show aS ++ ": " ++ show a
+        , "size " ++ show bS ++ ": " ++ show b
+        ]
+      (Just aS, Nothing) -> setSize b aS
+      (Nothing, Just bS) -> setSize a bS
+      (Nothing, Nothing) -> return ()
+
+  setSize :: TMem -> Int -> Progress ArraySizes ()
+  setSize t s = do
+    P.setProgress
+    P.modify (SMap.insert t s)
+    logIf "array::elim::sizes" $ unwords ["Size", show s, show t]
+
+  onePass = defaultMemReplacePass
+    { visitStore = \a i v _ _ _ -> equateSizes (Store a i v) a
+    , visitIte   = \c t f _ _ _ -> do
+                     equateSizes (Ite c t f) t
+                     equateSizes t           f
+                     equateSizes (Ite c t f) f
+    , visitEq    = \a b _ _ -> equateSizes a b >> return Nothing
+    }
+
+  pass :: Progress ArraySizes ()
+  pass = do
+    logIf "array::elim::sizes" "Start sizes pass"
+    -- We traverse forwards and then backwards, since assertions fall in
+    -- assignment order, and natural propagation can go either way.
+    void $ mapM (runMemReplacePass onePass) (ts ++ reverse ts)
+
 
 
 data MemReplacePass m = MemReplacePass
