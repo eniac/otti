@@ -308,6 +308,11 @@ data BvUnOp = BvNeg
             | BvNot
             deriving (Show, Ord, Eq, Typeable, Generic, Hashable)
 
+-- TODO: Some of these (Or,And,Xor,Add,Mul) are actually n-ary.
+-- Representing them as such would enable high-arity optimizations for all of
+-- the above operators.
+-- This might make a big difference for some programs. For example, the SHA-1
+-- hash function has a 4-ary bit-vector XOR, which might benefit.
 data BvBinOp = BvShl
              | BvLshr
              | BvAshr
