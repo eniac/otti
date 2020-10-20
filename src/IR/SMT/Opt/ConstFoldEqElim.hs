@@ -24,7 +24,9 @@ import           Data.Hashable                  ( Hashable )
 import qualified Data.HashMap.Strict           as HMap
 import qualified Data.IntMap.Strict            as IntMap
 import qualified Data.IntSet                   as IntSet
-import           Data.Maybe                     ( fromMaybe )
+import           Data.Maybe                     ( fromMaybe
+                                                , isJust
+                                                )
 import qualified Data.Set                      as Set
 import qualified Data.Sequence                 as Seq
 import           Lens.Simple                    ( makeLenses
@@ -94,12 +96,17 @@ constantFold = mapTerm visit
       let a' = constantFold a
           b' = constantFold b
       in  case (a', b') of
-            (DynBvLit a'', b'') | a'' == 0 && op == BvAdd -> Just $ b''
-            (DynBvLit a'', DynBvLit b'') -> Just $ DynBvLit $ o a'' b''
+            (DynBvLit a'', DynBvLit b'') ->
+              Just $ DynBvLit $ opConstConst a'' b''
+            (a'', DynBvLit b'') | isJust (opTermConst a'' b'') ->
+              opTermConst a'' b''
+            (DynBvLit a'', b'') | isJust (opConstTerm a'' b'') ->
+              opConstTerm a'' b''
             _ -> Just $ DynBvBinExpr op w a' b'
      where
       bvizeIntOp f x y = Bv.bitVec (Bv.size x) $ f (Bv.uint x) (Bv.uint y)
-      o = case op of
+      -- Operator applied to two contants inputs
+      opConstConst = case op of
         BvAdd  -> bvizeIntOp (+)
         BvSub  -> bvizeIntOp (-)
         BvMul  -> bvizeIntOp (*)
@@ -111,6 +118,40 @@ constantFold = mapTerm visit
         BvOr   -> (Bv..|.)
         BvAnd  -> (Bv..&.)
         BvXor  -> Bv.xor
+      opTermConst :: TermDynBv -> Bv.BV -> Maybe TermDynBv
+      opTermConst l r = case op of
+        BvAdd | r == 0 -> Just l
+        BvSub | r == 0 -> Just l
+        BvMul | r == 0 -> Just (DynBvLit r)
+        BvMul | r == 1 -> Just l
+        BvLshr         -> if rNat < toInteger w
+          then Just $ mkDynBvConcat (DynBvLit $ Bv.zeros rInt)
+                                    (mkDynBvExtract rInt (w - rInt) l)
+          else shiftE
+        BvAshr -> if rNat < toInteger w
+          then Just $ mkDynBvSext w $ mkDynBvExtract rInt (w - rInt) l
+          else shiftE
+        BvShl -> if rNat < toInteger w
+          then Just $ mkDynBvConcat (mkDynBvExtract 0 (w - rInt) l)
+                                    (DynBvLit $ Bv.zeros rInt)
+          else shiftE
+        _ -> Nothing
+       where
+        w    = Bv.size r
+        rNat = Bv.nat r
+        rInt = fromIntegral rNat
+        shiftE =
+          error
+            $  "Shifting "
+            ++ show l
+            ++ " by "
+            ++ show r
+            ++ " is an overshift"
+      opConstTerm l r = case op of
+        BvAdd -> opTermConst r l
+        BvMul -> opTermConst r l
+        _     -> Nothing
+
     DynBvBinPred op w a b ->
       let a' = constantFold a
           b' = constantFold b

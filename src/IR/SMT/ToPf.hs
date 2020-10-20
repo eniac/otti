@@ -310,9 +310,9 @@ opId o = case o of
   Xor -> False
 
 naryAnd :: KnownNat n => [LSig n] -> ToPf n (LSig n)
-naryAnd xs = if length xs <= 3
-  then foldM binAnd (head xs) (tail xs)
-  else lcNot <$> naryOr (map lcNot xs)
+naryAnd xs | null xs        = error "naryAnd of no bits"
+           | length xs <= 3 = foldM binAnd (head xs) (tail xs)
+           | otherwise      = lcNot <$> naryOr (map lcNot xs)
 
 binAnd :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 binAnd = lcMul "and"
@@ -360,10 +360,12 @@ binEq a b = do
 naryXor :: KnownNat n => [LSig n] -> ToPf n (LSig n)
 naryXor xs = do
   let n = bitsize $ length xs
-  let s = foldr1 lcAdd xs
+  let s = foldr lcAdd lcZero xs
   bs <- bitify "xorSum" s n
   -- Could trim a constraint here?
-  return (head bs)
+  case bs of
+    h:_ -> return h
+    [] -> error "naryXor of no bits"
 
 binXor :: KnownNat n => LSig n -> LSig n -> ToPf n (LSig n)
 binXor a b = naryXor [a, b]
@@ -413,8 +415,10 @@ saveInt term sig = initIntEntry term >> modify
   (\s -> s { ints = AMap.adjust (\e -> e { int = Just sig }) term $ ints s })
 
 saveIntBits :: TermDynBv -> [LSig n] -> ToPf n ()
-saveIntBits term bits_ = initIntEntry term >> modify
-  (\s -> s { ints = AMap.adjust (\e -> e { bits = Just bits_ }) term $ ints s })
+saveIntBits term bits_ = do
+  initIntEntry term
+  unless (length bits_ == dynBvWidth term) $ error "width mismatch in saveIntBits"
+  modify (\s -> s { ints = AMap.adjust (\e -> e { bits = Just bits_ }) term $ ints s })
 
 -- Fetching transalations
 getInt :: KnownNat n => TermDynBv -> ToPf n (LSig n)
@@ -426,7 +430,7 @@ getSignedInt term = deBitify True <$> getIntBits term
 getIntM :: KnownNat n => TermDynBv -> ToPf n (Maybe (LSig n))
 getIntM term = do
   e <- gets (AMap.lookup term . ints)
-  case e >>= int of
+  r <- case e >>= int of
     Just i  -> return $ Just $ fst i
     Nothing -> case e >>= bits of
       Just bs -> do
@@ -434,11 +438,13 @@ getIntM term = do
         saveInt term (i, length bs)
         return $ Just i
       Nothing -> return Nothing
+  logIf "toPf::getInt" $ unwords ["Int lookup:", show term, "->", show r]
+  return r
 
 getIntBits :: KnownNat n => TermDynBv -> ToPf n [LSig n]
 getIntBits term = fromMaybe (error $ "No bits for " ++ show term) <$> do
   e <- gets (AMap.lookup term . ints)
-  case e >>= bits of
+  r <- case e >>= bits of
     Just bs -> return $ Just bs
     Nothing -> case e >>= int of
       Just (i, width) -> do
@@ -446,6 +452,8 @@ getIntBits term = fromMaybe (error $ "No bits for " ++ show term) <$> do
         saveIntBits term bs
         return $ Just bs
       Nothing -> return Nothing
+  logIf "toPf::getBits" $ unwords ["Bit lookup:", show term, "->", show r]
+  return r
 
 twoPow :: KnownNat n => Integer -> Prime n
 twoPow = toP . (2 ^)
@@ -474,11 +482,12 @@ lazyInt :: KnownNat n => ToPf n Bool
 lazyInt = gets (assumeNoBvOverflow . cfg)
 
 -- Require `x` to fit in `width` unsigned bits
+-- The 0th index contains the LSB
 bitify :: KnownNat n => String -> LSig n -> Int -> ToPf n [LSig n]
 bitify ctx x width = do
   logIf "toPf" $ "bitify: " ++ ctx
   sigs <- nbits ctx $ asBits width $ snd x
-  let sum' = foldr1 lcAdd $ zipWith lcScale (map twoPow [0 ..]) sigs
+  let sum' = foldr lcAdd lcZero $ zipWith lcScale (map twoPow [0 ..]) sigs
   enforceCheck (lcZero, lcZero, lcSub sum' x)
   return sigs
 
@@ -491,7 +500,8 @@ inBits signed w number = do
 
 deBitify :: KnownNat n => Bool -> [LSig n] -> LSig n
 deBitify signed bs =
-  let lowBits    = foldr1 lcAdd $ zipWith lcScale (map twoPow [0 ..]) (init bs)
+  let lowBits =
+        foldr lcAdd lcZero $ zipWith lcScale (map twoPow [0 ..]) (init bs)
       highBitPos = lcScale (toP $ 2 ^ (length bs - 1)) $ last bs
       highBit    = if signed then lcNeg highBitPos else highBitPos
   in  lcAdd lowBits highBit
@@ -570,7 +580,8 @@ bvToPf env term = do
       DynBvSext _ deltaW i -> do
         bvToPf env i
         i' <- getIntBits i
-        saveIntBits bv $ replicate deltaW (head i')
+        unless (length i' > 0) $ error $ "Sext of no bits " ++ show bv
+        saveIntBits bv $ i' ++ replicate deltaW (last i')
       DynBvUext w _ i -> do
         bvToPf env i
         i' <- getInt i
@@ -579,6 +590,12 @@ bvToPf env term = do
         bvToPf env i
         i' <- getIntBits i
         saveIntBits bv $ take w (drop start i')
+      DynBvConcat _ high low -> do
+        bvToPf env high
+        bvToPf env low
+        high' <- getIntBits high
+        low'  <- getIntBits low
+        saveIntBits bv $ low' ++ high'
       DynBvBinExpr op w l r -> do
         bvToPf env l
         bvToPf env r
