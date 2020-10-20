@@ -1,0 +1,5 @@
+benchmark,compiler,constraints
+mm5,pequin,125
+u32sqrt,pequin,703
+sha1,pequin,17339
+bounded_loop,pequin,1049
