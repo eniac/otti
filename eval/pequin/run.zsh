@@ -75,4 +75,5 @@ for b in "${(@k)paths}"; do
 done
 commit_results
 cat ./pequin_results.csv | tail -n +2 >> results.csv
+cat ./slow_results.csv | tail -n +2 >> results.csv
 
