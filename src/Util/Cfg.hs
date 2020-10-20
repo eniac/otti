@@ -53,6 +53,7 @@ defaultSmtOptCfg = SmtOptCfg
                       , "cfee"
                       , "ee"
                       , "mem"
+                      , "flattenAnds"
                       , "cfee"
                       , "ee"
                       ]
@@ -192,8 +193,8 @@ options =
     (smtOptCfg . smtOpts . commaListLens)
     "smt-opts"
     "Optimizations to perform over the Smt formula"
-    "A comma-separated list. Options: {cfee, ee, cf, arrayElim, flattenAnds, benes, arrayLin}"
-    "cfee,ee,arrayElim,flattenAnds,cfee,ee,benes,cfee,ee"
+    "A comma-separated list. Options: {cfee, ee, cf, arrayElim, flattenAnds, mem}"
+    "cfee,ee,arrayElim,flattenAnds,cfee,ee,mem,flattenAnds,cfee,ee"
   , CfgOption (smtOptCfg . optForZ3 . showReadLens)
               "opt-z3"
               "Optimize the z3 inputs"

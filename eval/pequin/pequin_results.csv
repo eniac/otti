@@ -1,5 +1,7 @@
 benchmark,compiler,constraints
 mm5,pequin,125
+ptrs,pequin,1993
+ptrs-benes,pequin,1993
 u32sqrt,pequin,703
 sha1,pequin,17339
 bounded_loop,pequin,1049
