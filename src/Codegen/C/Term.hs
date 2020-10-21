@@ -869,18 +869,16 @@ cCast toTy node = case term node of
     _           -> error $ unwords ["Bad cast from", show t, "to", show toTy]
   CInt fromS fromW t -> case toTy of
     _ | Type.isIntegerType toTy ->
-      let
-        toW = Type.numBits toTy
-        toS = Type.isSignedInt toTy
-        t'  = intResize fromS toW t
-        u = udef node
+      let toW = Type.numBits toTy
+          toS = Type.isSignedInt toTy
+          t'  = intResize fromS toW t
+          u   = udef node
         -- P 6.3.1.3.3 of the C11 standard says this is "implementation
         -- defined", not "undefined"
         -- u   = if toS && toW < fromW
         --   then binOr (udef node) (Ty.Not $ Ty.mkEq t (intResize toS fromW t'))
         --   else udef node
-      in
-        mkCTerm (CInt toS toW t') u
+      in  mkCTerm (CInt toS toW t') u
     Type.Double -> mkCTerm
       (CDouble $ (if fromS then Ty.DynSbvToFp else Ty.DynUbvToFp) t)
       (udef node)
@@ -974,8 +972,19 @@ cIte condB t f =
       (CBool   tB, CBool fB  ) -> CBool $ Ty.mkIte condB tB fB
       (CDouble tB, CDouble fB) -> CDouble $ Ty.mkIte condB tB fB
       (CFloat  tB, CFloat fB ) -> CFloat $ Ty.mkIte condB tB fB
-      (CStackPtr tTy tB tId, CStackPtr fTy fB fId) | tTy == fTy && tId == fId ->
-        CStackPtr tTy (Ty.mkIte condB tB fB) tId
+      -- TODO: not quite right.
+      -- Wrong in some instances of conditional initialization.
+      (CStackPtr tTy tB tId, CStackPtr fTy fB fId)
+        | tTy
+          == fTy
+          && (  tId
+             == fId
+             || tId
+             == Mem.stackIdUnknown
+             || fId
+             == Mem.stackIdUnknown
+             )
+        -> CStackPtr tTy (Ty.mkIte condB tB fB) tId
       (CInt s w i, CInt s' w' i') ->
         let sign  = s && s' -- Not really sure is this is correct b/c of ranks.
             width = max w w'
