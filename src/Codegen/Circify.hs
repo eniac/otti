@@ -401,6 +401,7 @@ data CircifyState ty term = CircifyState
   , prefix    :: [String]                -- ^ Curreny name prefix
   , fnCtr     :: Int                     -- ^ Inline fn-call #
   , lang      :: LangDef ty term         -- ^ Language bindings
+  , guardCnt  :: Int                     -- ^ Number of guards so far
   }
 
 newtype Circify ty term a = Circify (StateT (CircifyState ty term) Mem a)
@@ -426,6 +427,7 @@ emptyCircifyState lang = CircifyState { callStack = []
                                       , prefix    = []
                                       , fnCtr     = 0
                                       , lang      = lang
+                                      , guardCnt  = 0
                                       }
 
 compilerRunOnTop
@@ -651,7 +653,16 @@ scoped :: MonadCircify ty term m => m a -> m a
 scoped a = liftCircify enterLexScope *> a <* liftCircify exitLexScope
 
 pushGuard :: Ty.TermBool -> Circify ty term ()
-pushGuard = compilerModifyTop . fsPushGuard
+pushGuard test = do
+  i <- gets guardCnt
+  let guardName = "circify_guard_" ++ show i
+  modify $ \s -> s { guardCnt = 1 + guardCnt s }
+  g <- liftAssert $ do
+    g <- Assert.newVar guardName Ty.SortBool
+    Assert.assign g test
+    Assert.evalAndSetValue guardName test
+    return g
+  compilerModifyTop $ fsPushGuard g
 
 popGuard :: Circify ty term ()
 popGuard = compilerModifyTop fsPopGuard
@@ -746,8 +757,7 @@ deref val = case val of
 returnValueName :: String
 returnValueName = "return"
 
-pushFunction
-  :: (Show ty, Show term) => String -> Maybe ty -> Circify ty term ()
+pushFunction :: (Show ty, Show term) => String -> Maybe ty -> Circify ty term ()
 pushFunction name ty = do
   p <- gets prefix
   c <- gets fnCtr
