@@ -262,8 +262,8 @@ cSetValues trackUndef name t = do
     CDouble d  -> Assert.evalAndSetValue name d
     CStruct _ty fs ->
       forM_ fs $ \(f, t) -> cSetValues trackUndef (structVarName name f) t
-    CArray {} -> return ()
-    _ -> error $ "Cannot set value for a term: " ++ show t
+    CArray{} -> return ()
+    _        -> error $ "Cannot set value for a term: " ++ show t
   when trackUndef $ Assert.evalAndSetValue (udefName name) (udef t)
 
 
@@ -616,7 +616,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
           else cannot "a pointer on the right"
         -- Ptr diff
         (CInt s w i, CInt s' w' i') ->
-          let width = if mergeWidths then max w w' else w
+          let width = if mergeWidths then max 32 (max w w') else w
               sign  = max s s'
               l     = intResize s width i
               r     = intResize s' width i'
@@ -661,9 +661,23 @@ cMul = cWrapBinArith "*"
 cDiv = cWrapBinArith "/"
                      (const Ty.BvUdiv)
                      (Ty.FpBinExpr Ty.FpDiv)
-                     (Just isDivZero)
+                     (Just overflow)
                      True
                      True
+ where
+  overflow s i s' i' =
+    let w = Ty.dynBvWidth i'
+    in  if s && s'
+          then Just $ Ty.BoolNaryExpr
+            Ty.Or
+            [ Ty.mkEq i' (Ty.DynBvLit (Bv.zeros w))
+            , Ty.BoolNaryExpr
+              Ty.And
+              [ Ty.mkEq i (Ty.DynBvLit (Bv.ones 1 Bv.# Bv.zeros (w - 1)))
+              , Ty.mkEq i' (Ty.DynBvLit (Bv.ones w))
+              ]
+            ]
+          else Nothing
 isDivZero :: Bool -> Bv -> Bool -> Bv -> Maybe Ty.TermBool
 isDivZero _s _i _s' i' =
   Just $ Ty.mkEq i' (Ty.DynBvLit (Bv.zeros (Ty.dynBvWidth i')))
@@ -692,18 +706,18 @@ cShl = cWrapBinArith "<<" (const Ty.BvShl) noFpError (Just overflow) False True
  where
   overflow s i _s' i' =
     let baseNeg =
-            [ Ty.mkDynBvBinPred Ty.BvSlt i (Mem.bvNum True (Ty.dynBvWidth i) 0)
-            | s
-            ]
+          [ Ty.mkDynBvBinPred Ty.BvSlt i (Mem.bvNum True (Ty.dynBvWidth i) 0)
+          | s
+          ]
         shftBig =
-            [ Ty.mkDynBvBinPred
-                Ty.BvUge
-                i'
-                (Mem.bvNum True
-                           (Ty.dynBvWidth i')
-                           (fromIntegral $ Ty.dynBvWidth i)
-                )
-            ]
+          [ Ty.mkDynBvBinPred
+              Ty.BvUge
+              i'
+              (Mem.bvNum True
+                         (Ty.dynBvWidth i')
+                         (fromIntegral $ Ty.dynBvWidth i)
+              )
+          ]
     in  Just $ Ty.BoolNaryExpr Ty.Or $ baseNeg ++ shftBig
 -- Not quite right, since we're gonna force these to be equal in size
 cShr = cWrapBinArith ">>"
@@ -859,9 +873,12 @@ cCast toTy node = case term node of
         toW = Type.numBits toTy
         toS = Type.isSignedInt toTy
         t'  = intResize fromS toW t
-        u   = if toS && toW < fromW
-          then binOr (udef node) (Ty.Not $ Ty.mkEq t (intResize toS fromW t'))
-          else udef node
+        u = udef node
+        -- P 6.3.1.3.3 of the C11 standard says this is "implementation
+        -- defined", not "undefined"
+        -- u   = if toS && toW < fromW
+        --   then binOr (udef node) (Ty.Not $ Ty.mkEq t (intResize toS fromW t'))
+        --   else udef node
       in
         mkCTerm (CInt toS toW t') u
     Type.Double -> mkCTerm
