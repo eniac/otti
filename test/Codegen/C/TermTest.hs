@@ -24,12 +24,12 @@ cutilsTest = benchTestGroup
       _ <- declVar Type.U8 "my_u8"
       declVar Type.S8 "my_i8"
     (2 + 2) @=? M.size (Assert.vars a)
-  , benchTestCase "cAdd: u8 + i8 = i8" $ do
+  , benchTestCase "cAdd: u8 + i8 = int" $ do
     a <- evalCfgDefault $ Assert.evalAssert $ Mem.evalMem $ do
       u <- declVar Type.U8 "my_u8"
       i <- declVar Type.S8 "my_i8"
       return $ cAdd u i
-    Type.S8 @=? cType a
+    Type.S32 @=? cType a
   , benchTestCase "cAdd: i32 + i8 = i32" $ do
     a <- evalCfgDefault $ Assert.evalAssert $ Mem.evalMem $ do
       u <- declVar Type.S32 "my_i32"
