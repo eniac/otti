@@ -667,17 +667,17 @@ cDiv = cWrapBinArith "/"
  where
   overflow s i s' i' =
     let w = Ty.dynBvWidth i'
-    in  if s && s'
-          then Just $ Ty.BoolNaryExpr
-            Ty.Or
-            [ Ty.mkEq i' (Ty.DynBvLit (Bv.zeros w))
-            , Ty.BoolNaryExpr
+    in  Just $ Ty.BoolNaryExpr
+          Ty.Or
+          [ Ty.mkEq i' (Ty.DynBvLit (Bv.zeros w))
+          , if s && s'
+            then Ty.BoolNaryExpr
               Ty.And
               [ Ty.mkEq i (Ty.DynBvLit (Bv.ones 1 Bv.# Bv.zeros (w - 1)))
               , Ty.mkEq i' (Ty.DynBvLit (Bv.ones w))
               ]
-            ]
-          else Nothing
+            else Ty.BoolLit False
+          ]
 isDivZero :: Bool -> Bv -> Bool -> Bv -> Maybe Ty.TermBool
 isDivZero _s _i _s' i' =
   Just $ Ty.mkEq i' (Ty.DynBvLit (Bv.zeros (Ty.dynBvWidth i')))
@@ -706,18 +706,18 @@ cShl = cWrapBinArith "<<" (const Ty.BvShl) noFpError (Just overflow) False True
  where
   overflow s i _s' i' =
     let baseNeg =
-          [ Ty.mkDynBvBinPred Ty.BvSlt i (Mem.bvNum True (Ty.dynBvWidth i) 0)
-          | s
-          ]
+            [ Ty.mkDynBvBinPred Ty.BvSlt i (Mem.bvNum True (Ty.dynBvWidth i) 0)
+            | s
+            ]
         shftBig =
-          [ Ty.mkDynBvBinPred
-              Ty.BvUge
-              i'
-              (Mem.bvNum True
-                         (Ty.dynBvWidth i')
-                         (fromIntegral $ Ty.dynBvWidth i)
-              )
-          ]
+            [ Ty.mkDynBvBinPred
+                Ty.BvUge
+                i'
+                (Mem.bvNum True
+                           (Ty.dynBvWidth i')
+                           (fromIntegral $ Ty.dynBvWidth i)
+                )
+            ]
     in  Just $ Ty.BoolNaryExpr Ty.Or $ baseNeg ++ shftBig
 -- Not quite right, since we're gonna force these to be equal in size
 cShr = cWrapBinArith ">>"
