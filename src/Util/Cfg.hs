@@ -79,12 +79,14 @@ data CCfg = CCfg { _printfOutput :: Bool
                  , _svExtensions :: Bool
                  , _pequinIo :: Bool
                  , _constLoops :: Bool
+                 , _smtBoundLoops :: Bool
                  } deriving (Show)
 
-defaultCCfg = CCfg { _printfOutput = True
-                   , _svExtensions = False
-                   , _pequinIo     = False
-                   , _constLoops   = True
+defaultCCfg = CCfg { _printfOutput  = True
+                   , _svExtensions  = False
+                   , _pequinIo      = False
+                   , _constLoops    = True
+                   , _smtBoundLoops = False
                    }
 
 $(makeLenses ''CCfg)
@@ -242,6 +244,11 @@ options =
               "Detect constant-iteration loops and special-case them"
               "Detects incrementally increasing loops"
               "True"
+  , CfgOption (cCfg . smtBoundLoops . showReadLens)
+              "smt-bound-loops"
+              "Use an SMT solver to only unroll loops as much as necessary."
+              "The solver checks whether the post-condition path is feasible."
+              "False"
   , CfgOption (help . showReadLens)
               "help"
               "Prints cfg help and exits"

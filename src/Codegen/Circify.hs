@@ -45,6 +45,7 @@ module Codegen.Circify
   , ssaValAsTerm
   , getSsaName
   , getVer
+  , reachable
   )
 where
 
@@ -75,6 +76,7 @@ import           IR.SMT.Assert                  ( Assert
                                                 , MonadAssert
                                                 , liftAssert
                                                 )
+import qualified Targets.SMT.TySmtToZ3         as Z3
 import           Util.Cfg                       ( MonadCfg )
 import           Util.Control                   ( MonadDeepState(..)
                                                 , whenM
@@ -822,3 +824,11 @@ safeNary op xs = case xs of
   []  -> Ty.boolNaryId op
   [s] -> s
   _   -> Ty.BoolNaryExpr op xs
+
+-- | Is the current path reachable, for some inputs?
+reachable :: Circify ty term Bool
+reachable = do
+  pathCondition <- getGuard
+  f             <- liftAssert Assert.formula
+  liftLog $ Z3.sat <$> Z3.evalZ3Model
+    (Ty.BoolNaryExpr Ty.And [f, pathCondition])

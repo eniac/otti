@@ -489,6 +489,11 @@ genAssignOp op l r = case op of
 --- Statements
 ---
 
+-- | Should we skip the current path?
+skipPath :: C Bool
+skipPath = andM (liftCfg $ asks (Cfg._smtBoundLoops . Cfg._cCfg)) -- enabled
+                (liftCircify $ not <$> reachable)                 -- unreachable
+
 genStmt :: CStat -> C ()
 genStmt stmt = do
   logIfM "stmt" $ do
@@ -523,18 +528,22 @@ genStmt stmt = do
           replicateM_ b $ do
             test <- genExpr $ fromMaybe (error "Missing test in for-loop") check
             liftCircify $ pushGuard (ssaBool test)
-            genStmt body
-            -- increment the variable
-            forM_ incr $ \inc -> genExpr inc
+            -- TODO: could skip more
+            unlessM skipPath $ do
+              genStmt body
+              -- increment the variable
+              forM_ incr $ \inc -> genExpr inc
+          -- TODO: assert end, skip dependent
           replicateM_ b (liftCircify popGuard)
-          -- TODO: assert end
     CWhile check body isDoWhile _ -> do
       bound <- gets loopBound
       let addGuard = genExpr check >>= liftCircify . pushGuard . ssaBool
       replicateM_ bound $ do
         unless isDoWhile addGuard
-        genStmt body
+        -- TODO: could skip more
+        unlessM skipPath $ genStmt body
         when isDoWhile addGuard
+      -- TODO: assert end, skip dependent
       replicateM_ bound (liftCircify popGuard)
     CReturn expr _ -> forM_ expr $ \e -> do
       toReturn <- genExpr e

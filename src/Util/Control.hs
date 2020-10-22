@@ -8,6 +8,8 @@ module Util.Control
   , whileJustM
   , whileM
   , unlessM
+  , orM
+  , andM
   , MonadDeepState(..)
   )
 where
@@ -15,7 +17,7 @@ where
 import           Control.Monad                  ( unless
                                                 , when
                                                 )
-import Control.Monad.State.Strict
+import           Control.Monad.State.Strict
 import           Data.Functor.Identity          ( Identity )
 
 whenM :: Monad m => m Bool -> m () -> m ()
@@ -38,6 +40,15 @@ whileM :: Monad m => m Bool -> m a -> m ()
 whileM condition step = do
   b <- condition
   if b then step *> whileM condition step else pure ()
+
+-- | Short circuiting monadic OR
+orM :: Monad m => m Bool -> m Bool -> m Bool
+orM a b = do
+  a' <- a
+  if a' then return True else b
+
+andM :: Monad m => m Bool -> m Bool -> m Bool
+andM a b = not <$> orM (not <$> a) (not <$> b)
 
 class (Monad m) => MonadDeepState s m | m -> s where
   deepGet :: m s

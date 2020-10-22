@@ -115,6 +115,9 @@ check s = forM_ (F.toList $ asserted s) $ \c -> case vals s of
     else Left $ "Unsat constraint:\n" ++ show c ++ "\nin\n" ++ show e
   Nothing -> Left "Missing values"
 
+formula :: Assert Ty.TermBool
+formula = gets (Ty.BoolNaryExpr Ty.And . F.toList . asserted)
+
 instance MonadDeepState AssertState Assert where
   deepGet = get
   deepPut = put
