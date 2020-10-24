@@ -253,11 +253,11 @@ cmdCEval name path = do
   r  <- evalLog $ evalFn False tu name
   forM_ (Map.toList r) $ \(k, v) -> liftIO $ putStrLn $ unwords [k, ":", show v]
 
-cmdCEmitR1cs :: Bool -> String -> FilePath -> FilePath -> Cfg ()
-cmdCEmitR1cs findBugs fnName cPath r1csPath = do
+cmdCEmitR1cs :: Bool -> Bool -> String -> FilePath -> FilePath -> Cfg ()
+cmdCEmitR1cs findBugs asJson fnName cPath r1csPath = do
   tu   <- liftIO $ parseC cPath
   r1cs <- evalLog $ fnToR1cs @Order findBugs Nothing tu fnName
-  liftIO $ R1cs.writeToR1csFile False r1cs r1csPath
+  liftIO $ R1cs.writeToR1csFile asJson r1cs r1csPath
 
 cmdCSetup
   :: Bool
@@ -269,7 +269,7 @@ cmdCSetup
   -> FilePath
   -> Cfg ()
 cmdCSetup findBugs libsnark fnName cPath r1csPath pkPath vkPath = do
-  cmdCEmitR1cs findBugs fnName cPath r1csPath
+  cmdCEmitR1cs findBugs False fnName cPath r1csPath
   liftIO $ runSetup libsnark r1csPath pkPath vkPath
 
 cmdCProve
@@ -374,10 +374,11 @@ main = do
         path   <- args `getExistingFilePath` argument "path"
         cmdCEval fnName path
       _ | args `isPresent` command "c-emit-r1cs" -> do
+        let asJson = args `isPresent` longOption "json"
         fnName   <- args `getArgOrExit` argument "fn-name"
         path     <- args `getExistingFilePath` argument "path"
         r1csPath <- args `getArgOrExit` shortOption 'C'
-        cmdCEmitR1cs False fnName path r1csPath
+        cmdCEmitR1cs False asJson fnName path r1csPath
       _ | args `isPresent` command "c-setup" -> do
         libsnark <- args `getExistingFilePath` longOption "libsnark"
         fnName   <- args `getArgOrExit` argument "fn-name"

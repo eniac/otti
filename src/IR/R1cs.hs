@@ -178,7 +178,7 @@ instance forall s n. (Show s, KnownNat n) => ToJSON (R1CS s n) where
     sigToJson (_, ss) = object ["names" .= map show ss]
     qeqToJson (a, b, c) = map lcToJson [a, b, c]
     lcToJson (m, c) =
-      let back = map (\(k, v) -> Text.pack (show (k - 1)) .= show (fromP v))
+      let back = map (\(k, v) -> Text.pack (show (k - 1)) .= (primeShow v))
                      (Map.toList m)
       in  object $ if c == 0 then back else ("0" .= show (fromP c)) : back
 
