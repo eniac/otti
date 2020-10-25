@@ -22,6 +22,7 @@ module Codegen.C.AstUtil
   )
 where
 import           Codegen.C.Type
+import           Codegen.C.Term                 ( CCirc )
 import           Codegen.Circify
 import           Control.Monad
 import           Control.Monad.IO.Class
@@ -37,12 +38,12 @@ import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
 
 ctype
-  :: [CDeclSpec] -> [CDerivedDeclr] -> Circify Type term (Either String Type)
+  :: [CDeclSpec] -> [CDerivedDeclr] -> CCirc (Either String Type)
 ctype tys ptrs = do
   ty <- baseTypeFromSpecs tys
   return $ ty >>= flip applyDerivations ptrs
 
-fnRetTy :: CFunDef -> Circify Type term (Either String Type)
+fnRetTy :: CFunDef -> CCirc (Either String Type)
 fnRetTy f = ctype (baseTypeFromFunc f) (ptrsFromFunc f)
 
 -- helpers to be renamed
@@ -70,13 +71,13 @@ cParseIntType l = case l of
 maybeToEither :: b -> Maybe a -> Either b a
 maybeToEither = flip maybe Right . Left
 
-defStruct :: String -> Type -> Circify Type term ()
+defStruct :: String -> Type -> CCirc ()
 defStruct n = typedef ("struct " ++ n)
 
-getStruct :: String -> Circify Type term (Maybe Type)
+getStruct :: String -> CCirc (Maybe Type)
 getStruct n = untypedef ("struct " ++ n)
 
-parseBaseTy :: [CTypeSpec] -> Circify Type term (Either String Type)
+parseBaseTy :: [CTypeSpec] -> CCirc (Either String Type)
 parseBaseTy ty = case ty of
   [CVoidType{}] -> return $ Right Void
   [CTypeDef (Ident name _ _) _] ->
@@ -120,11 +121,11 @@ applyDerivations ty (d : ds) = case d of
   CArrDeclr _ (CNoArrSize _) _ -> applyDerivations (Array Nothing ty) ds
   _                            -> Left $ "Do not support type " ++ show d
 
-cDeclToType :: CDecl -> Circify Type term (Either String Type)
+cDeclToType :: CDecl -> CCirc (Either String Type)
 cDeclToType (CDecl specs _ _) = parseBaseTy $ map specToType specs
 cDeclToType _                 = error "nyi"
 
-baseTypeFromSpecs :: [CDeclSpec] -> Circify Type term (Either String Type)
+baseTypeFromSpecs :: [CDeclSpec] -> CCirc (Either String Type)
 baseTypeFromSpecs all@(elem : rest) = if isTypeQual elem || isAlignSpec elem
   then baseTypeFromSpecs rest
   else parseBaseTy $ mapMaybe typeFromSpec all
@@ -150,7 +151,7 @@ nodeText n = fromMaybe ("<Missing text>" ++ show n) <$> nodeTextMaybe n
 -- A C declaration can be for many variables, each of which may or may not have an init
 cSplitDeclaration
   :: CDeclaration NodeInfo
-  -> Circify Type term (Either String [(String, Type, Maybe CInit)])
+  -> CCirc (Either String [(String, Type, Maybe CInit)])
 cSplitDeclaration d = case d of
   CDecl specs decls _info -> do
     let firstSpec = head specs

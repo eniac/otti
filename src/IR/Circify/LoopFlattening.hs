@@ -35,7 +35,7 @@ instance Semigroup (LoopExpansion t) where
 pullbackLoop :: Control t -> LoopExpansion t
 pullbackLoop l@(While _ _     ) = LoopExpansion Empty l Empty
 pullbackLoop l@(For _ _ _ _   ) = LoopExpansion Empty l Empty
-pullbackLoop (Seq left right  ) = pullbackLoop left <> pullbackLoop right
+pullbackLoop (  Seq left right) = pullbackLoop left <> pullbackLoop right
 pullbackLoop o                  = LoopExpansion o Empty Empty
 
 -- Need a context for variable shadowing and a Cfg for arguments
@@ -55,20 +55,15 @@ mkLoop maxIteration outterCond innerCond prologue body1 body2 body3 = do
     -- Need different versions of these to avoid shadowing
   dummy <- var <$> newIdentifier "dummy"
   state <- var <$> newIdentifier "state"
-  return $ state =: 0 <> prologue <>
-    For dummy (lit 0) maxIteration (
-      If (state ==: lit 0) (
-        If (outterCond) (
-            body1
-            <> state =: 1
-        ) (state =: 3)) Empty
-    <> If (state ==: lit 1) (
-        If (innerCond) (
-            body2
-        ) (state =: 2)) Empty
-    <> If (state ==: lit 2) (
-        body3
-        <> state =: 0) Empty
+  return $ state =: 0 <> prologue <> For
+    dummy
+    (lit 0)
+    maxIteration
+    (  If (state ==: lit 0)
+          (If (outterCond) (body1 <> state =: 1) (state =: 3))
+          Empty
+    <> If (state ==: lit 1) (If (innerCond) (body2) (state =: 2)) Empty
+    <> If (state ==: lit 2) (body3 <> state =: 0)                 Empty
     )
  where
   newIdentifier :: Monad m => String -> StateT (Map String Natural) m String

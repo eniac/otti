@@ -1,0 +1,10 @@
+def main(field[5] x) -> field:
+  field s = 0
+  field[5] y = [0;5]
+  for field i in 0..5 do
+      y[i] = x[i]
+  endfor
+  for field i in 0..5 do
+      s = s + y[i]
+  endfor
+  return s

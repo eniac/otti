@@ -33,7 +33,7 @@ import qualified Data.ByteString.Lazy.Char8    as Char8
 import qualified Data.Map.Strict               as Map
 import           Data.Field.Galois              ( Prime )
 import           GHC.TypeNats
-import           IR.R1cs
+import           Targets.R1cs.Main
 
 data LowDeg n = Scalar !n
               | Linear !(LC Sig.Signal n)

@@ -96,6 +96,7 @@ import           Lens.Simple                    ( over
                                                 , view
                                                 )
 import           IR.SMT.TySmt
+import           IR.SMT.TySmt.Alg               ( reduceTerm )
 import qualified IR.SMT.Opt.Assert             as A
 import qualified IR.SMT.Opt.Mem.Route          as MemR
 import           IR.SMT.Opt.Mem.Util           as MemU

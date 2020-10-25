@@ -14,11 +14,12 @@ where
 import           Codegen.Circom.Signal
 import qualified AST.Circom                    as AST
 import qualified IR.SMT.TySmt                  as Smt
+import qualified IR.SMT.TySmt.Alg              as SAlg
 import           Data.Bifunctor
 import           Control.Monad.State.Strict
 import           Control.Monad.Writer.Strict
 import qualified Codegen.Circom.Compilation    as Comp
-import           IR.R1cs                 hiding ( values )
+import           Targets.R1cs.Main       hiding ( values )
 import qualified Codegen.Circom.CompTypes      as CompT
 import qualified Codegen.Circom.CompTypes.LowDeg
                                                as LD
@@ -209,7 +210,7 @@ computeWitnessesIn ctx namespace invocation inputs =
               Maybe.fromMaybe (error $ "No term for " ++ show lterm)
                 $      evalExprs
                 Map.!? lterm
-            value  = Smt.eval (stringValues localCtx) smt
+            value  = SAlg.eval (stringValues localCtx) smt
             dValue = toDyn value
             name   = joinName namespace sig
         tell $ Map.singleton name (Smt.valAsPf value)

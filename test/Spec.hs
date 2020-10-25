@@ -4,18 +4,22 @@ import           Codegen.C.EvalTest
 import           Codegen.C.Test
 import           Codegen.Circify.MemoryTest
 import           Codegen.CircomTest
-import           IR.R1cs.OptTest
+import           Codegen.Zokrates.Test
+import           Targets.R1csOptTest
 import           IR.SMT.MemRouteTest
 import           IR.SMT.OptTest
 import           IR.SMT.ToPfTest
 import           IR.SMT.TySmtTest
 import           Parser.CircomTest
 import           Parser.CTest
+import           Parser.ZokratesTest
 import           Test.Tasty
 import           Targets.ToZ3
 
 parserTests :: BenchTest
-parserTests = benchTestGroup "Parser tests" [cParserTests, circomParserTests]
+parserTests = benchTestGroup
+  "Parser tests"
+  [cParserTests, circomParserTests, zokratesParserTests]
 
 generatorTests :: BenchTest
 generatorTests = benchTestGroup
@@ -27,6 +31,7 @@ generatorTests = benchTestGroup
   , cValueTests
   , cRealTests
   , cPequinTests
+  , zTests
   ]
 
 benesTests :: BenchTest

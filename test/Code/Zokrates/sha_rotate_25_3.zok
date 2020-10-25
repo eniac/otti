@@ -1,0 +1,9 @@
+import "EMBED/u32_to_bits" as to_bits
+import "EMBED/u32_from_bits" as from_bits
+
+def rot(u32 e) -> u32:
+	bool[32] b = to_bits(e)
+	return from_bits([...b[7..], ...b[..7]])
+
+def main(u32 e) -> u32:
+	return rot(rot(rot(e)))

@@ -1,0 +1,9 @@
+global__input.input.0 1
+global__input.input.1 2
+global__input.input.2 3
+global__input.input.3 4
+global__input.input.4 5
+global__input.input.5 6
+global__input.input.6 7
+global__input.input.7 8
+global__input.input.8 0

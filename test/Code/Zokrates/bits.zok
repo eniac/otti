@@ -1,0 +1,15 @@
+import "EMBED/u32_to_bits" as to_bits
+import "EMBED/u32_from_bits" as from_bits
+
+// def main(bool[32] a, bool[32] b) -> bool[32]:
+//   bool[32] c = [false; 32]
+//   for field i in 0..32 do
+//       c[i] = a[i] && b[i]
+//   endfor
+//   return c
+
+def main(bool[32] a, bool[32] b) -> bool[32]:
+  u32 aa = from_bits(a)
+  u32 bb = from_bits(b)
+  u32 cc = aa & bb
+  return to_bits(cc)

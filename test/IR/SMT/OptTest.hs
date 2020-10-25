@@ -10,6 +10,7 @@ import           Control.Monad
 import qualified Data.BitVector                as Bv
 import qualified Data.Set                      as Set
 import           IR.SMT.TySmt
+import           IR.SMT.TySmt.Alg
 import           Test.Tasty.HUnit
 import           Util.Cfg
 import           Util.Log
@@ -48,7 +49,7 @@ mkEqElimTest
   :: Bool -> String -> Set.Set String -> [TermBool] -> Int -> BenchTest
 mkEqElimTest allowBlowup name protected original nExpected =
   benchTestCase (if null name then show original else name) $ do
-    let elim = evalLog $ eqElimFn protected original
+    let elim = evalLog $ eqElimFn protected Set.empty original
     actual <- evalCfg
       elim
       (defaultCfgState
@@ -78,17 +79,27 @@ optTests = benchTestGroup
     , mkCFoldTest "big"
                   (i (o [t, f, t, t, v "a", v "b"]) (x [t, v "b"]))
                   Nothing
-    , mkCFoldTest "bv add" (bin BvAdd (bv 5) (bv 16)) (Just $ bv 21)
-    , mkCFoldTest "bv sub" (bin BvSub (bv 5) (bv 16)) (Just $ bv (-11))
-    , mkCFoldTest "bv udiv" (bin BvUdiv (bv 16) (bv 5)) (Just $ bv 3)
-    , mkCFoldTest "bv mul" (bin BvMul (bv 5) (bv 16)) (Just $ bv 80)
-    , mkCFoldTest "bv urem" (bin BvUrem (bv 5) (bv 16)) (Just $ bv 5)
+    , mkCFoldTest "bv add"  (binN BvAdd (bv 5) (bv 16))   (Just $ bv 21)
+    , mkCFoldTest "bv sub"  (bin BvSub (bv 5) (bv 16))    (Just $ bv (-11))
+    , mkCFoldTest "bv udiv" (bin BvUdiv (bv 16) (bv 5))   (Just $ bv 3)
+    , mkCFoldTest "bv mul"  (binN BvMul (bv 5) (bv 16))   (Just $ bv 80)
+    , mkCFoldTest "bv urem" (bin BvUrem (bv 5) (bv 16))   (Just $ bv 5)
     , mkCFoldTest "bv lshr" (bin BvLshr (bv (-1)) (bv 1)) (Just $ bv bvSMax)
     , mkCFoldTest "bv ashr" (bin BvAshr (bv (-1)) (bv 1)) (Just $ bv (-1))
-    , mkCFoldTest "bv shl" (bin BvShl (bv (-1)) (bv 1)) (Just $ bv (-2))
-    , mkCFoldTest "bv or" (bin BvOr (bv 5) (bv 16)) (Just $ bv 21)
-    , mkCFoldTest "bv and" (bin BvAnd (bv 5) (bv 16)) (Just $ bv 0)
-    , mkCFoldTest "bv xor" (bin BvXor (bv 5) (bv 16)) (Just $ bv 21)
+    , mkCFoldTest "bv shl"  (bin BvShl (bv (-1)) (bv 1))  (Just $ bv (-2))
+    , mkCFoldTest "bv or"   (binN BvOr (bv 5) (bv 16))    (Just $ bv 21)
+    , mkCFoldTest "bv and"  (binN BvAnd (bv 5) (bv 16))   (Just $ bv 0)
+    , mkCFoldTest "bv xor"  (binN BvXor (bv 5) (bv 16))   (Just $ bv 21)
+    , mkCFoldTest "partial bv add"
+                  (binN BvAdd (bv 0) (bvV "x"))
+                  (Just $ bvV "x")
+    , mkCFoldTest "partial bv sub" (bin BvSub (bvV "y") (bv 0)) (Just $ bvV "y")
+    , mkCFoldTest "partial bv mul (0)"
+                  (binN BvMul (bvV "x") (bv 0))
+                  (Just $ bv 0)
+    , mkCFoldTest "partial bv mul"
+                  (binN BvMul (bvV "x") (bv 1))
+                  (Just $ bvV "x")
     , mkCFoldTest "bv ugt 0" (binP BvUgt (bv bvUMax) (bv bvUMax)) (Just f)
     , mkCFoldTest "bv ugt 1" (binP BvUgt (bv bvUMax) (bv $ bvUMax + 1)) (Just t)
     , mkCFoldTest "bv ugt 2" (binP BvUgt (bv bvUMax) (bv $ bvUMax - 1)) (Just t)
@@ -171,8 +182,10 @@ optTests = benchTestGroup
   i   = BoolBinExpr Implies
   bvW = 16
   bv :: Int -> TermDynBv
-  bv     = DynBvLit . Bv.bitVec bvW
-  bin    = flip DynBvBinExpr bvW
+  bv = DynBvLit . Bv.bitVec bvW
+  bvV s = Var s (SortBv bvW) :: TermDynBv
+  bin = flip DynBvBinExpr bvW
+  binN o x y = DynBvNaryExpr o bvW [x, y]
   binP   = flip DynBvBinPred bvW
   bvSMax = 2 ^ (bvW - 1) - 1
   bvUMax = 2 ^ bvW - 1

@@ -1,0 +1,42 @@
+
+import "utils/multiplexer/lookup3bitSigned" as sel3s
+import "utils/multiplexer/lookup2bit" as sel2
+import "ecc/babyjubjubParams" as context
+import "ecc/edwardsAdd" as add
+import "ecc/edwardsCompress" as edwardsCompress
+from "ecc/babyjubjubParams" import BabyJubJubParams
+import "EMBED/u32_to_bits" as to_bits
+import "EMBED/u32_from_bits" as from_bits
+
+// Code to export generators used in this example:
+// import bitstring
+// from zokrates_pycrypto.gadgets.pedersenHasher import PedersenHasher
+// import numpy as np
+
+// #%%
+// entropy = np.random.bytes(64)
+// hasher = PedersenHasher("test")
+// print(hasher.dsl_code)
+
+// 512bit to 256bit Pedersen hash using compression of the field elements
+def main(bool[3] e) -> field[2]:
+
+	BabyJubJubParams context = context()
+	field[2] a = context.INFINITY //Infinity
+	//Round 0
+	field cx = sel3s([e[0], e[1], e[2]], [13418723823902222986275588345615650707197303761863176429873001977640541977977 , 8366451672790208592553809639953117385619257483837439526516290319251622927412, 1785026334726838136757054176272745265857971873904476677125553010508875025629, 15763987975760561753692294837740043971877392788040801334205375164715487005236])
+	field cy = sel2([e[0], e[1]], [15255921313433251341520743036334816584226787412845488772781699434149539664639 , 10916775373885716961512013142444429405184550001421868906213743991404593770484, 18533662942827602783563125901366807026309605479742251601915445402562880550265, 12754584346112149619040942896930712185968371085994381911052593922432846916845])
+	a = add(a, [cx, cy], context)
+        return a
+//	bool[256] aC = edwardsCompress(a)
+//
+//	return [\
+//		from_bits(aC[0..32]), 
+//		from_bits(aC[32..64]), 
+//		from_bits(aC[64..96]), 
+//		from_bits(aC[96..128]), 
+//		from_bits(aC[128..160]), 
+//		from_bits(aC[160..192]), 
+//		from_bits(aC[192..224]), 
+//		from_bits(aC[224..256])
+//	]

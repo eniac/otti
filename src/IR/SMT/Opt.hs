@@ -15,6 +15,7 @@ import           IR.SMT.Opt.ConstFoldEqElim     ( constantFold
                                                 , constFoldEqElim
                                                 )
 import           IR.SMT.Opt.EqElim              ( eqElim )
+import           IR.SMT.Opt.Nary                ( flattenNary )
 import qualified IR.SMT.Opt.Assert             as OA
 import qualified IR.SMT.Assert                 as A
 
@@ -78,6 +79,9 @@ flattenAndsOpt = Opt
   , name = "flattenAnds"
   }
 
+flattenNaryOpt :: Opt
+flattenNaryOpt = Opt { fn = flattenNary, name = "nary" }
+
 opts :: Map.Map String Opt
 opts = Map.fromList $ map
   (\o -> (name o, o))
@@ -87,13 +91,14 @@ opts = Map.fromList $ map
   , arrayElimOpt
   , flattenAndsOpt
   , memOpt
+  , flattenNaryOpt
   ]
 
 
 -- Optimize, ensuring that the variables in `p` continue to exist.
-opt :: ArraySizes -> A.AssertState -> Log OA.AssertState
-opt sizes a = do
-  let a' = OA.fromAssertState sizes a
+opt :: A.AssertState -> Log OA.AssertState
+opt a = do
+  let a' = OA.fromAssertState a
   optsToRun <- liftCfg $ asks (_smtOpts . _smtOptCfg)
   let optimize = do
         OA.logAssertions "smt::opt" "initial"
