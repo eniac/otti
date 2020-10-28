@@ -55,7 +55,6 @@ extra-deps:
   - mod-0.1.2.0@sha256:4c331986c46808d89da590d791841f046509041c849c4254b0872c72284f73ad,2202
   - poly-0.4.0.0@sha256:75c243113712745dab5d2f4a52643705e146473770af212f9e0ce3d87a83f2ed,2123
   - semirings-0.5.4@sha256:5bd49c52a22c876c93d030cafa96b1233e9e7c42dacbe9f49686574368578c9c,2998
-
 # Override default flag values for local packages and extra-deps
 # flags: {}
 

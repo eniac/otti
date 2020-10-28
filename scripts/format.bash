@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 set -e
 
 USAGE="
@@ -29,8 +29,10 @@ then
     [ -z $(git ls-files --others --exclude-standard $DIR | grep '\.hs') ] || (echo "Will not format with untracked *.hs files" && exit 1)
     files=$(git ls-files $DIR | grep '\.hs')
 else
-    echo "Finding all Haskell files in $DIR that have changed since $REF"
-    files=$(git diff --name-only $REF -- $DIR | (grep '\.hs' || true))
+    mb=$(git merge-base HEAD $REF)
+    echo "The common ancestor of HEAD and $REF is $mb"
+    echo "Finding all Haskell files in $DIR that have changed since $mb"
+    files=$(git diff --name-only $mb -- $DIR | (grep '\.hs' || true))
 fi
 
 for f in $files
