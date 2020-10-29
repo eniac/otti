@@ -297,7 +297,9 @@ genSpecialFunction fnName args = do
       when bugs $ bugIf (Ty.BoolLit True)
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_assert" | svExtensions -> do
-      when bugs $ bugIf $ Ty.Not $ ssaBool $ head args
+      if bugs
+        then bugIf $ Ty.Not $ ssaBool $ head args
+        else assume $ ssaBool $ head args
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_assume" | svExtensions -> do
       when bugs $ assume $ ssaBool $ head args
