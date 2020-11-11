@@ -5,6 +5,7 @@ import           Codegen.C.Test
 import           Codegen.Circify.MemoryTest
 import           Codegen.CircomTest
 import           IR.R1cs.OptTest
+import           IR.SMT.MemRouteTest
 import           IR.SMT.OptTest
 import           IR.SMT.ToPfTest
 import           IR.SMT.TySmtTest
@@ -28,9 +29,16 @@ generatorTests = benchTestGroup
   , cPequinTests
   ]
 
+benesTests :: BenchTest
+benesTests = benchTestGroup "Waksman routing" [rt, r3]
+ where
+  rt = benchTestProperty "Arbitrary-size" test_benesRoute
+  r3 = benchTestProperty "size-3" test_benesRoute3
+
 irTests :: BenchTest
-irTests =
-  benchTestGroup "IR tests" [tySmtTests, toPfTests, optTests, r1csOptTests]
+irTests = benchTestGroup
+  "IR tests"
+  [tySmtTests, toPfTests, optTests, r1csOptTests, benesTests]
 
 
 allTests :: [BenchTest]
