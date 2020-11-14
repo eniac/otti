@@ -51,6 +51,7 @@ data CState = CState
   , bugConditions :: [Ty.TermBool]
   , assumptions   :: [Ty.TermBool]
   , nonDetCtr     :: Int
+  , breakDepth    :: Int
   }
 
 newtype C a = C (StateT CState (Circify Type CTerm) a)
@@ -63,11 +64,28 @@ emptyCState findBugs = CState { funs          = Map.empty
                               , bugConditions = []
                               , assumptions   = []
                               , nonDetCtr     = 0
+                              , breakDepth    = 0
                               }
+
+enterBreak :: C ()
+enterBreak = do
+  d <- (+1) <$> gets breakDepth
+  modify $ \s -> s { breakDepth = d }
+  liftCircify $ pushBreakable $ "break" ++ show d
+
+exitBreak :: C ()
+exitBreak = do
+  liftCircify popGuard
+  modify $ \s -> s { breakDepth = -1 + breakDepth s }
+
+cBreak :: C ()
+cBreak = do
+  d <- gets breakDepth
+  liftCircify $ doBreak $ "break" ++ show d
 
 cfgFromEnv :: C ()
 cfgFromEnv = do
-  bound <- Cfg.liftCfg $ asks $ Cfg._loopBound
+  bound <- Cfg.liftCfg $ asks Cfg._loopBound
   modify $ \s -> s { loopBound = bound }
   logIf "loop" $ "Setting loop bound to " ++ show bound
 
@@ -514,6 +532,7 @@ genStmt stmt = do
       -- Guard the false branch with the false condition
       forM_ falseBr $ \br -> guarded (Ty.Not trueCond) $ genStmt br
     CFor init check incr body _ -> do
+      enterBreak
       case init of
         Left  (Just expr) -> void $ genExpr expr
         Right decl        -> void $ genDecl Local decl
@@ -522,7 +541,7 @@ genStmt stmt = do
       -- Execute up to the loop bound
       bound <- getForLoopBound stmt body
       case bound of
-        Right b -> do
+        Right b ->
           replicateM_ b $ do
             genStmt body
             forM_ incr $ \inc -> genExpr inc
@@ -537,9 +556,11 @@ genStmt stmt = do
               forM_ incr $ \inc -> genExpr inc
           -- TODO: assert end, skip dependent
           replicateM_ b (liftCircify popGuard)
+      exitBreak
     CWhile check body isDoWhile _ -> do
       bound <- gets loopBound
       let addGuard = genExpr check >>= liftCircify . pushGuard . ssaBool
+      enterBreak
       replicateM_ bound $ do
         unless isDoWhile addGuard
         -- TODO: could skip more
@@ -547,11 +568,13 @@ genStmt stmt = do
         when isDoWhile addGuard
       -- TODO: assert end, skip dependent
       replicateM_ bound (liftCircify popGuard)
+      exitBreak
     CReturn expr _ -> forM_ expr $ \e -> do
       toReturn <- genExpr e
       logIf "return" $ "Returning: " ++ show toReturn
       liftCircify $ doReturn $ ssaValAsTerm "return" toReturn
     CLabel _ inner _ _ -> genStmt inner
+    CBreak _ -> cBreak
     _                  -> do
       text <- liftIO $ nodeText stmt
       error $ unlines ["Unsupported:", text]

@@ -18,6 +18,8 @@ module Codegen.Circify
   , enterLexScope
   , exitLexScope
   , scoped
+  , pushBreakable
+  , doBreak
   , LangDef(..)
   , Circify(..)
   , CircifyState(..)
@@ -675,10 +677,10 @@ guarded c a = liftCircify (pushGuard c) *> a <* liftCircify popGuard
 getGuard :: Circify ty term Ty.TermBool
 getGuard = safeNary Ty.And . concatMap fsCurrentGuard . callStack <$> get
 
-doReturn :: Show term => term -> Circify ty term ()
+doReturn :: (Show ty, Show term) => term -> Circify ty term ()
 doReturn value = do
-  _ <- ssaAssign (SLVar returnValueName) (Base value)
-  compilerModifyTop (fsDoBreak returnBreakName)
+  void $ ssaAssign (SLVar returnValueName) (Base value)
+  doBreak returnBreakName
 
 runCircify
   :: LangDef ty term
@@ -759,6 +761,14 @@ deref val = case val of
 returnValueName :: String
 returnValueName = "return"
 
+pushBreakable :: (Show ty, Show term) => String -> Circify ty term ()
+pushBreakable name = do
+  logIf "break" $ "Break: " ++ name
+  compilerModifyTop $ fsPushBreakable name
+
+doBreak :: (Show ty, Show term) => String -> Circify ty term ()
+doBreak = compilerModifyTop . fsDoBreak
+
 pushFunction :: (Show ty, Show term) => String -> Maybe ty -> Circify ty term ()
 pushFunction name ty = do
   p <- gets prefix
@@ -774,7 +784,7 @@ pushFunction name ty = do
              }
     )
   enterLexScope
-  compilerModifyTop $ fsPushBreakable returnBreakName
+  pushBreakable returnBreakName
   forM_ ty $ \t -> declareVar False returnValueName t
 
 -- Pop a function, returning the return term

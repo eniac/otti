@@ -79,13 +79,6 @@ packages:
   original:
     hackage: mod-0.1.2.0@sha256:4c331986c46808d89da590d791841f046509041c849c4254b0872c72284f73ad,2202
 - completed:
-    hackage: natural-numbers-0.1.2.0@sha256:0fcbe1220979b83fa612fca73a1adb1a99ff43c84f9652b3ff32b2323309b43c,1407
-    pantry-tree:
-      size: 220
-      sha256: bd4beb677280f4586265c5657ab4e4a599c16f9e624df43d8edda6bf1e46dcdf
-  original:
-    hackage: natural-numbers-0.1.2.0@sha256:0fcbe1220979b83fa612fca73a1adb1a99ff43c84f9652b3ff32b2323309b43c,1407
-- completed:
     hackage: poly-0.4.0.0@sha256:75c243113712745dab5d2f4a52643705e146473770af212f9e0ce3d87a83f2ed,2123
     pantry-tree:
       size: 1896
@@ -99,13 +92,6 @@ packages:
       sha256: 83e891acded173adc21b1bcce537f70f82d4b835fb42a41838ddf58d7bde7c7b
   original:
     hackage: semirings-0.5.4@sha256:5bd49c52a22c876c93d030cafa96b1233e9e7c42dacbe9f49686574368578c9c,2998
-- completed:
-    hackage: string-interpolate-0.3.0.2@sha256:0102ed1eac13b7f85c6d2d3da764ad178d98a23d74912f5d2898eb54af624651,4022
-    pantry-tree:
-      size: 1002
-      sha256: 073892b62ecdbee3138c572ede59b223433ac56795af96d2b18885de23b82f96
-  original:
-    hackage: string-interpolate-0.3.0.2@sha256:0102ed1eac13b7f85c6d2d3da764ad178d98a23d74912f5d2898eb54af624651,4022
 snapshots:
 - completed:
     size: 524996

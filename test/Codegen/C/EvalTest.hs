@@ -331,6 +331,18 @@ cValueTests = benchTestGroup
                         "array"
                         "test/Code/C/struct_ptr.c"
                         [("f0_array__return", i 2)]
+  , constraintValueTest "break"
+                        "test1"
+                        "test/Code/C/break.c"
+                        [("f0_test1__return", i 2)]
+  , constraintValueTest "break 2"
+                        "test2"
+                        "test/Code/C/break.c"
+                        [("f0_test2__return", i 1)]
+  , constraintValueTest "break w/ mem"
+                        "test3"
+                        "test/Code/C/break.c"
+                        [("f0_test3__return", i 1)]
   ]
 
 cRealTests :: BenchTest
