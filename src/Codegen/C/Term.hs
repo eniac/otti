@@ -119,6 +119,7 @@ class Bitable s where
 
 data CTermData = CInt Bool Int Bv
                | CBool Ty.TermBool
+               | CFixedPt Bv -- don't include (un)signed or length flags for now
                | CDouble Ty.TermDouble
                | CFloat Ty.TermFloat
                -- The array type, the offset, the underlying array.
@@ -141,6 +142,7 @@ ctermDataTy t = case t of
   CInt False 64 _  -> Type.U64
   CInt _     w  _  -> error $ unwords ["Invalid int width:", show w]
   CBool{}          -> Type.Bool
+  CFixedPt         -> Type.FixedPt --TODO: pick up here
   CDouble{}        -> Type.Double
   CFloat{}         -> Type.Float
   CArray  ty _     -> ty

@@ -8,6 +8,7 @@ data Type = U8 | S8
           | U16 | S16
           | U32 | S32
           | U64 | S64
+          | FixedPt
           | Bool
           | Float
           | Double
@@ -20,10 +21,11 @@ data Type = U8 | S8
           deriving (Eq, Ord, Show)
 
 isSimple :: Type -> Bool
-isSimple ty = isIntegerType ty || ty == Bool || isDouble ty || isFloat ty
+isSimple ty = isIntegerType ty || ty == Bool || isDouble ty || isFloat ty || isFixedPt ty
 
 isIntegerType :: Type -> Bool
 isIntegerType ty = isSignedInt ty || isUnsignedInt ty
+-- maybe here?
 
 makeIntTy :: Int -> Bool -> Type
 makeIntTy numBits isSigned = case numBits of
@@ -46,6 +48,7 @@ numBits U32                   = 32
 numBits S32                   = 32
 numBits U64                   = 64
 numBits S64                   = 64
+numBits FixedPt               = 32
 numBits Bool                  = 1
 numBits Double                = 64
 numBits Ptr64{}               = 64
@@ -68,6 +71,10 @@ isUnsignedInt U16 = True
 isUnsignedInt U32 = True
 isUnsignedInt U64 = True
 isUnsignedInt _   = False
+
+isFixedPt :: Type -> Bool
+isFixedPt FixedPt = True
+isFixedPt _ = False
 
 isDouble :: Type -> Bool
 isDouble Double = True
