@@ -8,7 +8,7 @@ data Type = U8 | S8
           | U16 | S16
           | U32 | S32
           | U64 | S64
-          | FixedPt
+          | FixedPt -- lets make it signed, treat it like an 32 bit signed int, but don't call it that.
           | Bool
           | Float
           | Double

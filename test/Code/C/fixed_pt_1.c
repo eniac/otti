@@ -1,7 +1,7 @@
 
 int test() {
-  
-  typedef unsigned int fixed_point_precision_32;
+
+  typedef signed int fixed_point_precision_32;
 
   int x = 9;
 

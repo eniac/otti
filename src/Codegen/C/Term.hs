@@ -119,7 +119,7 @@ class Bitable s where
 
 data CTermData = CInt Bool Int Bv
                | CBool Ty.TermBool
-               | CFixedPt Bv -- don't include (un)signed or length flags for now
+               | CFixedPt Bv -- don't include (un)signed or length flags for now, its always gonna be signed 32
                | CDouble Ty.TermDouble
                | CFloat Ty.TermFloat
                -- The array type, the offset, the underlying array.
@@ -142,7 +142,7 @@ ctermDataTy t = case t of
   CInt False 64 _  -> Type.U64
   CInt _     w  _  -> error $ unwords ["Invalid int width:", show w]
   CBool{}          -> Type.Bool
-  CFixedPt         -> Type.FixedPt --TODO: pick up here
+  CFixedPt _       -> Type.FixedPt
   CDouble{}        -> Type.Double
   CFloat{}         -> Type.Float
   CArray  ty _     -> ty
@@ -163,6 +163,10 @@ asInt :: CTermData -> (Bool, Int, Bv)
 asInt (CInt s w i) = (s, w, i)
 asInt t            = error $ unwords [show t, "is not an integer"]
 
+asFixedPt :: CTermData -> (Bv) -- include length/sign later
+asFixedPt (CFixedPt bv) = bv
+asFixedPt               = error $ unwords [show t, "is not a fixed point"]
+
 asBool :: CTermData -> Ty.TermBool
 asBool (CBool b) = b
 asBool t         = error $ unwords [show t, "is not a boolean"]
@@ -179,6 +183,7 @@ asVar :: CTerm -> Maybe String
 asVar t = case term t of
   CInt _ _ t' -> Ty.asVarName t'
   CBool   t'  -> Ty.asVarName t'
+  CFixedPt t' -> Ty.asVarName t' --TODO?
   CDouble t'  -> Ty.asVarName t'
   CFloat  t'  -> Ty.asVarName t'
   _           -> error $ "Var name unsupported for " ++ show t
@@ -195,6 +200,9 @@ mkCTerm d b = case d of
   CInt _ w bv -> if Ty.dynBvWidth bv == w
     then CTerm d b
     else error $ unwords ["Bad width in CTerm", show d]
+  CFixedPt bv -> if Ty.dynBvWidth bv == 32
+    then CTerm d b
+    else error $ unwords ["Bad width in CTerm", show d]
   CStackPtr ty off _alloc -> if Ty.dynBvWidth off == Type.numBits ty
     then CTerm d b
     else error $ unwords ["Bad width in CTerm", show d]
@@ -204,6 +212,7 @@ instance Bitable CTermData where
   nbits c = case c of
     CBool{}    -> 1
     CInt _ w _ -> w
+    CFixedPt _ -> 32
     CDouble{}  -> 64
     CFloat{}   -> 32
     --CStackPtr ty _ _ -> Type.numBits ty
@@ -211,6 +220,7 @@ instance Bitable CTermData where
   serialize c = case c of
     CBool b     -> Ty.mkIte b (Mem.bvNum False 1 1) (Mem.bvNum False 1 0)
     CInt _ _ bv -> bv
+    CFixedPt bv -> bv
     CDouble d   -> Ty.mkDynamizeBv $ Ty.FpToBv d
     CFloat  d   -> Ty.mkDynamizeBv $ Ty.FpToBv d
     -- Need to reverse because concant fives the first element the highest order.
@@ -221,6 +231,7 @@ instance Bitable CTermData where
     _ -> error $ "Cannot serialize: " ++ show c
   deserialize ty bv = case ty of
     t | Type.isIntegerType t -> CInt (Type.isSignedInt t) (Type.numBits t) bv
+    t | Type.isFixedPt t     -> CFixedPt bv --TODO done right?
     Type.Double              -> CDouble $ Ty.BvToFp $ Ty.mkStatifyBv @64 bv
     Type.Float               -> CFloat $ Ty.BvToFp $ Ty.mkStatifyBv @32 bv
     Type.Bool                -> CBool $ Ty.mkEq bv (Mem.bvNum False 1 1)
@@ -258,10 +269,11 @@ cSetValues :: Bool -> String -> CTerm -> Assert.Assert ()
 cSetValues trackUndef name t = do
   logIf "values" $ "Setting " ++ show name ++ " to " ++ show t
   case term t of
-    CBool b    -> Assert.evalAndSetValue name b
-    CInt _ _ i -> Assert.evalAndSetValue name i
-    CFloat  f  -> Assert.evalAndSetValue name f
-    CDouble d  -> Assert.evalAndSetValue name d
+    CBool b        -> Assert.evalAndSetValue name b
+    CInt _ _ i     -> Assert.evalAndSetValue name i
+    CFixedPt _ _ f -> Assert.evalAndSetValue name f
+    CFloat  f      -> Assert.evalAndSetValue name f
+    CDouble d      -> Assert.evalAndSetValue name d
     CStruct _ty fs ->
       forM_ fs $ \(f, t) -> cSetValues trackUndef (structVarName name f) t
     CArray{} -> return ()
@@ -289,6 +301,11 @@ alias trackUndef name t = do
       v <- Assert.newVar name sort
       Assert.assign v val
       return $ CInt isNeg width v
+    CFixedPt val -> do
+      let sort = Ty.SortBv 32
+      v <- Assert.newVar name sort
+      Assert.assign v val
+      return $ CFixedPt v
     CFloat val -> do
       let sort = Ty.sortFloat
       v <- Assert.newVar name sort
@@ -364,6 +381,7 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
       t <- CBool <$> Assert.newVar smtName Ty.SortBool
       getBaseInput (Ty.ValBool . (/= 0)) (Ty.ValBool False) smtName mUserName
       return t
+
     _ | Type.isIntegerType ty -> liftAssert $ do
       let n = Type.numBits ty
       t <- liftAssert $ CInt (Type.isSignedInt ty) n <$> Assert.newVar
@@ -371,6 +389,13 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
         (Ty.SortBv n)
       getBaseInput (Ty.ValDynBv . Bv.bitVec n)
                    (Ty.ValDynBv $ Bv.bitVec n (0 :: Int))
+                   smtName
+                   mUserName
+      return t
+    Type.FixedPt -> liftAssert $ do
+      t <- CFixedPoint <$> Assert.newVar smtName (Ty.SortBv 32)
+      getBaseInput (Ty.ValDynBv . Bv.bitVec 32) --TODO: correct?
+                   (Ty.ValDynBv $ Bv.bitVec 32 (0 :: Int))
                    smtName
                    mUserName
       return t
@@ -438,6 +463,9 @@ cIntLit t v =
   let s = Type.isSignedInt t
       w = Type.numBits t
   in  mkCTerm (CInt s w (Ty.DynBvLit $ Bv.bitVec w v)) (Ty.BoolLit False)
+
+cFixedPtLit :: FixedPt -> CTerm
+cFixedPtLit v = mkCTerm (CFixedPt (Ty.DynBvLit $ Bv.bitVec 32 v)) (Ty.BoolLit False)
 
 cDoubleLit :: Double -> CTerm
 cDoubleLit v = mkCTerm (CDouble $ Ty.Fp64Lit v) (Ty.BoolLit False)
@@ -538,7 +566,7 @@ intResize fromSign toWidth from =
         GT -> Ty.mkDynBvExtract 0 toWidth from
 
 
--- TODO: clean this the fuck up.
+-- TODO: clean this the fuck up. TODO: this must be the place - fxpt arithemetic
 -- This is not quite right, but it's a reasonable approximation of C++ arithmetic.
 -- For an expression l (+) r,
 -- 1. Both l and r undergo **integral promotion** (bool -> int)
@@ -968,6 +996,7 @@ cCond cond t f =
 
 -- A ITE based on an SMT boolean condition.
 cIte :: Ty.TermBool -> CTerm -> CTerm -> CTerm
+-- are we assuming the same type comes out regaurdless of branch?
 cIte condB t f =
   let
     result = case (term t, term f) of
@@ -999,12 +1028,15 @@ cIte condB t f =
           ["Cannot construct conditional with", show t, "and", show f]
   in  mkCTerm result (Ty.mkIte condB (udef t) (udef f))
 
+
+-- i picked back up here
 ctermGetVars :: String -> CTerm -> Mem (Set.Set String)
 ctermGetVars name t = do
   logIf "outputs" $ "Getting outputs at " ++ name ++ " : " ++ show t
   case term t of
     CBool b     -> return $ Ty.vars b
     CInt _ _ i  -> return $ Ty.vars i
+    CFixedPt f  -> return $ Ty.vars f
     CDouble x   -> return $ Ty.vars x
     CFloat  x   -> return $ Ty.vars x
     CStruct _ l -> fmap Set.unions $ forM l $ \(fName, fTerm) ->
