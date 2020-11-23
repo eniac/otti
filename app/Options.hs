@@ -51,7 +51,7 @@ zokratesP =
     <*> strArgument (metavar "PATH" <> help "Zokrates file to compile")
 
 frontEndP :: Parser FrontEnd
-frontEndP = subparser
+frontEndP = hsubparser
   (  command "c" (info cP (progDesc "C compiler front-end"))
   <> command
        "zokrates"
@@ -75,7 +75,7 @@ cmdP =
     <*> frontEndP
     <*> backEndP
     )
-    <|> subparser
+    <|> hsubparser
           (  command "verify"
                      (info (Verify <$> proofOptsP) (progDesc "Verify a proof"))
           <> command
