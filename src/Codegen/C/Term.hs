@@ -99,7 +99,7 @@ import           Data.Maybe                     ( fromMaybe
 import           IR.SMT.Assert                  ( liftAssert )
 import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
-import           IR.SMT.TySmt.Alg               ( vars )
+import qualified IR.SMT.TySmt.Alg              as TyAlg
 import           Util.Log
 
 
@@ -258,6 +258,21 @@ cSetValues trackUndef name t = do
     CArray{} -> return ()
     _        -> error $ "Cannot set value for a term: " ++ show t
   when trackUndef $ Assert.evalAndSetValue (udefName name) (udef t)
+
+cEvaluate :: CTerm -> Assert.Assert (Maybe CTerm)
+cEvaluate t = do
+  logIf "values" $ "Evaluating " ++ show t
+  t' <- case term t of
+    CBool   b     -> fmap CBool <$> Assert.evalToTerm b
+    CFloat  b     -> fmap CFloat <$> Assert.evalToTerm b
+    CDouble b     -> fmap CDouble <$> Assert.evalToTerm b
+    CInt s w b    -> fmap (CInt s w) <$> Assert.evalToTerm b
+    CStruct ty fs -> fmap (CStruct ty) . sequence <$> forM
+      fs
+      (\(f, t) -> fmap (f, ) <$> cEvaluate t)
+    CArray{} -> error "Cannot evaluate array term: not-yet implemented"
+  u' <- fmap TyAlg.valueToTerm <$> Assert.eval (udef t)
+  return $ mkCTerm <$> t' <*> u'
 
 
 -- Makes `name` an alias for `t`.
@@ -989,10 +1004,10 @@ ctermGetVars :: String -> CTerm -> Mem (Set.Set String)
 ctermGetVars name t = do
   logIf "outputs" $ "Getting outputs at " ++ name ++ " : " ++ show t
   case term t of
-    CBool b     -> return $ vars b
-    CInt _ _ i  -> return $ vars i
-    CDouble x   -> return $ vars x
-    CFloat  x   -> return $ vars x
+    CBool b     -> return $ TyAlg.vars b
+    CInt _ _ i  -> return $ TyAlg.vars i
+    CDouble x   -> return $ TyAlg.vars x
+    CFloat  x   -> return $ TyAlg.vars x
     CStruct _ l -> fmap Set.unions $ forM l $ \(fName, fTerm) ->
       ctermGetVars (structVarName name fName) fTerm
     CArray _elemTy id -> do
@@ -1036,5 +1051,6 @@ instance Embeddable Type.Type CTerm (Maybe InMap, Bool) where
   assign    = cAssign . snd
   ite       = const $ ((.) . (.) . (.)) return cIte
   setValues = cSetValues . snd
+  evaluate  = const cEvaluate
 
 type CCirc a = Circify Type.Type CTerm (Maybe InMap, Bool) a

@@ -14,6 +14,7 @@ module IR.SMT.TySmt.Alg
   , vars
   , nChars
   , checkSortDeep
+  , valueToTerm
   )
 where
 
@@ -39,7 +40,7 @@ import           Data.Set                       ( Set )
 import qualified Data.Set                      as Set
 import           GHC.TypeLits
 import           Prelude                 hiding ( exp )
-import IR.SMT.TySmt
+import           IR.SMT.TySmt
 import qualified IR.SMT.TySmt.DefaultMap       as DMap
 import           IR.SMT.TySmt.DefaultMap        ( DefaultMap )
 
@@ -72,7 +73,7 @@ mapTerm f t = case f t of
     BvBinExpr o l r       -> BvBinExpr o (mapTerm f l) (mapTerm f r)
     BvBinPred o l r       -> BvBinPred o (mapTerm f l) (mapTerm f r)
     BvNaryExpr o a        -> BvNaryExpr o (map (mapTerm f) a)
-    BvUnExpr o r          -> BvUnExpr o (mapTerm f r)
+    BvUnExpr   o r        -> BvUnExpr o (mapTerm f r)
     IntToBv   tt          -> IntToBv (mapTerm f tt)
     FpToBv    tt          -> FpToBv (mapTerm f tt)
 
@@ -80,17 +81,17 @@ mapTerm f t = case f t of
     RoundFpToDynBv w s t' -> RoundFpToDynBv w s (mapTerm f t')
     DynBvBinExpr o w a b  -> DynBvBinExpr o w (mapTerm f a) (mapTerm f b)
     DynBvNaryExpr o w a   -> DynBvNaryExpr o w (map (mapTerm f) a)
-    DynBvConcat w a b     -> DynBvConcat w (mapTerm f a) (mapTerm f b)
+    DynBvConcat   w a b   -> DynBvConcat w (mapTerm f a) (mapTerm f b)
     DynBvBinPred o w a b  -> DynBvBinPred o w (mapTerm f a) (mapTerm f b)
     DynBvExtract s l b    -> DynBvExtract s l (mapTerm f b)
     DynBvExtractBit i b   -> DynBvExtractBit i (mapTerm f b)
-    DynBvUnExpr  o w r    -> DynBvUnExpr o w (mapTerm f r)
+    DynBvUnExpr o w r     -> DynBvUnExpr o w (mapTerm f r)
     DynBvLit bv           -> DynBvLit bv
     DynBvSext w w' r      -> DynBvSext w w' (mapTerm f r)
     DynBvUext w w' r      -> DynBvUext w w' (mapTerm f r)
     DynamizeBv w b        -> DynamizeBv w (mapTerm f b)
     IntToDynBv w i        -> IntToDynBv w (mapTerm f i)
-    PfToDynBv w p         -> PfToDynBv w (mapTerm f p)
+    PfToDynBv  w p        -> PfToDynBv w (mapTerm f p)
     BoolToDynBv b         -> BoolToDynBv (mapTerm f b)
 
 
@@ -165,17 +166,17 @@ mapTermM f t = do
       RoundFpToDynBv w s t' -> liftM (RoundFpToDynBv w s) (rec t')
       DynBvBinExpr o w a b  -> liftM2 (DynBvBinExpr o w) (rec a) (rec b)
       DynBvNaryExpr o w a   -> liftM (DynBvNaryExpr o w) (mapM rec a)
-      DynBvConcat w a b     -> liftM2 (DynBvConcat w) (rec a) (rec b)
+      DynBvConcat   w a b   -> liftM2 (DynBvConcat w) (rec a) (rec b)
       DynBvBinPred o w a b  -> liftM2 (DynBvBinPred o w) (rec a) (rec b)
       DynBvExtract s l b    -> liftM (DynBvExtract s l) (rec b)
       DynBvExtractBit i b   -> liftM (DynBvExtractBit i) (rec b)
-      DynBvUnExpr  o w r    -> liftM (DynBvUnExpr o w) (rec r)
+      DynBvUnExpr o w r     -> liftM (DynBvUnExpr o w) (rec r)
       DynBvLit bv           -> return $ DynBvLit bv
       DynBvSext w w' r      -> liftM (DynBvSext w w') (rec r)
       DynBvUext w w' r      -> liftM (DynBvUext w w') (rec r)
       DynamizeBv w b        -> liftM (DynamizeBv w) (rec b)
       IntToDynBv w i        -> liftM (IntToDynBv w) (rec i)
-      PfToDynBv w i         -> liftM (PfToDynBv w) (rec i)
+      PfToDynBv  w i        -> liftM (PfToDynBv w) (rec i)
       BoolToDynBv i         -> liftM BoolToDynBv (rec i)
 
 
@@ -243,8 +244,7 @@ reduceTerm mapF i foldF t = case mapF t of
     BvExtract _ s -> reduceTerm mapF i foldF s
     BvBinExpr _ l r ->
       foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
-    BvNaryExpr _ a ->
-      foldr foldF i (map (reduceTerm mapF i foldF) a)
+    BvNaryExpr _ a -> foldr foldF i (map (reduceTerm mapF i foldF) a)
     BvBinPred _ l r ->
       foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
     IntToBv   tt          -> reduceTerm mapF i foldF tt
@@ -254,25 +254,24 @@ reduceTerm mapF i foldF t = case mapF t of
     RoundFpToDynBv _ _ t' -> reduceTerm mapF i foldF t'
     DynBvBinExpr _ _ a b ->
       foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF b)
-    DynBvNaryExpr _ _ a ->
-      foldr foldF i (map (reduceTerm mapF i foldF) a)
+    DynBvNaryExpr _ _ a -> foldr foldF i (map (reduceTerm mapF i foldF) a)
     DynBvConcat _ a b ->
       foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF b)
     DynBvBinPred _ _ a b ->
       foldF (reduceTerm mapF i foldF a) (reduceTerm mapF i foldF b)
-    DynBvExtract _ _ b -> reduceTerm mapF i foldF b
+    DynBvExtract _ _ b  -> reduceTerm mapF i foldF b
     DynBvExtractBit _ b -> reduceTerm mapF i foldF b
-    DynBvUnExpr  _ _ b -> reduceTerm mapF i foldF b
-    DynBvLit{}         -> i
-    DynBvSext _ _ b    -> reduceTerm mapF i foldF b
-    DynBvUext _ _ b    -> reduceTerm mapF i foldF b
-    DynamizeBv _ b     -> reduceTerm mapF i foldF b
-    IntToDynBv _ i'    -> reduceTerm mapF i foldF i'
-    PfToDynBv _ i'     -> reduceTerm mapF i foldF i'
-    BoolToDynBv i'     -> reduceTerm mapF i foldF i'
+    DynBvUnExpr _ _ b   -> reduceTerm mapF i foldF b
+    DynBvLit{}          -> i
+    DynBvSext _ _ b     -> reduceTerm mapF i foldF b
+    DynBvUext _ _ b     -> reduceTerm mapF i foldF b
+    DynamizeBv _ b      -> reduceTerm mapF i foldF b
+    IntToDynBv _ i'     -> reduceTerm mapF i foldF i'
+    PfToDynBv  _ i'     -> reduceTerm mapF i foldF i'
+    BoolToDynBv i'      -> reduceTerm mapF i foldF i'
 
 
-    IntLit{}           -> i
+    IntLit{}            -> i
     IntBinExpr _ l r ->
       foldF (reduceTerm mapF i foldF l) (reduceTerm mapF i foldF r)
     IntNaryExpr _ as -> foldr foldF i (map (reduceTerm mapF i foldF) as)
@@ -408,27 +407,27 @@ bvBinFn op = case op of
 
 bvNaryFn :: BvNaryOp -> Bv.BV -> [Bv.BV] -> Bv.BV
 bvNaryFn op = case op of
-  BvAdd  -> foldl' (+)
-  BvMul  -> foldl' (*)
-  BvOr   -> foldl' (Bv..|.)
-  BvAnd  -> foldl' (Bv..&.)
-  BvXor  -> foldl' Bv.xor
+  BvAdd -> foldl' (+)
+  BvMul -> foldl' (*)
+  BvOr  -> foldl' (Bv..|.)
+  BvAnd -> foldl' (Bv..&.)
+  BvXor -> foldl' Bv.xor
 
-bvNaryId :: forall n. KnownNat n => [TermBv n] -> BvNaryOp -> Bv.BV
+bvNaryId :: forall n . KnownNat n => [TermBv n] -> BvNaryOp -> Bv.BV
 bvNaryId _bs op = case op of
-  BvAdd  -> Bv.zeros (fromIntegral $ natVal $ Proxy @n)
-  BvMul  -> Bv.bitVec (fromIntegral $ natVal $ Proxy @n) (1 :: Integer)
-  BvOr   -> Bv.zeros (fromIntegral $ natVal $ Proxy @n)
-  BvAnd  -> Bv.ones (fromIntegral $ natVal $ Proxy @n)
-  BvXor  -> Bv.zeros (fromIntegral $ natVal $ Proxy @n)
+  BvAdd -> Bv.zeros (fromIntegral $ natVal $ Proxy @n)
+  BvMul -> Bv.bitVec (fromIntegral $ natVal $ Proxy @n) (1 :: Integer)
+  BvOr  -> Bv.zeros (fromIntegral $ natVal $ Proxy @n)
+  BvAnd -> Bv.ones (fromIntegral $ natVal $ Proxy @n)
+  BvXor -> Bv.zeros (fromIntegral $ natVal $ Proxy @n)
 
 dynBvNaryId :: Int -> BvNaryOp -> Bv.BV
 dynBvNaryId w op = case op of
-  BvAdd  -> Bv.zeros w
-  BvMul  -> Bv.bitVec w (1 :: Integer)
-  BvOr   -> Bv.zeros w
-  BvAnd  -> Bv.ones w
-  BvXor  -> Bv.zeros w
+  BvAdd -> Bv.zeros w
+  BvMul -> Bv.bitVec w (1 :: Integer)
+  BvOr  -> Bv.zeros w
+  BvAnd -> Bv.ones w
+  BvXor -> Bv.zeros w
 
 bvBinPredFn :: BvBinPred -> Bv.BV -> Bv.BV -> Bool
 bvBinPredFn op = case op of
@@ -574,10 +573,10 @@ eval e t = case t of
           else
             throw $ SortError $ "bitwidth mis-match while evaluating " ++ show t
   IntToDynBv w i -> ValDynBv $ Bv.bitVec w $ valAsInt $ eval e i
-  PfToDynBv w i -> ValDynBv $ Bv.bitVec w $ valAsPf $ eval e i
-  BoolToDynBv i -> ValDynBv $ Bv.bitVec 1 $ fromEnum $ valAsBool $ eval e i
+  PfToDynBv  w i -> ValDynBv $ Bv.bitVec w $ valAsPf $ eval e i
+  BoolToDynBv i  -> ValDynBv $ Bv.bitVec 1 $ fromEnum $ valAsBool $ eval e i
 
-  IntLit i       -> ValInt i
+  IntLit      i  -> ValInt i
   IntUnExpr o t' -> ValInt $ intUnFn o (valAsInt $ eval e t')
   IntBinExpr o l r ->
     ValInt $ intBinFn o (valAsInt $ eval e l) (valAsInt $ eval e r)
@@ -644,11 +643,16 @@ checkSortDeep = mapTermM visit
     DynBvConcat w a b ->
       if dynBvWidth a + dynBvWidth b == w then Right Nothing else e
     DynBvNaryExpr _o w xs ->
-      forM_ xs (\x -> if dynBvWidth x == w then Right Nothing else e) >> return Nothing
-    DynBvUext w dw x ->
-      if dynBvWidth x + dw == w then Right Nothing else e
+      forM_ xs (\x -> if dynBvWidth x == w then Right Nothing else e)
+        >> return Nothing
+    DynBvUext w dw x -> if dynBvWidth x + dw == w then Right Nothing else e
     -- TODO: finish
-    _ -> Right Nothing
+    _                -> Right Nothing
    where
     e :: Either String a
     e = Left $ "sort mismatch in " ++ show t
+
+-- | Given a value, returns a term of the same sort that would evaluate to that
+-- value, and has no variables.
+valueToTerm :: SortClass s => Value s -> Term s
+valueToTerm = undefined

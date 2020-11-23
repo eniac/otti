@@ -78,7 +78,7 @@ import           IR.SMT.Assert                  ( Assert
                                                 , MonadAssert
                                                 , liftAssert
                                                 )
-import qualified Targets.SMT.Z3         as Z3
+import qualified Targets.SMT.Z3                as Z3
 import           Util.Cfg                       ( MonadCfg )
 import           Util.Control                   ( MonadDeepState(..)
                                                 , whenM
@@ -383,6 +383,10 @@ class (Show t, Show v) => Embeddable t v c | v -> c, v -> t where
   -- These are distinguished to allow for casting.
   assign :: c -> t -> String -> v -> Mem (v, v)
   setValues :: c -> String -> v -> Assert ()
+  -- | Given a (symbolic) term which may contain uses of variables,
+  -- returns a new term which is equivalent in value and variable-free.
+  -- If values are not being stored, returns nothing.
+  evaluate :: c -> v -> Assert (Maybe v)
 
 -- | Internal state of the compiler for code generation
 data CircifyState t v c = CircifyState

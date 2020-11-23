@@ -375,6 +375,19 @@ zSetValues name t = do
     Struct _ fs ->
       forM_ (Map.toList fs) $ \(f, t) -> zSetValues (sName f name) t
 
+zEvaluate :: KnownNat n => Term n -> Assert.Assert (Maybe (Term n))
+zEvaluate t = do
+  logIf "values" $ "Evaluating " ++ show t
+  case t of
+    Bool  b    -> fmap Bool <$> Assert.evalToTerm b
+    Field b    -> fmap Field <$> Assert.evalToTerm b
+    BitInt w b -> fmap (BitInt w) <$> Assert.evalToTerm b
+    Struct ty fs ->
+      fmap (Struct ty . Map.fromDistinctAscList) . sequence <$> forM
+        (Map.toAscList fs)
+        (\(f, t) -> fmap (f, ) <$> zEvaluate t)
+    Array n fs -> fmap (Array n) . sequence <$> forM fs zEvaluate
+
 zTermVars :: KnownNat n => String -> Term n -> Set.Set String
 zTermVars name t = case t of
   Bool b     -> SAlg.vars b
@@ -412,3 +425,4 @@ instance KnownNat n => Embeddable T.Type (Term n) (Maybe InMap) where
   ite       = const $ ((.) . (.) . (.)) (return . either error id) zIte
   assign    = const zAssign
   setValues = const zSetValues
+  evaluate  = const zEvaluate

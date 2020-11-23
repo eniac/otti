@@ -67,12 +67,18 @@ initValues = modify $ \s -> s { vals = Just M.empty }
 isStoringValues :: Assert Bool
 isStoringValues = gets (isJust . vals)
 
-evalAndSetValue :: Ty.SortClass s => String -> Ty.Term s -> Assert ()
-evalAndSetValue variable term = do
+-- | Evaluate a term to a value, if values are being stored
+eval :: Ty.SortClass s => Ty.Term s -> Assert (Maybe (Ty.Value s))
+eval t = do
   e <- gets vals
-  case e of
-    Just env -> setValue variable $ Alg.eval env term
-    Nothing  -> return ()
+  return $ fmap (flip Alg.eval t) e
+
+-- | Evaluate a term to a constant term, if values are being stored
+evalToTerm :: Ty.SortClass s => Ty.Term s -> Assert (Maybe (Ty.Term s))
+evalToTerm t = fmap Alg.valueToTerm <$> eval t
+
+evalAndSetValue :: Ty.SortClass s => String -> Ty.Term s -> Assert ()
+evalAndSetValue variable term = eval term >>= mapM_ (setValue variable)
 
 setValue :: Ty.SortClass s => String -> Ty.Value s -> Assert ()
 setValue variable value = do
