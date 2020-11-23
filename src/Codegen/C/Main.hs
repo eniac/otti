@@ -444,7 +444,7 @@ genExpr expr = do
               $  error
               $  "Wrong arg count: "
               ++ show expr
-            liftCircify $ forM_ (zip formalArgs actualArgs) (uncurry argAssign)
+            liftCircify $ forM_ (zip formalArgs actualArgs) (uncurry hardAssign)
             genStmt body
             returnValue <- liftCircify popFunction
             return $ Base $ fromMaybe

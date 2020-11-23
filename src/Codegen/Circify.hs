@@ -28,6 +28,7 @@ module Codegen.Circify
   , typedef
   , untypedef
   , getTerm
+  , getValue
   , VarName
   , SsaVal(..)
   , SsaLVal(..)
@@ -39,7 +40,7 @@ module Codegen.Circify
   , declareInitVar
   , declareGlobal
   , ssaAssign
-  , argAssign
+  , hardAssign
   , deref
   , getRef
   , printComp
@@ -570,7 +571,7 @@ declareInitVar
   :: (Embeddable t v c) => VarName -> t -> SsaVal v -> Circify t v c ()
 declareInitVar var ty term = do
   declareVar False var ty
-  void $ argAssign (SLVar var) term
+  void $ hardAssign (SLVar var) term
 
 -- | Declares a global variable
 declareGlobal :: (Embeddable t v c) => Bool -> VarName -> t -> Circify t v c ()
@@ -613,8 +614,18 @@ setValueRaw var cterm = whenM computingValues $ do
   e <- gets (setValues . langCfg)
   liftAssert $ e var cterm
 
+-- | Get the term currently bound to some l-value.
 getTerm :: SsaLVal -> Circify t v c (SsaVal v)
 getTerm var = compilerGetsInScope var fsGetTerm lsGetTerm
+
+-- | Get the *value* (constant term) currently bound to some l-value.
+-- Returns nothing if we're not tracking values.
+getValue :: Embeddable t v c => SsaLVal -> Circify t v c (Maybe v)
+getValue var = do
+  t <- ssaValAsTerm "getValue" <$> getTerm var
+  l <- gets langCfg
+  liftAssert $ evaluate l t
+
 
 getVer :: SsaLVal -> Circify t v c Version
 getVer var = compilerGetsInScope var fsGetVer lsGetVer
@@ -680,9 +691,10 @@ ssaVarAsString (SsaVar varName ver) = varName ++ "_v" ++ show ver
 
 -- Assert that the current version of `var` is assign `value` to it.
 -- Could return 
-argAssign :: Embeddable t v c => SsaLVal -> SsaVal v -> Circify t v c (SsaVal v)
-argAssign var val = do
-  --liftIO $ putStrLn $ "argAssign " ++ var ++ " = " ++ show val
+hardAssign
+  :: Embeddable t v c => SsaLVal -> SsaVal v -> Circify t v c (SsaVal v)
+hardAssign var val = do
+  --liftIO $ putStrLn $ "hardAssign " ++ var ++ " = " ++ show val
   ty      <- getType var
   ssaName <- getSsaName var
   case val of
