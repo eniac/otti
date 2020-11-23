@@ -163,9 +163,9 @@ asInt :: CTermData -> (Bool, Int, Bv)
 asInt (CInt s w i) = (s, w, i)
 asInt t            = error $ unwords [show t, "is not an integer"]
 
-asFixedPt :: CTermData -> (Bv) -- include length/sign later
+asFixedPt :: CTermData -> Bv -- include length/sign later
 asFixedPt (CFixedPt bv) = bv
-asFixedPt               = error $ unwords [show t, "is not a fixed point"]
+asFixedPt t             = error $ unwords [show t, "is not a fixed point"]
 
 asBool :: CTermData -> Ty.TermBool
 asBool (CBool b) = b
@@ -212,7 +212,7 @@ instance Bitable CTermData where
   nbits c = case c of
     CBool{}    -> 1
     CInt _ w _ -> w
-    CFixedPt _ -> 32
+    CFixedPt _ -> 64
     CDouble{}  -> 64
     CFloat{}   -> 32
     --CStackPtr ty _ _ -> Type.numBits ty
@@ -271,7 +271,7 @@ cSetValues trackUndef name t = do
   case term t of
     CBool b        -> Assert.evalAndSetValue name b
     CInt _ _ i     -> Assert.evalAndSetValue name i
-    CFixedPt _ _ f -> Assert.evalAndSetValue name f
+    CFixedPt fx    -> Assert.evalAndSetValue name fx
     CFloat  f      -> Assert.evalAndSetValue name f
     CDouble d      -> Assert.evalAndSetValue name d
     CStruct _ty fs ->
@@ -302,7 +302,7 @@ alias trackUndef name t = do
       Assert.assign v val
       return $ CInt isNeg width v
     CFixedPt val -> do
-      let sort = Ty.SortBv 32
+      let sort = Ty.SortBv 64
       v <- Assert.newVar name sort
       Assert.assign v val
       return $ CFixedPt v
@@ -393,9 +393,9 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
                    mUserName
       return t
     Type.FixedPt -> liftAssert $ do
-      t <- CFixedPoint <$> Assert.newVar smtName (Ty.SortBv 32)
-      getBaseInput (Ty.ValDynBv . Bv.bitVec 32) --TODO: correct?
-                   (Ty.ValDynBv $ Bv.bitVec 32 (0 :: Int))
+      t <- CFixedPt <$> Assert.newVar smtName (Ty.SortBv 64)
+      getBaseInput (Ty.ValDynBv . Bv.bitVec 64) --TODO: correct?
+                   (Ty.ValDynBv $ Bv.bitVec 64 (0 :: Int))
                    smtName
                    mUserName
       return t
@@ -464,8 +464,8 @@ cIntLit t v =
       w = Type.numBits t
   in  mkCTerm (CInt s w (Ty.DynBvLit $ Bv.bitVec w v)) (Ty.BoolLit False)
 
-cFixedPtLit :: FixedPt -> CTerm
-cFixedPtLit v = mkCTerm (CFixedPt (Ty.DynBvLit $ Bv.bitVec 32 v)) (Ty.BoolLit False)
+-- cFixedPtLit :: FixedPt -> CTerm --wrong
+-- cFixedPtLit v = mkCTerm (CFixedPt (Ty.DynBvLit $ Bv.bitVec 64 v)) (Ty.BoolLit False)
 
 cDoubleLit :: Double -> CTerm
 cDoubleLit v = mkCTerm (CDouble $ Ty.Fp64Lit v) (Ty.BoolLit False)
@@ -565,8 +565,10 @@ intResize fromSign toWidth from =
         EQ -> from
         GT -> Ty.mkDynBvExtract 0 toWidth from
 
+-- TODO: this must be the place - fxpt arithemetic
+-- b/w fxpt: comparison operations, addition, subtraction, negation, bit shifting, require no modifications
 
--- TODO: clean this the fuck up. TODO: this must be the place - fxpt arithemetic
+-- TODO: clean this the fuck up.
 -- This is not quite right, but it's a reasonable approximation of C++ arithmetic.
 -- For an expression l (+) r,
 -- 1. Both l and r undergo **integral promotion** (bool -> int)
@@ -653,6 +655,31 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
           in  ( CInt sign width $ Ty.mkDynBvBinExpr (bvOp sign) l r
               , ubF >>= (\f -> f s l s' r)
               )
+
+        --new: Int & FxPt, FxPt & FxPt, not gonna fuck with pointers right now, sorry
+        -- if FxPt & smth else, cast the other thing to fixpoint w/* 2^32 TODO
+        (CInt s w i, CFixedPt fx') ->
+          let sign  = True -- fixedpt is always signed
+              l     = asFixedPt $ term $ cCast Type.FixedPt a
+              r     = fx'
+          in  ( CFixedPt $ Ty.mkDynBvBinExpr (bvOp sign) l r
+              , ubF >>= (\f -> f s l sign r)
+              )
+        (CFixedPt fx, CInt s' w' i') ->
+          let sign  = True
+              l     = fx
+              r     = asFixedPt $ term $ cCast Type.FixedPt b
+          in  ( CFixedPt $ Ty.mkDynBvBinExpr (bvOp sign) l r
+              , ubF >>= (\f -> f sign l s' r)
+              )
+        (CFixedPt fx, CFixedPt fx') ->
+          let sign  = True
+              l     = fx
+              r     = fx'
+          in  ( CFixedPt $ Ty.mkDynBvBinExpr (bvOp sign) l r -- "1" indicates they will be signed (i think?)
+              , ubF >>= (\f -> f sign l sign r)
+              )
+
         (_, _) -> cannot $ unwords [show a, "and", show b]
       pUdef = Ty.BoolNaryExpr Ty.Or (udef a : udef b : Fold.toList u)
     in
@@ -678,7 +705,7 @@ cSub = cWrapBinArith "-"
  where
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSsubo i i' else Nothing
-cMul = cWrapBinArith "*"
+cMul = cWrapBinArith "*" --TODO handle fxpt mult and div
                      (const Ty.BvMul)
                      (Ty.FpBinExpr Ty.FpMul)
                      (Just overflow)
@@ -719,7 +746,7 @@ cRem = cWrapBinArith "%"
                      (Just isDivZero)
                      False
                      True
-cMin = undefined
+cMin = undefined -- TODO min max stuff
 cMax = undefined
 noFpError
   :: forall f
@@ -762,7 +789,7 @@ cShr = cWrapBinArith ">>"
     i'
     (Mem.bvNum True (Ty.dynBvWidth i') (fromIntegral $ Ty.dynBvWidth i))
 
-cWrapUnArith
+cWrapUnArith -- don't need to handle for fxpt for now
   :: String
   -> (Bv -> Bv)
   -> (  forall f
@@ -825,6 +852,8 @@ cNot = cWrapUnLogical "!" Ty.Not
 -- 2. If either are floating, the other is cast to that floating type
 --    * Ptrs not castable.
 -- 3. Scale the int, do the op.
+
+-- Fxpt: fixed point can be compared to
 cWrapCmp
   :: String
   -> (Bool -> Bv -> Bv -> Ty.TermBool) -- ^f(signed, bv_a, bv_b)
@@ -858,6 +887,11 @@ cWrapCmp name bvF doubleF a b = convert (integralPromotion a)
           let width = max w w'
               sign  = max s s'
           in  bvF sign (intResize s width i) (intResize s' width i')
+
+        (CInt s w i, CFixedPt fx') -> bvF True (asFixedPt $ term $ cCast Type.FixedPt a) fx'
+        (CFixedPt fx, CInt s' w' i') -> bvF True fx (asFixedPt $ term $ cCast Type.FixedPt b)
+        (CFixedPt fx, CFixedPt fx') -> bvF True fx fx'
+
         (_, _) -> cannot $ unwords [show a, "and", show b]
       pUdef = Ty.BoolNaryExpr Ty.Or [udef a, udef b]
     in
@@ -915,6 +949,13 @@ cCast toTy node = case term node of
     Type.Float -> mkCTerm
       (CFloat $ (if fromS then Ty.DynSbvToFp else Ty.DynUbvToFp) t)
       (udef node)
+    -- cast int to fixedpt
+    Type.FixedPt -> case fromW of
+      64 -> error $ unwords ["Bad cast from", show t, "to", show toTy, "integer too big to cast to fixed point"]
+      _  -> let t' = intResize fromS 32 t -- cast to 32 bit int
+                fxpt = CFixedPt $ Ty.DynBvConcat 64 t' $ Ty.DynBvLit $ Bv.zeros 32 -- append the part after the point
+                u = udef node
+            in mkCTerm fxpt u
     Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.mkEq (Mem.bvNum False fromW 0) t) (udef node)
     _ -> error $ unwords ["Bad cast from", show t, "to", show toTy]
@@ -1021,6 +1062,8 @@ cIte condB t f =
             width = max w w'
         in  CInt sign width
               $ Ty.mkIte condB (intResize s width i) (intResize s' width i')
+      (CFixedPt fx, CFixedPt fx') -> CFixedPt $ Ty.mkIte condB fx fx'
+
       (CStruct aTy a, CStruct bTy b) | aTy == bTy ->
         CStruct aTy $ zipWith (\(f, aV) (_, bV) -> (f, cIte condB aV bV)) a b
       _ ->
@@ -1036,7 +1079,7 @@ ctermGetVars name t = do
   case term t of
     CBool b     -> return $ Ty.vars b
     CInt _ _ i  -> return $ Ty.vars i
-    CFixedPt f  -> return $ Ty.vars f
+    CFixedPt fx -> return $ Ty.vars fx
     CDouble x   -> return $ Ty.vars x
     CFloat  x   -> return $ Ty.vars x
     CStruct _ l -> fmap Set.unions $ forM l $ \(fName, fTerm) ->
@@ -1063,6 +1106,7 @@ ctermIsUndef :: CTerm -> Ty.TermBool
 ctermIsUndef t = case term t of
   CBool{}     -> udef t
   CInt{}      -> udef t
+  CFixedPt{}  -> udef t -- ?
   CDouble{}   -> udef t
   CFloat{}    -> udef t
   CStruct _ l -> Ty.BoolNaryExpr Ty.Or $ map (ctermIsUndef . snd) l
