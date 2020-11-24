@@ -79,7 +79,7 @@ getStruct n = untypedef ("struct " ++ n)
 parseBaseTy :: [CTypeSpec] -> Circify Type term (Either String Type)
 parseBaseTy ty = case ty of
   [CVoidType{}] -> return $ Right Void
-  [CTypeDef (Ident "fixed_point_precision_32" _ _) _] -> return $ Right FixedPt
+  [CTypeDef (Ident "fixed_point_precision" _ _) _] -> return $ Right FixedPt
     -- fixed point new
   [CTypeDef (Ident name _ _) _] ->
     maybeToEither ("Missing typedef: " ++ name) <$> untypedef name

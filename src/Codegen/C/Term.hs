@@ -381,7 +381,13 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
       t <- CBool <$> Assert.newVar smtName Ty.SortBool
       getBaseInput (Ty.ValBool . (/= 0)) (Ty.ValBool False) smtName mUserName
       return t
-
+    Type.FixedPt -> liftAssert $ do
+        t <- CFixedPt <$> Assert.newVar smtName (Ty.SortBv 64)
+        getBaseInput (Ty.ValDynBv . Bv.bitVec 64) --TODO: correct?
+                     (Ty.ValDynBv $ Bv.bitVec 64 (0 :: Int))
+                     smtName
+                     mUserName
+        return t
     _ | Type.isIntegerType ty -> liftAssert $ do
       let n = Type.numBits ty
       t <- liftAssert $ CInt (Type.isSignedInt ty) n <$> Assert.newVar
@@ -392,13 +398,7 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
                    smtName
                    mUserName
       return t
-    Type.FixedPt -> liftAssert $ do
-      t <- CFixedPt <$> Assert.newVar smtName (Ty.SortBv 64)
-      getBaseInput (Ty.ValDynBv . Bv.bitVec 64) --TODO: correct?
-                   (Ty.ValDynBv $ Bv.bitVec 64 (0 :: Int))
-                   smtName
-                   mUserName
-      return t
+
     Type.Double -> liftAssert $ do
       t <- CDouble <$> Assert.newVar smtName Ty.sortDouble
       getBaseInput (error "nyi: double input")
@@ -464,8 +464,8 @@ cIntLit t v =
       w = Type.numBits t
   in  mkCTerm (CInt s w (Ty.DynBvLit $ Bv.bitVec w v)) (Ty.BoolLit False)
 
--- cFixedPtLit :: FixedPt -> CTerm --wrong
--- cFixedPtLit v = mkCTerm (CFixedPt (Ty.DynBvLit $ Bv.bitVec 64 v)) (Ty.BoolLit False)
+cFixedPtLit :: Integer -> CTerm
+cFixedPtLit v = mkCTerm (CFixedPt (Ty.DynBvLit $ Bv.bitVec 64 v)) (Ty.BoolLit False)
 
 cDoubleLit :: Double -> CTerm
 cDoubleLit v = mkCTerm (CDouble $ Ty.Fp64Lit v) (Ty.BoolLit False)
@@ -657,33 +657,62 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
               )
 
         --new: Int & FxPt, FxPt & FxPt, not gonna fuck with pointers right now, sorry
-        -- if FxPt & smth else, cast the other thing to fixpoint w/* 2^32 TODO
-        (CInt s w i, CFixedPt fx') ->
-          let sign  = True -- fixedpt is always signed
-              l     = asFixedPt $ term $ cCast Type.FixedPt a
-              r     = fx'
-          in  ( CFixedPt $ Ty.mkDynBvBinExpr (bvOp sign) l r
-              , ubF >>= (\f -> f s l sign r)
-              )
-        (CFixedPt fx, CInt s' w' i') ->
-          let sign  = True
-              l     = fx
-              r     = asFixedPt $ term $ cCast Type.FixedPt b
-          in  ( CFixedPt $ Ty.mkDynBvBinExpr (bvOp sign) l r
-              , ubF >>= (\f -> f sign l s' r)
-              )
+        -- if FxPt & smth else, cast the other thing to fixpoint w/* 2^32
+        (CInt s _ i, CFixedPt fx') -> case name of -- TODO: come back and cast fxpt to 128 bits during mult/div to preserve precision
+          "*" ->  let sign  = True
+                      l     = intResize s 64 i
+                      r     = fx'
+                  in  ( CFixedPt $ Ty.mkDynBvBinExpr (bvOp sign) l r -- fixedpt is always signed
+                      , ubF >>= (\f -> f s l sign r)
+                      )
+          _   ->  let sign  = True
+                      l     = asFixedPt $ term $ cCast Type.FixedPt a
+                      r     = fx'
+                  in  ( CFixedPt $ Ty.mkDynBvBinExpr (bvOp sign) l r
+                      , ubF >>= (\f -> f s l sign r)
+                      )
+
+        (CFixedPt fx, CInt s' _ i') -> case name of
+          "*" ->  let sign  = True
+                      l     = fx
+                      r     = intResize s' 64 i'
+                  in  ( CFixedPt $ Ty.mkDynBvBinExpr (bvOp sign) l r
+                      , ubF >>= (\f -> f sign l s' r)
+                      )
+          "/" ->  let sign  = True -- int in demoniator, fine to not promote
+                      l     = fx
+                      r     = intResize s' 64 i'
+                  in  ( CFixedPt $ Ty.mkDynBvBinExpr (bvOp sign) l r
+                      , ubF >>= (\f -> f sign l s' r)
+                      )
+          _   ->  let sign  = True
+                      l     = fx
+                      r     = asFixedPt $ term $ cCast Type.FixedPt b
+                  in  ( CFixedPt $ Ty.mkDynBvBinExpr (bvOp sign) l r
+                      , ubF >>= (\f -> f sign l s' r)
+                      )
+
         (CFixedPt fx, CFixedPt fx') ->
           let sign  = True
               l     = fx
               r     = fx'
-          in  ( CFixedPt $ Ty.mkDynBvBinExpr (bvOp sign) l r -- "1" indicates they will be signed (i think?)
+          in  ( CFixedPt $ Ty.mkDynBvBinExpr (bvOp sign) l r
               , ubF >>= (\f -> f sign l sign r)
               )
 
         (_, _) -> cannot $ unwords [show a, "and", show b]
       pUdef = Ty.BoolNaryExpr Ty.Or (udef a : udef b : Fold.toList u)
+
+      result = case name of
+        "/" -> case (term a, term b) of
+          (_, CFixedPt _) -> cMul (mkCTerm t pUdef) $ cIntLit Type.S64 $ toInteger $ 2^32 -- multiply back in factor 2^32
+          (_, _)          -> mkCTerm t pUdef
+        "*" -> case (term a, term b) of
+          (CFixedPt _, CFixedPt _) -> cDiv (mkCTerm t pUdef) $ cIntLit Type.S64 $ toInteger $ 2^32
+          (_, _)                   -> mkCTerm t pUdef
+        _   -> mkCTerm t pUdef
     in
-      mkCTerm t pUdef
+      result -- mkCTerm t pUdef
 
 cBitOr, cBitXor, cBitAnd, cSub, cMul, cAdd, cMin, cMax, cDiv, cRem, cShl, cShr
   :: CTerm -> CTerm -> CTerm
@@ -705,7 +734,8 @@ cSub = cWrapBinArith "-"
  where
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSsubo i i' else Nothing
-cMul = cWrapBinArith "*" --TODO handle fxpt mult and div
+
+cMul = cWrapBinArith "*"
                      (const Ty.BvMul)
                      (Ty.FpBinExpr Ty.FpMul)
                      (Just overflow)
@@ -714,6 +744,8 @@ cMul = cWrapBinArith "*" --TODO handle fxpt mult and div
  where
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSmulo i i' else Nothing
+
+
 -- TODO: div overflow
 cDiv = cWrapBinArith "/"
                      (const Ty.BvUdiv)
@@ -920,6 +952,7 @@ integralPromotion n = case term n of
   CBool{} -> cCast Type.S32 n
   _       -> n
 
+-- TODO: cast fixed pt to stuff
 cCast :: Type.Type -> CTerm -> CTerm
 cCast toTy node = case term node of
   CBool t -> case toTy of

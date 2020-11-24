@@ -8,7 +8,7 @@ data Type = U8 | S8
           | U16 | S16
           | U32 | S32
           | U64 | S64
-          | FixedPt -- lets make it signed, treat it like an 32 bit signed int, but don't call it that.
+          | FixedPt -- lets make it signed, treat it like an 64 bit signed int, but don't call it that.
           | Bool
           | Float
           | Double
@@ -38,6 +38,7 @@ makeIntTy numBits isSigned = case numBits of
   64 | isSigned -> S64
   64            -> U64
   _             -> error $ "Unexpected width to makeType " ++ show numBits
+
 
 numBits :: Type -> Int
 numBits U8                    = 8
