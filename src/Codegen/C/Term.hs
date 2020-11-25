@@ -200,7 +200,7 @@ mkCTerm d b = case d of
   CInt _ w bv -> if Ty.dynBvWidth bv == w
     then CTerm d b
     else error $ unwords ["Bad width in CTerm", show d]
-  CFixedPt bv -> if Ty.dynBvWidth bv == 32
+  CFixedPt bv -> if Ty.dynBvWidth bv == 64
     then CTerm d b
     else error $ unwords ["Bad width in CTerm", show d]
   CStackPtr ty off _alloc -> if Ty.dynBvWidth off == Type.numBits ty
@@ -920,8 +920,8 @@ cWrapCmp name bvF doubleF a b = convert (integralPromotion a)
               sign  = max s s'
           in  bvF sign (intResize s width i) (intResize s' width i')
 
-        (CInt s w i, CFixedPt fx') -> bvF True (asFixedPt $ term $ cCast Type.FixedPt a) fx'
-        (CFixedPt fx, CInt s' w' i') -> bvF True fx (asFixedPt $ term $ cCast Type.FixedPt b)
+        (CInt _ _ _, CFixedPt fx') -> bvF True (asFixedPt $ term $ cCast Type.FixedPt a) fx'
+        (CFixedPt fx, CInt _ _ _) -> bvF True fx (asFixedPt $ term $ cCast Type.FixedPt b)
         (CFixedPt fx, CFixedPt fx') -> bvF True fx fx'
 
         (_, _) -> cannot $ unwords [show a, "and", show b]
@@ -992,6 +992,24 @@ cCast toTy node = case term node of
     Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.mkEq (Mem.bvNum False fromW 0) t) (udef node)
     _ -> error $ unwords ["Bad cast from", show t, "to", show toTy]
+  CFixedPt t -> case toTy of
+    _ | Type.isIntegerType toTy ->
+      let half    = Ty.DynBvConcat 64 (Ty.DynBvLit $ Bv.zeros 32) $ Ty.DynBvConcat 32 (Ty.DynBvLit $ Bv.ones 1) $ (Ty.DynBvLit $ Bv.zeros 31)--0.5
+          negHalf = Ty.DynBvConcat 64 (Ty.DynBvLit $ Bv.ones 32) $ Ty.DynBvConcat 32 (Ty.DynBvLit $ Bv.ones 1) $ (Ty.DynBvLit $ Bv.zeros 31)--(-0.5)
+          fromS   = True --fxpt always signed
+          toS     = Type.isSignedInt toTy
+          toW     = Type.numBits toTy
+          bv32    = Ty.mkDynBvExtract 32 64 -- top 32 bits
+                    $ Ty.DynBvBinExpr
+                        Ty.BvAdd
+                        64
+                        t
+                        $ Ty.mkIte (Ty.mkDynBvBinPred Ty.BvSge t (Ty.DynBvLit $ Bv.zeros 64)) negHalf half
+                  -- we round towards zero
+          intfin  = intResize fromS toW bv32
+      in mkCTerm ( CInt toS toW intfin ) (udef node)
+    Type.FixedPt -> node
+    _ -> error $ unwords ["Bad cast from", show t, "to", show toTy]
   CDouble t -> case toTy of
     _ | Type.isIntegerType toTy ->
       -- TODO: Do this with rounding modes
@@ -1009,6 +1027,23 @@ cCast toTy node = case term node of
                 )
             )
             (udef node)
+    Type.FixedPt ->
+      let half    = Ty.Fp64Lit 0.5
+          negHalf = Ty.Fp64Lit (-0.5)
+          t'      = Ty.FpBinExpr Ty.FpMul t $ Ty.Fp64Lit (2^32)   --scale up
+      in  mkCTerm
+            ( CFixedPt
+            $ Ty.RoundFpToDynBv
+                64
+                True
+                (Ty.FpBinExpr
+                  Ty.FpAdd
+                  t'
+                  (Ty.mkIte (Ty.FpUnPred Ty.FpIsPositive t) negHalf half)
+                )
+            )
+            (udef node)
+
     Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
     Type.Double -> node
@@ -1031,6 +1066,24 @@ cCast toTy node = case term node of
                 )
             )
             (udef node)
+
+    Type.FixedPt ->
+      let half    = Ty.Fp32Lit 0.5
+          negHalf = Ty.Fp32Lit (-0.5)
+          t'      = Ty.FpBinExpr Ty.FpMul t $ Ty.Fp32Lit (2^32)   --scale up
+      in  mkCTerm
+            ( CFixedPt
+            $ Ty.RoundFpToDynBv
+                64
+                True
+                (Ty.FpBinExpr
+                  Ty.FpAdd
+                  t'
+                  (Ty.mkIte (Ty.FpUnPred Ty.FpIsPositive t) negHalf half)
+                )
+            )
+            (udef node)
+
     Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
     Type.Double -> mkCTerm (CDouble $ Ty.FpToFp t) (udef node)

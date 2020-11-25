@@ -11,7 +11,7 @@ import           Targets.SMT.TySmtToZ3          ( Val
 import           Parser.C
 import           Test.Tasty.HUnit
 import           Util.Cfg                       ( evalCfgDefault )
-import           Util.Log                       ( evalLog )
+import          Util.Log                       ( evalLog )
 
 i = i_
 b = b_
@@ -63,6 +63,9 @@ cValueTests = benchTestGroup
     , ("f0_foo_lex1__g_v0", i 4294967295)
     , ("f0_foo_lex1__i_v0", i 255)
     , ("f0_foo_lex1__k_v0", i 127)
+    , ("f0_foo_lex1__m_v0", i 66142494720) -- very close 66142496358)
+    , ("f0_foo_lex1__o_v0", i (-128849018880))
+    , ("f0_foo_lex1__q_v0", i (446676598784))
     ]
   , constraintValueTest "assign"
                         "foo"
@@ -331,6 +334,22 @@ cValueTests = benchTestGroup
                         "array"
                         "test/Code/C/struct_ptr.c"
                         [("f0_array__return", i 2)]
+  , constraintValueTest "fixed point add"
+                        "add"
+                        "test/Code/C/fixed_pt_arith.c"
+                        [("f0_add_lex1__z_v0", i 6442450944)]
+  , constraintValueTest "fixed point sub"
+                        "sub"
+                        "test/Code/C/fixed_pt_arith.c"
+                        [("f0_sub_lex1__z_v0", i 6442450944)]
+  , constraintValueTest "fixed point mult"
+                        "mult"
+                        "test/Code/C/fixed_pt_arith.c"
+                        [("f0_mult_lex1__z_v0", i 16535624089)]
+  , constraintValueTest "fixed point div"
+                        "div"
+                        "test/Code/C/fixed_pt_arith.c"
+                        [("f0_div_lex1__z_v0", i 17179869184)]
   ]
 
 cRealTests :: BenchTest
@@ -389,4 +408,3 @@ constraintValueTest name fnName path expected = benchTestCase name $ do
     case M.lookup evar r of
       Just aval -> eval @=? aval
       Nothing -> error $ unwords ["No variable", show evar, "in model", show r]
-
