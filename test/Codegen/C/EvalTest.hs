@@ -345,11 +345,16 @@ cValueTests = benchTestGroup
   , constraintValueTest "fixed point mult"
                         "mult"
                         "test/Code/C/fixed_pt_arith.c"
-                        [("f0_mult_lex1__z_v0", i 16535624089)]
+                        [("f0_mult_lex1__z1_v0", i 165356240896)
+                        , ("f0_mult_lex1__z2_v0", i 99213744537)
+                        , ("f0_mult_lex1__z3_v0", i 6442450944)]
+
   , constraintValueTest "fixed point div"
                         "div"
                         "test/Code/C/fixed_pt_arith.c"
-                        [("f0_div_lex1__z_v0", i 17179869184)]
+                        [("f0_div_lex1__z1_v0", d 17793435940)
+                        , ("f0_div_lex1__z2_v0", i 6919669532)
+                        , ("f0_div_lex1__z3_v0", i 11044201618)]
   ]
 
 cRealTests :: BenchTest

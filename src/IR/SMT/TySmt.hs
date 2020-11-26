@@ -1043,7 +1043,7 @@ bvBinFn op = case op of
   BvLshr -> Bv.shr
   BvAshr -> Bv.ashr
   BvUrem -> rem
-  BvUdiv -> div
+  BvUdiv -> div 
   BvAdd  -> (+)
   BvMul  -> (*)
   BvSub  -> (-)

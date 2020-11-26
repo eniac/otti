@@ -8,7 +8,7 @@ data Type = U8 | S8
           | U16 | S16
           | U32 | S32
           | U64 | S64
-          | FixedPt -- lets make it signed, treat it like an 64 bit signed int, but don't call it that.
+          | FixedPt -- signed, 16.16 bits
           | Bool
           | Float
           | Double
@@ -25,7 +25,6 @@ isSimple ty = isIntegerType ty || ty == Bool || isDouble ty || isFloat ty || isF
 
 isIntegerType :: Type -> Bool
 isIntegerType ty = isSignedInt ty || isUnsignedInt ty
--- maybe here?
 
 makeIntTy :: Int -> Bool -> Type
 makeIntTy numBits isSigned = case numBits of
