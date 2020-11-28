@@ -1,7 +1,7 @@
 
 int add () {
 
-  typedef double fixed_point_precision;
+  typedef signed int fixed_point_precision;
 
   fixed_point_precision x = 1.0;
 
@@ -27,7 +27,7 @@ int mult() {
 
   typedef signed int fixed_point_precision;
 
-  int w = 3;
+  //int w = 3;
 
   fixed_point_precision x = 7.7;
 
@@ -35,9 +35,9 @@ int mult() {
 
   fixed_point_precision z1 = x*y;
 
-  fixed_point_precision z2 = x*w;
+  //fixed_point_precision z2 = x*w;
 
-  fixed_point_precision z3 = w*y;
+  //fixed_point_precision z3 = w*y;
 
 }
 
@@ -45,7 +45,7 @@ int div() {
 
   typedef signed int fixed_point_precision;
 
-  int w = 9;
+  //int w = 9;
 
   fixed_point_precision x = 14.5;
 
@@ -53,8 +53,8 @@ int div() {
 
   fixed_point_precision z1 = x/y;
 
-  fixed_point_precision z2 = x/w;
+  //fixed_point_precision z2 = x/w;
 
-  fixed_point_precision z3 = w/y;
+  //fixed_point_precision z3 = w/y;
 
 }
