@@ -1,44 +1,44 @@
 
 int add () {
 
-  typedef signed int fixed_point_precision;
-  fixed_point_precision x = 1.0;
-  fixed_point_precision y = 0.5;
-  fixed_point_precision z = x+y;
+  typedef double fixed_point_precision_16_16;
+  fixed_point_precision_16_16 x = 1.0;
+  fixed_point_precision_16_16 y = 0.5;
+  fixed_point_precision_16_16 z = x+y;
 
 }
 
 int sub() {
 
-  typedef signed int fixed_point_precision;
-  fixed_point_precision x = 2.0;
-  fixed_point_precision y = 0.5;
-  fixed_point_precision z = x-y;
+  typedef double fixed_point_precision_16_16;
+  fixed_point_precision_16_16 x = 2.0;
+  fixed_point_precision_16_16 y = 0.5;
+  fixed_point_precision_16_16 z = x-y;
 
 }
 
 int mult() {
 
-  typedef signed int fixed_point_precision;
+  typedef double fixed_point_precision_16_16;
 
   int w = 3;
-  fixed_point_precision x = 7.7;
-  fixed_point_precision y = 0.5;
-  fixed_point_precision z1 = x*y;
-  fixed_point_precision z2 = x*w;
-  fixed_point_precision z3 = w*y;
+  fixed_point_precision_16_16 x = 7.7;
+  fixed_point_precision_16_16 y = 0.5;
+  fixed_point_precision_16_16 z1 = x*y;
+  fixed_point_precision_16_16 z2 = x*w;
+  fixed_point_precision_16_16 z3 = w*y;
 
 }
 
 int div() {
 
-  typedef signed int fixed_point_precision;
+  typedef double fixed_point_precision_16_16;
 
   int w = 9;
-  fixed_point_precision x = 14.5;
-  fixed_point_precision y = 3.5;
-  fixed_point_precision z1 = x/y;
-  fixed_point_precision z2 = x/w;
-  fixed_point_precision z3 = w/y;
+  fixed_point_precision_16_16 x = 14.5;
+  fixed_point_precision_16_16 y = 3.5;
+  fixed_point_precision_16_16 z1 = x/y;
+  fixed_point_precision_16_16 z2 = x/w;
+  fixed_point_precision_16_16 z3 = w/y;
 
 }

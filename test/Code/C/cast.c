@@ -1,6 +1,6 @@
 
 int foo () {
-  typedef signed int fixed_point_precision;
+  typedef float fixed_point_precision_16_16;
 
   int a = (_Bool)1;
   int b = (_Bool)2;
@@ -17,17 +17,17 @@ int foo () {
   int k = (int)j;
 
   float l = 15.4;
-  fixed_point_precision m = (fixed_point_precision)l;
+  fixed_point_precision_16_16 m = (fixed_point_precision_16_16)l;
   double n = -30.0;
-  fixed_point_precision o = (fixed_point_precision)n;
+  fixed_point_precision_16_16 o = (fixed_point_precision_16_16)n;
 
   short p = 104;
-  fixed_point_precision q = (fixed_point_precision)p;
+  fixed_point_precision_16_16 q = (fixed_point_precision_16_16)p;
 
-  fixed_point_precision r = 10.9;
+  fixed_point_precision_16_16 r = 10.9;
   int s = (int)r;
 
-  fixed_point_precision t = -10.9;
+  fixed_point_precision_16_16 t = -10.9;
   int u = (int)t;
 
 }

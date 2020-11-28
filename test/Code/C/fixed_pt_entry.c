@@ -1,19 +1,19 @@
 int pos() {
 
-  typedef signed int fixed_point_precision;
+  typedef float fixed_point_precision_16_16;
 
-  fixed_point_precision a = 32767.9999847412109375;
-  fixed_point_precision b = 1;
-  fixed_point_precision z = 0;
+  fixed_point_precision_16_16 a = 32767.9999847412109375;
+  fixed_point_precision_16_16 b = 1;
+  fixed_point_precision_16_16 z = 0;
 
 }
 
 int neg() {
 
-  typedef signed int fixed_point_precision;
+  typedef float fixed_point_precision_16_16;
 
-  fixed_point_precision c = -0.0000152587890625;
-  fixed_point_precision d = -32768;
+  fixed_point_precision_16_16 c = -0.0000152587890625;
+  fixed_point_precision_16_16 d = -32768;
 
 
 }
