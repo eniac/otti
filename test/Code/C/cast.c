@@ -27,4 +27,7 @@ int foo () {
   fixed_point_precision r = 10.9;
   int s = (int)r;
 
+  fixed_point_precision t = -10.9;
+  int u = (int)t;
+
 }

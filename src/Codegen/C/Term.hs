@@ -1026,7 +1026,7 @@ cCast toTy node = case term node of
     -- cast int to fixedpt
     Type.FixedPt -> case fromW of
       64 -> error $ unwords ["Bad cast from", show t, "to", show toTy, "integer too big to cast to fixed point"]
-      32 -> error $ unwords ["Bad cast from", show t, "to", show toTy, "integer too big to cast to fixed point"] -- we may want to handle undefined behavior differently
+      --TODO deal with this later 32 -> error $ unwords ["Bad cast from", show t, "to", show toTy, "integer too big to cast to fixed point"] -- we may want to handle undefined behavior differently
       _  -> let t'   = intResize fromS 16 t -- cast to 16 bit int
                 fxpt = CFixedPt $ Ty.DynBvConcat 32 t' $ Ty.DynBvLit $ Bv.zeros 16 -- append the part after the point
                 u    = udef node
@@ -1034,20 +1034,19 @@ cCast toTy node = case term node of
     Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.mkEq (Mem.bvNum False fromW 0) t) (udef node)
     _ -> error $ unwords ["Bad cast from", show t, "to", show toTy]
-  CFixedPt t -> case toTy of
+  CFixedPt t -> case toTy of -- we round down right now; i'm not sure why Ty.RoundFpToDynBv is hardcoded with haskell?
     _ | Type.isIntegerType toTy ->
-      let half    = Ty.IntToDynBv 32 $ Ty.IntLit 32768
-          negHalf = Ty.IntToDynBv 32 $ Ty.IntLit (-32768)
-          fromS   = True --fxpt always signed
+      let fromS   = True --fxpt always signed
+          --half    = Ty.IntToDynBv 32 $ Ty.IntLit 32768
+          --negHalf = Ty.IntToDynBv 32 $ Ty.IntLit (-32768)
           toS     = Type.isSignedInt toTy
           toW     = Type.numBits toTy
           bv16    = Ty.mkDynBvExtract 16 16 -- top 16 bits
-                    $ Ty.DynBvBinExpr
-                        Ty.BvAdd
-                        32
-                        t
-                        $ Ty.mkIte (Ty.mkDynBvBinPred Ty.BvSge t (Ty.IntToDynBv 32 $ Ty.IntLit 0)) negHalf half
-                  -- we round towards zero always
+                    t -- $ Ty.DynBvBinExpr
+                        -- Ty.BvAdd
+                        -- 32
+                        -- t
+                        -- $ Ty.mkIte (Ty.mkDynBvBinPred Ty.BvSge t (Ty.IntToDynBv 32 $ Ty.IntLit 0)) half negHalf
           intfin  = intResize toS toW bv16
       in mkCTerm ( CInt toS toW intfin ) (udef node)
     Type.FixedPt -> node
@@ -1070,19 +1069,10 @@ cCast toTy node = case term node of
             )
             (udef node)
     Type.FixedPt ->
-      let half    = Ty.Fp64Lit 0.5
-          negHalf = Ty.Fp64Lit (-0.5)
-          t'      = Ty.FpBinExpr Ty.FpMul t $ Ty.Fp64Lit (2^16)   --scale up
+      let t'      = Ty.FpBinExpr Ty.FpMul t $ Ty.Fp64Lit (2^16)   --scale up
       in  mkCTerm
             ( CFixedPt
-            $ Ty.RoundFpToDynBv
-                32
-                True
-                (Ty.FpBinExpr
-                  Ty.FpAdd
-                  t'
-                  (Ty.mkIte (Ty.FpUnPred Ty.FpIsPositive t) negHalf half)
-                )
+            $ Ty.RoundFpToDynBv 32 True t'
             )
             (udef node)
 
@@ -1110,19 +1100,10 @@ cCast toTy node = case term node of
             (udef node)
 
     Type.FixedPt ->
-      let half    = Ty.Fp32Lit 0.5
-          negHalf = Ty.Fp32Lit (-0.5)
-          t'      = Ty.FpBinExpr Ty.FpMul t $ Ty.Fp32Lit (2^16)   --scale up
+      let t'      = Ty.FpBinExpr Ty.FpMul t $ Ty.Fp32Lit (2^16)   --scale up
       in  mkCTerm
             ( CFixedPt
-            $ Ty.RoundFpToDynBv
-                32
-                True
-                (Ty.FpBinExpr
-                  Ty.FpAdd
-                  t'
-                  (Ty.mkIte (Ty.FpUnPred Ty.FpIsPositive t) negHalf half)
-                )
+            $ Ty.RoundFpToDynBv 32 True t'
             )
             (udef node)
 

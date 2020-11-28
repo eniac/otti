@@ -1,24 +1,19 @@
-int foo() {
+int pos() {
 
   typedef signed int fixed_point_precision;
 
-  fixed_point_precision x = 4294967296; // 1.0
+  fixed_point_precision a = 32767.9999847412109375;
+  fixed_point_precision b = 1;
+  fixed_point_precision z = 0;
 
-  fixed_point_precision y = 0.5; // 0.5
-
-
-  return (0); // 1.5
 }
 
-
-
-int add_neg() {
+int neg() {
 
   typedef signed int fixed_point_precision;
 
-  fixed_point_precision x = 4294967296; // 1.0
-
-  fixed_point_precision y = 2147483648; // 0.5
+  fixed_point_precision c = -0.0000152587890625;
+  fixed_point_precision d = -32768;
 
 
 }
