@@ -6,6 +6,7 @@ module Util.Log
   , Log
   , enableStream
   , enableStreams
+  , logStr
   , logIf
   , logIfM
   , MonadLog
@@ -57,6 +58,9 @@ enableStream s = modify $ \l -> l { streams = S.insert s $ streams l }
 
 enableStreams :: Foldable f => f String -> Log ()
 enableStreams ss = forM_ ss enableStream
+
+logStr :: MonadLog m => String -> m ()
+logStr msg = liftLog . liftIO . putStrLn $ msg
 
 -- | When the specified stream is enabled, log this message
 logIf :: MonadLog m => String -> String -> m ()

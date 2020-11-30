@@ -49,6 +49,7 @@ import qualified Util.Cfg                      as Cfg
 import           Util.Cfg                       ( MonadCfg(..) )
 import           Util.Control
 import           Util.Log
+import IR.Circify.Control
 
 
 data CState = CState
@@ -328,15 +329,16 @@ noneIfVoid :: Type -> Maybe Type
 noneIfVoid t = if Void == t then Nothing else Just t
 
 -- | Handle special functions, returning whether this function was special
-genSpecialFunction :: VarName -> [CSsaVal] -> C (Maybe CSsaVal)
+genSpecialFunction :: VarName -> [CExpr] -> C (Maybe CSsaVal)
 genSpecialFunction fnName args = do
   specifialPrintf <- Cfg.liftCfg $ asks (Cfg._printfOutput . Cfg._cCfg)
   svExtensions    <- Cfg.liftCfg $ asks (Cfg._svExtensions . Cfg._cCfg)
   bugs            <- gets findUB
+  actualArgs      <- traverse genExpr args
   case fnName of
     "printf" | specifialPrintf -> do
       -- skip fstring
-      when bugs $ forM_ (tail args) (bugIf . udef . ssaValAsTerm "printf udef")
+      when bugs $ forM_ (tail actualArgs) (bugIf . udef . ssaValAsTerm "printf udef")
       -- Not quite right. Should be # chars.
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_error" | svExtensions -> do
@@ -347,14 +349,35 @@ genSpecialFunction fnName args = do
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_assert" | svExtensions -> do
       if bugs
-        then bugIf $ Ty.Not $ ssaBool $ head args
-        else assume $ ssaBool $ head args
+        then bugIf $ Ty.Not $ ssaBool $ head actualArgs
+        else assume $ ssaBool $ head actualArgs
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_assume" | svExtensions -> do
-      when bugs $ assume $ ssaBool $ head args
+      when bugs $ assume $ ssaBool $ head actualArgs
       return $ Just $ Base $ cIntLit S32 1
+    "__GADGET_rewrite" -> do
+      s <- deepGet
+      -- Parse assertion arguments in Circify
+      assertVals <- traverse genExpr args
+      -- Evaluate assertions are satisfied by calling into Z3 with values
+      maybeBoolValues <- liftCircify $ traverse (getTermVal . ssaBool) assertVals
+
+      -- Check they are all satisfied (TODO: Use labels on streams)
+	  concreteBoolValues <- flip zipWithM args maybeBoolValues checkAssert
+
+      guard $ all (==True) concreteBoolValues
+
+      -- Restore call stack to prior state
+      deepPut s
+      -- Replace function scope with the user-provided assertion
+      -- TODO: When we have a graph representation, this will be much easier to apply to a basic-block instead.
+      -- This way we can also encode loop-invariants for summarizing loops. For now, unit of granularity is the function
+      liftCircify $ compilerModifyTop (fsResetGuards $ fmap ssaBool assertVals)
+
+      -- What to do with the prover witnesses?
+      return . Just . Base $ cIntLit S32 1
     "assume_abort_if_not" | svExtensions -> do
-      when bugs $ assume $ ssaBool $ head args
+      when bugs $ assume $ ssaBool $ head actualArgs
       return $ Just $ Base $ cIntLit S32 1
     _ | isNonDet fnName -> do
       let ty = nonDetTy fnName
@@ -365,6 +388,11 @@ genSpecialFunction fnName args = do
       liftCircify $ Just <$> getTerm (SLVar name)
     _ -> return Nothing
  where
+  checkAssert :: CExpr -> Maybe Bool -> Log Bool
+  checkAssert arg (Just True) = do { logStr $ "Verified assertion " ++ show arg; return True }
+  checkAssert arg (Just False) = do { logStr $ "Failed assertion " ++ show arg; return False }
+  checkAssert _ Nothing = return True -- No values, cannot check so just take the user's word the assertion is satisfied
+
   nonDetTy :: String -> Type
   nonDetTy s = case drop (length "__VERIFIER_nondet_") s of
     "char"   -> S8
@@ -424,8 +452,7 @@ genExpr expr = do
     CCall fn args _ -> case fn of
       CVar fnIdent _ -> do
         let fnName = identToVarName fnIdent
-        actualArgs <- traverse genExpr args
-        s          <- genSpecialFunction fnName actualArgs
+        s          <- genSpecialFunction fnName args
         case s of
           Just r  -> return r
           Nothing -> do

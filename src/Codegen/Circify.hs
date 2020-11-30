@@ -14,6 +14,8 @@ module Codegen.Circify
   , pushGuard
   , popGuard
   , guarded
+  , fsResetGuards
+  , compilerModifyTop
   , getGuard
   , enterLexScope
   , exitLexScope
@@ -27,8 +29,8 @@ module Codegen.Circify
   , runCircify
   , typedef
   , untypedef
+  , getTermVal
   , getTerm
-  , getValue
   , VarName
   , SsaVal(..)
   , SsaLVal(..)
@@ -248,6 +250,9 @@ data FunctionScope ty term = FunctionScope
   }
   deriving Show
 
+fsResetGuards :: [Ty.TermBool] -> FunctionScope t v -> FunctionScope t v
+fsResetGuards gs fs = FunctionScope { guards = map Guard gs, lexicalScopes = [], nCurrentScopes = 0, lsCtr = 0, fsPrefix = fsPrefix fs, retTy = retTy fs }
+
 listModify :: Functor m => Int -> (a -> m a) -> [a] -> m [a]
 listModify 0 f (x : xs) = (: xs) `fmap` f x
 listModify n f (x : xs) = (x :) `fmap` listModify (n - 1) f xs
@@ -318,6 +323,7 @@ fsEnterLexScope scope =
             , lexicalScopes  = newLs : lexicalScopes scope
             , nCurrentScopes = 1 + nCurrentScopes scope
             }
+
 
 printFs :: FunctionScope t v -> IO ()
 printFs s = do
@@ -626,6 +632,12 @@ getValue var = do
   l <- gets langCfg
   liftAssert $ evaluate l t
 
+-- Evaluates a term
+-- Returns nothing if we're not tracking values.
+getTermVal :: Embeddable t v c => SsaVal v -> Circify t v c (Maybe v)
+getTermVal t = do
+  l <- gets langCfg
+  liftAssert $ evaluate l t
 
 getVer :: SsaLVal -> Circify t v c Version
 getVer var = compilerGetsInScope var fsGetVer lsGetVer
@@ -690,7 +702,7 @@ ssaVarAsString (SsaVar varName ver) = varName ++ "_v" ++ show ver
 
 
 -- Assert that the current version of `var` is assign `value` to it.
--- Could return 
+-- Could return
 hardAssign
   :: Embeddable t v c => SsaLVal -> SsaVal v -> Circify t v c (SsaVal v)
 hardAssign var val = do
