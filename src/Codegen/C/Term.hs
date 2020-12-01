@@ -176,7 +176,7 @@ asVar :: CTerm -> Maybe String
 asVar t = case term t of
   CInt _ _ t' -> Ty.asVarName t'
   CBool   t'  -> Ty.asVarName t'
-  CFixedPt t' -> Ty.asVarName t' --TODO?
+  CFixedPt t' -> Ty.asVarName t'
   CDouble t'  -> Ty.asVarName t'
   CFloat  t'  -> Ty.asVarName t'
   _           -> error $ "Var name unsupported for " ++ show t
@@ -652,7 +652,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
           "*" ->  let sign  = True
                       l     = intResize s 64 i
                       r     = intResize True 64 fx'
-                      expr  = Ty.mkDynBvBinExpr (bvOp sign) l r
+                      expr  = bvBinExpr (bvOp sign) l r
                       fxpt  = intResize sign 32 expr
                   in  ( CFixedPt $ fxpt
                       , ubF >>= (\f -> f s l sign r)
@@ -667,7 +667,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
                         (CInt _ _ bv) -> bv
                         _ -> error $ unwords ["Error in FxPt division of", show a, "and", show b]
 
-                      expr          = Ty.mkDynBvBinExpr (bvOp sign) div_bv r
+                      expr          = bvBinExpr (bvOp sign) div_bv r
                       fxpt          = intResize sign 32 expr
                   in  ( CFixedPt $ fxpt
                       , ubF >>= (\f -> f sign div_bv sign r)
@@ -676,7 +676,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
           _   ->  let sign  = True
                       l     = asFixedPt $ term $ cCast Type.FixedPt a
                       r     = fx'
-                  in  ( CFixedPt $ Ty.mkDynBvBinExpr (bvOp sign) l r
+                  in  ( CFixedPt $ bvBinExpr (bvOp sign) l r
                       , ubF >>= (\f -> f s l sign r)
                       )
 
@@ -684,7 +684,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
           "*" ->  let sign  = True
                       l     = intResize True 64 fx
                       r     = intResize s' 64 i'
-                      expr  = Ty.mkDynBvBinExpr (bvOp sign) l r
+                      expr  = bvBinExpr (bvOp sign) l r
                       fxpt  = intResize sign 32 expr
                   in  ( CFixedPt $ fxpt
                       , ubF >>= (\f -> f sign l s' r)
@@ -692,7 +692,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
           "/" ->  let sign  = True -- int in demoniator, fine to not promote
                       l     = intResize True 64 fx
                       r     = intResize s' 64 i'
-                      expr  = Ty.mkDynBvBinExpr (bvOp sign) l r
+                      expr  = bvBinExpr (bvOp sign) l r
                       fxpt  = intResize sign 32 expr
                   in  ( CFixedPt $ fxpt
                       , ubF >>= (\f -> f sign l s' r)
@@ -700,7 +700,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
           _   ->  let sign  = True
                       l     = fx
                       r     = asFixedPt $ term $ cCast Type.FixedPt b
-                  in  ( CFixedPt $ Ty.mkDynBvBinExpr (bvOp sign) l r
+                  in  ( CFixedPt $ bvBinExpr (bvOp sign) l r
                       , ubF >>= (\f -> f sign l s' r)
                       )
 
@@ -714,7 +714,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
                         (CInt _ _ bv) -> bv
                         _ -> error $ unwords ["Error in FxPt multiplication of", show a, "and", show b]
                       fact_bv       = Ty.IntToDynBv 64 $ Ty.IntLit (2^16)
-                      expr          = Ty.mkDynBvBinExpr ((const Ty.BvUdiv) sign) mult_bv fact_bv
+                      expr          = bvBinExpr ((const $ Left Ty.BvUdiv) sign) mult_bv fact_bv
                       fxpt          = intResize sign 32 expr
                   in  ( CFixedPt $ fxpt
                       , ubF >>= (\f -> f sign mult_bv sign fact_bv)
@@ -729,7 +729,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
                         (CInt _ _ bv) -> bv
                         _ -> error $ unwords ["Error in FxPt division of", show a, "and", show b]
 
-                      expr          = Ty.mkDynBvBinExpr (bvOp sign) div_bv r
+                      expr          = bvBinExpr (bvOp sign) div_bv r
                       fxpt          = intResize sign 32 expr
                   in  ( CFixedPt $ fxpt
                       , ubF >>= (\f -> f sign div_bv sign r)
@@ -737,7 +737,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
           _ ->    let sign  = True
                       l     = fx
                       r     = fx'
-                  in  ( CFixedPt $ Ty.mkDynBvBinExpr (bvOp sign) l r
+                  in  ( CFixedPt $ bvBinExpr (bvOp sign) l r
                       , ubF >>= (\f -> f sign l sign r)
                       )
 
@@ -1189,11 +1189,11 @@ ctermGetVars :: String -> CTerm -> Mem (Set.Set String)
 ctermGetVars name t = do
   logIf "outputs" $ "Getting outputs at " ++ name ++ " : " ++ show t
   case term t of
-    CBool b     -> return $ Ty.vars b
-    CInt _ _ i  -> return $ Ty.vars i
-    CFixedPt fx -> return $ Ty.vars fx
-    CDouble x   -> return $ Ty.vars x
-    CFloat  x   -> return $ Ty.vars x
+    CBool b     -> return $ TyAlg.vars b
+    CInt _ _ i  -> return $ TyAlg.vars i
+    CFixedPt fx -> return $ TyAlg.vars fx
+    CDouble x   -> return $ TyAlg.vars x
+    CFloat  x   -> return $ TyAlg.vars x
     CStruct _ l -> fmap Set.unions $ forM l $ \(fName, fTerm) ->
       ctermGetVars (structVarName name fName) fTerm
     CArray _elemTy id -> do
