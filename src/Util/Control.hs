@@ -1,6 +1,7 @@
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Util.Control
   ( whenM
@@ -11,6 +12,8 @@ module Util.Control
   , orM
   , andM
   , MonadDeepState(..)
+  , firstM
+  , secondM
   )
 where
 
@@ -65,3 +68,9 @@ instance MonadDeepState () IO where
 instance MonadDeepState s m => MonadDeepState (s, s') (StateT s' m) where
   deepGet = liftM2 (,) (lift deepGet) get
   deepPut (s, s') = lift (deepPut s) >> put s'
+
+firstM :: Monad m => (a -> m a') -> (a, b) -> m (a', b)
+firstM f (a, b) = (, b) <$> f a
+
+secondM :: Monad m => (b -> m b') -> (a, b) -> m (a, b')
+secondM f (a, b) = (a, ) <$> f b

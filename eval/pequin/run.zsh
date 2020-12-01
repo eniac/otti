@@ -41,15 +41,17 @@ function count() {
 typeset -A paths
 paths=(
     mm5
-             ~/repos/llcl/compiler/mm_flat_5.c
+             ~/repos/llcl/compiler/test/Code/C/pequin/mm_flat.c
     u32sqrt
              ~/repos/llcl/compiler/test/Code/C/sqrt.c
-    u32log2
+    u32log2-array
              ~/repos/llcl/compiler/test/Code/C/pequin/log.c
-    ptrs
+    u32log2
+             ~/repos/llcl/compiler/test/Code/C/pequin/log_norm.c
+    ptrs-8
              ~/repos/llcl/compiler/test/Code/C/pequin/ptrchase_8_8.c
-    ptrs-benes
-             ~/repos/llcl/compiler/test/Code/C/pequin/ptrchase_8_8.c
+    ptrs-256
+             ~/repos/llcl/compiler/test/Code/C/pequin/ptrchase_256_8.c
          )
 typeset -A envvars
 envvars=(
@@ -59,10 +61,12 @@ envvars=(
              ""
     u32log2
              ""
-    ptrs
+    u32log2-array
              ""
-    ptrs-benes
-             "C_smt_benes_thresh=7"
+    ptrs-8
+             ""
+    ptrs-256
+             ""
          )
 
 init_results

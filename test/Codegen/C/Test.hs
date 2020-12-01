@@ -5,28 +5,24 @@ module Codegen.C.Test
   )
 where
 import           BenchUtils
-import           Codegen.C
+import           Codegen.C.Main
+import           Codegen.FrontEnd
 import           Control.Monad
 import           Data.Either                    ( isRight )
-import qualified Data.Foldable                 as Fold
 import qualified Data.Map                      as M
 import           Data.Maybe                     ( fromJust )
-import qualified Data.Set                      as Set
-import           IR.R1cs                        ( r1csCheck )
+import           Targets.R1cs.Main              ( r1csCheck )
 import           IR.SMT.Assert                  ( AssertState(..)
                                                 , asserted
                                                 , execAssert
                                                 , vals
-                                                , liftAssert
-                                                , initValues
                                                 )
-import           IR.SMT.ToPf                    ( toPf )
 import qualified IR.SMT.TySmt                  as Ty
+import qualified IR.SMT.TySmt.Alg              as TyAlg
 import           Parser.C
 import           Test.Tasty.HUnit
-import           Targets.SMT.TySmtToZ3
+import           Targets.SMT.Z3
 import           Util.Log
-import qualified Util.ShowMap                  as SMap
 import           Util.Cfg                       ( evalCfgDefault )
 
 type Order
@@ -102,17 +98,18 @@ satSmtCircuitTest
   :: String -> String -> FilePath -> M.Map String Integer -> BenchTest
 satSmtCircuitTest name fnName path inputs = benchTestCase name $ do
   tu          <- parseC path
-  assertState <- evalCfgDefault $ execAssert $ runC (Just inputs) False $ do
-    liftAssert initValues
-    genFn tu fnName
+  assertState <- evalCfgDefault $ execAssert $ compile $ CInputs tu
+                                                                 fnName
+                                                                 False
+                                                                 (Just inputs)
   let assertions = asserted assertState
   let env        = fromJust $ vals assertState
   forM_ assertions $ \a -> do
-    unless (Ty.ValBool True == Ty.eval env a)
+    unless (Ty.ValBool True == TyAlg.eval env a)
       $  putStrLn
       $  "Unsat constraint: "
       ++ show a
-    Ty.ValBool True @=? Ty.eval env a
+    Ty.ValBool True @=? TyAlg.eval env a
 
 satSmtCircuitTests = benchTestGroup
   "SAT SMT Circuit checks"
@@ -138,17 +135,12 @@ satSmtCircuitTests = benchTestGroup
 satR1csTestInputs
   :: String -> String -> FilePath -> M.Map String Integer -> BenchTest
 satR1csTestInputs name fnName path inputs = benchTestCase name $ do
-  tu          <- parseC path
-  assertState <- evalCfgDefault $ execAssert $ runC (Just inputs) False $ genFn
+  tu <- parseC path
+  cs <- evalCfgDefault $ evalLog $ compileToR1cs @CInputs @Order $ CInputs
     tu
     fnName
-  let assertions = asserted assertState
-  let env        = fromJust $ vals assertState
-  forM_ assertions $ \a -> Ty.ValBool True @=? Ty.eval env a
-  cs <- evalCfgDefault $ evalLog $ toPf @Order (Just env)
-                                               Set.empty
-                                               SMap.empty
-                                               (Fold.toList assertions)
+    False
+    (Just inputs)
   -- Check R1CS satisfaction
   let checkResult = r1csCheck cs
   isRight checkResult @? show checkResult

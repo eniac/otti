@@ -98,5 +98,5 @@ instance (Show k, Eq k, Show v) => Show (AliasMap k v) where
             map (\(x, _) -> (show x, show $ dealias x a)) $ SMap.toList $ aliases
               a
         aliasLines = map (\(a, b) -> a ++ "\n  -> " ++ b) $ aliasMappings
-        baseLines = map (\(a, b) -> a ++ "\n  -> " ++ show b) $ baseMappings
+        baseLines  = map (\(a, b) -> a ++ "\n  -> " ++ show b) $ baseMappings
     in  unlines $ ["Aliases:"] ++ aliasLines ++ ["Base mappings:"] ++ baseLines

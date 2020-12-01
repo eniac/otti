@@ -36,6 +36,7 @@ library:
   - data-binary-ieee754
   - split >= 0.2.3.3
   - bytestring >= 0.10.8.2
+  - directory >= 1.2 && < 1.4
   - language-c >= 0.8.3 && < 0.9
   - array >= 0.5
   - filepath >= 1.4
@@ -53,6 +54,7 @@ library:
   - hashable >= 1.2.7 && < 1.3
   - time >= 1.8 && < 1.9
   - pretty-simple >= 2.2 && < 2.3
+  - optparse-applicative >= 0.14 && < 0.15
 
 executables:
   compiler-exe:
@@ -67,8 +69,7 @@ executables:
     - containers >= 0.5
     - directory >= 1.2 && < 1.4
     - ghc-typelits-knownnat >= 0.7
-    - docopt >= 0.7
-      #- optparse-applicative >= 0.14 && < 0.15
+    - optparse-applicative >= 0.14 && < 0.15
     - process >= 1.6
 
 tests:

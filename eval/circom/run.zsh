@@ -82,6 +82,10 @@ assoc_array=(poseidon
              ~/repos/llcl/circomlib/test/circuits/binsub_test.circom
              mux4
              ~/repos/llcl/circomlib/test/circuits/mux4_1.circom
+             ec-scalar-mul
+             ~/repos/llcl/circomlib/test/circuits/escalarmulfix_test.circom
+             pedersen
+             ~/repos/llcl/circomlib/test/circuits/pedersen2_test.circom
              sha256_2
              ~/repos/llcl/circomlib/test/circuits/sha256_2_test.circom)
 

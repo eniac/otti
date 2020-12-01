@@ -12,6 +12,11 @@ module IR.SMT.Opt.EqElim
   )
 where
 import           IR.SMT.TySmt
+import           IR.SMT.TySmt.Alg               ( nNodes
+                                                , reduceTerm
+                                                , mapTerm
+                                                , vars
+                                                )
 import qualified IR.SMT.Opt.Assert             as OA
 import           IR.SMT.Opt.Assert              ( Assert )
 import           IR.SMT.Opt.ConstFoldEqElim     ( constantFold )
@@ -119,19 +124,18 @@ eqElimGen fns ts =
         vUses <- gets (fromMaybe IntSet.empty . HMap.lookup var . view uses)
         logIf "smt::opt::cfee::debug" $ "Sub in " ++ show vUses
         modify $ over terms $ IntMap.delete i
-        forM_ (IntSet.toList vUses) $ \useI -> do
-          when (useI /= i) $ do
-            mT <- gets (IntMap.lookup useI . view terms)
-            forM_ mT $ \t -> do
-              let t'    = sub var val t
-              let oVars = vars t
-              let nVars = vars t'
-              forM_ (Set.toList $ nVars Set.\\ oVars) $ \v ->
-                modify $ over uses $ HMap.adjust (IntSet.insert useI) v
-              forM_ (Set.toList $ oVars Set.\\ nVars) $ \v ->
-                modify $ over uses $ HMap.adjust (IntSet.delete useI) v
-              modify $ over terms $ IntMap.insert useI t'
-              enqueue useI
+        forM_ (IntSet.toList vUses) $ \useI -> when (useI /= i) $ do
+          mT <- gets (IntMap.lookup useI . view terms)
+          forM_ mT $ \t -> do
+            let t'    = sub var val t
+            let oVars = vars t
+            let nVars = vars t'
+            forM_ (Set.toList $ nVars Set.\\ oVars)
+              $ \v -> modify $ over uses $ HMap.adjust (IntSet.insert useI) v
+            forM_ (Set.toList $ oVars Set.\\ nVars)
+              $ \v -> modify $ over uses $ HMap.adjust (IntSet.delete useI) v
+            modify $ over terms $ IntMap.insert useI t'
+            enqueue useI
 
   sub :: SortClass s => String -> Dynamic -> Term s -> Term s
   sub name_ value = mapTerm visit
@@ -151,35 +155,48 @@ inTerm name_ = reduceTerm visit False (||)
     Var name' _ -> Just $ name' == name_
     _           -> Nothing
 
+useCounts :: SortClass s => Term s -> HMap.HashMap String Int
+useCounts = reduceTerm visit HMap.empty (HMap.unionWith (+))
+ where
+  visit :: SortClass s => Term s -> Maybe (HMap.HashMap String Int)
+  visit (Var n _) = Just $ HMap.singleton n 1
+  visit _         = Nothing
+
 eqElim :: Assert ()
 eqElim = do
-  noElim <- gets (OA._public)
-  OA.modifyAssertions (eqElimFn noElim)
+  noElim <- gets OA._public
+  uses   <- gets
+    (foldl' (HMap.unionWith (+)) HMap.empty . map useCounts . OA.listAssertions)
+  let usedOnce = Set.fromList $ HMap.keys $ HMap.filter (<= 2) uses
+  logIf "smt::opt::ee" $ "Used once " ++ show usedOnce
+  OA.modifyAssertions (eqElimFn noElim usedOnce)
   OA.refresh
 
-eqElimFn :: Set.Set String -> [TermBool] -> Log [TermBool]
-eqElimFn noElim ts = do
+eqElimFn :: Set.Set String -> Set.Set String -> [TermBool] -> Log [TermBool]
+eqElimFn noElim usedOnce ts = do
   allowBlowup <- liftCfg $ asks (_allowSubBlowup . _smtOptCfg)
   cFold       <- liftCfg $ asks (_cFoldInSub . _smtOptCfg)
   let preCheck' = if cFold then constantFold else id
 
       isArray :: Sort -> Bool
-      isArray (SortArray{}) = True
-      isArray _             = False
+      isArray SortArray{} = True
+      isArray _           = False
+
+      isSelect :: Term s -> Bool
+      isSelect Select{} = True
+      isSelect _        = False
 
       subbable :: SortClass s => String -> Sort -> Term s -> Bool
       subbable v s t =
-        (allowBlowup || nNodes t == 1)
-          &&              v
-          `Set.notMember` noElim
-          &&              not (v `inTerm` t)
-          &&              not (isArray s)
+        (allowBlowup || nNodes t == 1 || Set.member v usedOnce)
+          && (v `Set.notMember` noElim)
+          && not (v `inTerm` t)
+          && not (isArray s)
+          && not (isSelect t)
 
       asSub' :: TermBool -> Maybe (String, Dynamic)
-      asSub' a = do
-        case a of
-          -- Combining these cases is tough b/c the sorts may differ
-          Eq (Var v s) t | subbable v s t -> Just (v, toDyn t)
-          Eq t (Var v s) | subbable v s t -> Just (v, toDyn t)
-          _                               -> Nothing
+      asSub' a = case a of
+        Eq (Var v s) t | subbable v s t -> Just (v, toDyn t)
+        Eq t (Var v s) | subbable v s t -> Just (v, toDyn t)
+        _                               -> Nothing
   eqElimGen (EqElimFns { asSub = asSub', preCheck = preCheck' }) ts

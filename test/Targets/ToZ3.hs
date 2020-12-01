@@ -9,7 +9,7 @@ import           BenchUtils
 import qualified Data.BitVector                as Bv
 import qualified Data.Map.Strict               as Map
 import           Data.Maybe                     ( fromMaybe )
-import           Targets.SMT.TySmtToZ3
+import           Targets.SMT.Z3
 import qualified IR.SMT.TySmt                  as Smt
 import           Test.Tasty.HUnit
 import qualified Z3.Monad                      as Z3
@@ -60,9 +60,9 @@ tySmtToZ3Tests = benchTestGroup
     False
     "bv unsat"
     (Smt.mkEq
-      (Smt.BvBinExpr @4 Smt.BvAdd
-                        (Smt.mkVar "a" (Smt.SortBv 4))
-                        (Smt.IntToBv (Smt.IntLit 1))
+      (Smt.BvNaryExpr @4
+        Smt.BvAdd
+        [Smt.mkVar "a" (Smt.SortBv 4), Smt.IntToBv (Smt.IntLit 1)]
       )
       (Smt.mkVar "a" (Smt.SortBv 4))
     )
@@ -71,9 +71,9 @@ tySmtToZ3Tests = benchTestGroup
     False
     "bv sat"
     (Smt.mkEq
-      (Smt.BvBinExpr @3 Smt.BvOr
-                        (Smt.mkVar "a" (Smt.SortBv 3))
-                        (Smt.IntToBv (Smt.IntLit 7))
+      (Smt.BvNaryExpr @3
+        Smt.BvOr
+        [Smt.mkVar "a" (Smt.SortBv 3), Smt.IntToBv (Smt.IntLit 7)]
       )
       (Smt.mkVar "a" (Smt.SortBv 3))
     )
@@ -112,6 +112,8 @@ tySmtToZ3Tests = benchTestGroup
       ]
     )
     Z3.Sat
+  , genZ3Test False "bit extract sat"   (Smt.DynBvExtractBit 0 $ bv3 5) Z3.Sat
+  , genZ3Test False "bit extract unsat" (Smt.DynBvExtractBit 1 $ bv3 5) Z3.Unsat
   , genOverflowTest "smult overflow"     Smt.BvSmulo 4 (-4) (-2) True
   , genOverflowTest "smult no overflow"  Smt.BvSmulo 4 (-7) (-1) False
   , genOverflowTest "smult no overflow+" Smt.BvSmulo 4 7    1    False

@@ -13,21 +13,28 @@ import           Data.Sequence                  ( Seq )
 import qualified Data.Foldable                 as F
 import qualified Data.Sequence                 as Seq
 import qualified IR.SMT.TySmt                  as Ty
+import qualified IR.SMT.TySmt.Alg              as Alg
 import           Util.Control                   ( MonadDeepState(..) )
 import           Util.Cfg                       ( Cfg
                                                 , MonadCfg
                                                 )
 import           Util.Log
+import           Util.ShowMap                   ( ShowMap )
+import qualified Util.ShowMap                  as SMap
 
 ---
 --- Monad defintions
 ---
+--
+type ArraySizes = ShowMap (Ty.TermArray Ty.DynBvSort Ty.DynBvSort) Int
 
 -- | State for keeping track of SMT-layer information
 data AssertState = AssertState { vars         :: !(M.Map String Dyn.Dynamic)
                                , asserted     :: !(Seq (Ty.Term Ty.BoolSort))
                                , vals         :: !(Maybe (M.Map String Dyn.Dynamic))
                                , public       :: !(S.Set String)
+                               , arraySizes   :: !ArraySizes
+                               , nextVarN     :: !Int
                                }
                                deriving (Show)
 
@@ -46,10 +53,12 @@ instance (MonadAssert m) => MonadAssert (StateT s m) where
 ---
 
 emptyAssertState :: AssertState
-emptyAssertState = AssertState { vars     = M.empty
-                               , asserted = Seq.empty
-                               , vals     = Nothing
-                               , public   = S.empty
+emptyAssertState = AssertState { vars       = M.empty
+                               , asserted   = Seq.empty
+                               , vals       = Nothing
+                               , public     = S.empty
+                               , arraySizes = SMap.empty
+                               , nextVarN   = 0
                                }
 
 initValues :: Assert ()
@@ -58,12 +67,18 @@ initValues = modify $ \s -> s { vals = Just M.empty }
 isStoringValues :: Assert Bool
 isStoringValues = gets (isJust . vals)
 
-evalAndSetValue :: Ty.SortClass s => String -> Ty.Term s -> Assert ()
-evalAndSetValue variable term = do
+-- | Evaluate a term to a value, if values are being stored
+eval :: Ty.SortClass s => Ty.Term s -> Assert (Maybe (Ty.Value s))
+eval t = do
   e <- gets vals
-  case e of
-    Just env -> setValue variable $ Ty.eval env term
-    Nothing  -> return ()
+  return $ fmap (flip Alg.eval t) e
+
+-- | Evaluate a term to a constant term, if values are being stored
+evalToTerm :: Ty.SortClass s => Ty.Term s -> Assert (Maybe (Ty.Term s))
+evalToTerm t = fmap Alg.valueToTerm <$> eval t
+
+evalAndSetValue :: Ty.SortClass s => String -> Ty.Term s -> Assert ()
+evalAndSetValue variable term = eval term >>= mapM_ (setValue variable)
 
 setValue :: Ty.SortClass s => String -> Ty.Value s -> Assert ()
 setValue variable value = do
@@ -71,7 +86,9 @@ setValue variable value = do
   modify $ \s -> s { vals = M.insert variable (Dyn.toDyn value) <$> vals s }
 
 publicize :: String -> Assert ()
-publicize n = modify $ \s -> s { public = S.insert n $ public s }
+publicize n = do
+  logIf "publicize" $ "Publicize: " ++ n
+  modify $ \s -> s { public = S.insert n $ public s }
 
 runAssert :: Assert a -> Cfg (a, AssertState)
 runAssert (Assert act) = evalLog $ runStateT act emptyAssertState
@@ -108,9 +125,21 @@ newVar name sort = do
         ["Already created variable", name, "with wrong sort:", show v]
       )
 
+setSize :: Ty.TermArray Ty.DynBvSort Ty.DynBvSort -> Int -> Assert ()
+setSize array size =
+  modify $ \s -> s { arraySizes = SMap.insert array size $ arraySizes s }
+
+freshVar
+  :: forall s . Ty.SortClass s => String -> Ty.Sort -> Assert (Ty.Term s)
+freshVar name sort = do
+  i <- gets nextVarN
+  modify $ \s -> s { nextVarN = 1 + nextVarN s }
+  let name' = "fresh_" ++ show i ++ "_" ++ name
+  newVar name' sort
+
 check :: AssertState -> Either String ()
 check s = forM_ (F.toList $ asserted s) $ \c -> case vals s of
-  Just e -> if Ty.ValBool True == Ty.eval e c
+  Just e -> if Ty.ValBool True == Alg.eval e c
     then Right ()
     else Left $ "Unsat constraint:\n" ++ show c ++ "\nin\n" ++ show e
   Nothing -> Left "Missing values"

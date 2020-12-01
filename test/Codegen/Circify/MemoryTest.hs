@@ -3,6 +3,7 @@ module Codegen.Circify.MemoryTest where
 import           BenchUtils
 import           Test.Tasty.HUnit
 import qualified IR.SMT.TySmt                  as Smt
+import qualified IR.SMT.TySmt.Alg              as SAlg
 
 memoryTest :: BenchTest
 memoryTest = benchTestGroup
@@ -40,7 +41,7 @@ memoryTest = benchTestGroup
   ]
 
 countStores :: Smt.SortClass s => Smt.Term s -> Int
-countStores = Smt.reduceTerm
+countStores = SAlg.reduceTerm
   (\t -> case t of
     Smt.Store a i v -> Just $ 1 + countStores a + countStores i + countStores v
     _               -> Nothing

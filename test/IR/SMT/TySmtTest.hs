@@ -9,6 +9,7 @@ import           Data.Dynamic
 import qualified Data.Map.Strict               as Map
 import           GHC.TypeLits
 import qualified IR.SMT.TySmt                  as Smt
+import qualified IR.SMT.TySmt.Alg              as SAlg
 import           Test.Tasty.HUnit
 
 tySmtTests :: BenchTest
@@ -36,11 +37,22 @@ tySmtTests = benchTestGroup
     )
     (Smt.ValPf @5 1)
   , genEvalTest
+    "field to bv"
+    Map.empty
+    (Smt.PfToDynBv
+      8
+      (Smt.PfNaryExpr
+        Smt.PfMul
+        [Smt.IntToPf @101 (Smt.IntLit 3), Smt.IntToPf @101 (Smt.IntLit 5)]
+      )
+    )
+    (Smt.ValDynBv $ Bv.bitVec 8 (15 :: Int))
+  , genEvalTest
     "bv expression"
     Map.empty
-    (Smt.BvBinExpr Smt.BvAnd
-                   (Smt.IntToBv @4 (Smt.IntLit 9))
-                   (Smt.IntToBv @4 (Smt.IntLit 10))
+    (Smt.BvNaryExpr
+      Smt.BvAnd
+      [Smt.IntToBv @4 (Smt.IntLit 9), Smt.IntToBv @4 (Smt.IntLit 10)]
     )
     (Smt.ValBv @4 (Bv.bitVec 4 (8 :: Int)))
   , genEvalTest
@@ -76,7 +88,22 @@ tySmtTests = benchTestGroup
   , genOverflowTest @4 Smt.BvSsubo True "high" 0 (-8)
   , genOverflowTest @4 Smt.BvSsubo False "low" (-3) 5
   , genOverflowTest @4 Smt.BvSsubo True "low" (-3) 6
+  , genShowReadTest "vars" (Smt.Eq (bvar "x") (bvar "y"))
+  , genShowReadTest
+    "add"
+    (Smt.Eq (bvar "x") (Smt.mkDynBvNaryExpr Smt.BvAdd [bvar "x", bvar "y"]))
+  , genShowReadTest
+    "lit"
+    (Smt.Eq
+      (bvar "x")
+      (Smt.mkDynBvNaryExpr Smt.BvAdd
+                           [Smt.DynBvLit $ Bv.bitVec 4 (0 :: Int), bvar "y"]
+      )
+    )
   ]
+ where
+  bvar :: String -> Smt.TermDynBv
+  bvar s = Smt.Var s (Smt.SortBv 4)
 
 genOverflowTest
   :: forall n
@@ -101,5 +128,11 @@ type Env = Map.Map String Dynamic
 genEvalTest
   :: (Typeable s) => String -> Env -> Smt.Term s -> Smt.Value s -> BenchTest
 genEvalTest name ctx t v' = benchTestCase ("eval test: " ++ name) $ do
-  let v = Smt.eval ctx t
+  let v = SAlg.eval ctx t
   v' @=? v
+
+genShowReadTest :: String -> Smt.TermBool -> BenchTest
+genShowReadTest name t = benchTestCase ("show/read test: " ++ name) $ do
+  let s  = show t
+  let t' = read s
+  t' @=? t

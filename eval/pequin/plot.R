@@ -1,15 +1,16 @@
 library(tidyverse)
+source("../theme.R")
 
 d <- read_csv("results.csv")
-print(d)
-ggplot(data = d) +
-  geom_bar(aes(x = benchmark, y = constraints, fill = compiler), stat = "identity", position = position_dodge()) +
-  scale_y_continuous(trans="log2") +
+dw <- d %>% pivot_wider(values_from = constraints, names_from=compiler) %>%
+    mutate(reduction = (pequin - circify)/pequin) %>%
+    mutate(ratio = pequin/circify)
+print(dw)
+ggplot(data = dw) +
+  geom_point(aes(x = benchmark, y = ratio)) +
   labs(x = "Benchmark",
-       y = "Rank-1 Constraints",
-       title = "Circify v. Pequin") +
-  theme(text = element_text(size=8),
-        legend.key.size = unit(2,"mm"),
-        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)
-       )
+       y = "Constraint Ratio\nPequin/CirC\n(higher is better)") +
+  geom_hline(yintercept=1) +
+  scale_y_continuous(trans="log2", limits=c(0.25,16)) +
+  t
 ggsave("results.png", width = 3, height = 2, units = "in")

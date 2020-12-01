@@ -13,7 +13,6 @@ import           IR.SMT.Assert                 as Assert
 import           Util.Log
 import           Util.Cfg                       ( MonadCfg )
 import           Util.Control                   ( MonadDeepState(..) )
-import qualified Util.ShowMap                  as SMap
 
 bvNum :: Bool -> Int -> Integer -> Ty.TermDynBv
 bvNum signed width val
@@ -96,7 +95,7 @@ setBits element structure index =
               structMask   = Ty.mkDynBvUnExpr Ty.BvNot elemMask
 
               -- And the struct with the mask
-              res          = Ty.mkDynBvBinExpr Ty.BvAnd structMask structure
+              res          = Ty.mkDynBvNaryExpr Ty.BvAnd [structMask, structure]
 
               -- Construct the *padded elemnt*:
               -- (0) Make [element][0 repeat width(structure - element)]
@@ -105,7 +104,7 @@ setBits element structure index =
               shiftedElem  = Ty.mkDynBvBinExpr Ty.BvShl preShiftElem castIndex
 
        -- Or the two together!
-          in  Ty.mkDynBvBinExpr Ty.BvOr shiftedElem res
+          in  Ty.mkDynBvNaryExpr Ty.BvOr [shiftedElem, res]
         _ ->
           error
             $  "In setBits, the destination has width "
@@ -140,7 +139,6 @@ termMemWidths t = case Ty.sort t of
 -- | State for keeping track of Mem-layer information
 data MemState = MemState
   { stackAllocations :: Map.Map StackAllocId StackAlloc
-  , sizes            :: SMap.ShowMap TermMem Int
   , nextStackId      :: StackAllocId
   }
 
@@ -170,7 +168,7 @@ instance (MonadMem m) => MonadMem (StateT s m) where
   liftMem = lift . liftMem
 
 emptyMem :: MemState
-emptyMem = MemState Map.empty SMap.empty 0
+emptyMem = MemState Map.empty 0
 
 runMem :: Mem a -> Assert.Assert (a, MemState)
 runMem (Mem act) = runStateT act emptyMem
@@ -218,8 +216,8 @@ stackAllocCons idxWidth' elems = do
   let s         = length elems
       valWidth' = Ty.dynBvWidth $ head elems
   id <- stackNewAlloc s idxWidth' valWidth'
-  forM_ (zip [0..] elems) $ \(i, e) ->
-    stackStore id (bvNum False idxWidth' i) e (Ty.BoolLit True)
+  forM_ (zip [0 ..] elems)
+    $ \(i, e) -> stackStore id (bvNum False idxWidth' i) e (Ty.BoolLit True)
   return id
 
 stackNewAlloc
@@ -230,8 +228,8 @@ stackNewAlloc
 stackNewAlloc size' idxWidth' valWidth' = do
   let a = Ty.ConstArray (Ty.SortBv idxWidth') (bvNum False valWidth' 0)
   id <- stackAlloc a size' idxWidth' valWidth'
-  v <- stackGetAllocVar id
-  modify $ \s -> s { sizes = SMap.insert v size' $ sizes s }
+  v  <- stackGetAllocVar id
+  liftAssert $ setSize v size'
   return id
 
 

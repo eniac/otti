@@ -1,9 +1,10 @@
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
 {-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-| This module define CTerm: an SMT/Mem embedding of C values and terms.
  - It does not handle control flow.
  -}
@@ -13,9 +14,6 @@ module Codegen.C.Term
   , CTermData(..)
   , Bitable(..)
   , cDeclVar
-  , cDeclInitVar
-  , cCondAssign
-  , cSetValues
   , ctermGetVars
   , ctermIsUndef
   -- Memory Operations
@@ -50,14 +48,11 @@ module Codegen.C.Term
   , cNe
   -- Ites
   , cCond
-  , cIte
   -- Other
   , cCast
   , cBool
-  -- Consts
-  , cTrue
-  , cFalse
   -- Literals
+  , cBoolLit
   , cIntLit
   , cFloatLit
   , cDoubleLit
@@ -77,18 +72,19 @@ module Codegen.C.Term
   , asArray
   , asDouble
   , asVar
-  -- evaluation
-  , modelMapToExtMap
-  -- input parsing
-  , parseToMap
-  , InMap
+  , CCirc
   )
 where
 
+import           Codegen.LangVal                ( InMap
+                                                , setInputFromMap
+                                                )
 import qualified Codegen.C.Type                as Type
 import           Codegen.Circify.Memory         ( Mem )
+import           Codegen.Circify                ( Circify
+                                                , Embeddable(..)
+                                                )
 import qualified Codegen.Circify.Memory        as Mem
-import           Control.Applicative            ( (<|>) )
 import           Control.Monad                  ( forM
                                                 , unless
                                                 , when
@@ -96,7 +92,6 @@ import           Control.Monad                  ( forM
 import           Control.Monad.State.Strict
 import qualified Data.BitVector                as Bv
 import           Data.Foldable                 as Fold
-import qualified Data.Map.Strict               as Map
 import qualified Data.Set                      as Set
 import           Data.Maybe                     ( fromMaybe
                                                 , isJust
@@ -104,9 +99,7 @@ import           Data.Maybe                     ( fromMaybe
 import           IR.SMT.Assert                  ( liftAssert )
 import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
-import qualified Targets.SMT.TySmtToZ3         as ToZ3
-import           Text.Read                      ( readMaybe )
-import           Util.Control
+import qualified IR.SMT.TySmt.Alg              as TyAlg
 import           Util.Log
 
 
@@ -218,7 +211,7 @@ instance Bitable CTermData where
     --CStackPtr ty _ _ -> Type.numBits ty
     _          -> error $ "Cannot serialize: " ++ show c
   serialize c = case c of
-    CBool b     -> Ty.mkIte b (Mem.bvNum False 1 1) (Mem.bvNum False 1 0)
+    CBool b     -> Ty.BoolToDynBv b
     CInt _ _ bv -> bv
     CFixedPt bv -> bv
     CDouble d   -> Ty.mkDynamizeBv $ Ty.FpToBv d
@@ -234,7 +227,7 @@ instance Bitable CTermData where
     Type.FixedPt             -> CFixedPt bv
     Type.Double              -> CDouble $ Ty.BvToFp $ Ty.mkStatifyBv @64 bv
     Type.Float               -> CFloat $ Ty.BvToFp $ Ty.mkStatifyBv @32 bv
-    Type.Bool                -> CBool $ Ty.mkEq bv (Mem.bvNum False 1 1)
+    Type.Bool                -> CBool $ Ty.mkDynBvExtractBit 0 bv
     Type.Struct fs ->
       let
         sizes  = map (Type.numBits . snd) fs
@@ -280,6 +273,21 @@ cSetValues trackUndef name t = do
     _        -> error $ "Cannot set value for a term: " ++ show t
   when trackUndef $ Assert.evalAndSetValue (udefName name) (udef t)
 
+cEvaluate :: CTerm -> Assert.Assert (Maybe CTerm)
+cEvaluate t = do
+  logIf "values" $ "Evaluating " ++ show t
+  t' <- case term t of
+    CBool   b     -> fmap CBool <$> Assert.evalToTerm b
+    CFloat  b     -> fmap CFloat <$> Assert.evalToTerm b
+    CDouble b     -> fmap CDouble <$> Assert.evalToTerm b
+    CInt s w b    -> fmap (CInt s w) <$> Assert.evalToTerm b
+    CStruct ty fs -> fmap (CStruct ty) . sequence <$> forM
+      fs
+      (\(f, t) -> fmap (f, ) <$> cEvaluate t)
+    CArray{} -> error "Cannot evaluate array term: not-yet implemented"
+  u' <- fmap TyAlg.valueToTerm <$> Assert.eval (udef t)
+  return $ mkCTerm <$> t' <*> u'
+
 
 -- Makes `name` an alias for `t`.
 -- That is, creates new SMT variable corresponding to the terms in `t`,
@@ -295,7 +303,7 @@ alias trackUndef name t = do
       let sort = Ty.SortBool
       v <- Assert.newVar name sort
       Assert.assign v b
-      return $ CBool b
+      return $ CBool v
     CInt isNeg width val -> do
       let sort = Ty.SortBv width
       v <- Assert.newVar name sort
@@ -344,23 +352,11 @@ cDeclInitVar trackUndef ty name init =
   in  liftAssert $ (, init') <$> alias trackUndef name init'
 
 -- Declare a new variable, initializing it to a value.
--- Optional argument: a condition and an alternate value in which case this is
--- an ITE-assignment in which the first value is assigned if the condition is
--- met, otherwise the second value.
--- Returns the term corresponding to the new variable and the ITE or cast or
--- whatever that it was ultimately assigned to.
-cCondAssign
-  :: Bool
-  -> Type.Type
-  -> String
-  -> CTerm
-  -> Maybe (Ty.TermBool, CTerm)
-  -> Mem (CTerm, CTerm)
-cCondAssign trackUndef ty name value alternate = case alternate of
-  Just (cond, value') ->
-    let ite = cIte cond (cCast ty value) (cCast ty value')
-    in  cDeclInitVar trackUndef ty name ite
-  Nothing -> cDeclInitVar trackUndef ty name (cCast ty value)
+-- Returns the term corresponding to the new variable and
+-- whatever it was ultimately assigned to.
+cAssign :: Bool -> Type.Type -> String -> CTerm -> Mem (CTerm, CTerm)
+cAssign trackUndef ty name value =
+  cDeclInitVar trackUndef ty name (cCast ty value)
 
 -- Declare a new variable, do not initialize it.
 cDeclVar
@@ -451,11 +447,7 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
     -> String
     -> Maybe String
     -> Assert.Assert ()
-  getBaseInput f d s mS = whenJust inMap $ \iM ->
-    let v   = f <$> ((iM Map.!?) =<< mS)
-        v'  = f <$> (iM Map.!? s)
-        v'' = d
-    in  Assert.setValue s $ fromMaybe v'' (v <|> v')
+  getBaseInput = setInputFromMap inMap
 
 cIntLit :: Type.Type -> Integer -> CTerm
 cIntLit t v =
@@ -579,7 +571,7 @@ intResize fromSign toWidth from =
 -- 4. Scale the int, do the op.
 cWrapBinArith
   :: String
-  -> (Bool -> Ty.BvBinOp)
+  -> (Bool -> Either Ty.BvBinOp Ty.BvNaryOp)
   -> (  forall f
       . Ty.ComputableFp f
      => Ty.Term (Ty.FpSort f)
@@ -597,6 +589,8 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
   (integralPromotion a)
   (integralPromotion b)
  where
+  bvBinExpr (Left  o) = Ty.mkDynBvBinExpr o
+  bvBinExpr (Right o) = \x y -> Ty.mkDynBvNaryExpr o [x, y]
   convert a b =
     let
       cannot with = error $ unwords ["Cannot do", name, "with", with]
@@ -604,7 +598,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
       -- TODO: check bounds!
       cPtrPlusInt :: Type.Type -> Bv -> Bool -> Bv -> Bv
       cPtrPlusInt pTy ptr signed int =
-        Ty.mkDynBvBinExpr Ty.BvAdd ptr $ intResize signed (Type.numBits pTy) int
+        bvBinExpr (Right Ty.BvAdd) ptr $ intResize signed (Type.numBits pTy) int
 
       (t, u) = case (term a, term b) of
         (CDouble d, _) -> if allowDouble
@@ -628,21 +622,19 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
             (CFloat $ doubleF d $ asFloat $ term $ cCast Type.Float a, Nothing)
           else cannot "a double"
         (CStackPtr ty off id, CInt s _ i) ->
-          if bvOp s == Ty.BvAdd || bvOp s == Ty.BvSub
+          if bvOp s == Right Ty.BvAdd || bvOp s == Left Ty.BvSub
             then (CStackPtr ty (cPtrPlusInt ty off s i) id, Nothing)
             else cannot "a pointer on the left"
         (CStackPtr ty off id, CStackPtr ty' off' id') ->
-          if bvOp False == Ty.BvSub && ty == ty' && id == id'
+          if bvOp False == Left Ty.BvSub && ty == ty' && id == id'
             then -- TODO: ptrdiff_t?
-              ( CInt True
-                     (Type.numBits ty)
-                     (Ty.mkDynBvBinExpr (bvOp False) off off')
+              ( CInt True (Type.numBits ty) (bvBinExpr (bvOp False) off off')
               , ubF >>= (\f -> f True off True off')
               )
             else
               cannot
                 "two pointers, or two pointers of different types, or pointers to different allocations"
-        (CInt s _ i, CStackPtr ty addr id) -> if bvOp s == Ty.BvAdd
+        (CInt s _ i, CStackPtr ty addr id) -> if bvOp s == Right Ty.BvAdd
           then (CStackPtr ty (cPtrPlusInt ty addr s i) id, Nothing)
           else cannot "a pointer on the right"
         -- Ptr diff
@@ -651,7 +643,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
               sign  = max s s'
               l     = intResize s width i
               r     = intResize s' width i'
-          in  ( CInt sign width $ Ty.mkDynBvBinExpr (bvOp sign) l r
+          in  ( CInt sign width $ bvBinExpr (bvOp sign) l r
               , ubF >>= (\f -> f s l s' r)
               )
 
@@ -758,7 +750,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
 cBitOr, cBitXor, cBitAnd, cSub, cMul, cAdd, cMin, cMax, cDiv, cRem, cShl, cShr
   :: CTerm -> CTerm -> CTerm
 cAdd = cWrapBinArith "+"
-                     (const Ty.BvAdd)
+                     (const $ Right Ty.BvAdd)
                      (Ty.FpBinExpr Ty.FpAdd)
                      (Just overflow)
                      True
@@ -767,7 +759,7 @@ cAdd = cWrapBinArith "+"
   overflow s i s' i' =
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSaddo i i' else Nothing
 cSub = cWrapBinArith "-"
-                     (const Ty.BvSub)
+                     (const $ Left Ty.BvSub)
                      (Ty.FpBinExpr Ty.FpSub)
                      (Just overflow)
                      True
@@ -777,7 +769,7 @@ cSub = cWrapBinArith "-"
     if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSsubo i i' else Nothing
 
 cMul = cWrapBinArith "*"
-                     (const Ty.BvMul)
+                     (const $ Right Ty.BvMul)
                      (Ty.FpBinExpr Ty.FpMul)
                      (Just overflow)
                      True
@@ -789,7 +781,7 @@ cMul = cWrapBinArith "*"
 
 -- TODO: div overflow
 cDiv = cWrapBinArith "/"
-                     (const Ty.BvUdiv)
+                     (const $ Left Ty.BvUdiv)
                      (Ty.FpBinExpr Ty.FpDiv)
                      (Just overflow)
                      True
@@ -814,7 +806,7 @@ isDivZero _s _i _s' i' =
 
 -- TODO: CPP reference says that % requires integral arguments
 cRem = cWrapBinArith "%"
-                     (const Ty.BvUrem)
+                     (const $ Left Ty.BvUrem)
                      (Ty.FpBinExpr Ty.FpRem)
                      (Just isDivZero)
                      False
@@ -828,11 +820,18 @@ noFpError
   -> Ty.Term (Ty.FpSort f)
   -> Ty.Term (Ty.FpSort f)
 noFpError = const $ const $ error "Invalid FP op"
-cBitOr = cWrapBinArith "|" (const Ty.BvOr) noFpError Nothing False True
-cBitAnd = cWrapBinArith "&" (const Ty.BvAnd) noFpError Nothing False True
-cBitXor = cWrapBinArith "^" (const Ty.BvXor) noFpError Nothing False True
+cBitOr = cWrapBinArith "|" (const $ Right Ty.BvOr) noFpError Nothing False True
+cBitAnd =
+  cWrapBinArith "&" (const $ Right Ty.BvAnd) noFpError Nothing False True
+cBitXor =
+  cWrapBinArith "^" (const $ Right Ty.BvXor) noFpError Nothing False True
 -- Not quite right, since we're gonna force these to be equal in size
-cShl = cWrapBinArith "<<" (const Ty.BvShl) noFpError (Just overflow) False True
+cShl = cWrapBinArith "<<"
+                     (const $ Left Ty.BvShl)
+                     noFpError
+                     (Just overflow)
+                     False
+                     True
  where
   overflow s i _s' i' =
     let baseNeg =
@@ -851,7 +850,7 @@ cShl = cWrapBinArith "<<" (const Ty.BvShl) noFpError (Just overflow) False True
     in  Just $ Ty.BoolNaryExpr Ty.Or $ baseNeg ++ shftBig
 -- Not quite right, since we're gonna force these to be equal in size
 cShr = cWrapBinArith ">>"
-                     (\s -> if s then Ty.BvAshr else Ty.BvLshr)
+                     (\s -> Left $ if s then Ty.BvAshr else Ty.BvLshr)
                      noFpError
                      (Just overflow)
                      False
@@ -1153,6 +1152,10 @@ cIte condB t f =
       (CBool   tB, CBool fB  ) -> CBool $ Ty.mkIte condB tB fB
       (CDouble tB, CDouble fB) -> CDouble $ Ty.mkIte condB tB fB
       (CFloat  tB, CFloat fB ) -> CFloat $ Ty.mkIte condB tB fB
+      (CDouble{} , _         ) -> term $ cIte condB t (cCast (cType t) f)
+      (_         , CDouble{} ) -> term $ cIte condB (cCast (cType f) t) f
+      (CFloat{}  , _         ) -> term $ cIte condB t (cCast (cType t) f)
+      (_         , CFloat{}  ) -> term $ cIte condB (cCast (cType f) t) f
       -- TODO: not quite right.
       -- Wrong in some instances of conditional initialization.
       (CStackPtr tTy tB tId, CStackPtr fTy fB fId)
@@ -1227,29 +1230,14 @@ binOr a b = Ty.BoolNaryExpr Ty.Or [a, b]
 binAnd :: Ty.TermBool -> Ty.TermBool -> Ty.TermBool
 binAnd a b = Ty.BoolNaryExpr Ty.And [a, b]
 
-cTrue :: CTerm
-cTrue = mkCTerm (CBool $ Ty.BoolLit True) (Ty.BoolLit False)
+cBoolLit :: Bool -> CTerm
+cBoolLit b = mkCTerm (CBool $ Ty.BoolLit b) (Ty.BoolLit False)
 
-cFalse :: CTerm
-cFalse = mkCTerm (CBool $ Ty.BoolLit False) (Ty.BoolLit False)
+instance Embeddable Type.Type CTerm (Maybe InMap, Bool) where
+  declare   = uncurry cDeclVar
+  assign    = cAssign . snd
+  ite       = const $ ((.) . (.) . (.)) return cIte
+  setValues = cSetValues . snd
+  evaluate  = const cEvaluate
 
-type InMap = Map.Map String Integer
-
-parseToMap :: String -> Map.Map String Integer
-parseToMap s = Map.fromList $ map pL $ filter (not . null) $ lines s
- where
-  pL l = case words l of
-    [l, r] -> (l, fromMaybe (error "No int on right") $ readMaybe r)
-    _      -> error $ "Line " ++ show l ++ "does not have 2 tokens"
-
--- Convert a model map (from Z3) to an ext map
--- TODO: handle structures
-modelMapToExtMap :: Map.Map String ToZ3.Val -> InMap
-modelMapToExtMap m = Map.fromList $ map f $ Map.toList m
- where
-  f (k, v) =
-    let i = case v of
-          ToZ3.BVal b -> toInteger $ fromEnum b
-          ToZ3.IVal i -> toInteger i
-          _           -> error $ "Unhandled model entry value: " ++ show v
-    in  (k, i)
+type CCirc a = Circify Type.Type CTerm (Maybe InMap, Bool) a

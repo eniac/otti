@@ -18,10 +18,10 @@ uint32_t uintlog2(uint32_t a){
   }
   uint32_t log = 0;
   int found = 0;
-  for(i = 31; i>=1; i--){
+  for(i = 1; i<=31; i++){
     if (!found){
-      if (bits[i]){
-        log = i;
+      if (bits[31 - i]){
+        log = 31 - i;
         found = 1;
       }
     }

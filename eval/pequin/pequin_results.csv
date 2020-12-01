@@ -1,8 +1,8 @@
 benchmark,compiler,constraints
 mm5,pequin,125
-u32log2,pequin,124
-ptrs,pequin,1993
-ptrs-benes,pequin,1993
+u32log2-array,pequin,124
+u32log2,pequin,159
+ptrs-8,pequin,1993
+ptrs-256,pequin,47097
 u32sqrt,pequin,703
 sha1,pequin,17339
-bounded_loop,pequin,1049

@@ -49,13 +49,11 @@ replaceDoubleQuotes = map ifDoubleThenSingle
   ifDoubleThenSingle c   = c
 
 benchTestCase :: String -> IO () -> BenchTest
-benchTestCase name act =
-  BenchTest { getTest = testCase name act }
+benchTestCase name act = BenchTest { getTest = testCase name act }
   --, getBench = bench (replaceDoubleQuotes name) $ nfIO act
 
 benchTestProperty :: Testable a => String -> a -> BenchTest
-benchTestProperty name prop =
-  BenchTest { getTest = testProperty name prop }
+benchTestProperty name prop = BenchTest { getTest = testProperty name prop }
   --, getBench = bench (replaceDoubleQuotes name) $ nfIO $ return ()
 
 --benchGoldenVsString :: String -> FilePath -> IO ByteString -> BenchTest

@@ -5,7 +5,7 @@ import           BenchUtils
 import           Test.Tasty.HUnit
 import qualified Codegen.Circom.Linking        as Link
 import qualified Parser.Circom.Inputs          as Parse
-import qualified IR.R1cs                       as R1cs
+import qualified Targets.R1cs.Main             as R1cs
 import qualified Data.Map                      as Map
 import qualified Data.IntMap                   as IntMap
 import qualified Data.Maybe                    as Maybe

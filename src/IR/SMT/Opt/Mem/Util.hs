@@ -27,6 +27,7 @@ import           Control.Monad.State.Strict     ( void
                                                 , unless
                                                 )
 import           IR.SMT.TySmt
+import           IR.SMT.TySmt.Alg               ( mapTermM )
 import qualified Util.ShowMap                  as SMap
 import           Util.ShowMap                   ( ShowMap )
 import           Util.Log                       ( logIf
