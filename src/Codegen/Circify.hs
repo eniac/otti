@@ -6,6 +6,7 @@
 
 -- For MonadCircify
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Codegen.Circify
@@ -29,7 +30,7 @@ module Codegen.Circify
   , runCircify
   , typedef
   , untypedef
-  , getTermVal
+  , getValue
   , getTerm
   , VarName
   , SsaVal(..)
@@ -251,7 +252,13 @@ data FunctionScope ty term = FunctionScope
   deriving Show
 
 fsResetGuards :: [Ty.TermBool] -> FunctionScope t v -> FunctionScope t v
-fsResetGuards gs fs = FunctionScope { guards = map Guard gs, lexicalScopes = [], nCurrentScopes = 0, lsCtr = 0, fsPrefix = fsPrefix fs, retTy = retTy fs }
+fsResetGuards gs fs = FunctionScope { guards         = map Guard gs
+                                    , lexicalScopes  = []
+                                    , nCurrentScopes = 0
+                                    , lsCtr          = 0
+                                    , fsPrefix       = fsPrefix fs
+                                    , retTy          = retTy fs
+                                    }
 
 listModify :: Functor m => Int -> (a -> m a) -> [a] -> m [a]
 listModify 0 f (x : xs) = (: xs) `fmap` f x
@@ -629,13 +636,6 @@ getTerm var = compilerGetsInScope var fsGetTerm lsGetTerm
 getValue :: Embeddable t v c => SsaLVal -> Circify t v c (Maybe v)
 getValue var = do
   t <- ssaValAsTerm "getValue" <$> getTerm var
-  l <- gets langCfg
-  liftAssert $ evaluate l t
-
--- Evaluates a term
--- Returns nothing if we're not tracking values.
-getTermVal :: Embeddable t v c => SsaVal v -> Circify t v c (Maybe v)
-getTermVal t = do
   l <- gets langCfg
   liftAssert $ evaluate l t
 

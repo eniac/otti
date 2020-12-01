@@ -1,4 +1,6 @@
 {-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
@@ -49,8 +51,7 @@ import qualified Util.Cfg                      as Cfg
 import           Util.Cfg                       ( MonadCfg(..) )
 import           Util.Control
 import           Util.Log
-import IR.Circify.Control
-
+import           Data.Tuple.Extra
 
 data CState = CState
   { funs          :: Map.Map FunctionName CFunDef
@@ -330,15 +331,15 @@ noneIfVoid t = if Void == t then Nothing else Just t
 
 -- | Handle special functions, returning whether this function was special
 genSpecialFunction :: VarName -> [CExpr] -> C (Maybe CSsaVal)
-genSpecialFunction fnName args = do
+genSpecialFunction fnName cargs = do
   specifialPrintf <- Cfg.liftCfg $ asks (Cfg._printfOutput . Cfg._cCfg)
   svExtensions    <- Cfg.liftCfg $ asks (Cfg._svExtensions . Cfg._cCfg)
   bugs            <- gets findUB
-  actualArgs      <- traverse genExpr args
   case fnName of
     "printf" | specifialPrintf -> do
       -- skip fstring
-      when bugs $ forM_ (tail actualArgs) (bugIf . udef . ssaValAsTerm "printf udef")
+      args <- traverse genExpr . tail $ cargs
+      when bugs $ forM_ args (bugIf . udef . ssaValAsTerm "printf udef")
       -- Not quite right. Should be # chars.
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_error" | svExtensions -> do
@@ -348,36 +349,32 @@ genSpecialFunction fnName args = do
       when bugs $ bugIf (Ty.BoolLit True)
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_assert" | svExtensions -> do
-      if bugs
-        then bugIf $ Ty.Not $ ssaBool $ head actualArgs
-        else assume $ ssaBool $ head actualArgs
+      prop <- genExpr . head $ cargs
+      if bugs then bugIf . Ty.Not . ssaBool $ prop else assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_assume" | svExtensions -> do
-      when bugs $ assume $ ssaBool $ head actualArgs
+      prop <- genExpr . head $ cargs
+      when bugs . assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
     "__GADGET_rewrite" -> do
-      s <- deepGet
-      -- Parse assertion arguments in Circify
-      assertVals <- traverse genExpr args
-      -- Evaluate assertions are satisfied by calling into Z3 with values
-      maybeBoolValues <- liftCircify $ traverse (getTermVal . ssaBool) assertVals
-
-      -- Check they are all satisfied (TODO: Use labels on streams)
-	  concreteBoolValues <- flip zipWithM args maybeBoolValues checkAssert
-
-      guard $ all (==True) concreteBoolValues
-
+      -- Enter scratch state
+      s    <- deepGet
+      -- Parse propositional arguments
+      args <- traverse genExpr cargs
+      let numbered = zip3 [1 ..] cargs args
+      -- Evaluate propositions as bools and check if they hold
+      liftCircify $ traverse (uncurry3 checkGadgetAssertion) numbered
       -- Restore call stack to prior state
       deepPut s
-      -- Replace function scope with the user-provided assertion
+      -- Replace function scope guards with the user-provided assertions
       -- TODO: When we have a graph representation, this will be much easier to apply to a basic-block instead.
       -- This way we can also encode loop-invariants for summarizing loops. For now, unit of granularity is the function
-      liftCircify $ compilerModifyTop (fsResetGuards $ fmap ssaBool assertVals)
 
-      -- What to do with the prover witnesses?
+      liftCircify $ compilerModifyTop (fsResetGuards . fmap ssaBool $ args)
       return . Just . Base $ cIntLit S32 1
     "assume_abort_if_not" | svExtensions -> do
-      when bugs $ assume $ ssaBool $ head actualArgs
+      prop <- genExpr . head $ cargs
+      when bugs . assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
     _ | isNonDet fnName -> do
       let ty = nonDetTy fnName
@@ -388,10 +385,32 @@ genSpecialFunction fnName args = do
       liftCircify $ Just <$> getTerm (SLVar name)
     _ -> return Nothing
  where
-  checkAssert :: CExpr -> Maybe Bool -> Log Bool
-  checkAssert arg (Just True) = do { logStr $ "Verified assertion " ++ show arg; return True }
-  checkAssert arg (Just False) = do { logStr $ "Failed assertion " ++ show arg; return False }
-  checkAssert _ Nothing = return True -- No values, cannot check so just take the user's word the assertion is satisfied
+  checkGadgetAssertion
+    :: Embeddable t CTerm c
+    => Int
+    -> CExpr
+    -> SsaVal CTerm
+    -> Circify t CTerm c (Bool)
+  checkGadgetAssertion n e cv = do
+    -- Assign to an l-value
+    let lval = SLVar $ "_gadget_prop_" ++ show n
+    ssaAssign lval cv
+    -- Compute value with inputs if given, or Nothing
+    cterm <- getValue lval
+    case fmap (asBool . term) cterm of
+      (Just (Ty.BoolLit True)) -> do
+        liftLog . logStr $ "Verified assertion " ++ show e
+        return True
+      (Just (Ty.BoolLit False)) -> do
+        liftLog . logStr $ "Failed assertion " ++ show e
+        return False
+      (Just other) ->
+        error
+          $  "Unsure how to deal with "
+          ++ show other
+          ++ " for argument "
+          ++ show e
+      (Nothing) -> return True
 
   nonDetTy :: String -> Type
   nonDetTy s = case drop (length "__VERIFIER_nondet_") s of
@@ -404,6 +423,7 @@ genSpecialFunction fnName args = do
     "float"  -> Float
     "double" -> Double
     _        -> error $ "Unknown nondet suffix in: " ++ s
+
   isNonDet = List.isPrefixOf "__VERIFIER_nondet_"
 
 genExpr :: CExpr -> C CSsaVal
@@ -452,12 +472,13 @@ genExpr expr = do
     CCall fn args _ -> case fn of
       CVar fnIdent _ -> do
         let fnName = identToVarName fnIdent
-        s          <- genSpecialFunction fnName args
+        s <- genSpecialFunction fnName args
         case s of
           Just r  -> return r
           Nothing -> do
-            f     <- getFunction fnName
-            retTy <- liftCircify $ unwrap <$> fnRetTy f
+            f          <- getFunction fnName
+            retTy      <- liftCircify $ unwrap <$> fnRetTy f
+            actualArgs <- traverse genExpr args
             let (_, args, body) = fnInfo f
             liftCircify $ pushFunction fnName (noneIfVoid retTy)
             forM_ args (genDecl FnArg)
@@ -467,7 +488,7 @@ genExpr expr = do
               .   join
               .   map (either error id)
               <$> forM args cSplitDeclaration
-            unless (length formalArgs == length actualArgs)
+            unless (length formalArgs == length args)
               $  error
               $  "Wrong arg count: "
               ++ show expr
