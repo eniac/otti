@@ -369,7 +369,6 @@ genSpecialFunction fnName cargs = do
       -- Replace function scope guards with the user-provided assertions
       -- TODO: When we have a graph representation, this will be much easier to apply to a basic-block instead.
       -- This way we can also encode loop-invariants for summarizing loops. For now, unit of granularity is the function
-
       liftCircify $ compilerModifyTop (fsResetGuards . fmap ssaBool $ args)
       return . Just . Base $ cIntLit S32 1
     "assume_abort_if_not" | svExtensions -> do
@@ -385,31 +384,32 @@ genSpecialFunction fnName cargs = do
       liftCircify $ Just <$> getTerm (SLVar name)
     _ -> return Nothing
  where
-  checkGadgetAssertion
-    :: Embeddable t CTerm c
-    => Int
-    -> CExpr
-    -> SsaVal CTerm
-    -> Circify t CTerm c (Bool)
   checkGadgetAssertion n e cv = do
     -- Assign to an l-value
-    let lval = SLVar $ "_gadget_prop_" ++ show n
+    let lval = SLVar $ "gadget_prop_" ++ show n
     ssaAssign lval cv
     -- Compute value with inputs if given, or Nothing
     cterm <- getValue lval
+    liftLog $ logIfPretty "gadgets::user::analytics"
+                          ("Evaluated gadget program result " ++ show cterm)
+                          e
     case fmap (asBool . term) cterm of
       (Just (Ty.BoolLit True)) -> do
-        liftLog . logStr $ "Verified assertion " ++ show e
+        liftLog
+          $ logIfPretty "gadgets::user::verification" "Verified assertion" e
         return True
       (Just (Ty.BoolLit False)) -> do
-        liftLog . logStr $ "Failed assertion " ++ show e
-        return False
-      (Just other) ->
+        liftLog $ logIfPretty "gadgets::user::verification" "Failed assertion" e
+        error
+          $ "Failed assertion, enable gadgets::user::verification for details"
+      (Just other) -> do
+        liftLog $ logIfPretty "gadgets::user::verification"
+                              ("Unsure how to deal with " ++ show other)
+                              e
         error
           $  "Unsure how to deal with "
           ++ show other
-          ++ " for argument "
-          ++ show e
+          ++ " enable gadgets::user::verification for details"
       (Nothing) -> return True
 
   nonDetTy :: String -> Type

@@ -133,7 +133,7 @@ defaultCfgState :: CfgState
 defaultCfgState = CfgState { _r1csCfg          = defaultR1csCfg
                            , _toPfCfg          = defaultToPfCfg
                            , _smtOptCfg        = defaultSmtOptCfg
-                           , _streams          = []
+                           , _streams          = ["gadgets::user::analytics", "gadgets::user::verification"]
                            , _loopBound        = 5
                            , _loopFlatten      = True
                            , _loopMaxIteration = 10000

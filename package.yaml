@@ -55,6 +55,7 @@ library:
   - hashable >= 1.2.7 && < 1.3
   - time >= 1.8 && < 1.9
   - pretty-simple >= 2.2 && < 2.3
+  - pretty >= 1.1.3
   - optparse-applicative >= 0.14 && < 0.15
 
 executables:
