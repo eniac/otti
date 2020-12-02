@@ -366,10 +366,7 @@ genSpecialFunction fnName cargs = do
       liftCircify $ traverse (uncurry3 checkGadgetAssertion) numbered
       -- Restore call stack to prior state
       deepPut s
-      -- Replace function scope guards with the user-provided assertions
-      -- TODO: When we have a graph representation, this will be much easier to apply to a basic-block instead.
-      -- This way we can also encode loop-invariants for summarizing loops. For now, unit of granularity is the function
-      liftCircify $ compilerModifyTop (fsResetGuards . fmap ssaBool $ args)
+      liftCircify $ compilerModifyTop (fsAppendGuards . fmap ssaBool $ args)
       return . Just . Base $ cIntLit S32 1
     "assume_abort_if_not" | svExtensions -> do
       prop <- genExpr . head $ cargs
@@ -386,10 +383,10 @@ genSpecialFunction fnName cargs = do
  where
   checkGadgetAssertion n e cv = do
     -- Assign to an l-value
-    let lval = SLVar $ "gadget_prop_" ++ show n
-    ssaAssign lval cv
+    let lname = "gadget_prop_" ++ show n
+    declareInitVar lname Bool cv
     -- Compute value with inputs if given, or Nothing
-    cterm <- getValue lval
+    cterm <- getValue $ SLVar lname
     liftLog $ logIfPretty "gadgets::user::analytics"
                           ("Evaluated gadget program result " ++ show cterm)
                           e

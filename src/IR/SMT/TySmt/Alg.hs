@@ -43,7 +43,7 @@ import           Prelude                 hiding ( exp )
 import           IR.SMT.TySmt
 import qualified IR.SMT.TySmt.DefaultMap       as DMap
 import           IR.SMT.TySmt.DefaultMap        ( DefaultMap )
-
+import           Debug.Trace                    ( trace )
 -- |
 -- Given a function that optionally transforms a term, traverses the term
 -- applying that function at every stage. When the function returns something,
@@ -655,4 +655,5 @@ checkSortDeep = mapTermM visit
 -- | Given a value, returns a term of the same sort that would evaluate to that
 -- value, and has no variables.
 valueToTerm :: SortClass s => Value s -> Term s
-valueToTerm = undefined
+valueToTerm (ValBool b) = BoolLit b
+valueToTerm s           = trace ("Called valueToTerm with " ++ show s) undefined

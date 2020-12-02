@@ -15,7 +15,7 @@ module Codegen.Circify
   , pushGuard
   , popGuard
   , guarded
-  , fsResetGuards
+  , fsAppendGuards
   , compilerModifyTop
   , getGuard
   , enterLexScope
@@ -251,14 +251,14 @@ data FunctionScope ty term = FunctionScope
   }
   deriving Show
 
-fsResetGuards :: [Ty.TermBool] -> FunctionScope t v -> FunctionScope t v
-fsResetGuards gs fs = FunctionScope { guards         = map Guard gs
-                                    , lexicalScopes  = []
-                                    , nCurrentScopes = 0
-                                    , lsCtr          = 0
-                                    , fsPrefix       = fsPrefix fs
-                                    , retTy          = retTy fs
-                                    }
+fsAppendGuards :: [Ty.TermBool] -> FunctionScope t v -> FunctionScope t v
+fsAppendGuards gs fs = FunctionScope { guards = guards fs ++ map Guard gs
+                                     , lexicalScopes  = []
+                                     , nCurrentScopes = 0
+                                     , lsCtr          = 0
+                                     , fsPrefix       = fsPrefix fs
+                                     , retTy          = retTy fs
+                                     }
 
 listModify :: Functor m => Int -> (a -> m a) -> [a] -> m [a]
 listModify 0 f (x : xs) = (: xs) `fmap` f x
