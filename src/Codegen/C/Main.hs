@@ -826,13 +826,12 @@ checkFn tu name = do
                                                                  Nothing
   Back.target assertState
 
-evalFn :: Bool -> CTranslUnit -> String -> Log (Map.Map String ToZ3.Val)
-evalFn findBug tu name = do
-  -- TODO: inputs?
+evalFn :: CTranslUnit -> String -> Maybe InMap -> Log (Map.Map String ToZ3.Val)
+evalFn tu name ins = do
   assertState <- liftCfg $ Assert.execAssert $ compile $ CInputs tu
                                                                  name
-                                                                 findBug
-                                                                 Nothing
+                                                                 False
+                                                                 ins
   let a = Fold.toList $ Assert.asserted assertState
   z3res <- ToZ3.evalZ3Model $ Ty.BoolNaryExpr Ty.And a
   return $ ToZ3.model z3res
