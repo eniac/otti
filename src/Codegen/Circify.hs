@@ -583,7 +583,7 @@ compilerModifyTop f = compilerModifyTopM (return . f)
 declareInitVar
   :: (Embeddable t v c) => VarName -> t -> SsaVal v -> Circify t v c ()
 declareInitVar var ty term = do
-  declareVar False var ty
+  declareVar True var ty
   void $ hardAssign (SLVar var) term
 
 -- | Declares a global variable

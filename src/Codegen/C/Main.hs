@@ -386,7 +386,7 @@ genSpecialFunction fnName cargs = do
     let lname = "gadget_prop_" ++ show n
     declareInitVar lname Bool cv
     -- Compute value with inputs if given, or Nothing
-    cterm <- getValue $ SLVar lname
+    cterm <- getValue . SLVar $ lname
     liftLog $ logIfPretty "gadgets::user::analytics"
                           ("Evaluated gadget program result " ++ show cterm)
                           e
@@ -396,7 +396,8 @@ genSpecialFunction fnName cargs = do
           $ logIfPretty "gadgets::user::verification" "Verified assertion" e
         return True
       (Just (Ty.BoolLit False)) -> do
-        liftLog $ logIfPretty "gadgets::user::verification" "Failed assertion" e
+        liftLog
+          $ logIfPretty "gadgets::user::verification" "Failed assertion" e
         error
           $ "Failed assertion, enable gadgets::user::verification for details"
       (Just other) -> do

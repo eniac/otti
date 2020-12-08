@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE GADTs               #-}
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
@@ -259,8 +260,8 @@ cSetValues trackUndef name t = do
     _        -> error $ "Cannot set value for a term: " ++ show t
   when trackUndef $ Assert.evalAndSetValue (udefName name) (udef t)
 
-cEvaluate :: CTerm -> Assert.Assert (Maybe CTerm)
-cEvaluate t = do
+cEvaluate :: Bool -> CTerm -> Assert.Assert (Maybe CTerm)
+cEvaluate trackUndef t = do
   logIf "values" $ "Evaluating " ++ show t
   t' <- case term t of
     CBool   b     -> fmap CBool <$> Assert.evalToTerm b
@@ -269,10 +270,13 @@ cEvaluate t = do
     CInt s w b    -> fmap (CInt s w) <$> Assert.evalToTerm b
     CStruct ty fs -> fmap (CStruct ty) . sequence <$> forM
       fs
-      (\(f, t) -> fmap (f, ) <$> cEvaluate t)
+      (\(f, t) -> fmap (f, ) <$> cEvaluate trackUndef t)
     CArray{} -> error "Cannot evaluate array term: not-yet implemented"
-  u' <- fmap TyAlg.valueToTerm <$> Assert.eval (udef t)
-  return $ mkCTerm <$> t' <*> u'
+  if trackUndef
+    then do
+      u' <- fmap TyAlg.valueToTerm <$> Assert.eval (udef t)
+      return $ mkCTerm <$> t' <*> u'
+    else return $ mkCTerm <$> t' <*> pure (Ty.BoolLit False)
 
 
 -- Makes `name` an alias for `t`.
@@ -965,6 +969,8 @@ cCond cond t f =
 
 -- A ITE based on an SMT boolean condition.
 cIte :: Ty.TermBool -> CTerm -> CTerm -> CTerm
+cIte (Ty.BoolLit True ) t _ = t
+cIte (Ty.BoolLit False) _ t = t
 cIte condB t f =
   let
     result = case (term t, term f) of
@@ -995,9 +1001,14 @@ cIte condB t f =
               $ Ty.mkIte condB (intResize s width i) (intResize s' width i')
       (CStruct aTy a, CStruct bTy b) | aTy == bTy ->
         CStruct aTy $ zipWith (\(f, aV) (_, bV) -> (f, cIte condB aV bV)) a b
-      _ ->
-        error $ unwords
-          ["Cannot construct conditional with", show t, "and", show f]
+      _ -> error $ unwords
+        [ "Cannot construct conditional "
+        , show condB
+        , " with "
+        , show t
+        , " and "
+        , show f
+        ]
   in  mkCTerm result (Ty.mkIte condB (udef t) (udef f))
 
 ctermGetVars :: String -> CTerm -> Mem (Set.Set String)
@@ -1051,6 +1062,6 @@ instance Embeddable Type.Type CTerm (Maybe InMap, Bool) where
   assign    = cAssign . snd
   ite       = const $ ((.) . (.) . (.)) return cIte
   setValues = cSetValues . snd
-  evaluate  = const cEvaluate
+  evaluate  = cEvaluate . snd
 
 type CCirc a = Circify Type.Type CTerm (Maybe InMap, Bool) a
