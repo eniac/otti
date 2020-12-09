@@ -21,6 +21,8 @@ import           Codegen.Circify.Memory         ( MonadMem
                                                 )
 import           Codegen.FrontEnd
 import           Codegen.LangVal
+
+import           Control.Monad.Fail
 import           Control.Monad                  ( replicateM_
                                                 , forM
                                                 , join
@@ -66,7 +68,7 @@ data CState = CState
 type CCircState = CircifyState Type CTerm (Maybe InMap, Bool)
 
 newtype C a = C (StateT CState (Circify Type CTerm (Maybe InMap, Bool)) a)
-    deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem, MonadCircify Type CTerm (Maybe InMap, Bool), MonadCfg, MonadDeepState (((Assert.AssertState, Mem.MemState), CCircState), CState))
+    deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem, MonadFail, MonadCircify Type CTerm (Maybe InMap, Bool), MonadCfg, MonadDeepState (((Assert.AssertState, Mem.MemState), CCircState), CState))
 
 emptyCState :: Bool -> CState
 emptyCState findBugs = CState { funs          = Map.empty
@@ -357,10 +359,13 @@ genSpecialFunction fnName cargs = do
       when bugs . assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
     "__GADGET_rewrite" -> do
+      -- Call with the function output like this __GADGET_rewrite(out, check1(args...), check2(args...), ...)
+      -- Then make the output variable a prover input
       -- Enter scratch state
-      s    <- deepGet
+      s            <- deepGet
+      -- A reference to the output, to be transformed into an input from the prover
       -- Parse propositional arguments
-      args <- traverse genExpr cargs
+      (out : args) <- traverse genExpr cargs
       let numbered = zip3 [1 ..] cargs args
       -- Evaluate propositions as bools and check if they hold
       liftCircify $ traverse (uncurry3 checkGadgetAssertion) numbered
@@ -396,8 +401,7 @@ genSpecialFunction fnName cargs = do
           $ logIfPretty "gadgets::user::verification" "Verified assertion" e
         return True
       (Just (Ty.BoolLit False)) -> do
-        liftLog
-          $ logIfPretty "gadgets::user::verification" "Failed assertion" e
+        liftLog $ logIfPretty "gadgets::user::verification" "Failed assertion" e
         error
           $ "Failed assertion, enable gadgets::user::verification for details"
       (Just other) -> do

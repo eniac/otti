@@ -65,6 +65,7 @@ import           Codegen.Circify.Memory         ( Mem
 -- Control imports
 import           Control.Monad.Reader
 import           Control.Monad.State.Strict
+import           Control.Monad.Fail
 
 -- Data imports
 import           Data.List                      ( intercalate
@@ -423,7 +424,8 @@ instance MonadCircify t v c (Circify t v c) where
   liftCircify = id
 instance (MonadCircify t v c m) => MonadCircify t v c (StateT s m) where
   liftCircify = lift . liftCircify
-
+instance MonadFail (Circify t v c) where
+  fail s = error $ "Failure :" ++ s
 
 ---
 --- Setup, monad functions, etc
