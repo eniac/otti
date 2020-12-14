@@ -3,7 +3,7 @@ import           BenchUtils
 import           Codegen.C.Main
 import           Control.Monad                  ( forM_ )
 import qualified Data.Map                      as M
-import           Targets.SMT.Z3          ( Val
+import           Targets.SMT.Z3                 ( Val
                                                 , i_
                                                 , b_
                                                 , d_
@@ -405,6 +405,15 @@ cValueTests = benchTestGroup
                         , ("f0_round_lex1__w_v0", i 4294967258)] -- -38
   ]
 
+cGadgetTests :: BenchTest
+cGadgetTests = benchTestGroup
+  "C gadgets test"
+  [ inputValueTest "evaluate gadget"
+                   "max"
+                   "test/Code/C/max.c"
+                   [("a", 10), ("b", 20)]
+                   [("f0_max__return", i 20)]
+  ]
 cRealTests :: BenchTest
 cRealTests = benchTestGroup
   "C real program test"
@@ -452,11 +461,26 @@ cPequinTests = benchTestGroup "C pequin compiler tests" []
 --, constraintValueTest "sha1" "main" "test/Code/C/sha1.c" [ ]
 --, constraintValueTest "sqrt" "main" "test/Code/C/sqrt.c" [ ("f0_main__return", i 3) ]
 
+inputValueTest
+  :: String
+  -> String
+  -> FilePath
+  -> [(String, Integer)]
+  -> [(String, Val)]
+  -> BenchTest
+inputValueTest name fnName path inputs expected = benchTestCase name $ do
+  tu <- parseC path
+  r  <- evalCfgDefault $ evalLog $ evalFn tu fnName (Just . M.fromList $ inputs)
+  forM_ expected $ \(evar, eval) -> do
+    case M.lookup evar r of
+      Just aval -> eval @=? aval
+      Nothing -> error $ unwords ["No variable", show evar, "in model", show r]
+
 constraintValueTest
   :: String -> String -> FilePath -> [(String, Val)] -> BenchTest
 constraintValueTest name fnName path expected = benchTestCase name $ do
   tu <- parseC path
-  r  <- evalCfgDefault $ evalLog $ evalFn False tu fnName
+  r  <- evalCfgDefault $ evalLog $ evalFn tu fnName Nothing
   forM_ expected $ \(evar, eval) -> do
     case M.lookup evar r of
       Just aval -> eval @=? aval

@@ -9,6 +9,7 @@ module Codegen.C.AstUtil
   , nodeText
   , fnRetTy
   , fnInfo
+  , extractVarName
   , nameFromFunc
   , derivedFromDeclr
   , identToVarName
@@ -18,6 +19,7 @@ module Codegen.C.AstUtil
   , isStorageSpec
   , defStruct
   , getStruct
+  , headErrorMsg
   , getConstIterations
   )
 where
@@ -25,6 +27,7 @@ import           Codegen.C.Type
 import           Codegen.C.Term                 ( CCirc )
 import           Codegen.Circify
 import           Control.Monad
+import           Control.Monad.Fail (MonadFail)
 import           Control.Monad.IO.Class
 import           Data.Maybe                     ( fromJust
                                                 , fromMaybe
@@ -168,6 +171,13 @@ cSplitDeclaration d = case d of
   _ -> error . ("Unexpected declaration: " ++) <$> liftIO (nodeText d)
 
 -- Other Helpers
+
+headErrorMsg :: MonadFail m => [a] -> String -> m a
+headErrorMsg (h:_) _ = return h
+headErrorMsg [] s = fail s
+
+extractVarName :: CExpr -> String
+extractVarName (CVar i _) = identToVarName i
 
 fnInfo :: CFunDef -> (FunctionName, [CDecl], CStat)
 fnInfo f = (nameFromFunc f, argsFromFunc f, bodyFromFunc f)
