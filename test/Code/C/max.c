@@ -31,6 +31,8 @@ bool max_check(int a, int b, int out) {
 int max(int a, int b) {
   // Prover code
   int out = (a > b) ? a : b;
+
   __GADGET_rewrite(out, max_check(a, b, out));
+  return out;
 }
 

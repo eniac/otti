@@ -73,6 +73,7 @@ module Codegen.C.Term
   , asArray
   , asDouble
   , asVar
+  , asLVal
   , CCirc
   )
 where
@@ -84,6 +85,7 @@ import qualified Codegen.C.Type                as Type
 import           Codegen.Circify.Memory         ( Mem )
 import           Codegen.Circify                ( Circify
                                                 , Embeddable(..)
+                                                , SsaLVal(..)
                                                 )
 import qualified Codegen.Circify.Memory        as Mem
 import           Control.Monad                  ( forM
@@ -174,6 +176,9 @@ asVar t = case term t of
   CDouble t'  -> Ty.asVarName t'
   CFloat  t'  -> Ty.asVarName t'
   _           -> error $ "Var name unsupported for " ++ show t
+
+asLVal :: CTerm -> Maybe SsaLVal
+asLVal t = SLVar <$> asVar t
 
 data CTerm = CTerm
   { term :: CTermData

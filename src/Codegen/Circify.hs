@@ -14,6 +14,7 @@ module Codegen.Circify
   , popFunction
   , pushGuard
   , popGuard
+  , setValue
   , guarded
   , fsAppendGuards
   , compilerModifyTop
@@ -413,7 +414,7 @@ data CircifyState t v c = CircifyState
   , fnCtr     :: Int                     -- ^ Inline fn-call #
   , langCfg   :: c                       -- ^ Language configuration
   , guardCnt  :: Int                     -- ^ Number of guards so far
-  }
+  } deriving (Show)
 
 newtype Circify t v c a = Circify (StateT (CircifyState t v c) Mem a)
     deriving (Functor, Applicative, Monad, MonadState (CircifyState t v c), MonadIO, MonadLog, MonadMem, MonadAssert, MonadCfg, MonadDeepState ((Assert.AssertState, Mem.MemState), CircifyState t v c))

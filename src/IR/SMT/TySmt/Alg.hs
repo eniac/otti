@@ -654,5 +654,10 @@ checkSortDeep = mapTermM visit
 -- | Given a value, returns a term of the same sort that would evaluate to that
 -- value, and has no variables.
 valueToTerm :: SortClass s => Value s -> Term s
-valueToTerm (ValBool b) = BoolLit b
-valueToTerm s           = undefined
+valueToTerm (ValBool   b) = BoolLit b
+valueToTerm (ValDynBv  n) = DynBvLit n
+valueToTerm (ValInt    n) = IntLit n
+valueToTerm (ValFloat  n) = Fp32Lit n
+valueToTerm (ValDouble n) = Fp64Lit n
+valueToTerm o             = error $ "Unsure how to term valueToTerm " ++ show o
+-- ValArray  :: !(DefaultMap (Value a) (Value b)) -> Value (ArraySort a b)

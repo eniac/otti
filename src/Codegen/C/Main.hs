@@ -1,5 +1,3 @@
-{-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
@@ -22,7 +20,7 @@ import           Codegen.Circify.Memory         ( MonadMem
 import           Codegen.FrontEnd
 import           Codegen.LangVal
 
-import           Control.Monad.Fail
+import           Control.Monad.Fail             ( MonadFail )
 import           Control.Monad                  ( replicateM_
                                                 , forM
                                                 , join
@@ -33,9 +31,11 @@ import qualified Data.Char                     as Char
 import qualified Data.Foldable                 as Fold
 import qualified Data.List                     as List
 import qualified Data.Map                      as Map
+import qualified Data.BitVector                as BV
 import           Data.Maybe                     ( fromJust
                                                 , fromMaybe
                                                 , isJust
+                                                , catMaybes
                                                 )
 import qualified Data.Set                      as Set
 import           IR.SMT.Assert                  ( MonadAssert
@@ -43,6 +43,7 @@ import           IR.SMT.Assert                  ( MonadAssert
                                                 )
 import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
+import           IR.SMT.TySmt                   ( )
 import qualified IR.SMT.TySmt.Alg              as TyAlg
 import qualified Targets.SMT.Z3                as ToZ3
 import qualified Targets.BackEnd               as Back
@@ -54,7 +55,7 @@ import           Util.Cfg                       ( MonadCfg(..) )
 import           Util.Control
 import           Util.Log
 import           Data.Tuple.Extra
-
+import           Data.Dynamic
 data CState = CState
   { funs          :: Map.Map FunctionName CFunDef
   , loopBound     :: Int
@@ -63,7 +64,7 @@ data CState = CState
   , assumptions   :: [Ty.TermBool]
   , nonDetCtr     :: Int
   , breakDepth    :: Int
-  }
+  } deriving Show
 
 type CCircState = CircifyState Type CTerm (Maybe InMap, Bool)
 
@@ -359,20 +360,29 @@ genSpecialFunction fnName cargs = do
       when bugs . assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
     "__GADGET_rewrite" -> do
-      -- Call with the function output like this __GADGET_rewrite(out, check1(args...), check2(args...), ...)
-      -- Then make the output variable a prover input
+      -- Parse existential variable ('out') and propositional arguments see `test/Code/C/max.c`
+      lout <- SLVar . extractVarName <$> headErrorMsg
+        cargs
+        "The first argument to __GADGET_rewrite should be the gadget output LVar"
       -- Enter scratch state
-      s            <- deepGet
-      -- A reference to the output, to be transformed into an input from the prover
-      -- Parse propositional arguments
-      (out : args) <- traverse genExpr cargs
-      let numbered = zip3 [1 ..] cargs args
-      -- Evaluate propositions as bools and check if they hold
-      liftCircify $ traverse (uncurry3 checkGadgetAssertion) numbered
+      s                 <- deepGet
+      (Base out : args) <- traverse genExpr cargs
+      let numbered = zip3 [1 :: Integer ..] (tail cargs) args
+      -- Evaluate proposition bools and check if they hold
+      liftCircify $ forM_ numbered (uncurry3 checkGadgetAssertion)
       -- Restore call stack to prior state
       deepPut s
-      liftCircify $ compilerModifyTop (fsAppendGuards . fmap ssaBool $ args)
-      return . Just . Base $ cIntLit S32 1
+      nout <- liftCircify . getValue $ lout
+      -- Set a value for out
+      liftCircify . setValue lout . fromJust $ nout
+      -- Push the verifier assertions in the circuit
+      traverse genExpr . tail $ cargs
+      liftLog $ logIf
+        "gadgets::user::analytics"
+        (unwords
+          ["Gadget computed", show lout, "=", show nout, "from", show out]
+        )
+      return . Just . Base . fromJust $ nout
     "assume_abort_if_not" | svExtensions -> do
       prop <- genExpr . head $ cargs
       when bugs . assume . ssaBool $ prop
@@ -392,27 +402,22 @@ genSpecialFunction fnName cargs = do
     declareInitVar lname Bool cv
     -- Compute value with inputs if given, or Nothing
     cterm <- getValue . SLVar $ lname
-    liftLog $ logIfPretty "gadgets::user::analytics"
-                          ("Evaluated gadget program result " ++ show cterm)
-                          e
     case fmap (asBool . term) cterm of
       (Just (Ty.BoolLit True)) -> do
         liftLog
           $ logIfPretty "gadgets::user::verification" "Verified assertion" e
         return True
-      (Just (Ty.BoolLit False)) -> do
-        liftLog $ logIfPretty "gadgets::user::verification" "Failed assertion" e
-        error
-          $ "Failed assertion, enable gadgets::user::verification for details"
       (Just other) -> do
-        liftLog $ logIfPretty "gadgets::user::verification"
-                              ("Unsure how to deal with " ++ show other)
-                              e
-        error
-          $  "Unsure how to deal with "
+        liftLog $ logIfPretty "gadgets::user::verification" "Failed assertion" e
+        fail
+          $  "Failed assertion, enable gadgets::user::verification for details"
           ++ show other
           ++ " enable gadgets::user::verification for details"
-      (Nothing) -> return True
+      -- Must mean inputs are not given at compile-time
+      (Nothing) -> do
+        liftLog $ logIf "gadgets::user::verification"
+                        "Inputs are not given, gadget substitution disabled."
+        return True
 
   nonDetTy :: String -> Type
   nonDetTy s = case drop (length "__VERIFIER_nondet_") s of
@@ -837,9 +842,25 @@ evalFn tu name ins = do
                                                                  name
                                                                  False
                                                                  ins
+  -- Create an assertion from given values
+  let vs = (catMaybes . fmap (uncurry mkValEq) . Map.toList)
+        <$> Assert.vals assertState
   let a = Fold.toList $ Assert.asserted assertState
-  z3res <- ToZ3.evalZ3Model $ Ty.BoolNaryExpr Ty.And a
+  z3res <- ToZ3.evalZ3Model $ Ty.BoolNaryExpr Ty.And (a ++ fromMaybe [] vs)
   return $ ToZ3.model z3res
+ where
+  mkValEq :: String -> Dynamic -> Maybe Ty.TermBool
+  mkValEq name v = do
+    term <- TyAlg.valueToTerm . Ty.ValDynBv <$> fromDyn v
+    let sort = Ty.sort term
+    return $ Ty.Eq (Ty.Var name sort) term
+  fromDyn :: Dynamic -> Maybe BV.BV
+  fromDyn v = Fold.asum
+    [ (fromDynamic v :: Maybe (Ty.Value Ty.DynBvSort))
+        >>= (\case
+              (Ty.ValDynBv b) -> Just b
+            )
+    ]
 
 data CInputs = CInputs CTranslUnit String Bool (Maybe InMap)
 
