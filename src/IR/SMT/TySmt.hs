@@ -782,6 +782,7 @@ mkSelect a k' =
           , show kS
           ]
 
+
 (#) :: Hashable a => Int -> a -> Int
 (#) = hashWithSalt
 

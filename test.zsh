@@ -2,6 +2,12 @@
 # Runs end-to-end workflow tests.
 set -ex
 
+C_smt_check_opts=True C_streams=smt::opt,gadgets::user::verification,gadgets::user::analysis stack run -- c max ./test/Code/C/max.c --setup
+C_smt_check_opts=True C_streams=smt::opt,gadgets::user::verification,gadgets::user::analysis stack run -- c max ./test/Code/C/max.c --prove -i <(echo a 10; echo b 20)
+C_smt_check_opts=True stack run -- verify
+
+# exit
+
 function num_constraints() {
   cat C | head -n 1 | awk '{ print $3 }'
 }
@@ -21,6 +27,7 @@ stack run -- verify
 C_no_overflow=True stack run -- c outer ./test/Code/C/fn_call.c --setup
 C_no_overflow=True stack run -- c outer ./test/Code/C/fn_call.c --prove -i <(echo x 1; echo y 3)
 stack run -- verify
+
 
 stack run -- c outer ./test/Code/C/fn_call.c --check --setup
 stack run -- c-check-prove outer ./test/Code/C/fn_call.c

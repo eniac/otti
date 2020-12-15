@@ -6,6 +6,7 @@
 
 -- For MonadCircify
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Codegen.Circify
@@ -13,7 +14,10 @@ module Codegen.Circify
   , popFunction
   , pushGuard
   , popGuard
+  , setValue
   , guarded
+  , fsAppendGuards
+  , compilerModifyTop
   , getGuard
   , enterLexScope
   , exitLexScope
@@ -27,8 +31,8 @@ module Codegen.Circify
   , runCircify
   , typedef
   , untypedef
-  , getTerm
   , getValue
+  , getTerm
   , VarName
   , SsaVal(..)
   , SsaLVal(..)
@@ -62,6 +66,7 @@ import           Codegen.Circify.Memory         ( Mem
 -- Control imports
 import           Control.Monad.Reader
 import           Control.Monad.State.Strict
+import           Control.Monad.Fail
 
 -- Data imports
 import           Data.List                      ( intercalate
@@ -248,6 +253,15 @@ data FunctionScope ty term = FunctionScope
   }
   deriving Show
 
+fsAppendGuards :: [Ty.TermBool] -> FunctionScope t v -> FunctionScope t v
+fsAppendGuards gs fs = FunctionScope { guards = guards fs ++ map Guard gs
+                                     , lexicalScopes  = []
+                                     , nCurrentScopes = 0
+                                     , lsCtr          = 0
+                                     , fsPrefix       = fsPrefix fs
+                                     , retTy          = retTy fs
+                                     }
+
 listModify :: Functor m => Int -> (a -> m a) -> [a] -> m [a]
 listModify 0 f (x : xs) = (: xs) `fmap` f x
 listModify n f (x : xs) = (x :) `fmap` listModify (n - 1) f xs
@@ -318,6 +332,7 @@ fsEnterLexScope scope =
             , lexicalScopes  = newLs : lexicalScopes scope
             , nCurrentScopes = 1 + nCurrentScopes scope
             }
+
 
 printFs :: FunctionScope t v -> IO ()
 printFs s = do
@@ -399,7 +414,7 @@ data CircifyState t v c = CircifyState
   , fnCtr     :: Int                     -- ^ Inline fn-call #
   , langCfg   :: c                       -- ^ Language configuration
   , guardCnt  :: Int                     -- ^ Number of guards so far
-  }
+  } deriving (Show)
 
 newtype Circify t v c a = Circify (StateT (CircifyState t v c) Mem a)
     deriving (Functor, Applicative, Monad, MonadState (CircifyState t v c), MonadIO, MonadLog, MonadMem, MonadAssert, MonadCfg, MonadDeepState ((Assert.AssertState, Mem.MemState), CircifyState t v c))
@@ -410,7 +425,8 @@ instance MonadCircify t v c (Circify t v c) where
   liftCircify = id
 instance (MonadCircify t v c m) => MonadCircify t v c (StateT s m) where
   liftCircify = lift . liftCircify
-
+instance MonadFail (Circify t v c) where
+  fail s = error $ "Failure :" ++ s
 
 ---
 --- Setup, monad functions, etc
@@ -570,7 +586,7 @@ compilerModifyTop f = compilerModifyTopM (return . f)
 declareInitVar
   :: (Embeddable t v c) => VarName -> t -> SsaVal v -> Circify t v c ()
 declareInitVar var ty term = do
-  declareVar False var ty
+  declareVar True var ty
   void $ hardAssign (SLVar var) term
 
 -- | Declares a global variable
@@ -625,7 +641,6 @@ getValue var = do
   t <- ssaValAsTerm "getValue" <$> getTerm var
   l <- gets langCfg
   liftAssert $ evaluate l t
-
 
 getVer :: SsaLVal -> Circify t v c Version
 getVer var = compilerGetsInScope var fsGetVer lsGetVer
@@ -690,7 +705,7 @@ ssaVarAsString (SsaVar varName ver) = varName ++ "_v" ++ show ver
 
 
 -- Assert that the current version of `var` is assign `value` to it.
--- Could return 
+-- Could return
 hardAssign
   :: Embeddable t v c => SsaLVal -> SsaVal v -> Circify t v c (SsaVal v)
 hardAssign var val = do

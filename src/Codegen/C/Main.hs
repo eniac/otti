@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
@@ -19,6 +19,8 @@ import           Codegen.Circify.Memory         ( MonadMem
                                                 )
 import           Codegen.FrontEnd
 import           Codegen.LangVal
+
+import           Control.Monad.Fail             ( MonadFail )
 import           Control.Monad                  ( replicateM_
                                                 , forM
                                                 , join
@@ -29,9 +31,11 @@ import qualified Data.Char                     as Char
 import qualified Data.Foldable                 as Fold
 import qualified Data.List                     as List
 import qualified Data.Map                      as Map
+import qualified Data.BitVector                as BV
 import           Data.Maybe                     ( fromJust
                                                 , fromMaybe
                                                 , isJust
+                                                , catMaybes
                                                 )
 import qualified Data.Set                      as Set
 import           IR.SMT.Assert                  ( MonadAssert
@@ -39,6 +43,7 @@ import           IR.SMT.Assert                  ( MonadAssert
                                                 )
 import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
+import           IR.SMT.TySmt                   ( )
 import qualified IR.SMT.TySmt.Alg              as TyAlg
 import qualified Targets.SMT.Z3                as ToZ3
 import qualified Targets.BackEnd               as Back
@@ -49,8 +54,8 @@ import qualified Util.Cfg                      as Cfg
 import           Util.Cfg                       ( MonadCfg(..) )
 import           Util.Control
 import           Util.Log
-
-
+import           Data.Tuple.Extra
+import           Data.Dynamic
 data CState = CState
   { funs          :: Map.Map FunctionName CFunDef
   , loopBound     :: Int
@@ -59,12 +64,12 @@ data CState = CState
   , assumptions   :: [Ty.TermBool]
   , nonDetCtr     :: Int
   , breakDepth    :: Int
-  }
+  } deriving Show
 
 type CCircState = CircifyState Type CTerm (Maybe InMap, Bool)
 
 newtype C a = C (StateT CState (Circify Type CTerm (Maybe InMap, Bool)) a)
-    deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem, MonadCircify Type CTerm (Maybe InMap, Bool), MonadCfg, MonadDeepState (((Assert.AssertState, Mem.MemState), CCircState), CState))
+    deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem, MonadFail, MonadCircify Type CTerm (Maybe InMap, Bool), MonadCfg, MonadDeepState (((Assert.AssertState, Mem.MemState), CCircState), CState))
 
 emptyCState :: Bool -> CState
 emptyCState findBugs = CState { funs          = Map.empty
@@ -328,15 +333,16 @@ noneIfVoid :: Type -> Maybe Type
 noneIfVoid t = if Void == t then Nothing else Just t
 
 -- | Handle special functions, returning whether this function was special
-genSpecialFunction :: VarName -> [CSsaVal] -> C (Maybe CSsaVal)
-genSpecialFunction fnName args = do
+genSpecialFunction :: VarName -> [CExpr] -> C (Maybe CSsaVal)
+genSpecialFunction fnName cargs = do
   specifialPrintf <- Cfg.liftCfg $ asks (Cfg._printfOutput . Cfg._cCfg)
   svExtensions    <- Cfg.liftCfg $ asks (Cfg._svExtensions . Cfg._cCfg)
   bugs            <- gets findUB
   case fnName of
     "printf" | specifialPrintf -> do
       -- skip fstring
-      when bugs $ forM_ (tail args) (bugIf . udef . ssaValAsTerm "printf udef")
+      args <- traverse genExpr . tail $ cargs
+      when bugs $ forM_ args (bugIf . udef . ssaValAsTerm "printf udef")
       -- Not quite right. Should be # chars.
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_error" | svExtensions -> do
@@ -346,15 +352,41 @@ genSpecialFunction fnName args = do
       when bugs $ bugIf (Ty.BoolLit True)
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_assert" | svExtensions -> do
-      if bugs
-        then bugIf $ Ty.Not $ ssaBool $ head args
-        else assume $ ssaBool $ head args
+      prop <- genExpr . head $ cargs
+      if bugs then bugIf . Ty.Not . ssaBool $ prop else assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_assume" | svExtensions -> do
-      when bugs $ assume $ ssaBool $ head args
+      prop <- genExpr . head $ cargs
+      when bugs . assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
+    "__GADGET_compute" -> do
+      -- Enter scratch state
+      s <- deepGet
+      let cexpr = head cargs
+      expr <- genExpr cexpr
+      -- Give an l-var to the gadget expression
+      let exprname = "__gadget_out"
+      let ctype = cType . ssaValAsTerm "gadget evaluation" $ expr
+      liftCircify $ declareInitVar exprname ctype expr
+      vexpr <- liftCircify . getValue . SLVar $ exprname
+      logIfPretty "gadget::user::analytics"
+                  ("Gadget computed for " ++ show vexpr ++ " from expr ")
+                  cexpr
+      -- Erase scratch state
+      deepPut s
+      liftCircify $ declareVar False exprname ctype
+      liftCircify . setValue (SLVar exprname) . fromJust $ vexpr
+      Just <$> (liftCircify . getTerm . SLVar $ exprname)
+    "__GADGET_rewrite" -> do
+      -- Parse propositional arguments see `test/Code/C/max.c`
+      args <- traverse genExpr cargs
+      let numbered = zip3 [1 :: Integer ..] cargs args
+      -- Evaluate proposition bools and check if they hold
+      forM_ numbered (uncurry3 assumeGadgetAssertion)
+      return . Just . Base $ cIntLit S32 1
     "assume_abort_if_not" | svExtensions -> do
-      when bugs $ assume $ ssaBool $ head args
+      prop <- genExpr . head $ cargs
+      when bugs . assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
     _ | isNonDet fnName -> do
       let ty = nonDetTy fnName
@@ -365,6 +397,32 @@ genSpecialFunction fnName args = do
       liftCircify $ Just <$> getTerm (SLVar name)
     _ -> return Nothing
  where
+  assumeGadgetAssertion n e cv = do
+    -- Assign to an l-value
+    -- gadget_prop_1 = max_check(a,b,out)
+    let lname = "__gadget_prop_" ++ show n
+    liftCircify $ declareInitVar lname Bool cv
+    -- Compute value with inputs if given, or Nothing
+    cterm <- liftCircify . getValue . SLVar $ lname
+    -- Generate circuitry to check at verifier runtime
+    assume . ssaBool $ cv
+    -- Check at compile time
+    case fmap (asBool . term) cterm of
+      (Just (Ty.BoolLit True)) -> do
+        liftLog
+          $ logIfPretty "gadgets::user::verification" "Verified assertion" e
+        return True
+      (Just other) -> do
+        liftLog $ logIfPretty "gadgets::user::verification" "Failed assertion" e
+        fail
+          $  "Failed assertion, enable gadgets::user::verification for details"
+          ++ show other
+      -- Must mean inputs are not given at compile-time
+      (Nothing) -> do
+        liftLog $ logIf "gadgets::user::verification"
+                        "Inputs are not given, gadget substitution disabled."
+        return True
+
   nonDetTy :: String -> Type
   nonDetTy s = case drop (length "__VERIFIER_nondet_") s of
     "char"   -> S8
@@ -376,6 +434,7 @@ genSpecialFunction fnName args = do
     "float"  -> Float
     "double" -> Double
     _        -> error $ "Unknown nondet suffix in: " ++ s
+
   isNonDet = List.isPrefixOf "__VERIFIER_nondet_"
 
 genExpr :: CExpr -> C CSsaVal
@@ -424,13 +483,13 @@ genExpr expr = do
     CCall fn args _ -> case fn of
       CVar fnIdent _ -> do
         let fnName = identToVarName fnIdent
-        actualArgs <- traverse genExpr args
-        s          <- genSpecialFunction fnName actualArgs
+        s <- genSpecialFunction fnName args
         case s of
           Just r  -> return r
           Nothing -> do
-            f     <- getFunction fnName
-            retTy <- liftCircify $ unwrap <$> fnRetTy f
+            f          <- getFunction fnName
+            retTy      <- liftCircify $ unwrap <$> fnRetTy f
+            actualArgs <- traverse genExpr args
             let (_, args, body) = fnInfo f
             liftCircify $ pushFunction fnName (noneIfVoid retTy)
             forM_ args (genDecl FnArg)
@@ -440,7 +499,7 @@ genExpr expr = do
               .   join
               .   map (either error id)
               <$> forM args cSplitDeclaration
-            unless (length formalArgs == length actualArgs)
+            unless (length formalArgs == length args)
               $  error
               $  "Wrong arg count: "
               ++ show expr
@@ -781,16 +840,31 @@ checkFn tu name = do
                                                                  Nothing
   Back.target assertState
 
-evalFn :: Bool -> CTranslUnit -> String -> Log (Map.Map String ToZ3.Val)
-evalFn findBug tu name = do
-  -- TODO: inputs?
+evalFn :: CTranslUnit -> String -> Maybe InMap -> Log (Map.Map String ToZ3.Val)
+evalFn tu name ins = do
   assertState <- liftCfg $ Assert.execAssert $ compile $ CInputs tu
                                                                  name
-                                                                 findBug
-                                                                 Nothing
+                                                                 False
+                                                                 ins
+  -- Create an assertion from given values
+  let vs = (catMaybes . fmap (uncurry mkValEq) . Map.toList)
+        <$> Assert.vals assertState
   let a = Fold.toList $ Assert.asserted assertState
-  z3res <- ToZ3.evalZ3Model $ Ty.BoolNaryExpr Ty.And a
+  z3res <- ToZ3.evalZ3Model $ Ty.BoolNaryExpr Ty.And (a ++ fromMaybe [] vs)
   return $ ToZ3.model z3res
+ where
+  mkValEq :: String -> Dynamic -> Maybe Ty.TermBool
+  mkValEq name v = do
+    term <- TyAlg.valueToTerm . Ty.ValDynBv <$> fromDyn v
+    let sort = Ty.sort term
+    return $ Ty.Eq (Ty.Var name sort) term
+  fromDyn :: Dynamic -> Maybe BV.BV
+  fromDyn v = Fold.asum
+    [ (fromDynamic v :: Maybe (Ty.Value Ty.DynBvSort))
+        >>= (\case
+              (Ty.ValDynBv b) -> Just b
+            )
+    ]
 
 data CInputs = CInputs CTranslUnit String Bool (Maybe InMap)
 
