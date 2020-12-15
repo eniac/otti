@@ -30,9 +30,10 @@ bool max_check(int a, int b, int out) {
 // max gadget
 int max(int a, int b) {
   // Prover code
-  int out = (a > b) ? a : b;
+  int out = __GADGET_compute((a > b) ? a : b);
 
-  __GADGET_rewrite(out, max_check(a, b, out));
+  // Pre evaluating this
+  __GADGET_rewrite(max_check(a, b, out));
   return out;
 }
 

@@ -359,30 +359,31 @@ genSpecialFunction fnName cargs = do
       prop <- genExpr . head $ cargs
       when bugs . assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
-    "__GADGET_rewrite" -> do
-      -- Parse existential variable ('out') and propositional arguments see `test/Code/C/max.c`
-      lout <- SLVar . extractVarName <$> headErrorMsg
-        cargs
-        "The first argument to __GADGET_rewrite should be the gadget output LVar"
+    "__GADGET_compute" -> do
       -- Enter scratch state
-      s                 <- deepGet
-      (Base out : args) <- traverse genExpr cargs
-      let numbered = zip3 [1 :: Integer ..] (tail cargs) args
-      -- Evaluate proposition bools and check if they hold
-      liftCircify $ forM_ numbered (uncurry3 checkGadgetAssertion)
-      -- Restore call stack to prior state
+      s <- deepGet
+      let cexpr = head cargs
+      expr <- genExpr cexpr
+      -- Give an l-var to the gadget expression
+      let exprname = "__gadget_out"
+      let ctype = cType . ssaValAsTerm "gadget evaluation" $ expr
+      liftCircify $ declareInitVar exprname ctype expr
+      vexpr <- liftCircify . getValue . SLVar $ exprname
+      logIfPretty "gadget::user::analytics"
+                  ("Gadget computed for " ++ show vexpr ++ " from expr ")
+                  cexpr
+      -- Erase scratch state
       deepPut s
-      nout <- liftCircify . getValue $ lout
-      -- Set a value for out
-      liftCircify . setValue lout . fromJust $ nout
-      -- Push the verifier assertions in the circuit
-      traverse genExpr . tail $ cargs
-      liftLog $ logIf
-        "gadgets::user::analytics"
-        (unwords
-          ["Gadget computed", show lout, "=", show nout, "from", show out]
-        )
-      return . Just . Base . fromJust $ nout
+      liftCircify $ declareVar False exprname ctype
+      liftCircify . setValue (SLVar exprname) . fromJust $ vexpr
+      Just <$> (liftCircify . getTerm . SLVar $ exprname)
+    "__GADGET_rewrite" -> do
+      -- Parse propositional arguments see `test/Code/C/max.c`
+      args <- traverse genExpr cargs
+      let numbered = zip3 [1 :: Integer ..] cargs args
+      -- Evaluate proposition bools and check if they hold
+      forM_ numbered (uncurry3 assumeGadgetAssertion)
+      return . Just . Base $ cIntLit S32 1
     "assume_abort_if_not" | svExtensions -> do
       prop <- genExpr . head $ cargs
       when bugs . assume . ssaBool $ prop
@@ -396,12 +397,16 @@ genSpecialFunction fnName cargs = do
       liftCircify $ Just <$> getTerm (SLVar name)
     _ -> return Nothing
  where
-  checkGadgetAssertion n e cv = do
+  assumeGadgetAssertion n e cv = do
     -- Assign to an l-value
-    let lname = "gadget_prop_" ++ show n
-    declareInitVar lname Bool cv
+    -- gadget_prop_1 = max_check(a,b,out)
+    let lname = "__gadget_prop_" ++ show n
+    liftCircify $ declareInitVar lname Bool cv
     -- Compute value with inputs if given, or Nothing
-    cterm <- getValue . SLVar $ lname
+    cterm <- liftCircify . getValue . SLVar $ lname
+    -- Generate circuitry to check at verifier runtime
+    assume . ssaBool $ cv
+    -- Check at compile time
     case fmap (asBool . term) cterm of
       (Just (Ty.BoolLit True)) -> do
         liftLog
@@ -412,7 +417,6 @@ genSpecialFunction fnName cargs = do
         fail
           $  "Failed assertion, enable gadgets::user::verification for details"
           ++ show other
-          ++ " enable gadgets::user::verification for details"
       -- Must mean inputs are not given at compile-time
       (Nothing) -> do
         liftLog $ logIf "gadgets::user::verification"
