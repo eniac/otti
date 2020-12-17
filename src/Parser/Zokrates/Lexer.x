@@ -32,6 +32,10 @@ tokens :-
   "then"                                { tok $ \p s -> Posnd p Then }
   "else"                                { tok $ \p s -> Posnd p Else }
   "fi"                                  { tok $ \p s -> Posnd p Fi }
+  "d-if"                                { tok $ \p s -> Posnd p DataIf }
+  "d-then"                              { tok $ \p s -> Posnd p DataThen }
+  "d-else"                              { tok $ \p s -> Posnd p DataElse }
+  "d-fi"                                { tok $ \p s -> Posnd p DataFi }
   "for"                                 { tok $ \p s -> Posnd p For }
   "in"                                  { tok $ \p s -> Posnd p In }
   "do"                                  { tok $ \p s -> Posnd p Do }
@@ -80,6 +84,10 @@ data Token = Bool
            | Then
            | Else
            | Fi
+           | DataIf
+           | DataThen
+           | DataElse
+           | DataFi
            | For
            | In
            | Do
@@ -130,6 +138,10 @@ str (Posnd _ t) = case t of
            Then -> "then"
            Else -> "else"
            Fi -> "fi"
+           DataIf -> "d-if"
+           DataThen -> "d-then"
+           DataElse -> "d-else"
+           DataFi -> "d-fi"
            For -> "for"
            In -> "in"
            Do -> "do"

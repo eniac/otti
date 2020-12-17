@@ -46,6 +46,7 @@ data Bounds s = Bounds !(Maybe (AnExpr s)) !(Maybe (AnExpr s))
 data Stmt s = For !(AnType s) !(AnString s) !(AnBounds s) !(AnBlock s)
             | Assert !(AnExpr s)
             | Declare !(AnType s) !(AnString s) !(AnExpr s)
+            | DataIf !(AnExpr s) !(AnBlock s) !(AnBlock s)
             | Assign !(AnExpr s) !(AnExpr s)
             | Return !(AnExpr s)
             deriving Show
@@ -68,6 +69,7 @@ data Item s = Import !(AnString s) !(Maybe (AnString s)) !(Maybe (AnString s))
 instance Functor Stmt where
   fmap f s = case s of
     For t n r b   -> For (mapAnns f t) (f <$> n) (mapAnns f r) (mapAnns f b)
+    DataIf n r b  -> DataIf (mapAnns f n) (mapAnns f r) (mapAnns f b)
     Assert t      -> Assert (mapAnns f t)
     Declare t n r -> Declare (mapAnns f t) (f <$> n) (mapAnns f r)
     Assign n r    -> Assign (mapAnns f n) (mapAnns f r)

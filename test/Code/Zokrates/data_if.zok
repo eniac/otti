@@ -1,0 +1,8 @@
+def main(field x, field y, field z) -> field:
+  field t = x
+  d-if x == 0 d-then
+     t = y
+  d-else
+     t = z
+  d-fi
+  return t

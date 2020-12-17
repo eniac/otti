@@ -36,6 +36,10 @@ if { L.Posnd _ L.If }
 then { L.Posnd _ L.Then }
 else { L.Posnd _ L.Else }
 fi { L.Posnd _ L.Fi }
+dif { L.Posnd _ L.DataIf }
+dthen { L.Posnd _ L.DataThen }
+delse { L.Posnd _ L.DataElse }
+dfi { L.Posnd _ L.DataFi }
 for { L.Posnd _ L.For }
 in { L.Posnd _ L.In }
 do { L.Posnd _ L.Do }
@@ -240,6 +244,7 @@ stmt :: {PStmt}
      : for type ident in bounds do nl block endfor nl { pos (A.For $2 $3 $5 $8) (tStart $1) (tEnd $9) }
      | assert '(' expr ')' nl                         { pos (A.Assert $3) (tStart $1) (tEnd $4) }
      | type ident '=' expr nl                         { pos (A.Declare $1 $2 $4) (aStart $1) (aEnd $4) }
+     | dif expr dthen nl block delse nl block dfi nl  { pos (A.DataIf $2 $5 $8) (tStart $1) (tEnd $9) }
      | expr '=' expr nl                               { pos (A.Assign $1 $3) (aStart $1) (aEnd $3) }
      --| return expr %prec LOW                          { pos (A.Return $2) (tStart $1) (aEnd $2) }
 

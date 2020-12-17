@@ -225,6 +225,10 @@ genStmt s = case ast s of
     e'  <- Base <$> genExpr e
     ty' <- genType ty
     liftCircify $ declareInitVar (ast v) ty' e'
+  A.DataIf c t f -> do
+    c' <- ok . zBool <$> genExpr c
+    scoped $ guarded c' $ genBlock t
+    scoped $ guarded (S.Not c') $ genBlock f
   A.Assign v e -> join $ liftM2 (setLVal $ ann s) (genLVal v) (genExpr e)
   A.Return e   -> genExpr e >>= liftCircify . doReturn
   where ok = fromEitherSpan (ann s)

@@ -61,6 +61,10 @@ zTests = benchTestGroup
     [("e", 1), ("f", 2), ("g", 3), ("k", 12312), ("h", 1), ("k", 3), ("w", 0)]
   , bothTest "arrays" "main" "test/Code/Zokrates/idx.zok" $ M.fromList
     [("x.0", 1), ("x.1", 2), ("x.2", 3), ("x.3", 12312), ("x.4", 1)]
+  , bothTest "data-if" "main" "test/Code/Zokrates/data_if.zok" $ M.fromList
+    [("x", 1), ("y", 2), ("z", 3)]
+  , bothTest "data-if (false)" "main" "test/Code/Zokrates/data_if.zok" $ M.fromList
+    [("x", 0), ("y", 2), ("z", 3)]
   , bothTest
       "mux3"
       "main"
