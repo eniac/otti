@@ -262,7 +262,7 @@ options =
               "gcc-options"
               "Options to pass to GCC, only [-I, -D, -u, -include] supported"
               "A comma-separated list"
-              ""
+              "-I."
   , CfgOption (streams . commaListLens)
               "streams"
               "Debug streams to emit"
