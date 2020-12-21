@@ -6,6 +6,7 @@ module Util.Log
   , Log
   , enableStream
   , enableStreams
+  , logIfPretty
   , logIf
   , logIfM
   , MonadLog
@@ -25,6 +26,11 @@ import           Util.Cfg                       ( Cfg
                                                 , MonadCfg(..)
                                                 , _streams
                                                 )
+import           Text.PrettyPrint               ( hang
+                                                , text
+                                                , render
+                                                )
+import           Language.C.Pretty
 
 ---
 --- Monad defintions
@@ -57,6 +63,9 @@ enableStream s = modify $ \l -> l { streams = S.insert s $ streams l }
 
 enableStreams :: Foldable f => f String -> Log ()
 enableStreams ss = forM_ ss enableStream
+
+logIfPretty :: (MonadLog m, Pretty p) => String -> String -> p -> m ()
+logIfPretty stream msg p = logIf stream . render . hang (text msg) 4 $ pretty p
 
 -- | When the specified stream is enabled, log this message
 logIf :: MonadLog m => String -> String -> m ()

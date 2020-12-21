@@ -65,6 +65,12 @@ cValueTests = benchTestGroup
     , ("f0_foo_lex1__g_v0", i 4294967295)
     , ("f0_foo_lex1__i_v0", i 255)
     , ("f0_foo_lex1__k_v0", i 127)
+    , ("f0_foo_lex1__m_v0", i 1009254)
+    , ("f0_foo_lex1__o_v0", i 4293001216) -- 2s comp
+    , ("f0_foo_lex1__q_v0", i 6815744)
+    , ("f0_foo_lex1__r_v0", i 714342)
+    , ("f0_foo_lex1__s_v0", i 10)
+    , ("f0_foo_lex1__u_v0", i 4294967285) -- (-11) 2s comp
     ]
   , constraintValueTest "assign"
                         "foo"
@@ -345,8 +351,71 @@ cValueTests = benchTestGroup
                         "test3"
                         "test/Code/C/break.c"
                         [("f0_test3__return", i 1)]
+  , constraintValueTest "fixed point add"
+                        "add"
+                        "test/Code/C/fixed_pt_arith.c"
+                        [("f0_add_lex1__z_v0", i 98304)]
+  , constraintValueTest "fixed point sub"
+                        "sub"
+                        "test/Code/C/fixed_pt_arith.c"
+                        [("f0_sub_lex1__z_v0", i 98304)]
+  , constraintValueTest "fixed point mult"
+                        "mult"
+                        "test/Code/C/fixed_pt_arith.c"
+                        [("f0_mult_lex1__z1_v0", i 252313)
+                        , ("f0_mult_lex1__z2_v0", i 1513881)
+                        , ("f0_mult_lex1__z3_v0", i 98304)]
+  , constraintValueTest "fixed point div"
+                        "div"
+                        "test/Code/C/fixed_pt_arith.c"
+                        [("f0_div_lex1__z1_v0", i 271506)
+                        , ("f0_div_lex1__z2_v0", i 105585)
+                        , ("f0_div_lex1__z3_v0", i 168521)]
+  , constraintValueTest "fixed point pos"
+                        "pos"
+                        "test/Code/C/fixed_pt_entry.c"
+                        [("f0_pos_lex1__a_v0", i 2147483647)
+                        , ("f0_pos_lex1__b_v0", i 65536)
+                        , ("f0_pos_lex1__z_v0", i 0)]
+  , constraintValueTest "fixed point neg"
+                        "neg"
+                        "test/Code/C/fixed_pt_entry.c"
+                        [("f0_neg_lex1__c_v0", i 4294967295)
+                        , ("f0_neg_lex1__d_v0", i 2147483648)]
+  , constraintValueTest "fixed point comparisons"
+                        "comp"
+                        "test/Code/C/fixed_pt_comp.c"
+                        [("f0_comp_lex1__y_v1", i 1)
+                        , ("f0_comp_lex1__y_v2", i 2)
+                        , ("f0_comp_lex1__y_v3", i 3)
+                        , ("f0_comp_lex1__y_v4", i 4)
+                        , ("f0_comp_lex1__f_v0", i 39)]
+  , constraintValueTest "fixed point rounding"
+                        "round"
+                        "test/Code/C/fixed_pt_round.c"
+                        [("f0_round_lex1__b_v0", i 2555904)
+                        , ("f0_round_lex1__c_v0", i 39)
+                        , ("f0_round_lex1__f_v0", i 38)
+                        , ("f0_round_lex1__i_v0", i 4294967257) -- -39
+                        , ("f0_round_lex1__l_v0", i 4294967258)] -- -38
+  , constraintValueTest "fixed point rounding2"
+                        "round"
+                        "test/Code/C/fixed_pt_round.c"
+                        [("f0_round_lex1__n_v0", i 39)
+                        , ("f0_round_lex1__q_v0", i 38)
+                        , ("f0_round_lex1__t_v0", i 4294967256) -- -40
+                        , ("f0_round_lex1__w_v0", i 4294967258)] -- -38
   ]
 
+cGadgetTests :: BenchTest
+cGadgetTests = benchTestGroup
+  "C gadgets test"
+  [ inputValueTest "evaluate gadget"
+                   "max"
+                   "test/Code/C/max.c"
+                   [("a", 10), ("b", 20)]
+                   [("f0_max__return", i 20)]
+  ]
 cRealTests :: BenchTest
 cRealTests = benchTestGroup
   "C real program test"
@@ -394,13 +463,27 @@ cPequinTests = benchTestGroup "C pequin compiler tests" []
 --, constraintValueTest "sha1" "main" "test/Code/C/sha1.c" [ ]
 --, constraintValueTest "sqrt" "main" "test/Code/C/sqrt.c" [ ("f0_main__return", i 3) ]
 
-constraintValueTest
-  :: String -> String -> FilePath -> [(String, Val)] -> BenchTest
-constraintValueTest name fnName path expected = benchTestCase name $ do
-  tu <- evalCfgDefault . liftCfg . parseC $ path
-  r  <- evalCfgDefault $ evalLog $ evalFn False tu fnName
+inputValueTest
+  :: String
+  -> String
+  -> FilePath
+  -> [(String, Integer)]
+  -> [(String, Val)]
+  -> BenchTest
+inputValueTest name fnName path inputs expected = benchTestCase name $ do
+  tu <- parseC path
+  r  <- evalCfgDefault $ evalLog $ evalFn tu fnName (Just . M.fromList $ inputs)
   forM_ expected $ \(evar, eval) -> do
     case M.lookup evar r of
       Just aval -> eval @=? aval
       Nothing -> error $ unwords ["No variable", show evar, "in model", show r]
 
+constraintValueTest
+  :: String -> String -> FilePath -> [(String, Val)] -> BenchTest
+constraintValueTest name fnName path expected = benchTestCase name $ do
+  tu <- evalCfgDefault . liftCfg . parseC $ path
+  r  <- evalCfgDefault $ evalLog $ evalFn tu fnName Nothing
+  forM_ expected $ \(evar, eval) -> do
+    case M.lookup evar r of
+      Just aval -> eval @=? aval
+      Nothing -> error $ unwords ["No variable", show evar, "in model", show r]
