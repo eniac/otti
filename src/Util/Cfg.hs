@@ -37,6 +37,7 @@ import           System.Exit                    ( exitSuccess )
 import           Text.Read                      ( readMaybe )
 import           Data.List.Split                ( splitOn )
 import           Lens.Simple
+import           System.FilePath                ( )
 
 data SmtOptCfg = SmtOptCfg
   { _allowSubBlowup :: Bool
@@ -120,6 +121,7 @@ data CfgState = CfgState
   { _r1csCfg          :: R1csCfg
   , _toPfCfg          :: ToPfCfg
   , _smtOptCfg        :: SmtOptCfg
+  , _gccOptions       :: [String]
   , _streams          :: [String]
   , _loopBound        :: Int
   , _loopFlatten      :: Bool
@@ -133,6 +135,7 @@ defaultCfgState :: CfgState
 defaultCfgState = CfgState { _r1csCfg          = defaultR1csCfg
                            , _toPfCfg          = defaultToPfCfg
                            , _smtOptCfg        = defaultSmtOptCfg
+                           , _gccOptions       = ["-I."]
                            , _streams          = []
                            , _loopBound        = 5
                            , _loopFlatten      = True
@@ -255,6 +258,11 @@ options =
     "Always substitute/eliminate variables equal to bit-vector additions"
     ""
     "True"
+  , CfgOption (gccOptions . commaListLens)
+              "gcc-options"
+              "Options to pass to GCC, only [-I, -D, -u, -include] supported"
+              "A comma-separated list"
+              ""
   , CfgOption (streams . commaListLens)
               "streams"
               "Debug streams to emit"
