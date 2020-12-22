@@ -1077,10 +1077,11 @@ cCast toTy node = case term node of
             )
             (udef node)
     Type.FixedPt ->
-      let t'      = Ty.FpBinExpr Ty.FpMul t $ Ty.Fp64Lit (2^16)   --scale up
+      let t'      =  Ty.RoundFpToDynBv 64 True $ Ty.FpBinExpr Ty.FpMul t $ Ty.Fp64Lit (65536)   --scale up
+          t''     =  intResize True 32 t'
       in  mkCTerm
             ( CFixedPt
-            $ Ty.RoundFpToDynBv 32 True t'
+            $  t''
             )
             (udef node)
 
@@ -1108,7 +1109,7 @@ cCast toTy node = case term node of
             (udef node)
 
     Type.FixedPt ->
-      let t'      = Ty.FpBinExpr Ty.FpMul t $ Ty.Fp32Lit (2^16)   --scale up
+      let t'      = Ty.FpBinExpr Ty.FpMul t $ Ty.Fp32Lit (65536)   --scale up
       in  mkCTerm
             ( CFixedPt
             $ Ty.RoundFpToDynBv 32 True t'

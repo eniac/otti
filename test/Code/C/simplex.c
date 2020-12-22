@@ -1,88 +1,263 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <math.h>
-#include <string.h>
-#include <assert.h>
 
-#define T 30
+//specify problem size here
+static const int C = 3; //constraints
+static const int V = 2; //vars
+
+//compiler-friendly structs/types
+static const int LEQ = 0;
+static const int GEQ = 1;
+static const int MAX = 1;
+static const int MIN = 0;
+
+typedef float fixed_point_precision_16_16;
+static const fixed_point_precision_16_16 epsilon   = 1.0e-10;
 
 typedef struct {
   int rows, cols; // mat[m x n]
-  double mat[T];
+  fixed_point_precision_16_16 mat[20]; //upper bound yourself
+  int stars[3]; // V+1
+  int cntr;
 } Tableau;
 
-static const double epsilon   = 1.0e-10;
-int d_equal(double a, double b) {
-  return (fabs(a-b) < epsilon);
+typedef struct {
+  fixed_point_precision_16_16 vars[2]; // V
+  int lt_gt;
+  fixed_point_precision_16_16 goal;
+} Constraint;
+
+typedef struct {
+  fixed_point_precision_16_16 x[3]; //V+1
+  fixed_point_precision_16_16 y[4]; //C+1
+} Solution;
+
+//function declr
+int d_equal(fixed_point_precision_16_16 a, fixed_point_precision_16_16 b);
+fixed_point_precision_16_16 get(int i, int j, Tableau tab);
+void print_tab(Tableau tab);
+Tableau add_slack(Tableau tableau, int max_min, int cols);
+Tableau calculate_dual(Tableau p, int max_min);
+Tableau simplex_max(Tableau tableau);
+Tableau simplex_stars(Tableau tableau);
+Tableau simplex(Tableau tableau, int p_max_min, int vars);
+int satisfies(fixed_point_precision_16_16 sol[], int sol_len, Tableau tab, int max_min);
+fixed_point_precision_16_16 find_opt_var(Tableau t, int j);
+int solution_eq(fixed_point_precision_16_16 c[], fixed_point_precision_16_16 x[], int lenx, fixed_point_precision_16_16 y[], fixed_point_precision_16_16 b[], int leny, int max_min);
+Solution simplex_gadget(Tableau p_tableau, int p_max_min);
+Tableau make_problem();
+Tableau maximize(Tableau t, Constraint c);
+Tableau minimize(Tableau t, Constraint c);
+Tableau add(Tableau t, Constraint c);
+void print_sol(Solution s);
+
+int main(void) {
+
+
+  Tableau t0 = make_problem();
+
+
+  Constraint obj = {{1572864, 3932160}, 0, 0};
+  Tableau t1 = minimize(t0, obj);
+
+  Constraint c1 = {{32768, 65536}, GEQ, 393216};
+  Constraint c2 = {{131072, 131072}, GEQ, 917504};
+  Constraint c3 = {{65536, 262144}, GEQ, 851968};
+  Tableau t2 = add(t1, c1);
+  Tableau t3 = add(t2, c2);
+  Tableau t4 = add(t3, c3);
+
+
+
+
+  Solution solution_vec = simplex_gadget(t4, MIN);
+  //print_sol(solution_vec);
+  return 0;
+
 }
 
-double get(int i, int j, Tableau tab){
+
+//API
+Tableau make_problem(){
+  Tableau tab = { C+1, V+C+1, {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, {0,0,0}, 1 };
+
+  return tab;
+}
+
+Tableau maximize(Tableau t, Constraint c){
+  t.mat[0] = c.goal;
+  for (int i = 1; i < C+1; i++){
+    t.mat[i] = c.vars[i-1] * -1;
+  }
+
+  return t;
+}
+
+Tableau minimize(Tableau t, Constraint c){
+  t.mat[0] = c.goal;
+  for (int i = 1; i < C+1; i++){
+    t.mat[i] = c.vars[i-1];
+  }
+
+  return t;
+}
+
+Tableau add(Tableau t, Constraint c){
+
+  t.mat[t.cntr*t.cols] = c.goal;
+  for (int j = 1; j < V+1; j++){
+    t.mat[(t.cntr*t.cols)+j] = c.vars[j-1];
+  }
+
+  t.cntr = t.cntr + 1;
+  return t;
+
+
+}
+
+
+//simplex
+int d_equal(fixed_point_precision_16_16 a, fixed_point_precision_16_16 b) {
+  if ((a-b) > 0) {
+    return (a-b) < epsilon;
+  } else {
+    return -1*(a-b) < epsilon;
+  }
+}
+
+fixed_point_precision_16_16 get(int i, int j, Tableau tab){
   return tab.mat[i*(tab.cols)+j];
 }
 
-Tableau calculate_dual(Tableau p){
-  //transpose
-  double mat[p.cols*p.rows];
-  Tableau transpose = {p.cols, p.rows, {0}};
-  for (int i = 0; i < transpose.rows; i++) {
-      for (int j = 0; j < transpose.cols; j++) {
-        transpose.mat[i*(transpose.cols)+j] = get(j,i,p);
+void print_sol(Solution s){
+  printf("\nSolution at:\n");
+  for (int i = 0; i < V; i++){
+    if (d_equal((int)(s.x[i]), (s.x[i]))) {
+        printf("x%d: %6d\n", (i+1), (int)s.x[i]);
+      } else {
+        printf("x%d: %6.3f\n", (i+1), s.x[i]);
       }
   }
+  printf("val: %6.3f\n", s.x[V]);
+}
+
+void print_tab(Tableau tab) {
+
+  printf("\nTableau:\n-----------------\n");
+
+  printf("%-6s%5s", "var:", "curr");
+  for(int j=1;j<tab.cols; j++) { printf("    x%d,", j); }
+  printf("\n");
+
+  for(int i=0;i<tab.rows; i++) {
+    if (i==0) {
+      printf("max:");
+    } else {
+      printf("b%d: ", i);
+    }
+    for(int j=0;j<tab.cols; j++) {
+      if (d_equal((int)(get(i,j,tab)), (get(i,j,tab)))) {
+        printf(" %6d", (int)get(i,j,tab));
+      } else {
+        printf(" %6.3f", get(i,j,tab));
+      }
+    }
+    printf("\n");
+
+  }
+  printf("stars: ");
+  for(int j=0;j<tab.rows; j++) {
+    printf("  %d", tab.stars[j]);
+  }
+
+
+
+  printf("\n----------------\n");
+}
+
+Tableau add_slack(Tableau tab, int max_min, int vars){
+
+  int slack = tab.rows - 1;
+
+  int index = 0;
+  for (int i=1; i<tab.rows; i++) {
+
+      for (int j=vars+1; j<vars+1+slack; j++) {
+        if (j - vars == i) {
+          if (max_min) {
+            tab.mat[i*(tab.cols)+j] = 1.0;
+          } else {
+            tab.mat[i*(tab.cols)+j] = -1.0;
+            tab.stars[i] = 1;
+          }
+        }
+
+      }
+
+  }
+
+  return tab;
+
+}
+
+
+Tableau calculate_dual(Tableau p, int max_min){
+  //transpose
+  Tableau transpose = {V+1, C+V+1, {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, {0,0,0}, 1 };
+
+  if (max_min){ //make dual max
+    for (int i = 0; i < V+1; i++) {
+        for (int j = 0; j < C+1; j++) {
+          if (i == 0) {
+            transpose.mat[i*(transpose.cols)+j] = get(j,i,p) * -1;
+          } else {
+            transpose.mat[i*(transpose.cols)+j] = get(j,i,p);
+          }
+
+        }
+    }
+
+
+  } else { //make dual min
+    for (int i = 0; i < V+1; i++) {
+        for (int j = 0; j < C+1; j++) {
+          if (j == 0) {
+            transpose.mat[i*(transpose.cols)+j] = get(j,i,p) * -1;
+          } else {
+            transpose.mat[i*(transpose.cols)+j] = get(j,i,p);
+          }
+
+        }
+    }
+
+
+  }
+
+
+
   return transpose;
 }
 
 
-
 Tableau simplex_max(Tableau tableau) {
 
-  for(int i=1; i<tableau.rows; i++) {
-    for(int j=1; j<tableau.rows; j++) {
-      int change = tableau.cols - tableau.rows + 1;
-      tableau.mat[i*(tableau.cols)+(j+change-1)] = (i==j);
-    }
-  }
+  fixed_point_precision_16_16 lowest = -1;
+  int no_ratio = 0;
 
-  for (int i = 0; i < T; i++){
-    printf("%f\n", tableau.mat[i]);
-  }
-
-  int pivot_col = 1;
-
-  double lowest = get(0,pivot_col,tableau);
-
-  for(int j=1; j<tableau.cols; j++) {
-    double tab0j = get(0,j,tableau);
-    if (tab0j < lowest) {
-      lowest = tab0j;
-      pivot_col = j;
-    }
-  }
-
-  int pivot_row = 0;
-  double min_ratio = -1;
-
-  for(int i=1;i<tableau.rows;i++){
-    double ratio = get(i,0,tableau) / get(i,pivot_col,tableau);
-    if ( (ratio > 0  && ratio < min_ratio ) || min_ratio < 0 ) {
-      min_ratio = ratio;
-      pivot_row = i;
-
-    }
-  }
-
-  while( !(lowest >= 0) && !(min_ratio == -1)) {
+  while( !(lowest >= 0) && no_ratio == 0) {
     int pivot_col, pivot_row;
 
     pivot_col = 1;
     lowest = get(0, pivot_col, tableau);
 
-    for(int j=1; j<tableau.cols; j++) {
-      double tab0j = get(0,j,tableau);
+    int slack = tableau.rows - 1;
+    for(int j=1; j<tableau.cols-slack; j++) {
+
+      fixed_point_precision_16_16 tab0j = get(0,j,tableau);
       if (tab0j < lowest) {
         lowest = tab0j;
         pivot_col = j;
       }
+
     }
 
     if( lowest >= 0 ) {
@@ -90,23 +265,31 @@ Tableau simplex_max(Tableau tableau) {
     }
 
     pivot_row = 0;
-    min_ratio = -1;
+    no_ratio = 1;
+    fixed_point_precision_16_16 min_ratio = 0;
 
     for(int i=1;i<tableau.rows;i++){
-      double ratio = get(i,0,tableau) / get(i,pivot_col,tableau);
+      fixed_point_precision_16_16 entry = get(i,0,tableau);
+      fixed_point_precision_16_16 pot_pivot = get(i,pivot_col,tableau);
+      if (pot_pivot > 0) {
+        fixed_point_precision_16_16 ratio = entry / pot_pivot;
 
-      if ((ratio > 0  && ratio < min_ratio ) || min_ratio < 0 ) {
-        min_ratio = ratio;
-        pivot_row = i;
+        if (ratio < min_ratio || no_ratio == 1) {
+          min_ratio = ratio;
+          pivot_row = i;
+          no_ratio = 0;
+        }
 
       }
+
     }
 
-    if (min_ratio == -1) {
+    if (no_ratio) {
       break;
     }
 
-    double pivot = get(pivot_row, pivot_col, tableau);
+    fixed_point_precision_16_16 pivot = get(pivot_row, pivot_col, tableau);
+
 
     for(int j=0;j<tableau.cols;j++) {
       tableau.mat[pivot_row*(tableau.cols)+j] = get(pivot_row,j,tableau) / pivot;
@@ -114,146 +297,163 @@ Tableau simplex_max(Tableau tableau) {
 
     for(int i=0; i<tableau.rows; i++) {
 
-      double multiplier = get(i, pivot_col, tableau);
-      if(i==pivot_row) {continue;}
-      for(int j=0; j<tableau.cols; j++) {
-        double set_val = get(i,j,tableau) - (multiplier * get(pivot_row,j,tableau));
-        tableau.mat[i*(tableau.cols)+j] = set_val;
-
+      fixed_point_precision_16_16 multiplier = get(i, pivot_col, tableau);
+      if(i!=pivot_row) {
+        for(int j=0; j<tableau.cols; j++) {
+          fixed_point_precision_16_16 set_val = get(i,j,tableau) - (multiplier * get(pivot_row,j,tableau));
+          tableau.mat[i*(tableau.cols)+j] = set_val;
+        }
       }
     }
+
+
   }
 
   return tableau;
 }
 
-Tableau simplex_min(Tableau tableau) {
+Tableau simplex_stars(Tableau tableau) {
 
-  for(int i=1; i<tableau.rows; i++) {
-    for(int j=1; j<tableau.rows; j++) {
-      int change = tableau.cols - tableau.rows + 1;
-      tableau.mat[i*(tableau.cols)+(j+change-1)] = (i==j);
-    }
-  }
+  fixed_point_precision_16_16 highest = 0;
+  int no_ratio = 0;
+  int stars = 1;
 
-  for (int i = 0; i < T; i++){
-    printf("%f\n", tableau.mat[i]);
-  }
+  int loop = 0;
+  while(stars && loop < 20) {
+  loop = loop + 1;
 
-  int pivot_col = 1;
-
-  double highest = get(0,pivot_col,tableau);
-
-  for(int j=1; j<tableau.cols; j++) {
-    double tab0j = get(0,j,tableau);
-    if (tab0j > highest) {
-      highest = tab0j;
-      pivot_col = j;
-    }
-  }
-
-  int pivot_row = 0;
-  double min_ratio = -1;
-
-  for(int i=1;i<tableau.rows;i++){
-    double ratio = get(i,0,tableau) / get(i,pivot_col,tableau);
-    if ( (ratio > 0  && ratio < min_ratio ) || min_ratio < 0 ) {
-      min_ratio = ratio;
-      pivot_row = i;
-
-    }
-  }
-
-  while( !(highest <= 0) && !(min_ratio == -1)) {
     int pivot_col, pivot_row;
 
-    pivot_col = 1;
-    highest = get(0, pivot_col, tableau);
+    for (int r=1; r < tableau.rows; r++){
+      if (tableau.stars[r]) {
 
-    for(int j=1; j<tableau.cols; j++) {
-      double tab0j = get(0,j,tableau);
-      if (tab0j > highest) {
-        highest = tab0j;
-        pivot_col = j;
+        pivot_col = 1;
+        highest = get(r,pivot_col,tableau); // what if no positives?
+
+        int slack = tableau.rows - 1;
+        for(int j=1; j<tableau.cols; j++) {
+
+          fixed_point_precision_16_16 tabrj = get(r,j,tableau);
+
+          if (tabrj > highest) {
+            highest = tabrj;
+            pivot_col = j;
+
+          }
+        }
+
+        break;
       }
     }
 
-    if( highest <= 0 ) {
-      break;
-    }
 
-    pivot_row = 0;
-    min_ratio = -1;
+    if( highest > 0 ) { //?
 
-    for(int i=1;i<tableau.rows;i++){
-      double ratio = get(i,0,tableau) / get(i,pivot_col,tableau);
+      pivot_row = 0;
 
-      if ((ratio > 0  && ratio < min_ratio ) || min_ratio < 0 ) {
-        min_ratio = ratio;
-        pivot_row = i;
+      int no_ratio = 1;
+      fixed_point_precision_16_16 min_ratio = 0;
 
-      }
-    }
+      for(int i=1;i<tableau.rows;i++){
+        fixed_point_precision_16_16 entry = get(i,0,tableau);
+        fixed_point_precision_16_16 pot_pivot = get(i,pivot_col,tableau);
+        if (pot_pivot > 0) {
+          fixed_point_precision_16_16 ratio = entry / pot_pivot;
 
-    if (min_ratio == -1) {
-      break;
-    }
+          if (ratio == min_ratio && tableau.stars[i]) { // test for no ratio?
+            min_ratio = ratio;
+            pivot_row = i;
+            no_ratio = 0;
+          }
 
-    double pivot = get(pivot_row, pivot_col, tableau);
+          if (ratio < min_ratio || no_ratio == 1) {
+            min_ratio = ratio;
+            pivot_row = i;
+            no_ratio = 0;
+          }
 
-    for(int j=0;j<tableau.cols;j++) {
-      tableau.mat[pivot_row*(tableau.cols)+j] = get(pivot_row,j,tableau) / pivot;
-    }
-
-    for(int i=0; i<tableau.rows; i++) {
-
-      double multiplier = get(i, pivot_col, tableau);
-      if(i==pivot_row) {continue;}
-      for(int j=0; j<tableau.cols; j++) {
-        double set_val = get(i,j,tableau) - (multiplier * get(pivot_row,j,tableau));
-        tableau.mat[i*(tableau.cols)+j] = set_val;
+        }
 
       }
-    }
+
+      if (!no_ratio) {
+        fixed_point_precision_16_16 pivot = get(pivot_row, pivot_col, tableau);
+
+
+        tableau.stars[pivot_row] = 0;
+
+        for(int j=0;j<tableau.cols;j++) {
+          tableau.mat[pivot_row*(tableau.cols)+j] = get(pivot_row,j,tableau) / pivot;
+        }
+
+        for(int i=0; i<tableau.rows; i++) {
+
+          fixed_point_precision_16_16 multiplier = get(i, pivot_col, tableau);
+          if(i!=pivot_row) {
+            for(int j=0; j<tableau.cols; j++) {
+              fixed_point_precision_16_16 set_val = get(i,j,tableau) - (multiplier * get(pivot_row,j,tableau));
+              tableau.mat[i*(tableau.cols)+j] = set_val;
+            }
+          }
+        }
+      } // end no ratio
+
+    } // end highest
+
+  stars = 0;
+  for (int i=0; i<tableau.rows; i++) {
+    stars = stars || tableau.stars[i];
+
   }
+
+  }
+
+  if (loop == 20){
+    printf("too many iterations, problem unsolvable, check constraints");
+  }
+
 
   return tableau;
 }
 
-Tableau simplex(int max_min, Tableau tableau){
-  if (max_min==1) {
-    return simplex_max(tableau);
-  } else {
-    return simplex_min(tableau);
-  }
+
+Tableau simplex(Tableau tableau, int p_max_min, int vars){
+    Tableau a = add_slack(tableau, p_max_min, vars);
+
+    Tableau b = simplex_stars(a);
+    return simplex_max(b);
 }
 
-int satisfies(double sol[], Tableau tab){
+int satisfies(fixed_point_precision_16_16 sol[], int sol_len, Tableau tab, int max_min){
   int sat = 1;
-  double prod[tab.rows];
+  fixed_point_precision_16_16 prod[tab.rows];
 
   for (int i=0;i<tab.rows;i++){
     prod[i]=0.0;
   }
 
   for (int i=0;i<tab.rows;i++){
-    for (int j=1;j<tab.cols;j++){ //don't need 1st col
-      prod[i] += (get(i,j,tab)*sol[j]);
+    for (int j=0;j<sol_len;j++){
+      prod[i] += (get(i,(j+1),tab)*sol[j]); //don't need 1st col
     }
   }
-
   //eq?
-  for (int i = 0; i < tab.rows; i++){
-    sat = (d_equal(get(i,0,tab),prod[i]));
+  if (max_min){ // max prob
+     for (int i = 1; i < tab.rows; i++){
+        sat = sat && (d_equal(get(i,0,tab),prod[i]) || get(i,0,tab) > prod[i]);
+      }
+  } else { // min prob
+     for (int i = 1; i < tab.rows; i++){
+        sat = sat && (d_equal(get(i,0,tab),prod[i]) || get(i,0,tab) < prod[i]);
+      }
   }
-
 
   return sat;
 
 }
 
 
-double find_opt_var(Tableau t, int j){
+fixed_point_precision_16_16 find_opt_var(Tableau t, int j){
   int x=-1;
   for(int i=1; i < t.rows; i++) {
     if (d_equal(get(i, j, t), 1)) {
@@ -269,86 +469,88 @@ double find_opt_var(Tableau t, int j){
   return get(x,0,t);
 }
 
-int solution_eq(double c[], double x[], int lenx, double y[], double b[], int leny){
+int solution_eq(fixed_point_precision_16_16 c[], fixed_point_precision_16_16 x[], int lenx, fixed_point_precision_16_16 y[], fixed_point_precision_16_16 b[], int leny, int max_min){
+
   //cT * x = yT * b
-  double xc = 0.0;
+  fixed_point_precision_16_16 xc = 0.0;
   for (int i = 0; i < lenx; i++){
     xc += c[i] * x[i];
-  }
 
-  double yb = 0.0;
+  }
+  printf("XC: %f\n", xc);
+
+  fixed_point_precision_16_16 yb = 0.0;
   for (int i = 0; i < leny; i++){
     yb += y[i] * b[i];
   }
 
-  return (xc == yb);
+  printf("YB: %f\n", yb);
+
+  if (max_min){
+    return (xc + yb == 0);
+  } else {
+    return (xc == yb);
+  }
+
+
 }
 
 
-Tableau duality_gap_0(Tableau p_tableau, int p_max_min) {
+Solution simplex_prover(Tableau p_tableau, int p_max_min) {
+  //PROVER CODE
   // calculate primal solution
-  Tableau p_sol_tab = simplex(p_max_min, p_tableau);
-  double x[p_sol_tab.cols+1]; // solution val at end
-
-  for(int i=1; i<p_sol_tab.cols; i++) {
-    x[i] = find_opt_var(p_sol_tab, i);
-  }
-  x[p_sol_tab.cols] = p_sol_tab.mat[0];
-
-
-  // calculate dual solution
-  Tableau d_tab = calculate_dual(p_tableau);
+  Tableau p_sol_tab = simplex(p_tableau, p_max_min, V);
 
   int d_max_min = !p_max_min;
-  Tableau d_sol_tab = simplex(d_max_min, d_tab);
-  double y[d_sol_tab.cols+1];
+  Tableau d_tableau = calculate_dual(p_tableau, d_max_min);
 
-  for(int i=1; i<d_sol_tab.cols; i++) {
-    y[i] = find_opt_var(d_sol_tab, i);
+  Tableau d_sol_tab = simplex(d_tableau, d_max_min, C);
+
+
+  Solution sol = {{0,0,0,0}, {0,0,0}};
+  for(int i=0; i<V; i++) {
+    sol.x[i] = find_opt_var(p_sol_tab, (i+1));
   }
-  y[d_sol_tab.cols] = d_sol_tab.mat[0];
+  sol.x[V] = p_sol_tab.mat[0];
 
-  //calculate lower cost solution
+  fixed_point_precision_16_16 y[C+1];
 
-  double c[p_sol_tab.rows - 1];
-  for (int i = 1; i < p_sol_tab.rows; i++){
-    c[i-1] = get(i,0,p_sol_tab);
+  for(int i=0; i<C; i++) {
+    sol.y[i] = find_opt_var(d_sol_tab, (i+1));
+
   }
+  sol.y[C] = d_sol_tab.mat[0];
 
-  double b[d_sol_tab.rows - 1];
-  for (int i = 1; i < d_sol_tab.rows; i++){
-    b[i-1] = get(i,0,d_sol_tab);
-  }
+  return sol;
 
-  return p_sol_tab;
+}
 
-  __VERIFY_assert(solution_eq(c, x, (p_sol_tab.rows - 1) y, b, (d_sol_tab.rows - 1)) && (satisfies(primal, p_tab)));
+int simplex_check(fixed_point_precision_16_16 c[], fixed_point_precision_16_16 x[], int lenx, fixed_point_precision_16_16 y[], fixed_point_precision_16_16 b[], int leny, int max_min, Tableau p_tableau) {
+    return 1; //solution_eq(c, x, lenx, y, b, leny, max_min) && satisfies(x, lenx, p_tableau, max_min);
 }
 
 
-int main(void) {
-  //tableau.cols += tableau.rows -1; - have to artifically add in slack rows here - edit later
+Solution simplex_gadget(Tableau p_tableau, int p_max_min) {
+  // prover
+  Solution sol = __GADGET_compute(simplex_prover(p_tableau, p_max_min));
+  //Solution sol = simplex_prover(p_tableau, p_max_min);
 
-  Tableau tab  = { 4, 7,
-      { 0.0 , -1.0 , 3.0 ,-3.0, 0.0, 0.0, 0.0,
-        7.0 ,  3.0 ,  -1.0 , 2.0, 0.0, 0.0, 0.0,
-        12.0 , -2.0 , -4.0 , 0.0, 0.0, 0.0, 0.0,
-        10.0 ,  -4.0 ,  3.0 , 8.0, 0.0, 0.0, 0.0
-        } };
 
-Tableau p_sol_tab = simplex(1, tab);
-double p_opt[p_sol_tab.cols];
-
-for (int i = 0; i < T; i++){
-    printf("%f\n", p_sol_tab.mat[i]);
-}
-
-printf("\n\n\n");
-  for(int i=1; i<p_sol_tab.cols; i++) {
-    p_opt[i] = find_opt_var(p_sol_tab, i);
-    printf("%f\n", p_opt[i]);
+  //b and c for solution equality
+  fixed_point_precision_16_16 c[V];
+  for (int i = 1; i < V+1; i++){
+    c[i-1] = get(0,i,p_tableau);
   }
 
-printf("SAT%d\n", satisfies(p_opt, p_sol_tab));
+  fixed_point_precision_16_16 b[C];
+  for (int i = 1; i < C+1; i++){
+    b[i-1] = get(i,0,p_tableau);
+  }
 
+
+  //printf("CHECK %d", simplex_check(c, sol.x, V, sol.y, b, C, p_max_min, p_tableau));
+
+  //verifier - c, x, V, y, b, C
+  __GADGET_rewrite(simplex_check(c, sol.x, V, sol.y, b, C, p_max_min, p_tableau));
+  return sol;
 }
