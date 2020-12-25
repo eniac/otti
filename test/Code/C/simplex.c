@@ -48,6 +48,8 @@ Tableau maximize(Tableau t, Constraint c);
 Tableau minimize(Tableau t, Constraint c);
 Tableau add(Tableau t, Constraint c);
 void print_sol(Solution s);
+int simplex_check(int max_min, Tableau p_tableau);
+Solution simplex_prover(Tableau p_tableau, int p_max_min);
 
 int main(void) {
 
@@ -488,7 +490,7 @@ int solution_eq(fixed_point_precision_16_16 c[], fixed_point_precision_16_16 x[]
 }
 
 
-Tableau simplex_prover(Tableau p_tableau, int p_max_min) {
+Solution simplex_prover(Tableau p_tableau, int p_max_min) {
   //PROVER CODE
   // calculate primal solution
 
@@ -505,7 +507,8 @@ Tableau simplex_prover(Tableau p_tableau, int p_max_min) {
   Tableau d_sol_tab = simplex_max(d_sol_tab_b);
 
 
-  //Solution sol = {{0.0,0.0,0.0}, {0.0,0.0,0.0,0.0}};
+  Solution sol = {{0.0,0.0,0.0}, {0.0,0.0,0.0,0.0}};
+
 /*
   for(int i=0; i<V; i++) {
     sol.x[i] = find_opt_var(p_sol_tab, (i+1));
@@ -519,13 +522,14 @@ Tableau simplex_prover(Tableau p_tableau, int p_max_min) {
 
   }
   sol.y[C] = d_sol_tab.mat[0];
-*/
+  */
+
 
   return sol;
 
 }
 
-int simplex_check(fixed_point_precision_16_16 c[], fixed_point_precision_16_16 x[], int lenx, fixed_point_precision_16_16 y[], fixed_point_precision_16_16 b[], int leny, int max_min, Tableau p_tableau) {
+int simplex_check(int max_min, Tableau p_tableau) {
     return 1; //solution_eq(c, x, lenx, y, b, leny, max_min) && satisfies(x, lenx, p_tableau, max_min);
 }
 
@@ -535,6 +539,7 @@ Solution simplex_gadget(Tableau p_tableau, int p_max_min) {
   Solution sol = __GADGET_compute(simplex_prover(p_tableau, p_max_min));
   //Solution sol = simplex_prover(p_tableau, p_max_min);
 
+  /*
 
   //b and c for solution equality
   fixed_point_precision_16_16 c[V];
@@ -546,11 +551,13 @@ Solution simplex_gadget(Tableau p_tableau, int p_max_min) {
   for (int i = 1; i < C+1; i++){
     b[i-1] = get(i,0,p_tableau);
   }
+  */
 
 
   //printf("CHECK %d", simplex_check(c, sol.x, V, sol.y, b, C, p_max_min, p_tableau));
 
   //verifier - c, x, V, y, b, C
-  __GADGET_rewrite(simplex_check(c, sol.x, V, sol.y, b, C, p_max_min, p_tableau));
+  __GADGET_rewrite(simplex_check(p_max_min, p_tableau));
+
   return sol;
 }
