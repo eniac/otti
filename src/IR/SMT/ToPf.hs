@@ -637,6 +637,11 @@ bvToPf env term = do
             || Set.member input aliasVars'
     case bv of
       IntToDynBv w (IntLit i) -> saveConstBv bv (Bv.bitVec w i)
+
+      -- stop gap addition until Fp is impl'd
+      RoundFpToDynBv w s (Fp64Lit fp)  -> saveConstBv bv (asBits fp)
+      RoundFpToDynBv w s (Fp32Lit fp)  -> saveConstBv bv (asBits fp)
+
       DynBvLit l              -> saveConstBv bv l
       Var name (SortBv w)     -> do
         i <- asVar name $ lookupIntVal name
