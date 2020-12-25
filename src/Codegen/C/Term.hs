@@ -820,7 +820,7 @@ cRem = cWrapBinArith "%"
                      (Just isDivZero)
                      False
                      True
-cMin = undefined -- TODO min max stuff
+cMin = undefined
 cMax = undefined
 noFpError
   :: forall f
@@ -1077,11 +1077,11 @@ cCast toTy node = case term node of
             )
             (udef node)
     Type.FixedPt ->
-      let t'      =  Ty.RoundFpToDynBv 64 True $ Ty.FpBinExpr Ty.FpMul t $ Ty.Fp64Lit (65536)   --scale up
-          t''     =  intResize True 32 t'
+      let t'        = Ty.RoundFpToDynBv 64 True $ Ty.FpBinExpr Ty.FpMul t $ Ty.Fp64Lit (2^16)
+          fxpt      = intResize True 32 t'
       in  mkCTerm
             ( CFixedPt
-            $  t''
+            $ fxpt
             )
             (udef node)
 
@@ -1109,10 +1109,11 @@ cCast toTy node = case term node of
             (udef node)
 
     Type.FixedPt ->
-      let t'      = Ty.FpBinExpr Ty.FpMul t $ Ty.Fp32Lit (65536)   --scale up
+      let t'        = Ty.RoundFpToDynBv 32 True $ Ty.FpBinExpr Ty.FpMul t $ Ty.Fp32Lit (2^16)
+          fxpt      = intResize True 32 t'
       in  mkCTerm
             ( CFixedPt
-            $ Ty.RoundFpToDynBv 32 True t'
+            $ fxpt
             )
             (udef node)
 
@@ -1161,6 +1162,11 @@ cIte condB t f =
   let
     result = case (term t, term f) of
       (CBool   tB, CBool fB  ) -> CBool $ Ty.mkIte condB tB fB
+
+      -- added - is there any reason we can't cast ints as bools when it calls for it?
+      (CBool tB, CInt _ _ _ )  -> CBool $ Ty.mkIte condB tB (asBool $ term $ cCast Type.Bool f)
+      (CInt _ _ _, CBool fB )  -> CBool $ Ty.mkIte condB (asBool $ term $ cCast Type.Bool t) fB
+
       (CDouble tB, CDouble fB) -> CDouble $ Ty.mkIte condB tB fB
       (CFloat  tB, CFloat fB ) -> CFloat $ Ty.mkIte condB tB fB
       (CDouble{} , _         ) -> term $ cIte condB t (cCast (cType t) f)
