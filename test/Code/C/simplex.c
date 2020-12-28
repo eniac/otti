@@ -1,85 +1,9 @@
 #include <stdio.h>
-
-//specify problem size here
-static const int C = 3; //constraints
-static const int V = 2; //vars
-
-//compiler-friendly structs/types
-static const int LEQ = 0;
-static const int GEQ = 1;
-static const int MAX = 1;
-static const int MIN = 0;
-
-typedef float fixed_point_precision_16_16;
-static const fixed_point_precision_16_16 epsilon   = (fixed_point_precision_16_16)1.0e-10;
-
-typedef struct {
-  int rows, cols; // mat[m x n]
-  fixed_point_precision_16_16 mat[20]; //upper bound yourself
-  _Bool stars[3]; // V+1
-  int cntr;
-} Tableau;
-
-typedef struct {
-  fixed_point_precision_16_16 vars[2]; // V
-  int lt_gt;
-  fixed_point_precision_16_16 goal;
-} Constraint;
-
-typedef struct {
-  fixed_point_precision_16_16 x[3]; //V+1
-  fixed_point_precision_16_16 y[4]; //C+1
-} Solution;
-
-//function declr
-int d_equal(fixed_point_precision_16_16 a, fixed_point_precision_16_16 b);
-fixed_point_precision_16_16 get(int i, int j, Tableau tab);
-void print_tab(Tableau tab);
-Tableau add_slack(Tableau tableau, int max_min, int cols);
-Tableau calculate_dual(Tableau p, int max_min);
-Tableau simplex_max(Tableau tableau);
-Tableau simplex_stars(Tableau tableau);
-int satisfies(fixed_point_precision_16_16 sol[], int sol_len, Tableau tab, int max_min);
-fixed_point_precision_16_16 find_opt_var(Tableau t, int j);
-int solution_eq(fixed_point_precision_16_16 c[], fixed_point_precision_16_16 x[], int lenx, fixed_point_precision_16_16 y[], fixed_point_precision_16_16 b[], int leny, int max_min);
-Solution simplex_gadget(Tableau p_tableau, int p_max_min);
-Tableau make_problem();
-Tableau maximize(Tableau t, Constraint c);
-Tableau minimize(Tableau t, Constraint c);
-Tableau add(Tableau t, Constraint c);
-void print_sol(Solution s);
-int simplex_check(int max_min, Tableau p_tableau);
-Solution simplex_prover(Tableau p_tableau, int p_max_min);
-
-int main(void) {
-
-
-  Tableau t0 = make_problem();
-
-
-  Constraint obj = {{24.0, 60.0}, 0, 0};
-  Tableau t1 = minimize(t0, obj);
-
-  Constraint c1 = {{0.5, 1.0}, GEQ, 6.0};
-  Constraint c2 = {{2.0, 2.0}, GEQ, 14.0};
-  Constraint c3 = {{1.0, 4.0}, GEQ, 13.0};
-  Tableau t2 = add(t1, c1);
-  Tableau t3 = add(t2, c2);
-  Tableau t4 = add(t3, c3);
-
-
-
-
-  Solution solution_vec = simplex_gadget(t4, MIN);
-  //print_sol(solution_vec);
-  return 0;
-
-}
-
+#include "simplex.h"
 
 //API
 Tableau make_problem(){
-  Tableau tab = { C+1, V+C+1, {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, {0,0,0}, 1 };
+  Tableau tab = { C+1, V+C+1, {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, {0,0,0}, 1 };
 
   return tab;
 }
@@ -434,11 +358,11 @@ int satisfies(fixed_point_precision_16_16 sol[], int sol_len, Tableau tab, int m
   //eq?
   if (max_min){ // max prob
      for (int k = 1; k < tab.rows; k++){
-        sat = sat && (d_equal(get(k,0,tab),prod[i]) || get(k,0,tab) > prod[k]);
+        sat = sat && (d_equal(get(k,0,tab),prod[k]) || get(k,0,tab) > prod[k]);
       }
   } else { // min prob
      for (int l = 1; l < tab.rows; l++){
-        sat = sat && (d_equal(get(l,0,tab),prod[i]) || get(l,0,tab) < prod[l]);
+        sat = sat && (d_equal(get(l,0,tab),prod[l]) || get(l,0,tab) < prod[l]);
       }
   }
 
@@ -493,11 +417,14 @@ int solution_eq(fixed_point_precision_16_16 c[], fixed_point_precision_16_16 x[]
 Solution simplex_prover(Tableau p_tableau, int p_max_min) {
   //PROVER CODE
   // calculate primal solution
-
+  print_tab(p_tableau);
   Tableau p_sol_tab_a = add_slack(p_tableau, p_max_min, V);
+  print_tab(p_sol_tab_a);
+
   Tableau p_sol_tab_b = simplex_stars(p_sol_tab_a);
   Tableau p_sol_tab = simplex_max(p_sol_tab_b);
 
+  print_tab(p_sol_tab);
 
   int d_max_min = !p_max_min;
   Tableau d_tableau = calculate_dual(p_tableau, d_max_min);
@@ -506,10 +433,11 @@ Solution simplex_prover(Tableau p_tableau, int p_max_min) {
   Tableau d_sol_tab_b = simplex_stars(d_sol_tab_a);
   Tableau d_sol_tab = simplex_max(d_sol_tab_b);
 
+  printf("reach");
 
   Solution sol = {{0.0,0.0,0.0}, {0.0,0.0,0.0,0.0}};
 
-/*
+
   for(int i=0; i<V; i++) {
     sol.x[i] = find_opt_var(p_sol_tab, (i+1));
   }
@@ -522,24 +450,24 @@ Solution simplex_prover(Tableau p_tableau, int p_max_min) {
 
   }
   sol.y[C] = d_sol_tab.mat[0];
-  */
+
 
 
   return sol;
 
 }
 
-int simplex_check(int max_min, Tableau p_tableau) {
-    return 1; //solution_eq(c, x, lenx, y, b, leny, max_min) && satisfies(x, lenx, p_tableau, max_min);
+int simplex_check(fixed_point_precision_16_16 c[], fixed_point_precision_16_16 x[], int lenx, fixed_point_precision_16_16 y[], fixed_point_precision_16_16 b[], int leny, int max_min, Tableau p_tableau) {
+    return solution_eq(c, x, lenx, y, b, leny, max_min) && satisfies(x, lenx, p_tableau, max_min);
 }
 
 
 Solution simplex_gadget(Tableau p_tableau, int p_max_min) {
   // prover
-  Solution sol = __GADGET_compute(simplex_prover(p_tableau, p_max_min));
-  //Solution sol = simplex_prover(p_tableau, p_max_min);
+  //Solution sol = __GADGET_compute(simplex_prover(p_tableau, p_max_min));
+  Solution sol = simplex_prover(p_tableau, p_max_min);
 
-  /*
+
 
   //b and c for solution equality
   fixed_point_precision_16_16 c[V];
@@ -551,13 +479,13 @@ Solution simplex_gadget(Tableau p_tableau, int p_max_min) {
   for (int i = 1; i < C+1; i++){
     b[i-1] = get(i,0,p_tableau);
   }
-  */
 
 
-  //printf("CHECK %d", simplex_check(c, sol.x, V, sol.y, b, C, p_max_min, p_tableau));
+
+  printf("CHECK %d", simplex_check(c, sol.x, V, sol.y, b, C, p_max_min, p_tableau));
 
   //verifier - c, x, V, y, b, C
-  __GADGET_rewrite(simplex_check(p_max_min, p_tableau));
+  //__GADGET_rewrite(simplex_check(p_max_min, p_tableau));
 
   return sol;
 }

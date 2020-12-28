@@ -290,7 +290,10 @@ cEvaluate trackUndef t = do
     CStruct ty fs -> fmap (CStruct ty) . sequence <$> forM
       fs
       (\(f, t) -> fmap (f, ) <$> cEvaluate trackUndef t)
-    CArray{} -> error "Cannot evaluate array term: not-yet implemented"
+    CStackPtr ty off id -> cEvaluate $ cLoad t --TODO
+    CArray    ty id     ->  --error "Cannot evaluate array term: not-yet implemented"
+
+
   if trackUndef
     then do
       u' <- fmap TyAlg.valueToTerm <$> Assert.eval (udef t)
@@ -1162,11 +1165,8 @@ cIte condB t f =
   let
     result = case (term t, term f) of
       (CBool   tB, CBool fB  ) -> CBool $ Ty.mkIte condB tB fB
-
-      -- added - is there any reason we can't cast ints as bools when it calls for it?
       (CBool tB, CInt _ _ _ )  -> CBool $ Ty.mkIte condB tB (asBool $ term $ cCast Type.Bool f)
       (CInt _ _ _, CBool fB )  -> CBool $ Ty.mkIte condB (asBool $ term $ cCast Type.Bool t) fB
-
       (CDouble tB, CDouble fB) -> CDouble $ Ty.mkIte condB tB fB
       (CFloat  tB, CFloat fB ) -> CFloat $ Ty.mkIte condB tB fB
       (CDouble{} , _         ) -> term $ cIte condB t (cCast (cType t) f)
