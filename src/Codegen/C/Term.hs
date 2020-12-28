@@ -290,8 +290,8 @@ cEvaluate trackUndef t = do
     CStruct ty fs -> fmap (CStruct ty) . sequence <$> forM
       fs
       (\(f, t) -> fmap (f, ) <$> cEvaluate trackUndef t)
-    CStackPtr ty off id -> cEvaluate $ cLoad t --TODO
-    CArray    ty id     ->  --error "Cannot evaluate array term: not-yet implemented"
+    --CStackPtr ty off id -> cEvaluate $ cLoad t --TODO
+    --CArray    ty id     ->  --error "Cannot evaluate array term: not-yet implemented"
 
 
   if trackUndef
