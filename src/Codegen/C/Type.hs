@@ -90,6 +90,9 @@ isArray :: Type -> Bool
 isArray Array{} = True
 isArray _       = False
 
+isArithType :: Type -> Bool
+isArithType t = isIntegerType t || Bool == t || Float == t || Double == t
+
 pointeeType :: Type -> Type
 pointeeType (Ptr64 ty) = ty
 pointeeType (Ptr32 ty) = ty
@@ -115,5 +118,13 @@ structFieldList :: Type -> [(String, Type)]
 structFieldList (Struct tys) = tys
 structFieldList s =
   error $ unwords ["Cannot call structFieldList on non-struct", show s]
+
+-- | Implementation of *integer conversion rank* (C11, 6.3.1.1.1)
+-- An approximation, doesn't handle:
+-- * enumeration types (we don't have these)
+-- * long- and short- modifiers (since we make all lengths concrete)
+-- * extended integer types (what are these?)
+intConversionRank :: Type -> Int
+intConversionRank = numBits
 
 type FunctionName = String

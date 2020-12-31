@@ -65,6 +65,8 @@ cValueTests = benchTestGroup
     , ("f0_foo_lex1__g_v0", i 4294967295)
     , ("f0_foo_lex1__i_v0", i 255)
     , ("f0_foo_lex1__k_v0", i 127)
+    , ("f0_foo_lex1__five_v0", i 5)
+    , ("f0_foo_lex1__six_v0", i 6)
     ]
   , constraintValueTest "assign"
                         "foo"
