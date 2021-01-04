@@ -177,7 +177,10 @@ proofOptsP =
           )
 
 cfgHelpDoc :: Doc
-cfgHelpDoc = string "Configuration Options:" <$$> indent 2 optDocs
+cfgHelpDoc =
+  string "Configuration Options:"
+    <$$> string "(also can be set using environmental variables)"
+    <$$> indent 2 optDocs
  where
   optDoc :: CfgOption -> Doc
   optDoc o = fill l n <+> align (vsep d)
@@ -189,6 +192,7 @@ cfgHelpDoc = string "Configuration Options:" <$$> indent 2 optDocs
       ifNonNull (optDesc o)
         ++ ifNonNull (optDetail o)
         ++ ifNonNull ("Default: " ++ optDefault o)
+        ++ ifNonNull ("Env var: " ++ cfgEnvName o)
         ++ [string ""]
 
   l :: Int
