@@ -65,6 +65,8 @@ cValueTests = benchTestGroup
     , ("f0_foo_lex1__g_v0", i 4294967295)
     , ("f0_foo_lex1__i_v0", i 255)
     , ("f0_foo_lex1__k_v0", i 127)
+    , ("f0_foo_lex1__five_v0", i 5)
+    , ("f0_foo_lex1__six_v0", i 6)
     , ("f0_foo_lex1__m_v0", i 1009254)
     , ( "f0_foo_lex1__o_v0"
       , i 4293001216
@@ -500,7 +502,7 @@ constraintValueTest
   :: String -> String -> FilePath -> [(String, Val)] -> BenchTest
 constraintValueTest name fnName path expected = benchTestCase name $ do
   tu <- evalCfgDefault . liftCfg . parseC $ path
-  r  <- evalCfgDefault $ evalLog $ evalFn tu fnName Nothing
+  r  <- evalCfgDefault $ evalLog $ evalFn False tu fnName
   forM_ expected $ \(evar, eval) -> do
     case M.lookup evar r of
       Just aval -> eval @=? aval

@@ -16,6 +16,9 @@ int foo () {
   short j = 127;
   int k = (int)j;
 
+  int five = 0 ? (_Bool)0 : (int)5;
+  int six = (_Bool)0 + (int)6;
+
   float l = 15.4;
   fixed_point_precision_16_16 m = (fixed_point_precision_16_16)l;
   double n = -30.0;

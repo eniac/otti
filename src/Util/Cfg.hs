@@ -18,6 +18,7 @@ module Util.Cfg
   , evalCfg
   , evalCfgDefault
   , options
+  , cfgEnvName
   )
 where
 
