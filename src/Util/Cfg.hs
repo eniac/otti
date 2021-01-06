@@ -38,6 +38,7 @@ import           System.Exit                    ( exitSuccess )
 import           Text.Read                      ( readMaybe )
 import           Data.List.Split                ( splitOn )
 import           Lens.Simple
+import           System.FilePath                ( )
 
 data SmtOptCfg = SmtOptCfg
   { _allowSubBlowup :: Bool

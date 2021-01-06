@@ -92,6 +92,13 @@ packages:
       sha256: 83e891acded173adc21b1bcce537f70f82d4b835fb42a41838ddf58d7bde7c7b
   original:
     hackage: semirings-0.5.4@sha256:5bd49c52a22c876c93d030cafa96b1233e9e7c42dacbe9f49686574368578c9c,2998
+- completed:
+    hackage: extra-1.7.8@sha256:113673aa5ab547780c19e8081d463edabfacd34dafe03b5a9a43da9a2fa920ec,2683
+    pantry-tree:
+      size: 1896
+      sha256: a3565b127fb89e76b715d817229d8e4020e6e81cd3ebee57df62a52e516e4fa7
+  original:
+    hackage: extra-1.7.8@sha256:113673aa5ab547780c19e8081d463edabfacd34dafe03b5a9a43da9a2fa920ec,2683
 snapshots:
 - completed:
     size: 524996
