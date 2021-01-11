@@ -67,7 +67,9 @@ import           Codegen.Circify.Memory         ( Mem
 import           Control.Monad.Reader
 import           Control.Monad.State.Strict
 import           Control.Monad.Fail
-
+import           Control.Monad.Extra            ( ifM
+                                                , notM
+                                                )
 -- Data imports
 import           Data.List                      ( intercalate
                                                 , findIndex

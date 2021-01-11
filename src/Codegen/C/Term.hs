@@ -170,10 +170,10 @@ asArray t                 = error $ unwords [show t, "is not an array"]
 asVar :: CTerm -> Maybe String
 asVar t = case term t of
   CInt _ _ t' -> Ty.asVarName t'
-  CBool   t'  -> Ty.asVarName t'
+  CBool    t' -> Ty.asVarName t'
   CFixedPt t' -> Ty.asVarName t'
-  CDouble t'  -> Ty.asVarName t'
-  CFloat  t'  -> Ty.asVarName t'
+  CDouble  t' -> Ty.asVarName t'
+  CFloat   t' -> Ty.asVarName t'
   _           -> error $ "Var name unsupported for " ++ show t
 
 asLVal :: CTerm -> Maybe SsaLVal
@@ -212,8 +212,8 @@ instance Bitable CTermData where
     CBool b     -> Ty.BoolToDynBv b
     CInt _ _ bv -> bv
     CFixedPt bv -> bv
-    CDouble d   -> Ty.mkDynamizeBv $ Ty.FpToBv d
-    CFloat  d   -> Ty.mkDynamizeBv $ Ty.FpToBv d
+    CDouble  d  -> Ty.mkDynamizeBv $ Ty.FpToBv d
+    CFloat   d  -> Ty.mkDynamizeBv $ Ty.FpToBv d
     -- Need to reverse because concant fives the first element the highest order.
     CStruct _ fs ->
       foldl1 Ty.mkDynBvConcat $ reverse $ map (serialize . term . snd) fs
@@ -260,11 +260,11 @@ cSetValues :: Bool -> String -> CTerm -> Assert.Assert ()
 cSetValues trackUndef name t = do
   logIf "values" $ "Setting " ++ show name ++ " to " ++ show t
   case term t of
-    CBool b        -> Assert.evalAndSetValue name b
-    CInt _ _ i     -> Assert.evalAndSetValue name i
-    CFixedPt fx    -> Assert.evalAndSetValue name fx
-    CFloat  f      -> Assert.evalAndSetValue name f
-    CDouble d      -> Assert.evalAndSetValue name d
+    CBool b     -> Assert.evalAndSetValue name b
+    CInt _ _ i  -> Assert.evalAndSetValue name i
+    CFixedPt fx -> Assert.evalAndSetValue name fx
+    CFloat   f  -> Assert.evalAndSetValue name f
+    CDouble  d  -> Assert.evalAndSetValue name d
     CStruct _ty fs ->
       forM_ fs $ \(f, t) -> cSetValues trackUndef (structVarName name f) t
     CArray{} -> return ()
@@ -284,7 +284,7 @@ cEvaluate trackUndef t = do
       (\(f, t) -> fmap (f, ) <$> cEvaluate trackUndef t)
     CArray{}    -> error "Cannot evaluate array term: not-yet implemented"
     CStackPtr{} -> error "Cannot evaluate stack pointer: not-yet implemented"
-    
+
   if trackUndef
     then do
       u' <- fmap TyAlg.valueToTerm <$> Assert.eval (udef t)
@@ -391,12 +391,12 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
                    mUserName
       return t
     Type.FixedPt -> liftAssert $ do
-        t <- CFixedPt <$> Assert.newVar smtName (Ty.SortBv 32) -- TODO correct?
-        getBaseInput (Ty.ValDynBv . Bv.bitVec 32)
-                     (Ty.ValDynBv $ Bv.bitVec 32 (0 :: Int))
-                     smtName
-                     mUserName
-        return t
+      t <- CFixedPt <$> Assert.newVar smtName (Ty.SortBv 32) -- TODO correct?
+      getBaseInput (Ty.ValDynBv . Bv.bitVec 32)
+                   (Ty.ValDynBv $ Bv.bitVec 32 (0 :: Int))
+                   smtName
+                   mUserName
+      return t
     Type.Double -> liftAssert $ do
       t <- CDouble <$> Assert.newVar smtName Ty.sortDouble
       getBaseInput (error "nyi: double input")
@@ -459,7 +459,8 @@ cIntLit t v =
   in  mkCTerm (CInt s w (Ty.DynBvLit $ Bv.bitVec w v)) (Ty.BoolLit False)
 
 cFixedPtLit :: Integer -> CTerm
-cFixedPtLit v = mkCTerm (CFixedPt (Ty.DynBvLit $ Bv.bitVec 32 v)) (Ty.BoolLit False)
+cFixedPtLit v =
+  mkCTerm (CFixedPt (Ty.DynBvLit $ Bv.bitVec 32 v)) (Ty.BoolLit False)
 
 cDoubleLit :: Double -> CTerm
 cDoubleLit v = mkCTerm (CDouble $ Ty.Fp64Lit v) (Ty.BoolLit False)
@@ -635,7 +636,7 @@ usualArithConversions x y =
     bProm   = intPromotion b
     aPromTy = cType aProm
     bPromTy = cType bProm
-    
+
 -- fxpt: comparison operations, addition, subtraction, negation, bit shifting, require no modifications
 
 
@@ -801,9 +802,8 @@ cWrapBinArith name bvOp doubleF ubF allowDouble a b =
 -}
         (_, _) -> cannot $ unwords [show a, "and", show b]
       pUdef = Ty.BoolNaryExpr Ty.Or (udef a : udef b : Fold.toList u)
-
-      in
-        mkCTerm t pUdef
+    in
+      mkCTerm t pUdef
 
 cBitOr, cBitXor, cBitAnd, cSub, cMul, cAdd, cMin, cMax, cDiv, cRem, cShl, cShr
   :: CTerm -> CTerm -> CTerm
@@ -1067,14 +1067,22 @@ cCast toTy node = case term node of
       (udef node)
     -- cast int to fixedpt
     Type.FixedPt -> case fromW of
-      64 -> error $ unwords ["Bad cast from", show t, "to", show toTy, "integer too big to cast to fixed point"]
+      64 -> error $ unwords
+        [ "Bad cast from"
+        , show t
+        , "to"
+        , show toTy
+        , "integer too big to cast to fixed point"
+        ]
       --TODO deal with this later 32 -> error $ unwords ["Bad cast from", show t, "to", show toTy, "integer too big to cast to fixed point"] -- we may want to handle undefined behavior differently
-      _  -> let t'   = intResize fromS 16 t -- cast to 16 bit int
-                fxpt = CFixedPt $ Ty.DynBvConcat 32 t' $ Ty.DynBvLit $ Bv.zeros 16 -- append the part after the point
-                u    = udef node
-            in mkCTerm fxpt u
-    Type.Bool ->
-      mkCTerm (CBool $ Ty.Not $ Ty.mkEq (Mem.bvNum False fromW 0) t) (udef node)
+      _ ->
+        let t'   = intResize fromS 16 t -- cast to 16 bit int
+            fxpt = CFixedPt $ Ty.DynBvConcat 32 t' $ Ty.DynBvLit $ Bv.zeros 16 -- append the part after the point
+            u    = udef node
+        in  mkCTerm fxpt u
+    Type.Bool -> mkCTerm
+      (CBool $ Ty.Not $ Ty.mkEq (Mem.bvNum False fromW 0) t)
+      (udef node)
     _ -> badCast t toTy
 {-TODO FXPT
   CFixedPt t -> case toTy of -- we round down right now; i'm not sure why Ty.RoundFpToDynBv is hardcoded with haskell?
@@ -1113,13 +1121,12 @@ cCast toTy node = case term node of
             )
             (udef node)
     Type.FixedPt ->
-      let t'        = Ty.RoundFpToDynBv 64 True $ Ty.FpBinExpr Ty.FpMul t $ Ty.Fp64Lit (2^16)
-          fxpt      = intResize True 32 t'
-      in  mkCTerm
-            ( CFixedPt
-            $ fxpt
-            )
-            (udef node)
+      let
+        t' = Ty.RoundFpToDynBv 64 True $ Ty.FpBinExpr Ty.FpMul t $ Ty.Fp64Lit
+          (2 ^ 16)
+        fxpt = intResize True 32 t'
+      in
+        mkCTerm (CFixedPt $ fxpt) (udef node)
 
     Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
@@ -1145,13 +1152,12 @@ cCast toTy node = case term node of
             (udef node)
 
     Type.FixedPt ->
-      let t'        = Ty.RoundFpToDynBv 32 True $ Ty.FpBinExpr Ty.FpMul t $ Ty.Fp32Lit (2^16)
-          fxpt      = intResize True 32 t'
-      in  mkCTerm
-            ( CFixedPt
-            $ fxpt
-            )
-            (udef node)
+      let
+        t' = Ty.RoundFpToDynBv 32 True $ Ty.FpBinExpr Ty.FpMul t $ Ty.Fp32Lit
+          (2 ^ 16)
+        fxpt = intResize True 32 t'
+      in
+        mkCTerm (CFixedPt $ fxpt) (udef node)
 
     Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
@@ -1219,7 +1225,7 @@ cIte condB t f =
         CInt s w $ Ty.mkIte condB i i'
 {-TODO FXPT
       (CFixedPt fx, CFixedPt fx') -> CFixedPt $ Ty.mkIte condB fx fx' -}
-      
+
       (CStruct aTy a, CStruct bTy b) | aTy == bTy ->
         CStruct aTy $ zipWith (\(f, aV) (_, bV) -> (f, cIte condB aV bV)) a b
       _ -> error $ unwords
@@ -1242,8 +1248,8 @@ ctermGetVars name t = do
     CBool b     -> return $ TyAlg.vars b
     CInt _ _ i  -> return $ TyAlg.vars i
     CFixedPt fx -> return $ TyAlg.vars fx
-    CDouble x   -> return $ TyAlg.vars x
-    CFloat  x   -> return $ TyAlg.vars x
+    CDouble  x  -> return $ TyAlg.vars x
+    CFloat   x  -> return $ TyAlg.vars x
     CStruct _ l -> fmap Set.unions $ forM l $ \(fName, fTerm) ->
       ctermGetVars (structVarName name fName) fTerm
     CArray _elemTy id -> do

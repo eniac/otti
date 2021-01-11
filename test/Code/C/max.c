@@ -33,7 +33,7 @@ int max(int a, int b) {
   int out = __GADGET_compute((a > b) ? a : b);
 
   // Pre evaluating this
-  __GADGET_rewrite(max_check(a, b, out));
+  __GADGET_check(max_check(a, b, out));
   return out;
 }
 

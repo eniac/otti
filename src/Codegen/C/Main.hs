@@ -361,9 +361,8 @@ genSpecialFunction fnName cargs = do
       return $ Just $ Base $ cIntLit S32 1
     "__GADGET_compute" -> do
       -- Enter scratch state
-      s <- deepGet
-      let cexpr = head cargs
-      expr <- genExpr cexpr
+      s    <- deepGet
+      expr <- genExpr . head $ cargs
       -- Give an l-var to the gadget expression
       let exprname = "__gadget_out"
       let ctype = cType . ssaValAsTerm "gadget evaluation" $ expr
@@ -371,19 +370,24 @@ genSpecialFunction fnName cargs = do
       vexpr <- liftCircify . getValue . SLVar $ exprname
       logIfPretty "gadget::user::analytics"
                   ("Gadget computed for " ++ show vexpr ++ " from expr ")
-                  cexpr
+                  (head cargs)
       -- Erase scratch state
       deepPut s
+      -- Add checker assertion
       liftCircify $ declareVar False exprname ctype
-      liftCircify . setValue (SLVar exprname) . fromJust $ vexpr
+      -- Add witness if computing values
+      forM_ vexpr $ liftCircify . setValue (SLVar exprname)
       Just <$> (liftCircify . getTerm . SLVar $ exprname)
-    "__GADGET_rewrite" -> do
+    "__GADGET_exists" -> do
+      return Nothing
+    "__GADGET_check" -> do
       -- Parse propositional arguments see `test/Code/C/max.c`
       args <- traverse genExpr cargs
       let numbered = zip3 [1 :: Integer ..] cargs args
       -- Evaluate proposition bools and check if they hold
       forM_ numbered (uncurry3 assumeGadgetAssertion)
       return . Just . Base $ cIntLit S32 1
+
     "assume_abort_if_not" | svExtensions -> do
       prop <- genExpr . head $ cargs
       when bugs . assume . ssaBool $ prop
@@ -411,7 +415,6 @@ genSpecialFunction fnName cargs = do
       (Just (Ty.BoolLit True)) -> do
         liftLog
           $ logIfPretty "gadgets::user::verification" "Verified assertion" e
-        return True
       (Just other) -> do
         liftLog $ logIfPretty "gadgets::user::verification" "Failed assertion" e
         fail
@@ -420,8 +423,7 @@ genSpecialFunction fnName cargs = do
       -- Must mean inputs are not given at compile-time
       (Nothing) -> do
         liftLog $ logIf "gadgets::user::verification"
-                        "Inputs are not given, gadget substitution disabled."
-        return True
+                        "Inputs are not given, no verification performed."
 
   nonDetTy :: String -> Type
   nonDetTy s = case drop (length "__VERIFIER_nondet_") s of
