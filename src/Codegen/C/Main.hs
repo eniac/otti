@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE TemplateHaskell            #-}
 module Codegen.C.Main
   ( CInputs(..)
   , evalFn
@@ -56,15 +57,23 @@ import           Util.Control
 import           Util.Log
 import           Data.Tuple.Extra
 import           Data.Dynamic
+import           Lens.Simple                    ( makeLenses
+                                                , over
+                                                , set
+                                                , view
+                                                )
+
 data CState = CState
-  { funs          :: Map.Map FunctionName CFunDef
-  , loopBound     :: Int
-  , findUB        :: Bool
-  , bugConditions :: [Ty.TermBool]
-  , assumptions   :: [Ty.TermBool]
-  , nonDetCtr     :: Int
-  , breakDepth    :: Int
+  { _funs          :: Map.Map FunctionName CFunDef
+  , _loopBound     :: Int
+  , _findUB        :: Bool
+  , _bugConditions :: [Ty.TermBool]
+  , _assumptions   :: [Ty.TermBool]
+  , _nonDetCtr     :: Int
+  , _breakDepth    :: Int
   } deriving Show
+
+$(makeLenses ''CState)
 
 type CCircState = CircifyState Type CTerm (Maybe InMap, Bool)
 
@@ -72,35 +81,38 @@ newtype C a = C (StateT CState (Circify Type CTerm (Maybe InMap, Bool)) a)
     deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem, MonadFail, MonadCircify Type CTerm (Maybe InMap, Bool), MonadCfg, MonadDeepState (((Assert.AssertState, Mem.MemState), CCircState), CState))
 
 emptyCState :: Bool -> CState
-emptyCState findBugs = CState { funs          = Map.empty
-                              , loopBound     = 5
-                              , findUB        = findBugs
-                              , bugConditions = []
-                              , assumptions   = []
-                              , nonDetCtr     = 0
-                              , breakDepth    = 0
+emptyCState findBugs = CState { _funs          = Map.empty
+                              , _loopBound     = 5
+                              , _findUB        = findBugs
+                              , _bugConditions = []
+                              , _assumptions   = []
+                              , _nonDetCtr     = 0
+                              , _breakDepth    = 0
                               }
+
+findBugs :: C Bool
+findBugs = view findUB <$> get
 
 enterBreak :: C ()
 enterBreak = do
-  d <- (+ 1) <$> gets breakDepth
-  modify $ \s -> s { breakDepth = d }
+  d <- view breakDepth <$> get
+  modify $ over breakDepth (+ 1)
   liftCircify $ pushBreakable $ "break" ++ show d
 
 exitBreak :: C ()
 exitBreak = do
   liftCircify popGuard
-  modify $ \s -> s { breakDepth = -1 + breakDepth s }
+  modify $ over breakDepth (\x -> x - 1)
 
 cBreak :: C ()
 cBreak = do
-  d <- gets breakDepth
+  d <- view breakDepth <$> get
   liftCircify $ doBreak $ "break" ++ show d
 
 cfgFromEnv :: C ()
 cfgFromEnv = do
   bound <- Cfg.liftCfg $ asks Cfg._loopBound
-  modify $ \s -> s { loopBound = bound }
+  modify $ set loopBound bound
   logIf "loop" $ "Setting loop bound to " ++ show bound
 
 -- Loops
@@ -109,7 +121,7 @@ cfgFromEnv = do
 getForLoopBound :: CStat -> CStat -> C (Either Int Int)
 getForLoopBound loop body = do
   s <- liftCfg $ asks (Cfg._constLoops . Cfg._cCfg)
-  d <- gets loopBound
+  d <- view loopBound <$> get
   if s
     then do
       cI <- constIterations loop body
@@ -134,15 +146,15 @@ constIterations stmt body = do
 
 registerFunction :: FunctionName -> CFunDef -> C ()
 registerFunction name function = do
-  s0 <- get
-  case Map.lookup name $ funs s0 of
-    Nothing -> put $ s0 { funs = Map.insert name function $ funs s0 }
+  fs <- view funs <$> get
+  case Map.lookup name fs of
+    Nothing -> modify . over funs $ Map.insert name function
     _       -> error $ unwords ["Already declared fn:", name]
 
 getFunction :: FunctionName -> C CFunDef
 getFunction funName = do
-  functions <- gets funs
-  case Map.lookup funName functions of
+  fs <- view funs <$> get
+  case Map.lookup funName fs of
     Just function -> return function
     Nothing       -> error $ unwords ["Called undeclared function:", funName]
 
@@ -153,21 +165,19 @@ bugIf :: Ty.TermBool -> C ()
 bugIf c = do
   logIf "bugIf" $ "Bug if: " ++ show c
   g <- liftCircify getGuard
-  modify $ \s ->
-    s { bugConditions = Ty.BoolNaryExpr Ty.And [g, c] : bugConditions s }
+  modify $ over bugConditions (Ty.BoolNaryExpr Ty.And [g, c] :)
 
 assume :: Ty.TermBool -> C ()
 assume c = do
   g <- liftCircify getGuard
-  modify
-    $ \s -> s { assumptions = Ty.BoolBinExpr Ty.Implies g c : assumptions s }
+  modify $ over assumptions (Ty.BoolBinExpr Ty.Implies g c :)
 
 -- Assert that some recorded bug happens
 assertBug :: C ()
 assertBug = do
-  cs <- gets bugConditions
+  cs <- view bugConditions <$> get
   liftAssert $ Assert.assert $ Ty.BoolNaryExpr Ty.Or cs
-  as <- gets assumptions
+  as <- view assumptions <$> get
   liftAssert $ forM_ as Assert.assert
 
 -- Lift some CUtils stuff to the SSA layer
@@ -181,7 +191,7 @@ ssaLoad :: CSsaVal -> C CSsaVal
 ssaLoad addr = case addr of
   Base cterm -> do
     (oob, val) <- liftMem $ cLoad cterm
-    whenM (gets findUB) $ bugIf oob
+    whenM findBugs $ bugIf oob
     return $ Base val
   RefVal inner -> liftCircify $ getTerm (SLRef inner)
 
@@ -190,7 +200,7 @@ ssaStore ref val = case (ref, val) of
   (Base addr, Base cval) -> do
     g   <- liftCircify getGuard
     oob <- liftMem $ cStore addr cval g
-    whenM (gets findUB) $ bugIf oob
+    whenM findBugs $ bugIf oob
   _ -> error $ "Cannot store " ++ show (ref, val)
 
 ssaStructGet :: String -> CSsaVal -> CSsaVal
@@ -241,7 +251,7 @@ genConst c = case c of
         logIf "SMT_assert" $ "User assertion: " ++ show t
         t' <- localizeVars t
         logIf "SMT_assert" $ "SMT  assertion: " ++ show t'
-        whenM (gets findUB) $ bugIf $ Ty.Not t'
+        whenM (view findUB <$> get) $ bugIf $ Ty.Not t'
         return $ cIntLit U32 0
       else liftMem $ cArrayLit
         S8
@@ -337,7 +347,7 @@ genSpecialFunction :: VarName -> [CExpr] -> C (Maybe CSsaVal)
 genSpecialFunction fnName cargs = do
   specifialPrintf <- Cfg.liftCfg $ asks (Cfg._printfOutput . Cfg._cCfg)
   svExtensions    <- Cfg.liftCfg $ asks (Cfg._svExtensions . Cfg._cCfg)
-  bugs            <- gets findUB
+  bugs            <- view findUB <$> get
   case fnName of
     "printf" | specifialPrintf -> do
       -- skip fstring
@@ -394,8 +404,8 @@ genSpecialFunction fnName cargs = do
       return $ Just $ Base $ cIntLit S32 1
     _ | isNonDet fnName -> do
       let ty = nonDetTy fnName
-      n <- gets nonDetCtr
-      modify $ \s -> s { nonDetCtr = n + 1 }
+      n <- view nonDetCtr <$> get
+      modify $ over nonDetCtr (+ 1)
       let name = fnName ++ "_" ++ show n
       liftCircify $ declareVar True name ty
       liftCircify $ Just <$> getTerm (SLVar name)
@@ -650,7 +660,7 @@ genStmt stmt = do
           replicateM_ b (liftCircify popGuard)
       exitBreak
     CWhile check body isDoWhile _ -> do
-      bound <- gets loopBound
+      bound <- view loopBound <$> get
       let addGuard = genExpr check >>= liftCircify . pushGuard . ssaBool
       enterBreak
       replicateM_ bound $ do
@@ -709,7 +719,7 @@ genDecl dType d@(CDecl specs decls _) = do
             liftCircify $ declareInitVar name ty rhs
           Nothing -> do
             liftCircify $ declareVar (dType == EntryFnArg) name ty
-            whenM (gets findUB) $ when (dType /= FnArg) $ do
+            whenM (view findUB <$> get) $ when (dType /= FnArg) $ do
               lhs <- genVar ident
               liftAssert
                 $  Assert.assert
@@ -799,7 +809,7 @@ genFunDef f = do
         pubVars <- liftMem $ ctermGetVars "return" rv
         liftAssert $ forM_ (Set.toList pubVars) Assert.publicize
       svExtensions <- Cfg.liftCfg $ asks (Cfg._svExtensions . Cfg._cCfg)
-      ub           <- gets findUB
+      ub           <- view findUB <$> get
       when (ub && not svExtensions) $ forM_ returnValue $ \r ->
         bugIf $ ctermIsUndef r
 
