@@ -23,7 +23,9 @@ import           Parser.C
 import           Test.Tasty.HUnit
 import           Targets.SMT.Z3
 import           Util.Log
-import           Util.Cfg                       ( evalCfgDefault )
+import           Util.Cfg                       ( liftCfg
+                                                , evalCfgDefault
+                                                )
 
 type Order
   = 113890009193798365449144652900867294558768981710660728242748762258461992583217
@@ -36,7 +38,7 @@ cTests = benchTestGroup
 
 -- constraintCountTest :: String -> FilePath -> Int -> BenchTest
 -- constraintCountTest name path constraints = benchTestCase name $ do
---   tu         <- parseC path
+--   tu         <- liftCfg $ parseC path
 --   assertions <- evalCfgDefault $ execAssert $ evalC True $ codegenAll tu
 --   unless (constraints == length (asserted assertions)) $ do
 --     --forM_ (asserted assertions) $ \s -> putStrLn $ name ++ ": " ++ show s
@@ -54,7 +56,7 @@ toSmtTests = benchTestGroup "SMT conversion" []
 
 ubCheckTest :: String -> String -> FilePath -> Bool -> BenchTest
 ubCheckTest name fnName path undef = benchTestCase name $ do
-  tu <- parseC path
+  tu <- evalCfgDefault . liftCfg $ parseC path
   r  <- evalCfgDefault $ evalLog $ checkFn tu fnName
   undef @=? sat r
 
@@ -97,7 +99,7 @@ ubTests = benchTestGroup
 satSmtCircuitTest
   :: String -> String -> FilePath -> M.Map String Integer -> BenchTest
 satSmtCircuitTest name fnName path inputs = benchTestCase name $ do
-  tu          <- parseC path
+  tu          <- evalCfgDefault . liftCfg $ parseC path
   assertState <- evalCfgDefault $ execAssert $ compile $ CInputs tu
                                                                  fnName
                                                                  False
@@ -135,7 +137,7 @@ satSmtCircuitTests = benchTestGroup
 satR1csTestInputs
   :: String -> String -> FilePath -> M.Map String Integer -> BenchTest
 satR1csTestInputs name fnName path inputs = benchTestCase name $ do
-  tu <- parseC path
+  tu <- evalCfgDefault . liftCfg $ parseC path
   cs <- evalCfgDefault $ evalLog $ compileToR1cs @CInputs @Order $ CInputs
     tu
     fnName

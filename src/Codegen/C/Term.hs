@@ -1,10 +1,11 @@
 {-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
 {-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-| This module define CTerm: an SMT/Mem embedding of C values and terms.
  - It does not handle control flow.
@@ -71,7 +72,6 @@ module Codegen.C.Term
   , asInt
   , asStackPtr
   , asArray
-  , asDouble
   , asVar
   , CCirc
   )
@@ -142,14 +142,6 @@ ctermDataTy t = case t of
   CStackPtr ty _ _ -> ty
 
 
-
-asDouble :: CTermData -> Ty.TermDouble
-asDouble (CDouble d) = d
-asDouble t           = error $ unwords [show t, "is not a double"]
-
-asFloat :: CTermData -> Ty.TermFloat
-asFloat (CFloat d) = d
-asFloat t          = error $ unwords [show t, "is not a float"]
 
 asInt :: CTermData -> (Bool, Int, Bv)
 asInt (CInt s w i) = (s, w, i)
@@ -271,7 +263,8 @@ cEvaluate trackUndef t = do
     CStruct ty fs -> fmap (CStruct ty) . sequence <$> forM
       fs
       (\(f, t) -> fmap (f, ) <$> cEvaluate trackUndef t)
-    CArray{} -> error "Cannot evaluate array term: not-yet implemented"
+    CArray{}    -> error "Cannot evaluate array term: not-yet implemented"
+    CStackPtr{} -> error "Cannot evaluate stack pointer: not-yet implemented"
   if trackUndef
     then do
       u' <- fmap TyAlg.valueToTerm <$> Assert.eval (udef t)
@@ -531,17 +524,86 @@ intResize fromSign toWidth from =
         EQ -> from
         GT -> Ty.mkDynBvExtract 0 toWidth from
 
+-- | Implementation of integer promotion (C11, 6.3.1.1.3)
+-- Does not handle bitfields, enumerations
+intPromotion :: CTerm -> CTerm
+intPromotion t =
+  let ty = cType t
+  in  if (Type.isIntegerType ty || Type.Bool == ty)
+           && Type.intConversionRank ty
+           <  Type.intConversionRank Type.S32
+        then case term t of
+          CInt sign width val ->
+            -- "If an int can represent all values ... converted to an int ...
+            -- otherwise an unsigned int"
+            let maxVal = (2 :: Integer) ^ (width - if sign then 1 else 0) - 1
+                term'  = if maxVal < maxIntVal
+                  then mkInt $ Ty.mkDynBvSext 32 val
+                  else CInt False 32 $ Ty.mkDynBvUext 32 val
+            in  mkCTerm term' (udef t)
+          CBool b ->
+            mkCTerm (mkInt $ Ty.mkDynBvUext 32 $ Ty.BoolToDynBv b) (udef t)
+          _ -> t
+        else t
+ where
+  maxIntVal = (2 :: Integer) ^ (31 :: Integer) - 1
+  mkInt     = CInt True 32
 
--- TODO: clean this the fuck up.
--- This is not quite right, but it's a reasonable approximation of C++ arithmetic.
--- For an expression l (+) r,
--- 1. Both l and r undergo **integral promotion** (bool -> int)
--- 2. If either are floating, the other is cast to that floating type
---    * Ptrs not castable.
--- 3. If pointers are allowed:
---    * If there is a pointer, scale the int and do the op
---    * ow error
--- 4. Scale the int, do the op.
+-- | Implementation of *usual arithmetic conversions* (C11, 6.3.1.8)
+-- No-op if there is a non-arith term.
+usualArithConversions :: CTerm -> CTerm -> (CTerm, CTerm)
+usualArithConversions x y =
+  if Type.isArithType (cType x) && Type.isArithType (cType y)
+    then
+      let (x', y') = inner x y
+      in
+        if cType x' == cType y'
+          then (x', y')
+          else
+            error $ unwords
+              ["UAC failed:", show (x, y), "to non-equal", show (x', y')]
+    else (x, y)
+ where
+  inner a b
+    | Type.isDouble aTy || Type.isDouble bTy
+    = (cCast Type.Double a, cCast Type.Double b)
+    | Type.isFloat aTy || Type.isFloat bTy
+    = (cCast Type.Float a, cCast Type.Float b)
+    | aPromTy == bPromTy
+    = (aProm, bProm)
+    | Type.isSignedInt aPromTy == Type.isSignedInt bPromTy
+    = if Type.intConversionRank aPromTy < Type.intConversionRank bPromTy
+      then (cCast bPromTy aProm, bProm)
+      else (aProm, cCast aPromTy bProm)
+    | otherwise
+    = let
+        signedFirst = Type.isSignedInt aPromTy
+        (s, u)      = if signedFirst then (aProm, bProm) else (bProm, aProm)
+        sTy         = cType s
+        uTy         = cType u
+        sR          = Type.intConversionRank sTy
+        uR          = Type.intConversionRank uTy
+        (s', u')
+          | uR >= sR
+          = (cCast uTy s, u)
+          | Type.numBits sTy > Type.numBits uTy
+          = (s, cCast sTy u)
+          | otherwise
+          = let ty = Type.makeIntTy (Type.numBits sTy) False
+            in  (cCast ty s, cCast ty u)
+      in
+        if signedFirst then (s', u') else (u', s')
+   where
+    aTy     = cType a
+    bTy     = cType b
+    aProm   = intPromotion a
+    bProm   = intPromotion b
+    aPromTy = cType aProm
+    bPromTy = cType bProm
+
+
+
+
 cWrapBinArith
   :: String
   -> (Bool -> Either Ty.BvBinOp Ty.BvNaryOp)
@@ -552,15 +614,13 @@ cWrapBinArith
      -> Ty.Term (Ty.FpSort f)
      )
   -- Undef function, takes sign and Bv term for each argument
-  -> Maybe (Bool -> Bv -> Bool -> Bv -> Maybe Ty.TermBool)
+  -> Maybe (Bool -> Bv -> Bv -> Maybe Ty.TermBool)
   -> Bool -- ^ allow double
-  -> Bool -- ^ make width the max of the two (alternative: the left)
   -> CTerm
   -> CTerm
   -> CTerm
-cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
-  (integralPromotion a)
-  (integralPromotion b)
+cWrapBinArith name bvOp doubleF ubF allowDouble a b =
+  uncurry convert $ usualArithConversions a b
  where
   bvBinExpr (Left  o) = Ty.mkDynBvBinExpr o
   bvBinExpr (Right o) = \x y -> Ty.mkDynBvNaryExpr o [x, y]
@@ -574,26 +634,12 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
         bvBinExpr (Right Ty.BvAdd) ptr $ intResize signed (Type.numBits pTy) int
 
       (t, u) = case (term a, term b) of
-        (CDouble d, _) -> if allowDouble
-          then
-            ( CDouble $ doubleF d $ asDouble $ term $ cCast Type.Double b
-            , Nothing
-            )
+        (CDouble x, CDouble y) -> if allowDouble
+          then (CDouble $ doubleF x y, Nothing)
           else cannot "a double"
-        (_, CDouble d) -> if allowDouble
-          then
-            ( CDouble $ doubleF d $ asDouble $ term $ cCast Type.Double a
-            , Nothing
-            )
-          else cannot "a double"
-        (CFloat d, _) -> if allowDouble
-          then
-            (CFloat $ doubleF d $ asFloat $ term $ cCast Type.Float b, Nothing)
-          else cannot "a double"
-        (_, CFloat d) -> if allowDouble
-          then
-            (CFloat $ doubleF d $ asFloat $ term $ cCast Type.Float a, Nothing)
-          else cannot "a double"
+        (CFloat x, CFloat y) -> if allowDouble
+          then (CFloat $ doubleF x y, Nothing)
+          else cannot "a float"
         (CStackPtr ty off id, CInt s _ i) ->
           if bvOp s == Right Ty.BvAdd || bvOp s == Left Ty.BvSub
             then (CStackPtr ty (cPtrPlusInt ty off s i) id, Nothing)
@@ -602,7 +648,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
           if bvOp False == Left Ty.BvSub && ty == ty' && id == id'
             then -- TODO: ptrdiff_t?
               ( CInt True (Type.numBits ty) (bvBinExpr (bvOp False) off off')
-              , ubF >>= (\f -> f True off True off')
+              , ubF >>= (\f -> f True off off')
               )
             else
               cannot
@@ -611,14 +657,8 @@ cWrapBinArith name bvOp doubleF ubF allowDouble mergeWidths a b = convert
           then (CStackPtr ty (cPtrPlusInt ty addr s i) id, Nothing)
           else cannot "a pointer on the right"
         -- Ptr diff
-        (CInt s w i, CInt s' w' i') ->
-          let width = if mergeWidths then max 32 (max w w') else w
-              sign  = max s s'
-              l     = intResize s width i
-              r     = intResize s' width i'
-          in  ( CInt sign width $ bvBinExpr (bvOp sign) l r
-              , ubF >>= (\f -> f s l s' r)
-              )
+        (CInt s w i, CInt s' w' i') | s == s' && w == w' ->
+          (CInt s w $ bvBinExpr (bvOp s) i i', ubF >>= (\f -> f s i i'))
         (_, _) -> cannot $ unwords [show a, "and", show b]
       pUdef = Ty.BoolNaryExpr Ty.Or (udef a : udef b : Fold.toList u)
     in
@@ -631,42 +671,37 @@ cAdd = cWrapBinArith "+"
                      (Ty.FpBinExpr Ty.FpAdd)
                      (Just overflow)
                      True
-                     True
  where
-  overflow s i s' i' =
-    if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSaddo i i' else Nothing
+  overflow s i i' =
+    if s then Just $ Ty.mkDynBvBinPred Ty.BvSaddo i i' else Nothing
 cSub = cWrapBinArith "-"
                      (const $ Left Ty.BvSub)
                      (Ty.FpBinExpr Ty.FpSub)
                      (Just overflow)
                      True
-                     True
  where
-  overflow s i s' i' =
-    if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSsubo i i' else Nothing
+  overflow s i i' =
+    if s then Just $ Ty.mkDynBvBinPred Ty.BvSsubo i i' else Nothing
 cMul = cWrapBinArith "*"
                      (const $ Right Ty.BvMul)
                      (Ty.FpBinExpr Ty.FpMul)
                      (Just overflow)
                      True
-                     True
  where
-  overflow s i s' i' =
-    if s && s' then Just $ Ty.mkDynBvBinPred Ty.BvSmulo i i' else Nothing
--- TODO: div overflow
+  overflow s i i' =
+    if s then Just $ Ty.mkDynBvBinPred Ty.BvSmulo i i' else Nothing
 cDiv = cWrapBinArith "/"
                      (const $ Left Ty.BvUdiv)
                      (Ty.FpBinExpr Ty.FpDiv)
                      (Just overflow)
                      True
-                     True
  where
-  overflow s i s' i' =
+  overflow s i i' =
     let w = Ty.dynBvWidth i'
     in  Just $ Ty.BoolNaryExpr
           Ty.Or
           [ Ty.mkEq i' (Ty.DynBvLit (Bv.zeros w))
-          , if s && s'
+          , if s
             then Ty.BoolNaryExpr
               Ty.And
               [ Ty.mkEq i (Ty.DynBvLit (Bv.ones 1 Bv.# Bv.zeros (w - 1)))
@@ -674,17 +709,15 @@ cDiv = cWrapBinArith "/"
               ]
             else Ty.BoolLit False
           ]
-isDivZero :: Bool -> Bv -> Bool -> Bv -> Maybe Ty.TermBool
-isDivZero _s _i _s' i' =
+isDivZero :: Bool -> Bv -> Bv -> Maybe Ty.TermBool
+isDivZero _s _i i' =
   Just $ Ty.mkEq i' (Ty.DynBvLit (Bv.zeros (Ty.dynBvWidth i')))
 
--- TODO: CPP reference says that % requires integral arguments
 cRem = cWrapBinArith "%"
                      (const $ Left Ty.BvUrem)
                      (Ty.FpBinExpr Ty.FpRem)
                      (Just isDivZero)
                      False
-                     True
 cMin = undefined
 cMax = undefined
 noFpError
@@ -694,46 +727,30 @@ noFpError
   -> Ty.Term (Ty.FpSort f)
   -> Ty.Term (Ty.FpSort f)
 noFpError = const $ const $ error "Invalid FP op"
-cBitOr = cWrapBinArith "|" (const $ Right Ty.BvOr) noFpError Nothing False True
-cBitAnd =
-  cWrapBinArith "&" (const $ Right Ty.BvAnd) noFpError Nothing False True
-cBitXor =
-  cWrapBinArith "^" (const $ Right Ty.BvXor) noFpError Nothing False True
--- Not quite right, since we're gonna force these to be equal in size
-cShl = cWrapBinArith "<<"
-                     (const $ Left Ty.BvShl)
-                     noFpError
-                     (Just overflow)
-                     False
-                     True
+cBitOr = cWrapBinArith "|" (const $ Right Ty.BvOr) noFpError Nothing False
+cBitAnd = cWrapBinArith "&" (const $ Right Ty.BvAnd) noFpError Nothing False
+cBitXor = cWrapBinArith "^" (const $ Right Ty.BvXor) noFpError Nothing False
+
+cWrapShift name bvOp ubF a b =
+  case (term $ intPromotion a, term $ intPromotion b) of
+    (CInt s w i, CInt s' _w' i') -> mkCTerm
+      (CInt s w $ Ty.mkDynBvBinExpr (bvOp s) i i')
+      (Ty.BoolNaryExpr Ty.Or [udef a, udef b, ubF i s' i'])
+    _ -> error $ unwords ["Cannot", name, "on", show a, "and", show b]
+
+overShift i i' = Ty.mkDynBvBinPred Ty.BvUge i'
+  $ Mem.bvNum True (Ty.dynBvWidth i') (fromIntegral $ Ty.dynBvWidth i)
+cShl = cWrapShift "<<" (const $ Ty.BvShl) overflow
  where
-  overflow s i _s' i' =
-    let baseNeg =
-            [ Ty.mkDynBvBinPred Ty.BvSlt i (Mem.bvNum True (Ty.dynBvWidth i) 0)
-            | s
-            ]
-        shftBig =
-            [ Ty.mkDynBvBinPred
-                Ty.BvUge
-                i'
-                (Mem.bvNum True
-                           (Ty.dynBvWidth i')
-                           (fromIntegral $ Ty.dynBvWidth i)
-                )
-            ]
-    in  Just $ Ty.BoolNaryExpr Ty.Or $ baseNeg ++ shftBig
--- Not quite right, since we're gonna force these to be equal in size
-cShr = cWrapBinArith ">>"
-                     (\s -> Left $ if s then Ty.BvAshr else Ty.BvLshr)
-                     noFpError
-                     (Just overflow)
-                     False
-                     True
- where
-  overflow _s i _s' i' = Just $ Ty.mkDynBvBinPred
-    Ty.BvUge
-    i'
-    (Mem.bvNum True (Ty.dynBvWidth i') (fromIntegral $ Ty.dynBvWidth i))
+  overflow i s' i'
+    | s' = Ty.BoolNaryExpr
+      Ty.Or
+      [ overShift i i'
+      , Ty.mkDynBvBinPred Ty.BvSlt i (Mem.bvNum True (Ty.dynBvWidth i) 0)
+      ]
+    | otherwise = overShift i i'
+cShr = cWrapShift ">>" (\s -> if s then Ty.BvAshr else Ty.BvLshr) overflow
+  where overflow i _s' i' = overShift i i'
 
 cWrapUnArith
   :: String
@@ -747,7 +764,7 @@ cWrapUnArith
   -> CTerm
   -> CTerm
 cWrapUnArith name bvF doubleF ubF a =
-  let (t, u) = case term $ integralPromotion a of
+  let (t, u) = case term $ intPromotion a of
         CDouble d  -> (CDouble $ doubleF d, Nothing)
         CInt s w i -> (CInt True w $ bvF i, join $ ubF <*> pure s <*> pure i)
         _          -> error $ unwords ["Cannot do", name, "on", show a]
@@ -792,12 +809,6 @@ cWrapUnLogical name f a = case term $ cCast Type.Bool a of
 cNot :: CTerm -> CTerm
 cNot = cWrapUnLogical "!" Ty.Not
 
--- This is not quite right, but it's a reasonable approximation of C++ arithmetic.
--- For an expression l (><) r,
--- 1. Both l and r undergo **integral promotion** (bool -> int)
--- 2. If either are floating, the other is cast to that floating type
---    * Ptrs not castable.
--- 3. Scale the int, do the op.
 cWrapCmp
   :: String
   -> (Bool -> Bv -> Bv -> Ty.TermBool) -- ^f(signed, bv_a, bv_b)
@@ -810,31 +821,23 @@ cWrapCmp
   -> CTerm
   -> CTerm
   -> CTerm
-cWrapCmp name bvF doubleF a b = convert (integralPromotion a)
-                                        (integralPromotion b)
- where
-  convert a b =
-    let
-      cannot with = error $ unwords ["Cannot do", name, "with", with]
-      t = case (term a, term b) of
-        (CDouble d, _) -> doubleF d (asDouble $ term $ cCast Type.Double b)
-        (_, CDouble d) -> doubleF (asDouble $ term $ cCast Type.Double a) d
-        (CFloat d, _) -> doubleF d (asFloat $ term $ cCast Type.Float b)
-        (_, CFloat d) -> doubleF (asFloat $ term $ cCast Type.Float a) d
-        (CStackPtr ty addr id, CStackPtr ty' addr' id') ->
-          if ty == ty' && id == id'
-            then bvF False addr addr'
-            else
-              cannot
-                "two pointers, or two pointers of different types, or pointers to different allocations"
-        (CInt s w i, CInt s' w' i') ->
-          let width = max w w'
-              sign  = max s s'
-          in  bvF sign (intResize s width i) (intResize s' width i')
-        (_, _) -> cannot $ unwords [show a, "and", show b]
-      pUdef = Ty.BoolNaryExpr Ty.Or [udef a, udef b]
-    in
-      mkCTerm (CBool t) pUdef
+cWrapCmp name bvF doubleF a b =
+  let
+    (a', b') = usualArithConversions a b
+    cannot with = error $ unwords ["Cannot do", name, "with", with]
+    t = case (term a', term b') of
+      (CDouble x, CDouble y) -> doubleF x y
+      (CFloat  x, CFloat y ) -> doubleF x y
+      (CStackPtr ty addr id, CStackPtr ty' addr' id') ->
+        if ty == ty' && id == id'
+          then bvF False addr addr'
+          else
+            cannot
+              "two pointers, or two pointers of different types, or pointers to different allocations"
+      (CInt s w i, CInt s' w' i') | s == s' && w == w' -> bvF s i i'
+      (_, _) -> cannot $ unwords [show a, "and", show b]
+  in
+    mkCTerm (CBool t) $ Ty.BoolNaryExpr Ty.Or [udef a, udef b]
 
 cEq, cNe, cLt, cGt, cLe, cGe :: CTerm -> CTerm -> CTerm
 cEq = cWrapCmp "==" (const Ty.mkEq) Ty.mkEq
@@ -852,13 +855,6 @@ cGe = cWrapCmp ">="
                (\s -> Ty.mkDynBvBinPred (if s then Ty.BvSge else Ty.BvUge))
                (Ty.FpBinPred Ty.FpGe)
 
--- Promote integral types
--- Do not mess with pointers
-integralPromotion :: CTerm -> CTerm
-integralPromotion n = case term n of
-  CBool{} -> cCast Type.S32 n
-  _       -> n
-
 cCast :: Type.Type -> CTerm -> CTerm
 cCast toTy node = case term node of
   CBool t -> case toTy of
@@ -869,7 +865,7 @@ cCast toTy node = case term node of
     Type.Double -> mkCTerm (CDouble $ Ty.DynUbvToFp $ boolToBv t 1) (udef node)
     Type.Float  -> mkCTerm (CFloat $ Ty.DynUbvToFp $ boolToBv t 1) (udef node)
     Type.Bool   -> node
-    _           -> error $ unwords ["Bad cast from", show t, "to", show toTy]
+    _           -> badCast t toTy
   CInt fromS fromW t -> case toTy of
     _ | Type.isIntegerType toTy ->
       let toW = Type.numBits toTy
@@ -890,7 +886,7 @@ cCast toTy node = case term node of
       (udef node)
     Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.mkEq (Mem.bvNum False fromW 0) t) (udef node)
-    _ -> error $ unwords ["Bad cast from", show t, "to", show toTy]
+    _ -> badCast t toTy
   CDouble t -> case toTy of
     _ | Type.isIntegerType toTy ->
       -- TODO: Do this with rounding modes
@@ -912,7 +908,7 @@ cCast toTy node = case term node of
       mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
     Type.Double -> node
     Type.Float  -> mkCTerm (CFloat $ Ty.FpToFp t) (udef node)
-    _           -> error $ unwords ["Bad cast from", show t, "to", show toTy]
+    _           -> badCast t toTy
   CFloat t -> case toTy of
     _ | Type.isIntegerType toTy ->
       -- TODO: Do this with rounding modes
@@ -934,7 +930,7 @@ cCast toTy node = case term node of
       mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
     Type.Double -> mkCTerm (CDouble $ Ty.FpToFp t) (udef node)
     Type.Float  -> node
-    _           -> error $ unwords ["Bad cast from", show t, "to", show toTy]
+    _           -> badCast t toTy
   CStackPtr ty t _id -> if Type.isIntegerType toTy
     then cCast toTy $ mkCTerm (CInt False (Ty.dynBvWidth t) t) (udef node)
     else if toTy == Type.Bool
@@ -944,7 +940,7 @@ cCast toTy node = case term node of
       else if Type.isPointer toTy
         -- TODO: Not quite right: widths
         then node
-        else error $ unwords ["Bad cast from", show t, "to", show toTy]
+        else badCast t toTy
   CArray ty id -> case toTy of
     Type.Ptr32 iTy | iTy == Type.arrayBaseType ty -> mkCTerm
       (CStackPtr toTy (Mem.bvNum False (Type.numBits toTy) 0) id)
@@ -952,13 +948,14 @@ cCast toTy node = case term node of
     Type.Array Nothing toBaseTy | toBaseTy == Type.arrayBaseType ty ->
       mkCTerm (CArray toTy id) (udef node)
     _ | toTy == ty -> node
-    _ -> error $ unwords ["Bad cast from", show node, "to", show toTy]
+    _              -> badCast node toTy
   CStruct ty _ -> case toTy of
     _ | toTy == ty -> node
-    _ -> error $ unwords ["Bad cast from", show node, "to", show toTy]
+    _              -> badCast node toTy
  where
   boolToBv :: Ty.TermBool -> Int -> Bv
   boolToBv b w = Ty.mkIte b (Mem.bvNum False w 1) (Mem.bvNum False w 0)
+  badCast from to = error $ unwords ["Bad cast from", show from, "to", show to]
 
 -- A ITE based on a CTerm condition.
 cCond :: CTerm -> CTerm -> CTerm -> CTerm
@@ -971,14 +968,11 @@ cCond cond t f =
 cIte :: Ty.TermBool -> CTerm -> CTerm -> CTerm
 cIte condB t f =
   let
-    result = case (term t, term f) of
-      (CBool   tB, CBool fB  ) -> CBool $ Ty.mkIte condB tB fB
+    (t', f') = usualArithConversions t f
+    result   = case (term t', term f') of
       (CDouble tB, CDouble fB) -> CDouble $ Ty.mkIte condB tB fB
       (CFloat  tB, CFloat fB ) -> CFloat $ Ty.mkIte condB tB fB
-      (CDouble{} , _         ) -> term $ cIte condB t (cCast (cType t) f)
-      (_         , CDouble{} ) -> term $ cIte condB (cCast (cType f) t) f
-      (CFloat{}  , _         ) -> term $ cIte condB t (cCast (cType t) f)
-      (_         , CFloat{}  ) -> term $ cIte condB (cCast (cType f) t) f
+      (CBool   tB, CBool fB  ) -> CBool $ Ty.mkIte condB tB fB
       -- TODO: not quite right.
       -- Wrong in some instances of conditional initialization.
       (CStackPtr tTy tB tId, CStackPtr fTy fB fId)
@@ -992,11 +986,8 @@ cIte condB t f =
              == Mem.stackIdUnknown
              )
         -> CStackPtr tTy (Ty.mkIte condB tB fB) tId
-      (CInt s w i, CInt s' w' i') ->
-        let sign  = s && s' -- Not really sure is this is correct b/c of ranks.
-            width = max w w'
-        in  CInt sign width
-              $ Ty.mkIte condB (intResize s width i) (intResize s' width i')
+      (CInt s w i, CInt s' w' i') | s == s' && w == w' ->
+        CInt s w $ Ty.mkIte condB i i'
       (CStruct aTy a, CStruct bTy b) | aTy == bTy ->
         CStruct aTy $ zipWith (\(f, aV) (_, bV) -> (f, cIte condB aV bV)) a b
       _ -> error $ unwords
@@ -1007,7 +998,8 @@ cIte condB t f =
         , " and "
         , show f
         ]
-  in  mkCTerm result (Ty.mkIte condB (udef t) (udef f))
+  in
+    mkCTerm result (Ty.mkIte condB (udef t) (udef f))
 
 ctermGetVars :: String -> CTerm -> Mem (Set.Set String)
 ctermGetVars name t = do

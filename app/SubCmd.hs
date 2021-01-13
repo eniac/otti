@@ -117,7 +117,7 @@ runFrontend inPath fe = do
   inMap <- forM inPath $ \i -> liftIO $ parseToMap <$> readFile i
   a     <- liftCfg $ case fe of
     C fn path bugs -> do
-      tu <- liftIO $ CParse.parseC path
+      tu <- liftCfg $ CParse.parseC path
       return $ compile $ C.CInputs tu fn bugs inMap
     Zokrates fn path -> do
       ast <- liftIO $ ZokratesParse.loadFilesRecursively path
@@ -138,7 +138,7 @@ runCmd c = case c of
     if Z3.sat satRes
       then do
         let inMap = modelMapToExtMap $ Z3.model satRes
-        tu   <- liftIO $ CParse.parseC path
+        tu   <- liftCfg $ CParse.parseC path
         eqc' <- liftCfg $ Assert.execAssert $ compile $ C.CInputs tu
                                                                   fn
                                                                   True

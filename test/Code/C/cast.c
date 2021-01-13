@@ -13,5 +13,7 @@ int foo () {
   int i = (int)h;
   short j = 127;
   int k = (int)j;
+  int five = 0 ? (_Bool)0 : (int)5;
+  int six = (_Bool)0 + (int)6;
 }
 

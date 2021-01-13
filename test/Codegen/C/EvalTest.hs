@@ -3,14 +3,16 @@ import           BenchUtils
 import           Codegen.C.Main
 import           Control.Monad                  ( forM_ )
 import qualified Data.Map                      as M
-import           Targets.SMT.Z3          ( Val
+import           Targets.SMT.Z3                 ( Val
                                                 , i_
                                                 , b_
                                                 , d_
                                                 )
 import           Parser.C
 import           Test.Tasty.HUnit
-import           Util.Cfg                       ( evalCfgDefault )
+import           Util.Cfg                       ( evalCfgDefault
+                                                , liftCfg
+                                                )
 import           Util.Log                       ( evalLog )
 
 i = i_
@@ -63,6 +65,8 @@ cValueTests = benchTestGroup
     , ("f0_foo_lex1__g_v0", i 4294967295)
     , ("f0_foo_lex1__i_v0", i 255)
     , ("f0_foo_lex1__k_v0", i 127)
+    , ("f0_foo_lex1__five_v0", i 5)
+    , ("f0_foo_lex1__six_v0", i 6)
     ]
   , constraintValueTest "assign"
                         "foo"
@@ -395,7 +399,7 @@ cPequinTests = benchTestGroup "C pequin compiler tests" []
 constraintValueTest
   :: String -> String -> FilePath -> [(String, Val)] -> BenchTest
 constraintValueTest name fnName path expected = benchTestCase name $ do
-  tu <- parseC path
+  tu <- evalCfgDefault . liftCfg . parseC $ path
   r  <- evalCfgDefault $ evalLog $ evalFn False tu fnName
   forM_ expected $ \(evar, eval) -> do
     case M.lookup evar r of

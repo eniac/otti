@@ -38,23 +38,23 @@ cutilsTest = benchTestGroup
     Type.S32 @=? cType a
     let (_, w, bv) = asInt $ term a
     Ty.SortBv w @=? Ty.sort bv
-  , benchTestCase "cNeg: -u8 = i8" $ do
+  , benchTestCase "cNeg: -u8 = i32" $ do
     a <- evalCfgDefault $ Assert.evalAssert $ Mem.evalMem $ do
       u <- declVar Type.U8 "my_u8"
       return $ cNeg u
-    Type.S8 @=? cType a
+    Type.S32 @=? cType a
   , benchTestCase "cNot: !u8 = bool" $ do
     a <- evalCfgDefault $ Assert.evalAssert $ Mem.evalMem $ do
       u <- declVar Type.U8 "my_u8"
       return $ cNot u
     Type.Bool @=? cType a
-  , benchTestCase "cCond: bool ? u8 : i8 = u8" $ do
+  , benchTestCase "cCond: bool ? u8 : i8 = i32" $ do
     a <- evalCfgDefault $ Assert.evalAssert $ Mem.evalMem $ do
       u <- declVar Type.U8 "my_u8"
       i <- declVar Type.S8 "my_i8"
       b <- declVar Type.Bool "my_bool"
       return $ cCond b u i
-    Type.U8 @=? cType a
+    Type.S32 @=? cType a
   --, benchTestCase "cStore + cLoad preserves type and size of u8" $ do
   --  a <- Assert.evalAssert $ Mem.evalMem $ do
   --    u <- declVar Type.U8 "my_u8"
