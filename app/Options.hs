@@ -21,8 +21,17 @@ data ProofAction = EmitR1cs
 proofActionP :: Parser ProofAction
 proofActionP =
   flag' EmitR1cs (long "emit-r1cs" <> help "Emit R1CS")
-    <|> flag' Setup (long "setup" <> help "Setup the SNARK (emit pk, vk)")
-    <|> flag' Prove (long "prove" <> help "Write the SNARK (emit x, w, pf)")
+    <|> flag'
+          Setup
+          (long "setup" <> help
+            "Setup the SNARK (emit proving key [pk], verification key [vk])"
+          )
+    <|> flag'
+          Prove
+          (  long "prove"
+          <> help
+               "Write the SNARK (emit explicit inputs [x], witnesses [w], proof [pf])"
+          )
 
 data BackEnd = Solve
              | Proof ProofOpts ProofAction

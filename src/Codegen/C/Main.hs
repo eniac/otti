@@ -1,8 +1,9 @@
-{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE TemplateHaskell            #-}
 module Codegen.C.Main
   ( CInputs(..)
   , evalFn
@@ -19,6 +20,8 @@ import           Codegen.Circify.Memory         ( MonadMem
                                                 )
 import           Codegen.FrontEnd
 import           Codegen.LangVal
+
+import           Control.Monad.Fail             ( MonadFail )
 import           Control.Monad                  ( replicateM_
                                                 , forM
                                                 , join
@@ -29,9 +32,11 @@ import qualified Data.Char                     as Char
 import qualified Data.Foldable                 as Fold
 import qualified Data.List                     as List
 import qualified Data.Map                      as Map
+import qualified Data.BitVector                as BV
 import           Data.Maybe                     ( fromJust
                                                 , fromMaybe
                                                 , isJust
+                                                , catMaybes
                                                 )
 import qualified Data.Set                      as Set
 import           IR.SMT.Assert                  ( MonadAssert
@@ -39,6 +44,7 @@ import           IR.SMT.Assert                  ( MonadAssert
                                                 )
 import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
+import           IR.SMT.TySmt                   ( )
 import qualified IR.SMT.TySmt.Alg              as TyAlg
 import qualified Targets.SMT.Z3                as ToZ3
 import qualified Targets.BackEnd               as Back
@@ -49,53 +55,64 @@ import qualified Util.Cfg                      as Cfg
 import           Util.Cfg                       ( MonadCfg(..) )
 import           Util.Control
 import           Util.Log
-
+import           Data.Tuple.Extra
+import           Data.Dynamic
+import           Lens.Simple                    ( makeLenses
+                                                , over
+                                                , set
+                                                , view
+                                                )
 
 data CState = CState
-  { funs          :: Map.Map FunctionName CFunDef
-  , loopBound     :: Int
-  , findUB        :: Bool
-  , bugConditions :: [Ty.TermBool]
-  , assumptions   :: [Ty.TermBool]
-  , nonDetCtr     :: Int
-  , breakDepth    :: Int
-  }
+  { _funs          :: Map.Map FunctionName CFunDef
+  , _loopBound     :: Int
+  , _findUB        :: Bool
+  , _bugConditions :: [Ty.TermBool]
+  , _assumptions   :: [Ty.TermBool]
+  , _nonDetCtr     :: Int
+  , _breakDepth    :: Int
+  } deriving Show
+
+$(makeLenses ''CState)
 
 type CCircState = CircifyState Type CTerm (Maybe InMap, Bool)
 
 newtype C a = C (StateT CState (Circify Type CTerm (Maybe InMap, Bool)) a)
-    deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem, MonadCircify Type CTerm (Maybe InMap, Bool), MonadCfg, MonadDeepState (((Assert.AssertState, Mem.MemState), CCircState), CState))
+    deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem, MonadFail, MonadCircify Type CTerm (Maybe InMap, Bool), MonadCfg, MonadDeepState (((Assert.AssertState, Mem.MemState), CCircState), CState))
 
 emptyCState :: Bool -> CState
-emptyCState findBugs = CState { funs          = Map.empty
-                              , loopBound     = 5
-                              , findUB        = findBugs
-                              , bugConditions = []
-                              , assumptions   = []
-                              , nonDetCtr     = 0
-                              , breakDepth    = 0
+emptyCState findBugs = CState { _funs          = Map.empty
+                              , _loopBound     = 5
+                              , _findUB        = findBugs
+                              , _bugConditions = []
+                              , _assumptions   = []
+                              , _nonDetCtr     = 0
+                              , _breakDepth    = 0
                               }
+
+findBugs :: C Bool
+findBugs = view findUB <$> get
 
 enterBreak :: C ()
 enterBreak = do
-  d <- (+ 1) <$> gets breakDepth
-  modify $ \s -> s { breakDepth = d }
+  d <- view breakDepth <$> get
+  modify $ over breakDepth (+ 1)
   liftCircify $ pushBreakable $ "break" ++ show d
 
 exitBreak :: C ()
 exitBreak = do
   liftCircify popGuard
-  modify $ \s -> s { breakDepth = -1 + breakDepth s }
+  modify $ over breakDepth (\x -> x - 1)
 
 cBreak :: C ()
 cBreak = do
-  d <- gets breakDepth
+  d <- view breakDepth <$> get
   liftCircify $ doBreak $ "break" ++ show d
 
 cfgFromEnv :: C ()
 cfgFromEnv = do
   bound <- Cfg.liftCfg $ asks Cfg._loopBound
-  modify $ \s -> s { loopBound = bound }
+  modify $ set loopBound bound
   logIf "loop" $ "Setting loop bound to " ++ show bound
 
 -- Loops
@@ -104,7 +121,7 @@ cfgFromEnv = do
 getForLoopBound :: CStat -> CStat -> C (Either Int Int)
 getForLoopBound loop body = do
   s <- liftCfg $ asks (Cfg._constLoops . Cfg._cCfg)
-  d <- gets loopBound
+  d <- view loopBound <$> get
   if s
     then do
       cI <- constIterations loop body
@@ -129,15 +146,15 @@ constIterations stmt body = do
 
 registerFunction :: FunctionName -> CFunDef -> C ()
 registerFunction name function = do
-  s0 <- get
-  case Map.lookup name $ funs s0 of
-    Nothing -> put $ s0 { funs = Map.insert name function $ funs s0 }
+  fs <- view funs <$> get
+  case Map.lookup name fs of
+    Nothing -> modify . over funs $ Map.insert name function
     _       -> error $ unwords ["Already declared fn:", name]
 
 getFunction :: FunctionName -> C CFunDef
 getFunction funName = do
-  functions <- gets funs
-  case Map.lookup funName functions of
+  fs <- view funs <$> get
+  case Map.lookup funName fs of
     Just function -> return function
     Nothing       -> error $ unwords ["Called undeclared function:", funName]
 
@@ -148,21 +165,19 @@ bugIf :: Ty.TermBool -> C ()
 bugIf c = do
   logIf "bugIf" $ "Bug if: " ++ show c
   g <- liftCircify getGuard
-  modify $ \s ->
-    s { bugConditions = Ty.BoolNaryExpr Ty.And [g, c] : bugConditions s }
+  modify $ over bugConditions (Ty.BoolNaryExpr Ty.And [g, c] :)
 
 assume :: Ty.TermBool -> C ()
 assume c = do
   g <- liftCircify getGuard
-  modify
-    $ \s -> s { assumptions = Ty.BoolBinExpr Ty.Implies g c : assumptions s }
+  modify $ over assumptions (Ty.BoolBinExpr Ty.Implies g c :)
 
 -- Assert that some recorded bug happens
 assertBug :: C ()
 assertBug = do
-  cs <- gets bugConditions
+  cs <- view bugConditions <$> get
   liftAssert $ Assert.assert $ Ty.BoolNaryExpr Ty.Or cs
-  as <- gets assumptions
+  as <- view assumptions <$> get
   liftAssert $ forM_ as Assert.assert
 
 -- Lift some CUtils stuff to the SSA layer
@@ -176,7 +191,7 @@ ssaLoad :: CSsaVal -> C CSsaVal
 ssaLoad addr = case addr of
   Base cterm -> do
     (oob, val) <- liftMem $ cLoad cterm
-    whenM (gets findUB) $ bugIf oob
+    whenM findBugs $ bugIf oob
     return $ Base val
   RefVal inner -> liftCircify $ getTerm (SLRef inner)
 
@@ -185,7 +200,7 @@ ssaStore ref val = case (ref, val) of
   (Base addr, Base cval) -> do
     g   <- liftCircify getGuard
     oob <- liftMem $ cStore addr cval g
-    whenM (gets findUB) $ bugIf oob
+    whenM findBugs $ bugIf oob
   _ -> error $ "Cannot store " ++ show (ref, val)
 
 ssaStructGet :: String -> CSsaVal -> CSsaVal
@@ -236,7 +251,7 @@ genConst c = case c of
         logIf "SMT_assert" $ "User assertion: " ++ show t
         t' <- localizeVars t
         logIf "SMT_assert" $ "SMT  assertion: " ++ show t'
-        whenM (gets findUB) $ bugIf $ Ty.Not t'
+        whenM (view findUB <$> get) $ bugIf $ Ty.Not t'
         return $ cIntLit U32 0
       else liftMem $ cArrayLit
         S8
@@ -328,15 +343,16 @@ noneIfVoid :: Type -> Maybe Type
 noneIfVoid t = if Void == t then Nothing else Just t
 
 -- | Handle special functions, returning whether this function was special
-genSpecialFunction :: VarName -> [CSsaVal] -> C (Maybe CSsaVal)
-genSpecialFunction fnName args = do
+genSpecialFunction :: VarName -> [CExpr] -> C (Maybe CSsaVal)
+genSpecialFunction fnName cargs = do
   specifialPrintf <- Cfg.liftCfg $ asks (Cfg._printfOutput . Cfg._cCfg)
   svExtensions    <- Cfg.liftCfg $ asks (Cfg._svExtensions . Cfg._cCfg)
-  bugs            <- gets findUB
+  bugs            <- view findUB <$> get
   case fnName of
     "printf" | specifialPrintf -> do
       -- skip fstring
-      when bugs $ forM_ (tail args) (bugIf . udef . ssaValAsTerm "printf udef")
+      args <- traverse genExpr . tail $ cargs
+      when bugs $ forM_ args (bugIf . udef . ssaValAsTerm "printf udef")
       -- Not quite right. Should be # chars.
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_error" | svExtensions -> do
@@ -346,25 +362,79 @@ genSpecialFunction fnName args = do
       when bugs $ bugIf (Ty.BoolLit True)
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_assert" | svExtensions -> do
-      if bugs
-        then bugIf $ Ty.Not $ ssaBool $ head args
-        else assume $ ssaBool $ head args
+      prop <- genExpr . head $ cargs
+      if bugs then bugIf . Ty.Not . ssaBool $ prop else assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
     "__VERIFIER_assume" | svExtensions -> do
-      when bugs $ assume $ ssaBool $ head args
+      prop <- genExpr . head $ cargs
+      when bugs . assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
+    "__GADGET_compute" -> do
+      -- Enter scratch state
+      s    <- deepGet
+      expr <- genExpr . head $ cargs
+      -- Give an l-var to the gadget expression
+      let exprname = "__gadget_out"
+      let ctype = cType . ssaValAsTerm "gadget evaluation" $ expr
+      liftCircify $ declareInitVar exprname ctype expr
+      vexpr <- liftCircify . getValue . SLVar $ exprname
+      logIfPretty "gadget::user::analytics"
+                  ("Gadget computed for " ++ show vexpr ++ " from expr ")
+                  (head cargs)
+      -- Erase scratch state
+      deepPut s
+      -- Add checker assertion
+      liftCircify $ declareVar False exprname ctype
+      -- Add witness if computing values
+      forM_ vexpr $ liftCircify . setValue (SLVar exprname)
+      Just <$> (liftCircify . getTerm . SLVar $ exprname)
+    "__GADGET_exists" -> do
+      return Nothing
+    "__GADGET_check" -> do
+      -- Parse propositional arguments see `test/Code/C/max.c`
+      args <- traverse genExpr cargs
+      let numbered = zip3 [1 :: Integer ..] cargs args
+      -- Evaluate proposition bools and check if they hold
+      forM_ numbered (uncurry3 assumeGadgetAssertion)
+      return . Just . Base $ cIntLit S32 1
+
     "assume_abort_if_not" | svExtensions -> do
-      when bugs $ assume $ ssaBool $ head args
+      prop <- genExpr . head $ cargs
+      when bugs . assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
     _ | isNonDet fnName -> do
       let ty = nonDetTy fnName
-      n <- gets nonDetCtr
-      modify $ \s -> s { nonDetCtr = n + 1 }
+      n <- view nonDetCtr <$> get
+      modify $ over nonDetCtr (+ 1)
       let name = fnName ++ "_" ++ show n
       liftCircify $ declareVar True name ty
       liftCircify $ Just <$> getTerm (SLVar name)
     _ -> return Nothing
  where
+  assumeGadgetAssertion n e cv = do
+    -- Assign to an l-value
+    -- gadget_prop_1 = max_check(a,b,out)
+    let lname = "__gadget_prop_" ++ show n
+    liftCircify $ declareInitVar lname Bool cv
+    -- Compute value with inputs if given, or Nothing
+    cterm <- liftCircify . getValue . SLVar $ lname
+    -- Generate circuitry to check at verifier runtime
+    assume . ssaBool $ cv
+    -- Check at compile time
+    case fmap (asBool . term) cterm of
+      (Just (Ty.BoolLit True)) -> do
+        liftLog
+          $ logIfPretty "gadgets::user::verification" "Verified assertion" e
+      (Just other) -> do
+        liftLog $ logIfPretty "gadgets::user::verification" "Failed assertion" e
+        fail
+          $  "Failed assertion, enable gadgets::user::verification for details"
+          ++ show other
+      -- Must mean inputs are not given at compile-time
+      (Nothing) -> do
+        liftLog $ logIf "gadgets::user::verification"
+                        "Inputs are not given, no verification performed."
+
   nonDetTy :: String -> Type
   nonDetTy s = case drop (length "__VERIFIER_nondet_") s of
     "char"   -> S8
@@ -376,6 +446,7 @@ genSpecialFunction fnName args = do
     "float"  -> Float
     "double" -> Double
     _        -> error $ "Unknown nondet suffix in: " ++ s
+
   isNonDet = List.isPrefixOf "__VERIFIER_nondet_"
 
 genExpr :: CExpr -> C CSsaVal
@@ -424,13 +495,13 @@ genExpr expr = do
     CCall fn args _ -> case fn of
       CVar fnIdent _ -> do
         let fnName = identToVarName fnIdent
-        actualArgs <- traverse genExpr args
-        s          <- genSpecialFunction fnName actualArgs
+        s <- genSpecialFunction fnName args
         case s of
           Just r  -> return r
           Nothing -> do
-            f     <- getFunction fnName
-            retTy <- liftCircify $ unwrap <$> fnRetTy f
+            f          <- getFunction fnName
+            retTy      <- liftCircify $ unwrap <$> fnRetTy f
+            actualArgs <- traverse genExpr args
             let (_, args, body) = fnInfo f
             liftCircify $ pushFunction fnName (noneIfVoid retTy)
             forM_ args (genDecl FnArg)
@@ -440,7 +511,7 @@ genExpr expr = do
               .   join
               .   map (either error id)
               <$> forM args cSplitDeclaration
-            unless (length formalArgs == length actualArgs)
+            unless (length formalArgs == length args)
               $  error
               $  "Wrong arg count: "
               ++ show expr
@@ -589,7 +660,7 @@ genStmt stmt = do
           replicateM_ b (liftCircify popGuard)
       exitBreak
     CWhile check body isDoWhile _ -> do
-      bound <- gets loopBound
+      bound <- view loopBound <$> get
       let addGuard = genExpr check >>= liftCircify . pushGuard . ssaBool
       enterBreak
       replicateM_ bound $ do
@@ -648,7 +719,7 @@ genDecl dType d@(CDecl specs decls _) = do
             liftCircify $ declareInitVar name ty rhs
           Nothing -> do
             liftCircify $ declareVar (dType == EntryFnArg) name ty
-            whenM (gets findUB) $ when (dType /= FnArg) $ do
+            whenM (view findUB <$> get) $ when (dType /= FnArg) $ do
               lhs <- genVar ident
               liftAssert
                 $  Assert.assert
@@ -738,7 +809,7 @@ genFunDef f = do
         pubVars <- liftMem $ ctermGetVars "return" rv
         liftAssert $ forM_ (Set.toList pubVars) Assert.publicize
       svExtensions <- Cfg.liftCfg $ asks (Cfg._svExtensions . Cfg._cCfg)
-      ub           <- gets findUB
+      ub           <- view findUB <$> get
       when (ub && not svExtensions) $ forM_ returnValue $ \r ->
         bugIf $ ctermIsUndef r
 
@@ -781,16 +852,31 @@ checkFn tu name = do
                                                                  Nothing
   Back.target assertState
 
-evalFn :: Bool -> CTranslUnit -> String -> Log (Map.Map String ToZ3.Val)
-evalFn findBug tu name = do
-  -- TODO: inputs?
+evalFn :: CTranslUnit -> String -> Maybe InMap -> Log (Map.Map String ToZ3.Val)
+evalFn tu name ins = do
   assertState <- liftCfg $ Assert.execAssert $ compile $ CInputs tu
                                                                  name
-                                                                 findBug
-                                                                 Nothing
+                                                                 False
+                                                                 ins
+  -- Create an assertion from given values
+  let vs = (catMaybes . fmap (uncurry mkValEq) . Map.toList)
+        <$> Assert.vals assertState
   let a = Fold.toList $ Assert.asserted assertState
-  z3res <- ToZ3.evalZ3Model $ Ty.BoolNaryExpr Ty.And a
+  z3res <- ToZ3.evalZ3Model $ Ty.BoolNaryExpr Ty.And (a ++ fromMaybe [] vs)
   return $ ToZ3.model z3res
+ where
+  mkValEq :: String -> Dynamic -> Maybe Ty.TermBool
+  mkValEq name v = do
+    term <- TyAlg.valueToTerm . Ty.ValDynBv <$> fromDyn v
+    let sort = Ty.sort term
+    return $ Ty.Eq (Ty.Var name sort) term
+  fromDyn :: Dynamic -> Maybe BV.BV
+  fromDyn v = Fold.asum
+    [ (fromDynamic v :: Maybe (Ty.Value Ty.DynBvSort))
+        >>= (\case
+              (Ty.ValDynBv b) -> Just b
+            )
+    ]
 
 data CInputs = CInputs CTranslUnit String Bool (Maybe InMap)
 

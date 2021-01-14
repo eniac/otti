@@ -29,6 +29,7 @@ generatorTests = benchTestGroup
   , cTests
   , cutilsTest
   , cValueTests
+  , cGadgetTests
   , cRealTests
   , cPequinTests
   , zTests
