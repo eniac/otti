@@ -1,8 +1,8 @@
 //specify problem size here
-#define C 3 //constraints
-#define V 2 //vars
-#define CP 4 //constraints
-#define VP 3 //vars
+#define C 5 //constraints
+#define V 5 //vars
+#define CP 6 //constraints
+#define VP 6 //vars
 
 //compiler-friendly structs/types
 #define LEQ 0
@@ -15,7 +15,7 @@ static const fixed_point_precision_16_16 epsilon   = (fixed_point_precision_16_1
 
 typedef struct {
   int rows, cols; // mat[m x n]
-  fixed_point_precision_16_16 mat[30]; //upper bound yourself
+  fixed_point_precision_16_16 mat[70]; //upper bound yourself
   _Bool stars[VP]; // V+1
   int cntr;
 } Tableau;
@@ -32,7 +32,6 @@ typedef struct {
 } Solution;
 
 typedef struct {
-
   fixed_point_precision_16_16 m0;
   fixed_point_precision_16_16 m1;
   fixed_point_precision_16_16 m2;
@@ -63,16 +62,62 @@ typedef struct {
   fixed_point_precision_16_16 m27;
   fixed_point_precision_16_16 m28;
   fixed_point_precision_16_16 m29;
-
+  fixed_point_precision_16_16 m30;
+  fixed_point_precision_16_16 m31;
+  fixed_point_precision_16_16 m32;
+  fixed_point_precision_16_16 m33;
+  fixed_point_precision_16_16 m34;
+  fixed_point_precision_16_16 m35;
+  fixed_point_precision_16_16 m36;
+  fixed_point_precision_16_16 m37;
+  fixed_point_precision_16_16 m38;
+  fixed_point_precision_16_16 m39;
+  fixed_point_precision_16_16 m40;
+  fixed_point_precision_16_16 m41;
+  fixed_point_precision_16_16 m42;
+  fixed_point_precision_16_16 m43;
+  fixed_point_precision_16_16 m44;
+  fixed_point_precision_16_16 m45;
+  fixed_point_precision_16_16 m46;
+  fixed_point_precision_16_16 m47;
+  fixed_point_precision_16_16 m48;
+  fixed_point_precision_16_16 m49;
+  fixed_point_precision_16_16 m50;
+  fixed_point_precision_16_16 m51;
+  fixed_point_precision_16_16 m52;
+  fixed_point_precision_16_16 m53;
+  fixed_point_precision_16_16 m54;
+  fixed_point_precision_16_16 m55;
+  fixed_point_precision_16_16 m56;
+  fixed_point_precision_16_16 m57;
+  fixed_point_precision_16_16 m58;
+  fixed_point_precision_16_16 m59;
+  fixed_point_precision_16_16 m60;
+  fixed_point_precision_16_16 m61;
+  fixed_point_precision_16_16 m62;
+  fixed_point_precision_16_16 m63;
+  fixed_point_precision_16_16 m64;
+  fixed_point_precision_16_16 m65;
+  fixed_point_precision_16_16 m66;
+  fixed_point_precision_16_16 m67;
+  fixed_point_precision_16_16 m68;
+  fixed_point_precision_16_16 m69;
+  fixed_point_precision_16_16 m70;
 
   fixed_point_precision_16_16 x0;
   fixed_point_precision_16_16 x1;
   fixed_point_precision_16_16 x2;
+  fixed_point_precision_16_16 x3;
+  fixed_point_precision_16_16 x4;
+  fixed_point_precision_16_16 x5;
 
   fixed_point_precision_16_16 y0;
   fixed_point_precision_16_16 y1;
   fixed_point_precision_16_16 y2;
   fixed_point_precision_16_16 y3;
+  fixed_point_precision_16_16 y4;
+  fixed_point_precision_16_16 y5;
+
 
 
 } Static_Fix;

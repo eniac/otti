@@ -98,7 +98,7 @@ isArray Array{} = True
 isArray _       = False
 
 isArithType :: Type -> Bool
-isArithType t = isIntegerType t || Bool == t || Float == t || Double == t
+isArithType t = isIntegerType t || Bool == t || Float == t || Double == t || FixedPt == t
 
 pointeeType :: Type -> Type
 pointeeType (Ptr64 ty) = ty

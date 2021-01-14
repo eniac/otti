@@ -607,6 +607,8 @@ usualArithConversions x y noFxPt =
     = (cCast Type.Double a, cCast Type.Double b)
     | Type.isFloat aTy || Type.isFloat bTy
     = (cCast Type.Float a, cCast Type.Float b)
+    | Type.isFixedPt aTy || Type.isFixedPt bTy
+    = (cCast Type.FixedPt a, cCast Type.FixedPt b)
     | aPromTy == bPromTy
     = (aProm, bProm)
     | Type.isSignedInt aPromTy == Type.isSignedInt bPromTy
@@ -972,10 +974,8 @@ cWrapCmp name bvF doubleF a b =
           else
             cannot
               "two pointers, or two pointers of different types, or pointers to different allocations"
--- TODO JESS delete
+
       (CInt s w i, CInt s' w' i') | s == s' && w == w' -> bvF s i i'
-      (CInt _ _ _, CFixedPt fx') -> bvF True (asFixedPt $ term $ cCast Type.FixedPt a) fx'
-      (CFixedPt fx, CInt _ _ _) -> bvF True fx (asFixedPt $ term $ cCast Type.FixedPt b)
       (CFixedPt fx, CFixedPt fx') -> bvF True fx fx'
       (_, _) -> cannot $ unwords [show a, "and", show b]
   in
