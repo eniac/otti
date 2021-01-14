@@ -1,6 +1,8 @@
 //specify problem size here
 #define C 3 //constraints
 #define V 2 //vars
+#define CP 4 //constraints
+#define VP 3 //vars
 
 //compiler-friendly structs/types
 #define LEQ 0
@@ -14,7 +16,7 @@ static const fixed_point_precision_16_16 epsilon   = (fixed_point_precision_16_1
 typedef struct {
   int rows, cols; // mat[m x n]
   fixed_point_precision_16_16 mat[30]; //upper bound yourself
-  _Bool stars[V+1]; // V+1
+  _Bool stars[VP]; // V+1
   int cntr;
 } Tableau;
 
@@ -25,9 +27,55 @@ typedef struct {
 } Constraint;
 
 typedef struct {
-  fixed_point_precision_16_16 x[V+1]; //V+1
-  fixed_point_precision_16_16 y[C+1]; //C+1
+  fixed_point_precision_16_16 x[VP]; //V+1
+  fixed_point_precision_16_16 y[CP]; //C+1
 } Solution;
+
+typedef struct {
+
+  fixed_point_precision_16_16 m0;
+  fixed_point_precision_16_16 m1;
+  fixed_point_precision_16_16 m2;
+  fixed_point_precision_16_16 m3;
+  fixed_point_precision_16_16 m4;
+  fixed_point_precision_16_16 m5;
+  fixed_point_precision_16_16 m6;
+  fixed_point_precision_16_16 m7;
+  fixed_point_precision_16_16 m8;
+  fixed_point_precision_16_16 m9;
+  fixed_point_precision_16_16 m10;
+  fixed_point_precision_16_16 m11;
+  fixed_point_precision_16_16 m12;
+  fixed_point_precision_16_16 m13;
+  fixed_point_precision_16_16 m14;
+  fixed_point_precision_16_16 m15;
+  fixed_point_precision_16_16 m16;
+  fixed_point_precision_16_16 m17;
+  fixed_point_precision_16_16 m18;
+  fixed_point_precision_16_16 m19;
+  fixed_point_precision_16_16 m20;
+  fixed_point_precision_16_16 m21;
+  fixed_point_precision_16_16 m22;
+  fixed_point_precision_16_16 m23;
+  fixed_point_precision_16_16 m24;
+  fixed_point_precision_16_16 m25;
+  fixed_point_precision_16_16 m26;
+  fixed_point_precision_16_16 m27;
+  fixed_point_precision_16_16 m28;
+  fixed_point_precision_16_16 m29;
+
+
+  fixed_point_precision_16_16 x0;
+  fixed_point_precision_16_16 x1;
+  fixed_point_precision_16_16 x2;
+
+  fixed_point_precision_16_16 y0;
+  fixed_point_precision_16_16 y1;
+  fixed_point_precision_16_16 y2;
+  fixed_point_precision_16_16 y3;
+
+
+} Static_Fix;
 
 //function declr
 int d_equal(fixed_point_precision_16_16 a, fixed_point_precision_16_16 b);
@@ -37,14 +85,12 @@ Tableau add_slack(Tableau tableau, int max_min, int cols);
 Tableau calculate_dual(Tableau p, int max_min);
 Tableau simplex_max(Tableau tableau);
 Tableau simplex_stars(Tableau tableau);
-int satisfies(fixed_point_precision_16_16 sol[], int sol_len, Tableau tab, int max_min);
 fixed_point_precision_16_16 find_opt_var(Tableau t, int j);
-int solution_eq(fixed_point_precision_16_16 c[], fixed_point_precision_16_16 x[], int lenx, fixed_point_precision_16_16 y[], fixed_point_precision_16_16 b[], int leny, int max_min);
-Solution simplex_gadget(Tableau p_tableau, int p_max_min);
+Static_Fix simplex_gadget(Tableau p_tableau, int p_max_min);
 Tableau make_problem();
 Tableau maximize(Tableau t, Constraint c);
 Tableau minimize(Tableau t, Constraint c);
 Tableau add(Tableau t, Constraint c);
 void print_sol(Solution s);
-int simplex_check(fixed_point_precision_16_16 c[], fixed_point_precision_16_16 x[], int lenx, fixed_point_precision_16_16 y[], fixed_point_precision_16_16 b[], int leny, int max_min, Tableau p_tableau);
-Solution simplex_prover(Tableau p_tableau, int p_max_min);
+int simplex_check(int max_min, Static_Fix sol);
+Static_Fix simplex_prover(Tableau p_tableau, int p_max_min);

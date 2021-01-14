@@ -639,8 +639,12 @@ bvToPf env term = do
       IntToDynBv w (IntLit i) -> saveConstBv bv (Bv.bitVec w i)
 
       -- stop gap addition until Fp is impl'd
-      RoundFpToDynBv w s (Fp64Lit fp)  -> saveConstBv bv (asBits fp)
-      RoundFpToDynBv w s (Fp32Lit fp)  -> saveConstBv bv (asBits fp)
+      RoundFpToDynBv 64 True (Fp64Lit fp)  -> saveConstBv bv $ asBits fp
+      RoundFpToDynBv 32 True (Fp32Lit fp)  -> saveConstBv bv $ asBits fp
+      RoundFpToDynBv 64 True (FpBinExpr FpMul (Fp64Lit fl) (Fp64Lit fr)) -> saveConstBv bv $ asBits (fl * fr)
+      RoundFpToDynBv 32 True (FpBinExpr FpMul (Fp32Lit fl) (Fp32Lit fr)) -> saveConstBv bv $ asBits (fl * fr)
+      RoundFpToDynBv 64 True (FpBinExpr FpMul (FpUnExpr FpNeg (Fp64Lit fl)) (Fp64Lit fr)) -> saveConstBv bv $ asBits ((-1 * fl) * fr)
+      RoundFpToDynBv 32 True (FpBinExpr FpMul (FpUnExpr FpNeg (Fp32Lit fl)) (Fp32Lit fr)) -> saveConstBv bv $ asBits ((-1 * fl) * fr)
 
       DynBvLit l              -> saveConstBv bv l
       Var name (SortBv w)     -> do
