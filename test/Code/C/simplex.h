@@ -120,7 +120,7 @@ typedef struct {
 
 
 
-} Static_Fix;
+} Solution_Box;
 
 //function declr
 int d_equal(fixed_point_precision_16_16 a, fixed_point_precision_16_16 b);
@@ -131,11 +131,11 @@ Tableau calculate_dual(Tableau p, int max_min);
 Tableau simplex_max(Tableau tableau);
 Tableau simplex_stars(Tableau tableau);
 fixed_point_precision_16_16 find_opt_var(Tableau t, int j);
-Static_Fix simplex_gadget(Tableau p_tableau, int p_max_min);
+Solution_Box simplex_gadget(Tableau p_tableau, int p_max_min);
 Tableau make_problem();
-Tableau maximize(Tableau t, Constraint c);
-Tableau minimize(Tableau t, Constraint c);
-Tableau add(Tableau t, Constraint c);
+Tableau maximize(Constraint c);
+Tableau minimize(Constraint c);
+Tableau add(Tableau, Constraint c);
 void print_sol(Solution s);
-int simplex_check(int max_min, Static_Fix sol);
-Static_Fix simplex_prover(Tableau p_tableau, int p_max_min);
+int simplex_check(int max_min, Solution_Box sol);
+Solution_Box simplex_prover(Tableau p_tableau, int p_max_min);

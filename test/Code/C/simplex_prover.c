@@ -14,7 +14,7 @@ int main(void) {
   tab = add(tab, c2);
   tab = add(tab, c3);
 
-  Solution_Box solution = simplex_gadget(tab, MIN);
+  Solution_Box solution = simplex_prover(tab,MIN);
 
   return 0;
 

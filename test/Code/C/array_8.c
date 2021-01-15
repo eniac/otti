@@ -10,6 +10,6 @@ typedef struct AS {
 
 int struct_sum(A a) {
     int acc = 0;
-    for (int i = 0; i < 5; ++i) acc += a.xs[i];
+    for (int i = 0; i < 5; ++i) acc = acc / a.xs[i];
     return acc;
 }
