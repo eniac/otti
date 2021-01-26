@@ -43,6 +43,8 @@ import           Prelude                 hiding ( exp )
 import           IR.SMT.TySmt
 import qualified IR.SMT.TySmt.DefaultMap       as DMap
 import           IR.SMT.TySmt.DefaultMap        ( DefaultMap )
+
+
 -- |
 -- Given a function that optionally transforms a term, traverses the term
 -- applying that function at every stage. When the function returns something,
