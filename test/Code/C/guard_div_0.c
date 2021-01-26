@@ -21,3 +21,18 @@ unsigned maybe_div(unsigned a, unsigned b) {
       return a / b;
   }
 }
+
+unsigned rem(unsigned a, unsigned b) {
+  return a % b;
+}
+
+unsigned maybe_rem(unsigned a, unsigned b) {
+  if (b == 0)
+  {
+      return a;
+  }
+  else
+  {
+      return a % b;
+  }
+}

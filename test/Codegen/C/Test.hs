@@ -171,10 +171,34 @@ satR1csTests = benchTestGroup
                       "maybe_div"
                       "test/Code/C/guard_div_0.c"
                       (M.fromList [("a", 1), ("b", 1)])
+  , satR1csTestInputs "guard rem 0 dynamic"
+                      "maybe_rem"
+                      "test/Code/C/guard_div_0.c"
+                      (M.fromList [("a", 5), ("b", 0)])
+  , satR1csTestInputs "guard rem 1 dynamic"
+                      "maybe_rem"
+                      "test/Code/C/guard_div_0.c"
+                      (M.fromList [("a", 5), ("b", 2)])
   , satR1csTestInputs "add"
                       "add"
                       "test/Code/C/add_unsigned.c"
                       (M.fromList [("x", 1), ("y", 15)])
+  , satR1csTestInputs "sub pos-pos=pos"
+                      "sub"
+                      "test/Code/C/sub.c"
+                      (M.fromList [("x", 16), ("y", 15)])
+  , satR1csTestInputs "sub neg-neg=pos"
+                      "sub"
+                      "test/Code/C/sub.c"
+                      (M.fromList [("x", -12), ("y", -15)])
+  , satR1csTestInputs "sub neg-neg=neg"
+                      "sub"
+                      "test/Code/C/sub.c"
+                      (M.fromList [("x", -12), ("y", -9)])
+  , satR1csTestInputs "sub simple"
+                      "main"
+                      "test/Code/C/sub.c"
+                      (M.fromList [])
   , satR1csTestInputs "shifts"
                       "shift_it"
                       "test/Code/C/shifts.c"
