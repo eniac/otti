@@ -43,6 +43,7 @@ import           Prelude                 hiding ( exp )
 import           IR.SMT.TySmt
 import qualified IR.SMT.TySmt.DefaultMap       as DMap
 import           IR.SMT.TySmt.DefaultMap        ( DefaultMap )
+import           IR.SMT.Util
 
 -- |
 -- Given a function that optionally transforms a term, traverses the term
@@ -401,8 +402,8 @@ bvBinFn op = case op of
   BvShl  -> Bv.shl
   BvLshr -> Bv.shr
   BvAshr -> Bv.ashr
-  BvUrem -> rem
-  BvUdiv -> div
+  BvUrem -> smtRem
+  BvUdiv -> smtDiv
   BvSub  -> (-)
 
 bvNaryFn :: BvNaryOp -> Bv.BV -> [Bv.BV] -> Bv.BV

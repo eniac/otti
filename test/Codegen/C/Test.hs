@@ -128,6 +128,10 @@ satSmtCircuitTests = benchTestGroup
                       "test/Code/C/sha.c"
                       (M.fromList [("x", 17), ("y", 3), ("z", 4)])
   , satSmtCircuitTest "loop" "sum" "test/Code/C/loop.c" (M.fromList [])
+  , satSmtCircuitTest "guard div 0"
+                      "main"
+                      "test/Code/C/guard_div_0.c"
+                      (M.fromList [])
   , satSmtCircuitTest "sum"
                       "add"
                       "test/Code/C/add_unsigned.c"
@@ -155,6 +159,18 @@ satR1csTests = benchTestGroup
                       (M.fromList [("x", 4)])
   , satR1csTestInputs "skip if" "sum" "test/Code/C/if.c" (M.fromList [("x", 5)])
   , satR1csTestInputs "loop"    "sum" "test/Code/C/loop.c" (M.fromList [])
+  , satR1csTestInputs "guard div 0 static"
+                      "main"
+                      "test/Code/C/guard_div_0.c"
+                      (M.fromList [])
+  , satR1csTestInputs "guard div 0 dynamic"
+                      "maybe_div"
+                      "test/Code/C/guard_div_0.c"
+                      (M.fromList [("a", 1), ("b", 0)])
+  , satR1csTestInputs "guard div 1 dynamic"
+                      "maybe_div"
+                      "test/Code/C/guard_div_0.c"
+                      (M.fromList [("a", 1), ("b", 1)])
   , satR1csTestInputs "add"
                       "add"
                       "test/Code/C/add_unsigned.c"

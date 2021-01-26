@@ -11,6 +11,7 @@ module IR.SMT.Opt.ConstFoldEqElim
   )
 where
 import           IR.SMT.TySmt
+import           IR.SMT.Util
 import           IR.SMT.TySmt.Alg               ( mapTerm
                                                 , vars
                                                 )
@@ -134,8 +135,8 @@ constantFold = mapTerm visit
       -- Operator applied to two contants inputs
       opConstConst = case op of
         BvSub  -> bvizeIntOp (-)
-        BvUdiv -> bvizeIntOp div
-        BvUrem -> bvizeIntOp rem
+        BvUdiv -> smtDiv
+        BvUrem -> smtRem
         BvShl  -> Bv.shl
         BvAshr -> Bv.ashr
         BvLshr -> Bv.shr

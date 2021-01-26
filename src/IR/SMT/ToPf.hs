@@ -11,6 +11,7 @@ module IR.SMT.ToPf
 where
 
 import           IR.SMT.TySmt
+import           IR.SMT.Util
 import           Control.Monad.State.Strict
 import           Control.Monad.Reader
 import           Control.Monad                  ( join )
@@ -185,7 +186,7 @@ ensureVarsQeq (a, b, c) = forM_ [a, b, c] ensureVarsLc
 -- # Bit constraints and storage
 
 enforceBit :: KnownNat n => LSig n -> ToPf n ()
-enforceBit (x, _) = enforce (x, LD.lcShift (negate 1) x, LD.lcZero)
+enforceBit x = enforceCheck (x, lcNot x, lcZero)
 
 asBit :: KnownNat n => LSig n -> ToPf n (LSig n)
 asBit l = enforceBit l >> return l
@@ -692,18 +693,23 @@ bvToPf env term = do
           Division -> do
             d <- getInt l
             m <- getInt r
-            let dv = fromP <$> snd d
-            let mv = fromP <$> snd m
-            q  <- nextVar "div_q" $ toP <$> liftA2 div dv mv
-            r' <- nextVar "div_r" $ toP <$> liftA2 rem dv mv
-            enforceCheck (m, q, lcSub d r')
-            qb <- bitify "quotient" q w
-            rb <- bitify "remainder" r' w
-            enforceTrue =<< lcGt w (lcSub m lcOne) r'
-            saveIntBits bv $ case op of
-              BvUdiv -> qb
-              BvUrem -> rb
+            isZero <- binEq m lcZero
+            let dv = Bv.bitVec w . fromP <$> snd d
+                mv = Bv.bitVec w . fromP <$> snd m
+            q  <- nextVar "div_q" $ toP . Bv.nat <$> liftA2 smtDiv dv mv
+            r' <- nextVar "div_r" $ toP . Bv.nat <$> liftA2 smtRem dv mv
+            prod <- lcMul "div_qr" m q
+            divEqHolds <- binEq prod (lcSub d r')
+            enforceCheck (lcNot divEqHolds, lcNot isZero, lcZero)
+            _ <- bitify "quotient" q w
+            _ <- bitify "remainder" r' w
+            isGt <- lcGt w m r'
+            enforceCheck (lcNot isGt, lcNot isZero, lcZero)
+            resIntVal <- case op of
+              BvUdiv -> ite isZero (lcConst $ (2 :: Integer) ^ w - 1) q
+              BvUrem -> ite isZero d r'
               _      -> unhandledOp op
+            saveInt  bv (resIntVal, w)
           Arith -> do
             l'        <- getInt l
             r'        <- getInt r
@@ -971,7 +977,7 @@ ensureInputValues values inputs = forM_ values $ \values ->
           Just dval -> case fromDynamic dval of
             Just b  -> toInteger $ fromEnum $ valAsBool b
             Nothing -> case fromDynamic dval of
-              Just b  -> Bv.int $ valAsDynBv b
+              Just b  -> Bv.uint $ valAsDynBv b
               Nothing -> case fromDynamic dval of
                 Just b  -> valAsPf @n b
                 Nothing -> error $ "Bad input type: " ++ show dval
