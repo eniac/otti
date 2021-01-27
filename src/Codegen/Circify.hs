@@ -158,6 +158,8 @@ lsWithPrefix s =
 unknownVar :: VarName -> a
 unknownVar var = error $ unwords ["Variable", var, "is unknown"]
 
+-- | Declares a variable in this lexical scope
+-- See declareVar
 lsDeclareVar
   :: (Embeddable t v c)
   => Bool
@@ -275,6 +277,8 @@ fsGetFromLexScope i f scope = if i < nCurrentScopes scope
   then f $ lexicalScopes scope !! (nCurrentScopes scope - i - 1)
   else error $ unwords ["Lexical scope index", show i, "is invalid"]
 
+-- | Declares a variable in this function scope
+-- See declareVar
 fsDeclareVar
   :: Embeddable t v c
   => Bool
@@ -374,6 +378,15 @@ fsWithPrefix prefix ty = FunctionScope { guards         = []
                                        }
 
 class (Show t, Show v) => Embeddable t v c | v -> c, v -> t where
+  -- | Takes four arguments: cfg, type, name, inputName
+  -- Returns a (symbolic) term corresponding to the (default-initialized) value
+  -- of a freshly declared variable of type @type@. That value might be
+  -- constrained to some default initial value for the type, or it might be
+  -- unconstrained.
+  --
+  -- Arguments:
+  -- * name: a name prefix to use for IR variables associated with this variable.
+  -- * inputName: an optional user-visible name to lookup a value for this variable under.
   declare :: c -> t -> String -> Maybe VarName -> Mem v
   -- | Returns a new term, equal to the ITE of the two argument term, on the
   -- argument condition.
@@ -574,12 +587,26 @@ declareInitVar var ty term = do
   void $ hardAssign (SLVar var) term
 
 -- | Declares a global variable
+-- See declareVar
 declareGlobal :: (Embeddable t v c) => Bool -> VarName -> t -> Circify t v c ()
 declareGlobal isInput var ty = do
   g  <- gets globals
   g' <- lsDeclareVar isInput var ty g
   modify $ \s -> s { globals = g' }
 
+-- | Declare a local variable
+--
+-- The variable will be accessible in the current lexical scope.
+--
+-- Parameters:
+-- * isInput: whether this variable should be regarded as an input to the circuit
+-- * var: the name of the variable
+-- * ty: the type of the variable
+--
+-- Note about inputs: the name of inputs to the circuit are passed through to
+-- the language configuration's @declare@ function. This is needed during
+-- proving. The purpose of this is to allow that function to "lookup" the
+-- witness value of that input in some kind of language-specific way.
 declareVar :: (Embeddable t v c) => Bool -> VarName -> t -> Circify t v c ()
 declareVar isInput var ty = do
   isGlobal <- gets (null . callStack)
