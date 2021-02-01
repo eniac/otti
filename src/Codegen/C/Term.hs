@@ -734,7 +734,7 @@ cBitXor = cWrapBinArith "^" (const $ Right Ty.BvXor) noFpError Nothing False
 cWrapShift name bvOp ubF a b =
   case (term $ intPromotion a, term $ intPromotion b) of
     (CInt s w i, CInt s' _w' i') -> mkCTerm
-      (CInt s w $ Ty.mkDynBvBinExpr (bvOp s) i i')
+      (CInt s w $ Ty.mkDynBvBinExpr (bvOp s) i (intResize s' w i'))
       (Ty.BoolNaryExpr Ty.Or [udef a, udef b, ubF i s' i'])
     _ -> error $ unwords ["Cannot", name, "on", show a, "and", show b]
 
