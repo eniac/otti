@@ -106,8 +106,11 @@ runBackend b a = case b of
     liftIO $ hPutStr stderr "Running Z3...\n"
     satRes <- target a
     liftIO $ if Z3.sat satRes
-      then forM_ (Map.toList $ modelMapToExtMap $ Z3.model satRes)
-          $ \(k, v) -> putStrLn $ unwords [k, show v]
+      then do
+        let inputs = Assert.inputs a
+        liftIO $ hPutStr stderr "SAT\n"
+        forM_ (Map.toList $ modelMapToExtMap $ Z3.model satRes)
+          $ \(k, v) -> forM_ (inputs Map.!? k) $ \kk -> putStrLn $ unwords [kk, show v]
       else putStrLn "UNSAT"
   Proof o act -> do
     r1cs <- target @(R1cs.R1CS String Order) a

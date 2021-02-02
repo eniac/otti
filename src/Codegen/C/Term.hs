@@ -95,7 +95,6 @@ import qualified Data.BitVector                as Bv
 import           Data.Foldable                 as Fold
 import qualified Data.Set                      as Set
 import           Data.Maybe                     ( fromMaybe
-                                                , isJust
                                                 )
 import           IR.SMT.Assert                  ( liftAssert )
 import qualified IR.SMT.Assert                 as Assert
@@ -406,9 +405,11 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
                                        (flip structVarName f <$> mUserName)
       )
     _ -> nyi $ "cDeclVar for type " ++ show ty
-  when (isJust mUserName && (Type.Bool == ty || Type.isIntegerType ty))
-    $ liftAssert
-    $ Assert.publicize smtName
+  forM_ mUserName $ \userName ->
+    when (Type.Bool == ty || Type.isIntegerType ty)
+      $ liftAssert $ do
+        Assert.publicize smtName
+        Assert.inputize userName smtName
   return $ mkCTerm t u
  where
   getBaseInput
