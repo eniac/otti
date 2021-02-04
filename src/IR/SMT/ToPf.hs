@@ -691,25 +691,25 @@ bvToPf env term = do
         bvToPf env r
         case bvOpKind op of
           Division -> do
-            d <- getInt l
-            m <- getInt r
+            d      <- getInt l
+            m      <- getInt r
             isZero <- binEq m lcZero
             let dv = Bv.bitVec w . fromP <$> snd d
                 mv = Bv.bitVec w . fromP <$> snd m
-            q  <- nextVar "div_q" $ toP . Bv.nat <$> liftA2 smtDiv dv mv
-            r' <- nextVar "div_r" $ toP . Bv.nat <$> liftA2 smtRem dv mv
-            prod <- lcMul "div_qr" m q
+            q          <- nextVar "div_q" $ toP . Bv.nat <$> liftA2 smtDiv dv mv
+            r'         <- nextVar "div_r" $ toP . Bv.nat <$> liftA2 smtRem dv mv
+            prod       <- lcMul "div_qr" m q
             divEqHolds <- binEq prod (lcSub d r')
             enforceCheck (lcNot divEqHolds, lcNot isZero, lcZero)
-            _ <- bitify "quotient" q w
-            _ <- bitify "remainder" r' w
+            _    <- bitify "quotient" q w
+            _    <- bitify "remainder" r' w
             isGt <- lcGt w m r'
             enforceCheck (lcNot isGt, lcNot isZero, lcZero)
             resIntVal <- case op of
               BvUdiv -> ite isZero (lcConst $ (2 :: Integer) ^ w - 1) q
               BvUrem -> ite isZero d r'
               _      -> unhandledOp op
-            saveInt  bv (resIntVal, w)
+            saveInt bv (resIntVal, w)
           Arith -> do
             l'        <- getInt l
             r'        <- getInt r
@@ -942,8 +942,13 @@ handleAlias env a = case a of
                 logIf "toPf" $ "Alias " ++ show pfV ++ " to " ++ show rPf
                 modify $ \st -> st { pfs = AMap.alias pfV rPf $ pfs st }
                 return True
-            Nothing -> error "Bad alias type"
+            Nothing ->
+              error
+                $ "Cannot handle terms of sort "
+                ++ show (sort t)
+                ++ " in R1CS pipeline. If this is an array, you might consider enabling the 'mem' pass"
   _ -> return False
+
 
 -- # Top Level
 
