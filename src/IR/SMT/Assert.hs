@@ -33,6 +33,8 @@ data AssertState = AssertState { vars         :: !(M.Map String Dyn.Dynamic)
                                , asserted     :: !(Seq (Ty.Term Ty.BoolSort))
                                , vals         :: !(Maybe (M.Map String Dyn.Dynamic))
                                , public       :: !(S.Set String)
+                               -- Full name to user name
+                               , inputs       :: !(M.Map String String)
                                , arraySizes   :: !ArraySizes
                                , nextVarN     :: !Int
                                }
@@ -57,6 +59,7 @@ emptyAssertState = AssertState { vars       = M.empty
                                , asserted   = Seq.empty
                                , vals       = Nothing
                                , public     = S.empty
+                               , inputs     = M.empty
                                , arraySizes = SMap.empty
                                , nextVarN   = 0
                                }
@@ -84,6 +87,11 @@ setValue :: Ty.SortClass s => String -> Ty.Value s -> Assert ()
 setValue variable value = do
   logIf "witness" $ show variable ++ " -> " ++ show value
   modify $ \s -> s { vals = M.insert variable (Dyn.toDyn value) <$> vals s }
+
+inputize :: String -> String -> Assert ()
+inputize userName smtName = do
+  logIf "inputize" $ "Inputize: " ++ userName ++ " -> " ++ smtName
+  modify $ \s -> s { inputs = M.insert smtName userName $ inputs s }
 
 publicize :: String -> Assert ()
 publicize n = do

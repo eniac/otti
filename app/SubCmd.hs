@@ -32,6 +32,8 @@ import           System.Exit                    ( ExitCode(..)
                                                 )
 import           System.IO                      ( IOMode(..)
                                                 , openFile
+                                                , stderr
+                                                , hPutStr
                                                 )
 import           System.Process                 ( readProcessWithExitCode )
 import           Targets.BackEnd                ( target )
@@ -101,18 +103,20 @@ runVerify o = checkProcess
 runBackend :: BackEnd -> Assert.AssertState -> Log ()
 runBackend b a = case b of
   Solve -> do
+    liftIO $ hPutStr stderr "Running Z3...\n"
     satRes <- target a
     liftIO $ if Z3.sat satRes
       then do
-        putStrLn "SAT"
-        forM_ (Map.toList $ Z3.model satRes)
-          $ \(k, v) -> putStrLn $ unwords [k, ":", show v]
+        let inputs = Assert.inputs a
+        liftIO $ hPutStr stderr "SAT\n"
+        forM_ (Map.toList $ modelMapToExtMap $ Z3.model satRes)
+          $ \(k, v) -> forM_ (inputs Map.!? k) $ \kk -> putStrLn $ unwords [kk, show v]
       else putStrLn "UNSAT"
   Proof o act -> do
     r1cs <- target @(R1cs.R1CS String Order) a
     liftIO $ runProofAction r1cs o act
 
-runFrontend :: (Maybe FilePath) -> FrontEnd -> Log Assert.AssertState
+runFrontend :: Maybe FilePath -> FrontEnd -> Log Assert.AssertState
 runFrontend inPath fe = do
   inMap <- forM inPath $ \i -> liftIO $ parseToMap <$> readFile i
   a     <- liftCfg $ case fe of

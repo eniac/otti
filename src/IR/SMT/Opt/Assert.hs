@@ -24,6 +24,7 @@ module IR.SMT.Opt.Assert
   , assert
   , assign
   , refresh
+  , inputs
   , check
   , eval
   , isStoringValues
@@ -110,6 +111,7 @@ data AssertState = AssertState
   , _assertions :: !Formula
   , _vals       :: !(Maybe (Map String Dyn.Dynamic))
   , _public     :: !(Set.Set String)
+  , _inputs     :: !(HashMap String String)
   , _nextId     :: !Int
   , _index      :: !Index
   , _sizes      :: !ArraySizes
@@ -139,6 +141,7 @@ fromAssertState a =
                   , _assertions = f
                   , _vals       = A.vals a
                   , _public     = A.public a
+                  , _inputs     = HMap.fromList $ Map.toList $ A.inputs a
                   , _nextId     = n
                   , _index      = i
                   , _sizes      = A.arraySizes a
@@ -152,6 +155,7 @@ toAssertState a =
                     , A.asserted   = Seq.fromList $ F.toList $ _assertions a
                     , A.vals       = _vals a
                     , A.public     = _public a
+                    , A.inputs     = Map.fromList $ HMap.toList $ _inputs a
                     , A.arraySizes = _sizes a
                     , A.nextVarN   = n
                     }

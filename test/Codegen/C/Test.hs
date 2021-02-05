@@ -75,6 +75,7 @@ ubTests = benchTestGroup
   , ubCheckTest "right shift sign bit" "arith" "test/Code/C/shift.c" True
   , ubCheckTest "shift anything" "any" "test/Code/C/shift.c" True
   , ubCheckTest "shift anything unsigned" "usany" "test/Code/C/shift.c" True
+  , ubCheckTest "shift different widths unsigned" "widths" "test/Code/C/shift.c" True
   , ubCheckTest "undefined variable 1" "undef1" "test/Code/C/other.c" True
   , ubCheckTest "undefined variable 2" "undef2" "test/Code/C/other.c" True
   -- TODO: fails
@@ -128,6 +129,10 @@ satSmtCircuitTests = benchTestGroup
                       "test/Code/C/sha.c"
                       (M.fromList [("x", 17), ("y", 3), ("z", 4)])
   , satSmtCircuitTest "loop" "sum" "test/Code/C/loop.c" (M.fromList [])
+  , satSmtCircuitTest "guard div 0"
+                      "main"
+                      "test/Code/C/guard_div_0.c"
+                      (M.fromList [])
   , satSmtCircuitTest "sum"
                       "add"
                       "test/Code/C/add_unsigned.c"
@@ -155,10 +160,46 @@ satR1csTests = benchTestGroup
                       (M.fromList [("x", 4)])
   , satR1csTestInputs "skip if" "sum" "test/Code/C/if.c" (M.fromList [("x", 5)])
   , satR1csTestInputs "loop"    "sum" "test/Code/C/loop.c" (M.fromList [])
+  , satR1csTestInputs "guard div 0 static"
+                      "main"
+                      "test/Code/C/guard_div_0.c"
+                      (M.fromList [])
+  , satR1csTestInputs "guard div 0 dynamic"
+                      "maybe_div"
+                      "test/Code/C/guard_div_0.c"
+                      (M.fromList [("a", 1), ("b", 0)])
+  , satR1csTestInputs "guard div 1 dynamic"
+                      "maybe_div"
+                      "test/Code/C/guard_div_0.c"
+                      (M.fromList [("a", 1), ("b", 1)])
+  , satR1csTestInputs "guard rem 0 dynamic"
+                      "maybe_rem"
+                      "test/Code/C/guard_div_0.c"
+                      (M.fromList [("a", 5), ("b", 0)])
+  , satR1csTestInputs "guard rem 1 dynamic"
+                      "maybe_rem"
+                      "test/Code/C/guard_div_0.c"
+                      (M.fromList [("a", 5), ("b", 2)])
   , satR1csTestInputs "add"
                       "add"
                       "test/Code/C/add_unsigned.c"
                       (M.fromList [("x", 1), ("y", 15)])
+  , satR1csTestInputs "sub pos-pos=pos"
+                      "sub"
+                      "test/Code/C/sub.c"
+                      (M.fromList [("x", 16), ("y", 15)])
+  , satR1csTestInputs "sub neg-neg=pos"
+                      "sub"
+                      "test/Code/C/sub.c"
+                      (M.fromList [("x", -12), ("y", -15)])
+  , satR1csTestInputs "sub neg-neg=neg"
+                      "sub"
+                      "test/Code/C/sub.c"
+                      (M.fromList [("x", -12), ("y", -9)])
+  , satR1csTestInputs "sub simple"
+                      "main"
+                      "test/Code/C/sub.c"
+                      (M.fromList [])
   , satR1csTestInputs "shifts"
                       "shift_it"
                       "test/Code/C/shifts.c"

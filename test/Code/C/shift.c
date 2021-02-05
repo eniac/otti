@@ -35,3 +35,9 @@ int usany (unsigned int x, unsigned int y) {
 int divzero (int x) {
   return x / 0;
 }
+
+#include "stdint.h"
+
+uint64_t widths(uint64_t l, uint32_t r) {
+  return l << r;
+}

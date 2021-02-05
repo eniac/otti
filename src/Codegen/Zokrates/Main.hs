@@ -293,11 +293,11 @@ genEntryFunc (A.Func name args retTy body) = do
   forM_ args $ \(isPrivate, ty, argName) -> do
     ty' <- genType ty
     liftCircify $ declareVar True (ast argName) ty'
-    unless isPrivate $ do
-      t <- liftCircify $ getTerm (SLVar $ ast argName)
-      forM_ (Set.toList $ zTermVars (ast argName) $ ssaValAsTerm "input" t)
-        $ Assert.liftAssert
-        . Assert.publicize
+    t <- liftCircify $ getTerm (SLVar $ ast argName)
+    let smtVars = Set.toList $ zTermVars (ast argName) $ ssaValAsTerm "input" t
+    forM_ smtVars $ \smtVar -> Assert.liftAssert $ do
+      unless isPrivate $ Assert.publicize smtVar
+      Assert.inputize (ast argName) smtVar
   genBlock body
   mRet <- liftCircify popFunction
   forM_ mRet $ \rv ->

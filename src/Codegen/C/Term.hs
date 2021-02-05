@@ -97,7 +97,6 @@ import qualified Data.BitVector                as Bv
 import           Data.Foldable                 as Fold
 import qualified Data.Set                      as Set
 import           Data.Maybe                     ( fromMaybe
-                                                , isJust
                                                 )
 import           IR.SMT.Assert                  ( liftAssert )
 import qualified IR.SMT.Assert                 as Assert
@@ -439,9 +438,11 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
                                        (flip structVarName f <$> mUserName)
       )
     _ -> nyi $ "cDeclVar for type " ++ show ty
-  when (isJust mUserName && (Type.Bool == ty || Type.isIntegerType ty))
-    $ liftAssert
-    $ Assert.publicize smtName
+  forM_ mUserName $ \userName ->
+    when (Type.Bool == ty || Type.isIntegerType ty)
+      $ liftAssert $ do
+        Assert.publicize smtName
+        Assert.inputize userName smtName
   return $ mkCTerm t u
  where
   getBaseInput
@@ -873,7 +874,7 @@ cBitXor = cWrapBinArith "^" (const $ Right Ty.BvXor) noFpError Nothing False
 cWrapShift name bvOp ubF a b =
   case (term $ intPromotion a, term $ intPromotion b) of
     (CInt s w i, CInt s' _w' i') -> mkCTerm
-      (CInt s w $ Ty.mkDynBvBinExpr (bvOp s) i i')
+      (CInt s w $ Ty.mkDynBvBinExpr (bvOp s) i (intResize s' w i'))
       (Ty.BoolNaryExpr Ty.Or [udef a, udef b, ubF i s' i'])
     _ -> error $ unwords ["Cannot", name, "on", show a, "and", show b]
 
