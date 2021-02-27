@@ -5,7 +5,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Targets.R1cs.ZkInterface
   ( zkifWitness
-  , zkifConstraintSystem
+  , zkifR1csEncode
   )
 where
 
@@ -30,6 +30,7 @@ import           Targets.R1cs.Main              ( R1CS
                                                 , constraints
                                                 , values
                                                 )
+import           Data.ByteString.Lazy           ( ByteString )
 
 $(mkFlatBuffers "schema/zkinterface.fbs" defaultOptions)
 
@@ -78,3 +79,10 @@ zkifConstraintSystem r1cs = constraintSystem
 
 zkifWitness :: (Show s, KnownNat n) => R1CS s n -> WriteTable Witness
 zkifWitness = witness . fmap zkifVariables . fmap IM.toAscList . values
+
+zkifR1csEncode :: (Show s, KnownNat n) => R1CS s n -> ByteString
+zkifR1csEncode =
+  encodeWithFileIdentifier
+    . root
+    . messageConstraintSystem
+    . zkifConstraintSystem

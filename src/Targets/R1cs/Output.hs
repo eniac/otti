@@ -24,7 +24,6 @@ import           Control.Monad.State.Strict
 import           Control.Monad.Reader
 import qualified Data.Text                     as T
 import           Data.Aeson
-import qualified FlatBuffers                   as FB
 import qualified Data.ByteString.Lazy          as ByteString
 import qualified Data.ByteString.Lazy.Char8    as Char8
 import           Data.Field.Galois              ( Prime
@@ -155,11 +154,8 @@ writeToR1csFile r1cs path = do
     $ r1cs
   -- Optionally output json, zkif
   liftIO $ forM_ jsonFiles (\path -> ByteString.writeFile path $ encode r1cs)
-  liftIO $ forM_
-    zkifFiles
-    (\path ->
-      ByteString.writeFile path . FB.encode . zkifConstraintSystem $ r1cs
-    )
+  liftIO $ forM_ zkifFiles
+                 (\path -> ByteString.writeFile path . zkifR1csEncode $ r1cs)
   where filter_ext ext = filter (T.isSuffixOf ext . T.pack)
 
 r1csWriteAssignments
