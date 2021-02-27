@@ -5,7 +5,7 @@ import           BenchUtils
 import           Test.Tasty.HUnit
 import qualified Codegen.Circom.Linking        as Link
 import qualified Parser.Circom.Inputs          as Parse
-import qualified Targets.R1cs.Main             as R1cs
+import qualified Targets.R1cs.Output           as R1cs
 import qualified Data.Map                      as Map
 import qualified Data.IntMap                   as IntMap
 import qualified Data.Maybe                    as Maybe
@@ -27,7 +27,7 @@ checkR1cs circuitPath constraintCount = benchTestCase circuitPath $ do
   r1cs     <- evalCfgDefault $ evalLog $ Link.linkMain @Order pgm
   tempDir  <- getTemporaryDirectory
   tempPath <- emptyTempFile tempDir "circom-test-check.ext"
-  _        <- R1cs.writeToR1csFile False r1cs tempPath
+  _        <- evalCfgDefault $ R1cs.writeToR1csFile r1cs tempPath
   case constraintCount of
     Just n  -> length (Link.constraints r1cs) @?= n
     Nothing -> pure ()

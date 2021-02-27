@@ -38,10 +38,13 @@ import           System.IO                      ( IOMode(..)
 import           System.Process                 ( readProcessWithExitCode )
 import           Targets.BackEnd                ( target )
 import           Targets.R1cs.BackEnd           ( )
-import qualified Targets.R1cs.Main             as R1cs
+import           Targets.R1cs.Main              ( R1CS )
+import qualified Targets.R1cs.Output           as R1cs
 import qualified Targets.R1cs.Opt.Main         as R1csOpt
 import qualified Targets.SMT.Z3                as Z3
-import           Util.Cfg                       ( liftCfg )
+import           Util.Cfg                       ( Cfg
+                                                , liftCfg
+                                                )
 import           Util.Log
 
 checkProcess :: FilePath -> [String] -> String -> IO ()
@@ -62,20 +65,21 @@ type Order
   = 21888242871839275222246405745257275088548364400416034343698204186575808495617
 
 runProofAction
-  :: (Ord s, Show s) => R1cs.R1CS s Order -> ProofOpts -> ProofAction -> IO ()
+  :: (Ord s, Show s) => R1CS s Order -> ProofOpts -> ProofAction -> Cfg ()
 runProofAction r1cs o a = case a of
-  EmitR1cs -> R1cs.writeToR1csFile (asJson o) r1cs (r1csPath o)
+  EmitR1cs -> R1cs.writeToR1csFile r1cs $ r1csPath o
   Setup    -> do
-    R1cs.writeToR1csFile False r1cs (r1csPath o)
-    checkProcess (libPath o)
-                 ["setup", "-V", vkPath o, "-P", pkPath o, "-C", r1csPath o]
-                 ""
+    R1cs.writeToR1csFile r1cs $ r1csPath o
+    liftIO $ checkProcess
+      (libPath o)
+      ["setup", "-V", vkPath o, "-P", pkPath o, "-C", r1csPath o]
+      ""
   Prove -> do
     case R1cs.r1csCheck r1cs of
       Right _ -> return ()
-      Left  e -> putStrLn e >> exitFailure
+      Left  e -> liftIO (putStrLn e >> exitFailure)
     R1cs.r1csWriteAssignments r1cs (xPath o) (wPath o)
-    runLibsnarkProve o
+    liftIO $ runLibsnarkProve o
 
 runLibsnarkProve :: ProofOpts -> IO ()
 runLibsnarkProve o = checkProcess
@@ -109,12 +113,12 @@ runBackend b a = case b of
       then do
         let inputs = Assert.inputs a
         liftIO $ hPutStr stderr "SAT\n"
-        forM_ (Map.toList $ modelMapToExtMap $ Z3.model satRes)
-          $ \(k, v) -> forM_ (inputs Map.!? k) $ \kk -> putStrLn $ unwords [kk, show v]
+        forM_ (Map.toList $ modelMapToExtMap $ Z3.model satRes) $ \(k, v) ->
+          forM_ (inputs Map.!? k) $ \kk -> putStrLn $ unwords [kk, show v]
       else putStrLn "UNSAT"
   Proof o act -> do
-    r1cs <- target @(R1cs.R1CS String Order) a
-    liftIO $ runProofAction r1cs o act
+    r1cs <- target @(R1CS String Order) a
+    liftCfg $ runProofAction r1cs o act
 
 runFrontend :: Maybe FilePath -> FrontEnd -> Log Assert.AssertState
 runFrontend inPath fe = do
@@ -178,4 +182,4 @@ runCmd c = case c of
           )
           (wPath pfOpts)
         liftIO $ runLibsnarkProve pfOpts
-      else liftIO $ runProofAction r1cs pfOpts pfAct
+      else liftCfg $ runProofAction r1cs pfOpts pfAct

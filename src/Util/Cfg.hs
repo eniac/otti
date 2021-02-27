@@ -124,6 +124,7 @@ data CfgState = CfgState
   , _smtOptCfg        :: SmtOptCfg
   , _gccOptions       :: [String]
   , _streams          :: [String]
+  , _outputs          :: [String]
   , _loopBound        :: Int
   , _loopFlatten      :: Bool
   , _loopMaxIteration :: Int
@@ -138,6 +139,7 @@ defaultCfgState = CfgState { _r1csCfg          = defaultR1csCfg
                            , _smtOptCfg        = defaultSmtOptCfg
                            , _gccOptions       = ["-I."]
                            , _streams          = []
+                           , _outputs          = []
                            , _loopBound        = 5
                            , _loopFlatten      = True
                            , _loopMaxIteration = 10000
@@ -268,6 +270,11 @@ options =
               "streams"
               "Debug streams to emit"
               "A comma-separated list"
+              ""
+  , CfgOption (outputs . commaListLens)
+              "outputs"
+              "The filenames to output, JSON or Zk Interface"
+              "The extension can either be .json or .zkif"
               ""
   , CfgOption (loopBound . showReadLens)
               "loop-bound"
