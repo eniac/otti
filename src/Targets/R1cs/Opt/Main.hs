@@ -13,6 +13,7 @@ import qualified Data.Maybe                    as Maybe
 import qualified Data.Foldable                 as Fold
 import qualified Data.Sequence                 as Seq
 import           Targets.R1cs.Main
+import           Targets.R1cs.Output
 import           Targets.R1cs.Opt.RedLin        ( reduceLinearities )
 import           Targets.R1cs.Opt.Fold          ( foldEqs )
 import qualified Util.Cfg                      as Cfg

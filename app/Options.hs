@@ -120,7 +120,6 @@ cmdP =
 
 data ProofOpts = ProofOpts
   { r1csPath :: FilePath
-  , asJson   :: Bool
   , vkPath   :: FilePath
   , pkPath   :: FilePath
   , xPath    :: FilePath
@@ -140,8 +139,6 @@ proofOptsP =
           <> help "Location for the R1CS"
           <> value "C"
           )
-    <*> switch
-          (long "as-json" <> help "Whether to emit JSON (default is textual)")
     <*> strOption
           (  long "vk-path"
           <> short 'V'

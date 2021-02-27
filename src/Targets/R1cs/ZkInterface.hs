@@ -1,18 +1,19 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FunctionalDependencies #-}
-module Targets.R1cs.ZkInterface where
+module Targets.R1cs.ZkInterface
+  ( zkifWitness
+  , zkifConstraintSystem
+  )
+where
 
 import qualified Data.Map.Strict               as M
 import           FlatBuffers
 import           Data.ByteArray                 ( Bytes )
 import qualified Data.ByteArray                as B
-import           FlatBuffers
+import           FlatBuffers                    ( )
 import           FlatBuffers.Vector             ( WriteVector
                                                 , WriteVectorElement
                                                 )
@@ -44,8 +45,8 @@ instance (forall. KnownNat n => Serialize (Prime n)) where
 flatVector :: WriteVectorElement a => [a] -> Maybe (WriteVector a)
 flatVector l = Just . V.fromList (fromIntegral $ length l) $ l
 
-mkVariables :: KnownNat n => [(Int, Prime n)] -> WriteTable Variables
-mkVariables vs =
+zkifVariables :: KnownNat n => [(Int, Prime n)] -> WriteTable Variables
+zkifVariables vs =
   let (keys, bins) = unzip vs
   in  let bin_values =
               concatMap
@@ -61,18 +62,19 @@ mkVariables vs =
   max_length [] m = m
   pad_with_zeros n ba = ba ++ replicate n 0
 
-mkBilinearConstraint
+zkifBilinearConstraint
   :: KnownNat n => QEQ Int (Prime n) -> WriteTable BilinearConstraint
-mkBilinearConstraint ((ma, ca), (mb, cb), (mc, cc)) = bilinearConstraint
+zkifBilinearConstraint ((ma, ca), (mb, cb), (mc, cc)) = bilinearConstraint
   (prependOne ma ca)
   (prependOne mb cb)
   (prependOne mc cc)
-  where prependOne m c = Just $ mkVariables $ (0, c) : (M.toAscList m) -- Variable 0 -> 1*c
+  where prependOne m c = Just $ zkifVariables $ (0, c) : (M.toAscList m) -- Variable 0 -> 1*c
 
-mkConstraintSystem :: KnownNat n => R1CS Int n -> WriteTable ConstraintSystem
-mkConstraintSystem r1cs = constraintSystem
-  (flatVector . map mkBilinearConstraint . Fold.toList . constraints $ r1cs)
+zkifConstraintSystem
+  :: (Show s, KnownNat n) => R1CS s n -> WriteTable ConstraintSystem
+zkifConstraintSystem r1cs = constraintSystem
+  (flatVector . map zkifBilinearConstraint . Fold.toList . constraints $ r1cs)
   Nothing
 
-mkWitness :: KnownNat n => R1CS Int n -> WriteTable Witness
-mkWitness = witness . fmap mkVariables . fmap IM.toAscList . values
+zkifWitness :: (Show s, KnownNat n) => R1CS s n -> WriteTable Witness
+zkifWitness = witness . fmap zkifVariables . fmap IM.toAscList . values

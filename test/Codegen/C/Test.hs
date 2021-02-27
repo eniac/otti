@@ -11,7 +11,7 @@ import           Control.Monad
 import           Data.Either                    ( isRight )
 import qualified Data.Map                      as M
 import           Data.Maybe                     ( fromJust )
-import           Targets.R1cs.Main              ( r1csCheck )
+import           Targets.R1cs.Output            ( r1csCheck )
 import           IR.SMT.Assert                  ( AssertState(..)
                                                 , asserted
                                                 , execAssert
@@ -75,7 +75,10 @@ ubTests = benchTestGroup
   , ubCheckTest "right shift sign bit" "arith" "test/Code/C/shift.c" True
   , ubCheckTest "shift anything" "any" "test/Code/C/shift.c" True
   , ubCheckTest "shift anything unsigned" "usany" "test/Code/C/shift.c" True
-  , ubCheckTest "shift different widths unsigned" "widths" "test/Code/C/shift.c" True
+  , ubCheckTest "shift different widths unsigned"
+                "widths"
+                "test/Code/C/shift.c"
+                True
   , ubCheckTest "undefined variable 1" "undef1" "test/Code/C/other.c" True
   , ubCheckTest "undefined variable 2" "undef2" "test/Code/C/other.c" True
   -- TODO: fails
@@ -196,10 +199,7 @@ satR1csTests = benchTestGroup
                       "sub"
                       "test/Code/C/sub.c"
                       (M.fromList [("x", -12), ("y", -9)])
-  , satR1csTestInputs "sub simple"
-                      "main"
-                      "test/Code/C/sub.c"
-                      (M.fromList [])
+  , satR1csTestInputs "sub simple" "main" "test/Code/C/sub.c" (M.fromList [])
   , satR1csTestInputs "shifts"
                       "shift_it"
                       "test/Code/C/shifts.c"

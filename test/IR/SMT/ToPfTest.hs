@@ -9,8 +9,8 @@ import           Control.Monad
 import           BenchUtils
 import           Test.Tasty.HUnit
 import           IR.SMT.ToPf                    ( toPf )
-import           Targets.R1cs.Main              ( R1CS(..)
-                                                , r1csShow
+import           Targets.R1cs.Main              ( R1CS(..) )
+import           Targets.R1cs.Output            ( r1csShow
                                                 , r1csCheck
                                                 )
 import qualified Data.BitVector                as Bv
