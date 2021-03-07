@@ -31,6 +31,7 @@ import           Targets.R1cs.Main              ( R1CS
                                                 , values
                                                 )
 import           Data.ByteString.Lazy           ( ByteString )
+import           Debug.Trace                    ( trace )
 
 $(mkFlatBuffers "schema/zkinterface.fbs" defaultOptions)
 
@@ -53,15 +54,17 @@ zkifVariables vs =
               concatMap
                   (pad_with_zeros (max_length bins 0) . B.unpack . serialize)
                 $ bins
-      in  let in variables (flatVector $ map fromIntegral keys)
+      in  let in variables (flatVector $ map (fromIntegral . total_sub) keys)
                            (flatVector bin_values)
                            Nothing
  where
+  total_sub c | c == 0    = 0
+              | otherwise = c - 1
   max_length (h : ts) m =
     let len = B.length . serialize $ h
     in  if len > m then max_length ts len else max_length ts m
   max_length [] m = m
-  pad_with_zeros n ba = ba ++ replicate n 0
+  pad_with_zeros n ba = ba ++ replicate (n - length ba) 0
 
 zkifBilinearConstraint
   :: KnownNat n => QEQ Int (Prime n) -> WriteTable BilinearConstraint
@@ -69,7 +72,9 @@ zkifBilinearConstraint ((ma, ca), (mb, cb), (mc, cc)) = bilinearConstraint
   (prependOne ma ca)
   (prependOne mb cb)
   (prependOne mc cc)
-  where prependOne m c = Just $ zkifVariables $ (0, c) : (M.toAscList m) -- Variable 0 -> 1*c
+ where
+  prependOne m c | c == 0    = Just $ zkifVariables . M.toAscList $ m
+                 | otherwise = Just $ zkifVariables $ (0, c) : (M.toAscList m)
 
 zkifConstraintSystem
   :: (Show s, KnownNat n) => R1CS s n -> WriteTable ConstraintSystem
@@ -80,9 +85,10 @@ zkifConstraintSystem r1cs = constraintSystem
 zkifWitness :: (Show s, KnownNat n) => R1CS s n -> WriteTable Witness
 zkifWitness = witness . fmap zkifVariables . fmap IM.toAscList . values
 
-zkifR1csEncode :: (Show s, KnownNat n) => R1CS s n -> ByteString
-zkifR1csEncode =
+zkifR1csEncode :: (Show s, Ord s, KnownNat n) => R1CS s n -> ByteString
+zkifR1csEncode r =
   encodeWithFileIdentifier
     . root
     . messageConstraintSystem
     . zkifConstraintSystem
+    $ r

@@ -140,7 +140,7 @@ r1csAsLines r1cs =
   in  [nPubIns, nWit, nConstraints] : constraintLines
 
 -- Todo: implement this using a better IO system.
-writeToR1csFile :: (Show s, KnownNat n) => R1CS s n -> FilePath -> Cfg ()
+writeToR1csFile :: (Show s, Ord s, KnownNat n) => R1CS s n -> FilePath -> Cfg ()
 writeToR1csFile r1cs path = do
   outputFiles <- liftCfg $ asks _outputs
   let jsonFiles = filter_ext ".json" outputFiles
