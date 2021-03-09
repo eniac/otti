@@ -34,7 +34,6 @@ import qualified Data.Foldable                 as Fold
 import qualified Data.IntMap.Strict            as IntMap
 import qualified Data.IntSet                   as IntSet
 import qualified Data.Map.Strict               as Map
-import           Data.Maybe                     ( fromMaybe )
 import qualified Data.Sequence                 as Seq
 import qualified Data.Text                     as Text
 import qualified Data.List                     as List
@@ -53,6 +52,7 @@ import           Util.Cfg                       ( liftCfg
                                                 , Cfg
                                                 , CfgState(..)
                                                 )
+import           System.FilePath                ( (-<.>) )
 
 instance {-# OVERLAPS #-} forall s n. (Show s, KnownNat n) => ToJSON (LC s (Prime n)) where
   toJSON (m, c) =
@@ -166,6 +166,20 @@ r1csWriteAssignments
   -> FilePath
   -> Cfg ()
 r1csWriteAssignments r1cs inputPath witPath = do
+  outputFiles <- liftCfg $ asks _outputs
+  let zkifs = filter (T.isSuffixOf ".zkif" . T.pack) outputFiles
+  liftIO $ forM_ -- ZkInterface output inputs
+    zkifs
+    (\path ->
+      ByteString.writeFile (path -<.> ".inp.zkif")
+        . zkifCircuitHeaderEncode
+        $ r1cs
+    )
+  liftIO $ forM_ -- ZkInterface output witnesses
+    zkifs
+    (\path ->
+      ByteString.writeFile (path -<.> ".wit.zkif") . zkifWitnessEncode $ r1cs
+    )
   let lookupSignalVal = r1csNumValue r1cs
   liftIO $ emitAssignment
     (map lookupSignalVal [2 .. (1 + nPublicInputs r1cs)])
@@ -210,11 +224,3 @@ qeqEval r1cs (a, b, c) = lcEval a * lcEval b - lcEval c
   lcEval (m, c) =
     c + sum (map (\(k, v) -> v * r1csNumValue r1cs k) $ Map.toList m)
 
-r1csNumValue :: (KnownNat n, Show s) => R1CS s n -> Int -> Prime n
-r1csNumValue r1cs i =
-  fromMaybe
-      (error $ "Could not find r1cs var: " ++ show i ++ ": " ++ show
-        (numSigs r1cs IntMap.!? i)
-      )
-    $         fromMaybe (error "No r1cs values!") (values r1cs)
-    IntMap.!? i

@@ -4,8 +4,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
 module Targets.R1cs.ZkInterface
-  ( zkifWitness
+  ( zkifWitnessEncode
   , zkifR1csEncode
+  , zkifCircuitHeaderEncode
   )
 where
 
@@ -20,24 +21,26 @@ import           FlatBuffers.Vector             ( WriteVector
 import qualified FlatBuffers.Vector            as V
 import           Data.Field.Galois              ( Prime )
 import qualified Data.Foldable                 as Fold
-import           GHC.TypeLits                   ( KnownNat )
+import           GHC.TypeLits                   ( KnownNat
+                                                , natVal
+                                                )
 import           Crypto.Number.Serialize        ( i2osp
                                                 , os2ip
                                                 )
 import qualified Data.IntMap.Strict            as IM
-import           Targets.R1cs.Main              ( R1CS
-                                                , QEQ
-                                                , constraints
-                                                , values
-                                                )
+import           Targets.R1cs.Main
 import           Data.ByteString.Lazy           ( ByteString )
-import           Debug.Trace                    ( trace )
+import           Data.Proxy                     ( Proxy(..) )
 
 $(mkFlatBuffers "schema/zkinterface.fbs" defaultOptions)
 
 class Serialize a where
     serialize :: a -> Bytes
     deserialize :: Bytes -> a
+
+instance Serialize Integer where
+  serialize   = B.reverse . i2osp
+  deserialize = os2ip . B.reverse
 
 -- i2osp gives big-endian, reverse to lil-endian
 instance (forall. KnownNat n => Serialize (Prime n)) where
@@ -82,13 +85,43 @@ zkifConstraintSystem r1cs = constraintSystem
   (flatVector . map zkifBilinearConstraint . Fold.toList . constraints $ r1cs)
   Nothing
 
+mapZip :: (a -> b) -> [a] -> [(a, b)]
+mapZip f = map (\x -> (x, f x))
+
+zkifCircuitHeader
+  :: forall s n . (Show s, KnownNat n) => R1CS s n -> WriteTable CircuitHeader
+zkifCircuitHeader r1cs =
+  let lookupSignalVal = r1csNumValue r1cs
+      free_var_id     = 1 + nPublicInputs r1cs
+      ivs = zkifVariables . mapZip lookupSignalVal $ [2 .. free_var_id]
+      field_max       = B.unpack . serialize $ order - 1
+  in  circuitHeader (Just ivs)
+                    (Just . fromIntegral $ free_var_id)
+                    (flatVector field_max)
+                    Nothing
+  where order = natVal (Proxy @n)
+
 zkifWitness :: (Show s, KnownNat n) => R1CS s n -> WriteTable Witness
-zkifWitness = witness . fmap zkifVariables . fmap IM.toAscList . values
+zkifWitness r1cs =
+  let lookupSignalVal = r1csNumValue r1cs
+      free_var_id     = 1 + nPublicInputs r1cs
+  in  witness
+        . Just
+        . zkifVariables
+        . mapZip lookupSignalVal
+        $ [1 + free_var_id .. (nextSigNum r1cs - 1)]
+
+zkifCircuitHeaderEncode :: (Show s, Ord s, KnownNat n) => R1CS s n -> ByteString
+zkifCircuitHeaderEncode =
+  encodeWithFileIdentifier . root . messageCircuitHeader . zkifCircuitHeader
+
+zkifWitnessEncode :: (Show s, Ord s, KnownNat n) => R1CS s n -> ByteString
+zkifWitnessEncode =
+  encodeWithFileIdentifier . root . messageWitness . zkifWitness
 
 zkifR1csEncode :: (Show s, Ord s, KnownNat n) => R1CS s n -> ByteString
-zkifR1csEncode r =
+zkifR1csEncode =
   encodeWithFileIdentifier
     . root
     . messageConstraintSystem
     . zkifConstraintSystem
-    $ r

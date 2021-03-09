@@ -41,6 +41,7 @@ module Targets.R1cs.Main
   , qeqToR1csLines
   , sigMapQeq
   , sigMapLc
+  , r1csNumValue
   )
 where
 
@@ -54,6 +55,7 @@ import           Data.Field.Galois              ( Prime
 import qualified Data.Foldable                 as Fold
 import qualified Data.IntMap.Strict            as IntMap
 import qualified Data.IntSet                   as IntSet
+import           Data.Maybe                     ( fromMaybe )
 import qualified Data.Map.Strict               as Map
 import qualified Data.Map.Merge.Strict         as MapMerge
 import qualified Data.Sequence                 as Seq
@@ -265,3 +267,11 @@ lcToR1csLine (m, c) =
 qeqToR1csLines :: KnownNat n => QEQ Int (Prime n) -> [[Integer]]
 qeqToR1csLines (a, b, c) = [] : map lcToR1csLine [a, b, c]
 
+r1csNumValue :: (KnownNat n, Show s) => R1CS s n -> Int -> Prime n
+r1csNumValue r1cs i =
+  fromMaybe
+      (error $ "Could not find r1cs var: " ++ show i ++ ": " ++ show
+        (numSigs r1cs IntMap.!? i)
+      )
+    $         fromMaybe (error "No r1cs values!") (values r1cs)
+    IntMap.!? i
