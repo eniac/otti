@@ -437,12 +437,9 @@ Solution_Box simplex_prover(Tableau p_tableau, int p_max_min) {
     sol.x[i] = find_opt_var(p_sol_tab, (i+1));
   }
   sol.x[V] = p_sol_tab.mat[0];
-
   fixed_point_precision_16_16 y[CP];
-
   for(int j=0; j<C; j++) {
     sol.y[j] = find_opt_var(d_sol_tab, (j+1));
-
   }
   sol.y[C] = d_sol_tab.mat[0];
 */
