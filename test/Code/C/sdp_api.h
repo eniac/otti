@@ -1,5 +1,5 @@
 #define M 2
-#define N 3
+#define N 2
 
 typedef float fixed_point_precision_16_16;
 
@@ -8,28 +8,28 @@ static int valid = 1;
 
 typedef struct {
   int len;
-  fixed_point_precision_16_16 v[9];
+  fixed_point_precision_16_16 v[4];
 } Vector;
 
 typedef struct {
   int len;
-  fixed_point_precision_16_16 v[500];
+  fixed_point_precision_16_16 v[10];
 } Big_Vector;
 
 typedef struct {
   int len;
-  fixed_point_precision_16_16 v[9];
+  fixed_point_precision_16_16 v[4];
   int sols;
 } Gauss_Vec;
 
 typedef struct {
   int rows; int cols;
-  fixed_point_precision_16_16 m[9];
+  fixed_point_precision_16_16 m[4];
 } Matrix;
 
 typedef struct {
   int rows; int cols;
-  fixed_point_precision_16_16 m[500];
+  fixed_point_precision_16_16 m[10];
 } Big_Matrix;
 
 typedef struct {
@@ -55,6 +55,39 @@ typedef struct {
   Matrix X;
   Vector y;
 } Solution;
+
+typedef struct {
+  fixed_point_precision_16_16 A0_0;
+  fixed_point_precision_16_16 A0_1;
+  fixed_point_precision_16_16 A0_2;
+  fixed_point_precision_16_16 A0_3;
+
+  fixed_point_precision_16_16 A1_0;
+  fixed_point_precision_16_16 A1_1;
+  fixed_point_precision_16_16 A1_2;
+  fixed_point_precision_16_16 A1_3;
+
+  fixed_point_precision_16_16 C_0;
+  fixed_point_precision_16_16 C_1;
+  fixed_point_precision_16_16 C_2;
+  fixed_point_precision_16_16 C_3;
+
+
+
+  fixed_point_precision_16_16 X_0;
+  fixed_point_precision_16_16 X_1;
+  fixed_point_precision_16_16 X_2;
+  fixed_point_precision_16_16 X_3;
+
+  fixed_point_precision_16_16 b0;
+  fixed_point_precision_16_16 b1;
+
+  fixed_point_precision_16_16 y0;
+  fixed_point_precision_16_16 y1;
+
+  int feasible;
+
+} Problem_Box;
 
 fixed_point_precision_16_16 get(int i, int j, Matrix mat);
 int d_equal(fixed_point_precision_16_16 a, fixed_point_precision_16_16 b);
@@ -98,8 +131,9 @@ int psd(Matrix X);
 Matrix inverse(Matrix X);
 Matrix beta_approx(Matrix C, Matrix Xp, Matrix_List A, Vector b, fixed_point_precision_16_16 theta, fixed_point_precision_16_16 beta);
 Matrix matrixize(Vector a, int rows, int cols);
-Solution sdp(Matrix C, Matrix Xp, Matrix_List A, Vector b, fixed_point_precision_16_16 theta, fixed_point_precision_16_16 beta);
-int sdp_check(Matrix C, Matrix X, Matrix_List A, Vector b, Vector y, int feasible);
+Problem_Box sdp(Matrix C, Matrix Xp, Matrix_List A, Vector b, fixed_point_precision_16_16 theta, fixed_point_precision_16_16 beta);
+int sdp_check(Problem_Box P, int feasible);
 Matrix sdp_gadget(Matrix C, Matrix X, Matrix_List A, Vector b);
 fixed_point_precision_16_16 get_big(int i, int j, Big_Matrix mat);
 fixed_point_precision_16_16 norm_circ(Big_Vector e, Big_Matrix LL, Big_Vector z);
+fixed_point_precision_16_16 pow_2(fixed_point_precision_16_16 b);

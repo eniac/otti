@@ -417,22 +417,22 @@ Solution_Box simplex_prover(Tableau p_tableau, int p_max_min) {
   //PROVER CODE
   // calculate primal solution
   //print_tab(p_tableau);
-  //Tableau p_sol_tab = add_slack(p_tableau, p_max_min, V);
+  Tableau p_sol_tab_a = add_slack(p_tableau, p_max_min, V);
 
-  //Tableau p_sol_tab_b = simplex_stars(p_sol_tab_a);
-  //Tableau p_sol_tab = simplex_max(p_sol_tab_b);
+  Tableau p_sol_tab_b = simplex_stars(p_sol_tab_a);
+  Tableau p_sol_tab = simplex_max(p_sol_tab_b);
 
 
-  //int d_max_min = !p_max_min;
-  //Tableau d_tableau = calculate_dual(p_tableau, d_max_min);
+  int d_max_min = !p_max_min;
+  Tableau d_tableau = calculate_dual(p_tableau, d_max_min);
 
-  //Tableau d_sol_tab = add_slack(d_tableau, d_max_min, C);
-  //Tableau d_sol_tab_b = simplex_stars(d_sol_tab_a);
-  //Tableau d_sol_tab = simplex_max(d_sol_tab_b);
+  Tableau d_sol_tab_a = add_slack(d_tableau, d_max_min, C);
+  Tableau d_sol_tab_b = simplex_stars(d_sol_tab_a);
+  Tableau d_sol_tab = simplex_max(d_sol_tab_b);
 
 
   Solution sol = {{0,0,0,0,0,0}, {0,0,0,0,0,0}};
-/*
+
   for(int i=0; i<V; i++) {
     sol.x[i] = find_opt_var(p_sol_tab, (i+1));
   }
@@ -442,7 +442,7 @@ Solution_Box simplex_prover(Tableau p_tableau, int p_max_min) {
     sol.y[j] = find_opt_var(d_sol_tab, (j+1));
   }
   sol.y[C] = d_sol_tab.mat[0];
-*/
+
 
 
   Solution_Box solf = { p_tableau.mat[0],
@@ -591,22 +591,16 @@ int simplex_check(int max_min, Solution_Box sf) {
     fixed_point_precision_16_16 prod0 = (sf.m1 * sf.x0) +
                                         (sf.m2 * sf.x1);
 
-    printf("%f\n", prod0);
     fixed_point_precision_16_16 prod1 = (sf.m12 * sf.x0) +
                                         (sf.m13 * sf.x1);
-    printf("%f\n", prod1);
     fixed_point_precision_16_16 prod2 = (sf.m23 * sf.x0) +
                                         (sf.m24 * sf.x1);
-    printf("%f\n", prod2);
     fixed_point_precision_16_16 prod3 = (sf.m34 * sf.x0) +
                                         (sf.m35 * sf.x1);
-    printf("%f\n", prod3);
     fixed_point_precision_16_16 prod4 = (sf.m45 * sf.x0) +
                                         (sf.m46 * sf.x1);
-    printf("%f\n", prod4);
     fixed_point_precision_16_16 prod5 = (sf.m56 * sf.x0) +
                                         (sf.m57 * sf.x1);
-    printf("%f\n", prod5);
 
 
     /*
