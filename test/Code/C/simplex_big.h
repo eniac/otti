@@ -1,4 +1,4 @@
-//specify problem size here
+
 #define C 5 //constraints
 #define V 5 //vars
 #define CP 6 //constraints
@@ -11,7 +11,7 @@
 #define MIN 0
 
 typedef float fixed_point_precision_16_16;
-static const fixed_point_precision_16_16 epsilon   = (fixed_point_precision_16_16)1.0e-2;
+static const fixed_point_precision_16_16 epsilon   = (fixed_point_precision_16_16)1.0e-4;
 
 typedef struct {
   int rows, cols; // mat[m x n]

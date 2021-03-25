@@ -1,27 +1,82 @@
 #include <stdio.h>
-#include "simplex.h"
-
+#include "simplex_big.h"
 
 int main(void) {
 
-  Constraint obj = {{24.0, 60.0, 0, 0, 0}, LEQ, 0};
-  Tableau tab = minimize(obj);
+  Constraint obj = {{1.0, 2.0, 3.0, -1.0, 7.0}, GEQ, 0};
+  Tableau tab = maximize(obj);
 
-  Constraint c1 = {{0.5, 1.0, 0, 0, 0}, GEQ, 6.0};
-  Constraint c2 = {{2.0, 2.0, 0, 0, 0}, GEQ, 14.0};
-  Constraint c3 = {{1.0, 4.0, 0, 0, 0}, GEQ, 13.0};
+  Constraint c1 = {{1.0, 2.0, 3.5, -4.0, 10.0}, LEQ, 15.0};
+  Constraint c2 = {{2.5, 1.0, 5.0, 0.0, 0.5}, LEQ, 20.0};
+  Constraint c3 = {{1.0, 2.0, 1.0, 3.0, 0.2}, LEQ, 13.5};
+  Constraint c4 = {{9.0, 0.0, 0.5, 15.0, 0.0}, LEQ, 30.0};
+  Constraint c5 = {{1.3, -0.9, 1.5, 0.4, 7.0}, LEQ, 40.0};
   tab = add(tab, c1);
   tab = add(tab, c2);
   tab = add(tab, c3);
+  tab = add(tab, c4);
+  tab = add(tab, c5);
 
-//  Solution_Box sol = simplex_prover(tab, MIN);
-//  printf("CHECK %d", simplex_check(MIN, sol));
+  Solution_Box solution = simplex_gadget(tab,MAX);
 
-Solution_Box sol = simplex_gadget(tab, MIN);
-
-  return 0;
-
+  return 123;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -440,6 +495,7 @@ Solution_Box simplex_prover(Tableau p_tableau, int p_max_min) {
     sol.x[i] = find_opt_var(p_sol_tab, (i+1));
   }
   sol.x[V] = p_sol_tab.mat[0];
+
   fixed_point_precision_16_16 y[CP];
   for(int j=0; j<C; j++) {
     sol.y[j] = find_opt_var(d_sol_tab, (j+1));
@@ -594,16 +650,22 @@ int simplex_check(int max_min, Solution_Box sf) {
     fixed_point_precision_16_16 prod0 = (sf.m1 * sf.x0) +
                                         (sf.m2 * sf.x1);
 
+    printf("%f\n", prod0);
     fixed_point_precision_16_16 prod1 = (sf.m12 * sf.x0) +
                                         (sf.m13 * sf.x1);
+    printf("%f\n", prod1);
     fixed_point_precision_16_16 prod2 = (sf.m23 * sf.x0) +
                                         (sf.m24 * sf.x1);
+    printf("%f\n", prod2);
     fixed_point_precision_16_16 prod3 = (sf.m34 * sf.x0) +
                                         (sf.m35 * sf.x1);
+    printf("%f\n", prod3);
     fixed_point_precision_16_16 prod4 = (sf.m45 * sf.x0) +
                                         (sf.m46 * sf.x1);
+    printf("%f\n", prod4);
     fixed_point_precision_16_16 prod5 = (sf.m56 * sf.x0) +
                                         (sf.m57 * sf.x1);
+    printf("%f\n", prod5);
 
 
     /*
