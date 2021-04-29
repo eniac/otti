@@ -69,6 +69,7 @@ module IR.SMT.TySmt
   , TermPf
   , TermDouble
   , TermFloat
+  , TermFixedPt
   , TermArray
   , sort
   , dynBvWidth
@@ -398,6 +399,7 @@ type TermInt = Term IntSort
 type TermPf n = Term (PfSort n)
 type TermDouble = Term F64
 type TermFloat = Term F32
+type TermFixedPt = Term DynBvSort
 type TermArray k v = Term (ArraySort k v)
 
 data Term s where
@@ -565,7 +567,7 @@ mkDynBvExtract start width t =
           ]
 
 mkDynBvExtractBit :: Int -> TermDynBv -> TermBool
-mkDynBvExtractBit bit t = 
+mkDynBvExtractBit bit t =
   let w = dynBvWidth t
   in  if bit < w
         then DynBvExtractBit bit t

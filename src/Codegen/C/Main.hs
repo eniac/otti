@@ -28,6 +28,10 @@ import           Control.Monad                  ( replicateM_
                                                 )
 import           Control.Monad.State.Strict
 import           Control.Monad.Reader
+import           Data.Time.Clock.System         ( getSystemTime
+                                                , SystemTime(..)
+                                                )
+
 import qualified Data.Char                     as Char
 import qualified Data.Foldable                 as Fold
 import qualified Data.List                     as List
@@ -183,6 +187,9 @@ assertBug = do
 -- Lift some CUtils stuff to the SSA layer
 ssaBool :: CSsaVal -> Ty.TermBool
 ssaBool = cBool . ssaValAsTerm "cBool"
+
+ssaFixedPt :: CSsaVal -> Ty.TermFixedPt
+ssaFixedPt = cFixedPt . ssaValAsTerm "cFixedPt"
 
 ssaType :: CSsaVal -> Type
 ssaType = cType . ssaValAsTerm "cType"
@@ -368,6 +375,20 @@ genSpecialFunction fnName cargs = do
     "__VERIFIER_assume" | svExtensions -> do
       prop <- genExpr . head $ cargs
       when bugs . assume . ssaBool $ prop
+      return $ Just $ Base $ cIntLit S32 1
+    "__LINEAR_maximize" -> do
+      s           <- deepGet
+      objective   <- genExpr . head $ cargs
+      constraints <- forM (tail cargs) genExpr
+      liftIO . putStrLn $ show (ssaFixedPt objective)
+      start    <- liftIO getSystemTime
+      Just res <- liftIO
+        $ ToZ3.evalMaximizeZ3 (map ssaBool constraints) (ssaFixedPt objective)
+      end <- liftIO getSystemTime
+      let seconds = (fromInteger (ToZ3.tDiffNanos end start) :: Double) / 1.0e9
+      z3result <- liftIO $ ToZ3.parseZ3Model res seconds
+      liftIO . putStrLn . show $ z3result
+      deepPut s
       return $ Just $ Base $ cIntLit S32 1
     "__GADGET_compute" -> do
       -- Enter scratch state

@@ -5,16 +5,16 @@
 
 packages:
 - completed:
-    size: 69262
-    url: https://github.com/alex-ozdemir/haskell-z3/archive/6366ff55d377dcb27451be522692475c2030f41c.tar.gz
+    size: 94131
+    url: https://github.com/elefthei/haskell-z3/archive/8d74b13ca3304e6efb5c13516361493847b93c20.tar.gz
     name: z3
-    version: '408.0'
-    sha256: 80e780e97bdd00496ed75b35c92ede77a088ee58a11b06c2c6b58d3b1e0027af
+    version: '408.2'
+    sha256: 5430609aff1bf457a85e233f3d77173343a2dc56b1784cd2d6b9fb6bf23fc2f3
     pantry-tree:
-      size: 1525
-      sha256: 86356047d818f2ff9b74f8e9ac7baedbb94a0c0e16fb8e69533cee9c5ad373e7
+      size: 2142
+      sha256: 037da2038978f5fc41e0799c80c0b731deb339db1f5db435483a1ed64cdc6f2d
   original:
-    url: https://github.com/alex-ozdemir/haskell-z3/archive/6366ff55d377dcb27451be522692475c2030f41c.tar.gz
+    url: https://github.com/elefthei/haskell-z3/archive/8d74b13ca3304e6efb5c13516361493847b93c20.tar.gz
 - completed:
     hackage: arithmoi-0.11.0.1@sha256:5cb0d81848d25b20e58c1426bf1ff9dc4137efc182c9c4c567102e5fa16f1079,7639
     pantry-tree:

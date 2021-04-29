@@ -9,7 +9,10 @@ module Targets.SMT.Z3
   , valToZ3
   , sortToZ3
   , evalZ3
+  , evalMaximizeZ3
+  , parseZ3Model
   , evalZ3Model
+  , tDiffNanos
   , Val(..)
   , i_
   , b_
@@ -46,7 +49,9 @@ import qualified IR.SMT.Opt                    as Opt
 import qualified IR.SMT.Opt.Assert             as OptAssert
 import           Targets.BackEnd
 import           IR.SMT.TySmt
-import           Z3.Monad                       ( MonadZ3 )
+import           Z3.Monad                       ( MonadZ3
+                                                , MonadOptimize
+                                                )
 import qualified Z3.Monad                      as Z
 import           Util.Log
 import qualified Util.Cfg                      as Cfg
@@ -355,8 +360,30 @@ evalZ3 term = Z.evalZ3 $ do
       return $ Just s
     Nothing -> return Nothing
 
--- For generating a numerical description of the model
+maximizeZ3
+  :: (MonadOptimize z3) => [TermBool] -> TermFixedPt -> z3 (Maybe Z.Model)
+maximizeZ3 constraints objective = do
+  _             <- Z.getOptimize
+  z3constraints <- forM constraints toZ3
+  forM_ z3constraints Z.optimizeAssert
+  _     <- Z.optimizeMaximize =<< toZ3 objective
+  res   <- Z.optimizeCheck []
+  model <- Z.optimizeGetModel
+  case res of
+    Z.Sat   -> return $ Just model
+    Z.Unsat -> return Nothing
+    Z.Undef -> error "Why did we get undef for?"
 
+evalMaximizeZ3 :: [TermBool] -> TermFixedPt -> IO (Maybe String)
+evalMaximizeZ3 cs obj = Z.evalZ3 $ do
+  m <- maximizeZ3 cs obj
+  case m of
+    Just model -> do
+      s <- Z.modelToString model
+      return $ Just s
+    Nothing -> return Nothing
+
+-- For generating a numerical description of the model
 data Val = IVal Int
          | BVal Bool
          | DVal Double
@@ -390,7 +417,58 @@ data Z3Result = Z3Result
   { time  :: Double
   , sat   :: Bool
   , model :: Map String Val
-  }
+  } deriving (Eq, Show)
+
+readBin :: String -> Int
+readBin = foldr
+  (\d a -> if d `elem` "01"
+    then digitToInt d + 2 * a
+    else error $ "invalid binary character: " ++ [d]
+  )
+  0
+
+toDec :: String -> Integer
+toDec = foldl' (\acc x -> acc * 2 + fromIntegral (digitToInt x)) 0
+
+-- | Returns Nothing if UNSAT, or an association between variables and string if SAT
+parseZ3Model :: String -> Double -> IO Z3Result
+parseZ3Model str time = do
+  let modelLines = splitOn "\n" str
+  vs <- forM (init modelLines) $ \line -> return $ case splitOn " -> " line of
+    [var, "true" ] -> Just (var, BVal True)
+    [var, "false"] -> Just (var, BVal False)
+    [var, strVal] ->
+      let maybeVal = drop 1 strVal
+      in  case maybeVal of
+                                                        -- Special values
+            '_' : ' ' : '-' : 'z' : 'e' : 'r' : 'o' : _ -> Just (var, NegZ)
+            '_' : ' ' : '+' : 'z' : 'e' : 'r' : 'o' : _ -> Just (var, DVal 0)
+            '_' : ' ' : 'N' : 'a' : 'N' : _ -> Just (var, NaN)
+             -- Binary
+            'b' : n -> Just (var, IVal $ readBin n)
+             -- Hex
+            'x' : _ -> Just (var, IVal (read ('0' : maybeVal) :: Int))
+            -- Non-special floating point
+            'f' : 'p' : ' ' : rest ->
+              let components = splitOn " " rest
+                  sign       = read (drop 2 $ components !! 0) :: Integer
+                  exp        = toDec $ drop 2 $ components !! 1
+                  sig = read ('0' : drop 1 (init $ components !! 2)) :: Integer
+                  result =
+                      (sig .&. 0xfffffffffffff)
+                        .|. ((exp .&. 0x7ff) `shiftL` 52)
+                        .|. ((sign .&. 0x1) `shiftL` 63)
+              in  Just (var, DVal $ IEEE754.wordToDouble $ fromIntegral result)
+            -- Array, skip.
+            _ | "as const" `isInfixOf` maybeVal -> Nothing
+            -- Did not recognize the pattern
+            _ -> error $ unwords ["Bad line", show line]
+    _ -> Nothing
+  --_ -> error $ unwords ["Bad model", show model]
+  return Z3Result { time  = time
+                  , sat   = True
+                  , model = Map.fromList $ catMaybes vs
+                  }
 
 -- | Returns Nothing if UNSAT, or an association between variables and string if SAT
 evalZ3Model :: TermBool -> Log Z3Result
@@ -398,66 +476,17 @@ evalZ3Model term = do
   -- We have to do this because the bindings are broken.
   -- Eventually we will just fix the bindings
   -- liftIO $ putStrLn $ "Term: " ++ show (length $ show term)
-  start     <- liftIO getSystemTime
-  model     <- liftIO $ ((length $ show term) `seq` evalZ3 term)
-  end       <- liftIO getSystemTime
-  (m, sat') <- case model of
+  start    <- liftIO getSystemTime
+  modelstr <- liftIO $ ((length $ show term) `seq` evalZ3 term)
+  end      <- liftIO getSystemTime
+  let seconds = (fromInteger (tDiffNanos end start) :: Double) / 1.0e9
+  (m, sat') <- case modelstr of
     Nothing  -> return (Map.empty, False)
     Just str -> (, True) <$> do
       logIf "z3::model" $ "Model: " ++ str
-      let modelLines = splitOn "\n" str
-      vs <- forM (init modelLines) $ \line ->
-        return $ case splitOn " -> " line of
-          [var, "true" ] -> Just (var, BVal True)
-          [var, "false"] -> Just (var, BVal False)
-          [var, strVal] ->
-            let maybeVal = drop 1 strVal
-            in
-              case maybeVal of
-              -- Special values
-                '_' : ' ' : '-' : 'z' : 'e' : 'r' : 'o' : _ -> Just (var, NegZ)
-                '_' : ' ' : '+' : 'z' : 'e' : 'r' : 'o' : _ ->
-                  Just (var, DVal 0)
-                '_' : ' ' : 'N' : 'a' : 'N' : _ -> Just (var, NaN)
-                 -- Binary
-                'b' : n -> Just (var, IVal $ readBin n)
-                 -- Hex
-                'x' : _ -> Just (var, IVal (read ('0' : maybeVal) :: Int))
-                -- Non-special floating point
-                'f' : 'p' : ' ' : rest ->
-                  let
-                    components = splitOn " " rest
-                    sign       = read (drop 2 $ components !! 0) :: Integer
-                    exp        = toDec $ drop 2 $ components !! 1
-                    sig =
-                      read ('0' : drop 1 (init $ components !! 2)) :: Integer
-                    result =
-                      (sig .&. 0xfffffffffffff)
-                        .|. ((exp .&. 0x7ff) `shiftL` 52)
-                        .|. ((sign .&. 0x1) `shiftL` 63)
-                  in
-                    Just
-                      (var, DVal $ IEEE754.wordToDouble $ fromIntegral result)
-                -- Array, skip.
-                _ | "as const" `isInfixOf` maybeVal -> Nothing
-                -- Did not recognize the pattern
-                _ -> error $ unwords ["Bad line", show line]
-          -- Damn arrays
-          _ -> Nothing
-          --_ -> error $ unwords ["Bad model", show model]
-      return $ Map.fromList $ catMaybes vs
-  let seconds = (fromInteger (tDiffNanos end start) :: Double) / 1.0e9
+      liftIO . fmap model $ parseZ3Model str seconds
   return Z3Result { time = seconds, sat = sat', model = m }
- where
-  readBin :: String -> Int
-  readBin = foldr
-    (\d a -> if d `elem` "01"
-      then digitToInt d + 2 * a
-      else error $ "invalid binary character: " ++ [d]
-    )
-    0
-  toDec :: String -> Integer
-  toDec = foldl' (\acc x -> acc * 2 + fromIntegral (digitToInt x)) 0
+
 tDiffNanos :: SystemTime -> SystemTime -> Integer
 tDiffNanos a b =
   let sDiff = toInteger (systemSeconds a) - toInteger (systemSeconds b)

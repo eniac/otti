@@ -41,8 +41,8 @@ packages:
 #
 # extra-deps: []
 extra-deps:
-  - github: alex-ozdemir/haskell-z3
-    commit: 6366ff55d377dcb27451be522692475c2030f41c
+  - github: elefthei/haskell-z3
+    commit: 8d74b13ca3304e6efb5c13516361493847b93c20
   # This is madness. Please help.
   - arithmoi-0.11.0.1@sha256:5cb0d81848d25b20e58c1426bf1ff9dc4137efc182c9c4c567102e5fa16f1079,7639
   - galois-field-1.0.2@sha256:ecfdd72259a3db7dc89ddeaa5c5dd7d7bcc305c0450a89c757d93fe2ddb71c77,4685
