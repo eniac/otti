@@ -14,10 +14,14 @@ import           Util.Cfg                       ( evalCfgDefault
                                                 , liftCfg
                                                 )
 import           Util.Log                       ( evalLog )
+import           Data.BitVector                as BV
 
 i = i_
 b = b_
 d = d_
+
+double2fixpt :: Double -> Int
+double2fixpt d = fromIntegral . BV.uint . BV.bitVec 32 . floor $ d * 2 ^ 16
 
 cValueTests :: BenchTest
 cValueTests = benchTestGroup
@@ -391,7 +395,9 @@ cValueTests = benchTestGroup
     "fixed point neg"
     "neg"
     "test/Code/C/fixed_pt_entry.c"
-    [("f0_neg_lex1__c_v0", i 4294967295), ("f0_neg_lex1__d_v0", i 2147483648)]
+    [ ("f0_neg_lex1__c_v0", i . double2fixpt $ (-0.0000152587890625))
+    , ("f0_neg_lex1__d_v0", i . double2fixpt $ (-32768.0))
+    ]
   , constraintValueTest
     "fixed point comparisons"
     "comp"
@@ -435,6 +441,22 @@ cGadgetTests = benchTestGroup
                    "test/Code/C/max.c"
                    [("a", 10), ("b", 20)]
                    [("f0_max__return", i 20)]
+  , inputValueTest
+    "maximize gadget"
+    "maximize"
+    "test/Code/C/optimization.c"
+    []
+    [ ("f0_maximize_lex1__x_v0", i (double2fixpt 6.0))
+    , ("f0_maximize_lex1__y_v0", i (double2fixpt 4.0))
+    ]
+  , inputValueTest
+    "minimize gadget"
+    "minimize"
+    "test/Code/C/optimization.c"
+    []
+    [ ("f0_minimize_lex1__x1_v0", i (double2fixpt 5))
+    , ("f0_minimize_lex1__x2_v0", i (double2fixpt 1))
+    ]
   ]
 cRealTests :: BenchTest
 cRealTests = benchTestGroup

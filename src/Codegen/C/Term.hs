@@ -53,6 +53,8 @@ module Codegen.C.Term
   -- Other
   , cCast
   , cBool
+  , cDouble
+  , cFixedPt
   -- Literals
   , cBoolLit
   , cIntLit
@@ -69,11 +71,13 @@ module Codegen.C.Term
   , cType
   -- Utilities
   , asBool
+  , asDouble
   , asInt
   , asStackPtr
   , asArray
   , asVar
   , asLVal
+  , double2fixpt
   , CCirc
   )
 where
@@ -96,8 +100,7 @@ import           Control.Monad.State.Strict
 import qualified Data.BitVector                as Bv
 import           Data.Foldable                 as Fold
 import qualified Data.Set                      as Set
-import           Data.Maybe                     ( fromMaybe
-                                                )
+import           Data.Maybe                     ( fromMaybe )
 import           IR.SMT.Assert                  ( liftAssert )
 import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
@@ -114,7 +117,7 @@ class Bitable s where
 
 data CTermData = CInt Bool Int Bv
                | CBool Ty.TermBool
-               | CFixedPt Bv
+               | CFixedPt Ty.TermFixedPt
                | CDouble Ty.TermDouble
                | CFloat Ty.TermFloat
                -- The array type, the offset, the underlying array.
@@ -150,9 +153,14 @@ asInt :: CTermData -> (Bool, Int, Bv)
 asInt (CInt s w i) = (s, w, i)
 asInt t            = error $ unwords [show t, "is not an integer"]
 
-asFixedPt :: CTermData -> Bv -- include length/sign later
+asFixedPt :: CTermData -> Ty.TermFixedPt
 asFixedPt (CFixedPt bv) = bv
 asFixedPt t             = error $ unwords [show t, "is not a fixed point"]
+
+asDouble :: CTermData -> Ty.TermDouble
+asDouble (CDouble bv) = bv
+asDouble t            = error $ unwords [show t, "is not a double"]
+
 
 asBool :: CTermData -> Ty.TermBool
 asBool (CBool b) = b
@@ -248,6 +256,12 @@ cType = ctermDataTy . term
 
 cBool :: CTerm -> Ty.TermBool
 cBool = asBool . term . cCast Type.Bool
+
+cFixedPt :: CTerm -> Ty.TermFixedPt
+cFixedPt = asFixedPt . term . cCast Type.FixedPt
+
+cDouble :: CTerm -> Ty.TermDouble
+cDouble = asDouble . term . cCast Type.Double
 
 nyi :: String -> a
 nyi msg = error $ "Not yet implemented: " ++ msg
@@ -439,10 +453,9 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
       )
     _ -> nyi $ "cDeclVar for type " ++ show ty
   forM_ mUserName $ \userName ->
-    when (Type.Bool == ty || Type.isIntegerType ty)
-      $ liftAssert $ do
-        Assert.publicize smtName
-        Assert.inputize userName smtName
+    when (Type.Bool == ty || Type.isIntegerType ty) $ liftAssert $ do
+      Assert.publicize smtName
+      Assert.inputize userName smtName
   return $ mkCTerm t u
  where
   getBaseInput
@@ -454,15 +467,17 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
     -> Assert.Assert ()
   getBaseInput = setInputFromMap inMap
 
+double2fixpt :: Double -> CTerm
+double2fixpt d =
+  let numer = cCast Type.FixedPt . cIntLit Type.S32 $ round (d * 100)
+      denom = cCast Type.FixedPt $ cIntLit Type.S32 100
+  in  cDiv numer denom
+
 cIntLit :: Type.Type -> Integer -> CTerm
 cIntLit t v =
   let s = Type.isSignedInt t
       w = Type.numBits t
   in  mkCTerm (CInt s w (Ty.DynBvLit $ Bv.bitVec w v)) (Ty.BoolLit False)
-
-cFixedPtLit :: Integer -> CTerm
-cFixedPtLit v =
-  mkCTerm (CFixedPt (Ty.DynBvLit $ Bv.bitVec 32 v)) (Ty.BoolLit False)
 
 cDoubleLit :: Double -> CTerm
 cDoubleLit v = mkCTerm (CDouble $ Ty.Fp64Lit v) (Ty.BoolLit False)
@@ -701,97 +716,106 @@ cWrapBinArith name bvOp doubleF ubF allowDouble a b =
         (CInt s w i, CInt s' w' i') | s == s' && w == w' ->
           (CInt s w $ bvBinExpr (bvOp s) i i', ubF >>= (\f -> f s i i'))
         (CInt s w i, CFixedPt fx') -> case name of
-          "*" ->  let sign  = True
-                      l     = intResize s 64 i
-                      r     = intResize True 64 fx'
-                      expr  = bvBinExpr (bvOp sign) l r
-                      fxpt  = intResize sign 32 expr
-                  in  ( CFixedPt $ fxpt
-                      , ubF >>= (\f -> f sign l r)
-                      )
-          "/" ->  let sign  = True
-                      l             = intResize s 64 $ asFixedPt $ term $ cCast Type.FixedPt a -- cast to 64 for overflow
-                      r             = intResize sign 64 fx'
-                      f             = Ty.IntToDynBv 64 $ Ty.IntLit (2^16)
-                      cl            = mkCTerm (CInt sign 64 l) (udef a)
-                      cf            = mkCTerm (CInt sign 64 f) (udef b)
-                      div_bv  = case (term (cMul cl cf)) of --checks overflow in recursive call
-                        (CInt _ _ bv) -> bv
-                        _ -> error $ unwords ["Error in FxPt division of", show a, "and", show b]
+          "*" ->
+            let sign = True
+                l    = intResize s 64 i
+                r    = intResize True 64 fx'
+                expr = bvBinExpr (bvOp sign) l r
+                fxpt = intResize sign 32 expr
+            in  (CFixedPt $ fxpt, ubF >>= (\f -> f sign l r))
+          "/" ->
+            let
+              sign   = True
+              l      = intResize s 64 $ asFixedPt $ term $ cCast Type.FixedPt a -- cast to 64 for overflow
+              r      = intResize sign 64 fx'
+              f      = Ty.IntToDynBv 64 $ Ty.IntLit (2 ^ 16)
+              cl     = mkCTerm (CInt sign 64 l) (udef a)
+              cf     = mkCTerm (CInt sign 64 f) (udef b)
+              div_bv = case (term (cMul cl cf)) of --checks overflow in recursive call
+                (CInt _ _ bv) -> bv
+                _ ->
+                  error $ unwords
+                    ["Error in FxPt division of", show a, "and", show b]
 
-                      expr          = bvBinExpr (bvOp sign) div_bv r
-                      fxpt          = intResize sign 32 expr
-                  in  ( CFixedPt $ fxpt
-                      , ubF >>= (\f -> f sign div_bv r)
-                      )
+              expr = bvBinExpr (bvOp sign) div_bv r
+              fxpt = intResize sign 32 expr
+            in
+              (CFixedPt $ fxpt, ubF >>= (\f -> f sign div_bv r))
 
-          _   ->  let sign  = True
-                      l     = asFixedPt $ term $ cCast Type.FixedPt a
-                      r     = fx'
-                  in  ( CFixedPt $ bvBinExpr (bvOp sign) l r
-                      , ubF >>= (\f -> f sign l r)
-                      )
+          _ ->
+            let sign = True
+                l    = asFixedPt $ term $ cCast Type.FixedPt a
+                r    = fx'
+            in  ( CFixedPt $ bvBinExpr (bvOp sign) l r
+                , ubF >>= (\f -> f sign l r)
+                )
 
         (CFixedPt fx, CInt s' w' i') -> case name of
-          "*" ->  let sign  = True
-                      l     = intResize True 64 fx
-                      r     = intResize s' 64 i'
-                      expr  = bvBinExpr (bvOp sign) l r
-                      fxpt  = intResize sign 32 expr
-                  in  ( CFixedPt $ fxpt
-                      , ubF >>= (\f -> f sign l r)
-                      )
-          "/" ->  let sign  = True -- int in demoniator, fine to not promote
-                      l     = intResize True 64 fx
-                      r     = intResize s' 64 i'
-                      expr  = bvBinExpr (bvOp sign) l r
-                      fxpt  = intResize sign 32 expr
-                  in  ( CFixedPt $ fxpt
-                      , ubF >>= (\f -> f sign l r)
-                      )
-          _   ->  let sign  = True
-                      l     = fx
-                      r     = asFixedPt $ term $ cCast Type.FixedPt b
-                  in  ( CFixedPt $ bvBinExpr (bvOp sign) l r
-                      , ubF >>= (\f -> f sign l r)
-                      )
+          "*" ->
+            let sign = True
+                l    = intResize True 64 fx
+                r    = intResize s' 64 i'
+                expr = bvBinExpr (bvOp sign) l r
+                fxpt = intResize sign 32 expr
+            in  (CFixedPt $ fxpt, ubF >>= (\f -> f sign l r))
+          "/" ->
+            let sign = True -- int in demoniator, fine to not promote
+                l    = intResize True 64 fx
+                r    = intResize s' 64 i'
+                expr = bvBinExpr (bvOp sign) l r
+                fxpt = intResize sign 32 expr
+            in  (CFixedPt $ fxpt, ubF >>= (\f -> f sign l r))
+          _ ->
+            let sign = True
+                l    = fx
+                r    = asFixedPt $ term $ cCast Type.FixedPt b
+            in  ( CFixedPt $ bvBinExpr (bvOp sign) l r
+                , ubF >>= (\f -> f sign l r)
+                )
 
         (CFixedPt fx, CFixedPt fx') -> case name of
-          "*" ->  let sign  = True
-                      l       = intResize sign 64 fx -- cast to 64 for overflow
-                      r       = intResize sign 64 fx'
-                      cl      = mkCTerm (CInt sign 64 l) (udef a)
-                      cr      = mkCTerm (CInt sign 64 r) (udef b) -- essentially casting here without extra factor
-                      mult_bv = case (term (cMul cl cr)) of --checks overflow in recursive call
-                        (CInt _ _ bv) -> bv
-                        _ -> error $ unwords ["Error in FxPt multiplication of", show a, "and", show b]
-                      fact_bv       = Ty.IntToDynBv 64 $ Ty.IntLit (2^16)
-                      expr          = bvBinExpr ((const $ Left Ty.BvUdiv) sign) mult_bv fact_bv
-                      fxpt          = intResize sign 32 expr
-                  in  ( CFixedPt $ fxpt
-                      , ubF >>= (\f -> f sign mult_bv fact_bv)
-                      )
-          "/" ->  let sign  = True
-                      l             = intResize sign 64 fx -- cast to 64 for overflow
-                      r             = intResize sign 64 fx'
-                      f             = Ty.IntToDynBv 64 $ Ty.IntLit (2^16)
-                      cl            = mkCTerm (CInt sign 64 l) (udef a)
-                      cf            = mkCTerm (CInt sign 64 f) (udef b)
-                      div_bv  = case (term (cMul cl cf)) of --checks overflow in recursive call
-                        (CInt _ _ bv) -> bv
-                        _ -> error $ unwords ["Error in FxPt division of", show a, "and", show b]
+          "*" ->
+            let
+              sign    = True
+              l       = intResize sign 64 fx -- cast to 64 for overflow
+              r       = intResize sign 64 fx'
+              cl      = mkCTerm (CInt sign 64 l) (udef a)
+              cr      = mkCTerm (CInt sign 64 r) (udef b) -- essentially casting here without extra factor
+              mult_bv = case (term (cMul cl cr)) of --checks overflow in recursive call
+                (CInt _ _ bv) -> bv
+                _ ->
+                  error $ unwords
+                    ["Error in FxPt multiplication of", show a, "and", show b]
+              fact_bv = Ty.IntToDynBv 64 $ Ty.IntLit (2 ^ 16)
+              expr = bvBinExpr ((const $ Left Ty.BvUdiv) sign) mult_bv fact_bv
+              fxpt = intResize sign 32 expr
+            in
+              (CFixedPt $ fxpt, ubF >>= (\f -> f sign mult_bv fact_bv))
+          "/" ->
+            let
+              sign   = True
+              l      = intResize sign 64 fx -- cast to 64 for overflow
+              r      = intResize sign 64 fx'
+              f      = Ty.IntToDynBv 64 $ Ty.IntLit (2 ^ 16)
+              cl     = mkCTerm (CInt sign 64 l) (udef a)
+              cf     = mkCTerm (CInt sign 64 f) (udef b)
+              div_bv = case (term (cMul cl cf)) of --checks overflow in recursive call
+                (CInt _ _ bv) -> bv
+                _ ->
+                  error $ unwords
+                    ["Error in FxPt division of", show a, "and", show b]
 
-                      expr          = bvBinExpr (bvOp sign) div_bv r
-                      fxpt          = intResize sign 32 expr
-                  in  ( CFixedPt $ fxpt
-                      , ubF >>= (\f -> f sign div_bv r)
-                      )
-          _ ->    let sign  = True
-                      l     = fx
-                      r     = fx'
-                  in  ( CFixedPt $ bvBinExpr (bvOp sign) l r
-                      , ubF >>= (\f -> f sign l r)
-                      )
+              expr = bvBinExpr (bvOp sign) div_bv r
+              fxpt = intResize sign 32 expr
+            in
+              (CFixedPt $ fxpt, ubF >>= (\f -> f sign div_bv r))
+          _ ->
+            let sign = True
+                l    = fx
+                r    = fx'
+            in  ( CFixedPt $ bvBinExpr (bvOp sign) l r
+                , ubF >>= (\f -> f sign l r)
+                )
         (_, _) -> cannot $ unwords [show a, "and", show b]
       pUdef = Ty.BoolNaryExpr Ty.Or (udef a : udef b : Fold.toList u)
     in
@@ -1029,36 +1053,36 @@ cCast toTy node = case term node of
       (CFloat $ (if fromS then Ty.DynSbvToFp else Ty.DynUbvToFp) t)
       (udef node)
     -- cast int to fixedpt
-    Type.FixedPt -> let t'   = intResize fromS 16 t -- cast to 16 bit int
-                        fxpt = CFixedPt $ Ty.DynBvConcat 32 t' $ Ty.DynBvLit $ Bv.zeros 16 -- append the part after the point
-                        u    = udef node
-                    in mkCTerm fxpt u
+    Type.FixedPt ->
+      let t'   = intResize fromS 16 t -- cast to 16 bit int
+          fxpt = CFixedPt $ Ty.DynBvConcat 32 t' $ Ty.DynBvLit $ Bv.zeros 16 -- append the part after the point
+          u    = udef node
+      in  mkCTerm fxpt u
     Type.Bool -> mkCTerm
       (CBool $ Ty.Not $ Ty.mkEq (Mem.bvNum False fromW 0) t)
       (udef node)
     _ -> badCast t toTy
   CFixedPt t -> case toTy of -- we round down right now; i'm not sure why Ty.RoundFpToDynBv is hardcoded with haskell?
-      _ | Type.isIntegerType toTy ->
-        let fromS   = True
-            toS     = Type.isSignedInt toTy
-            toW     = Type.numBits toTy
-            bv16    = Ty.mkDynBvExtract 16 16 t
-            intfin  = intResize toS toW bv16
-            --fxpt always signed
-              --half    = Ty.IntToDynBv 32 $ Ty.IntLit 32768
-              --negHalf = Ty.IntToDynBv 32 $ Ty.IntLit (-32768)
+    _ | Type.isIntegerType toTy ->
+      let fromS  = True
+          toS    = Type.isSignedInt toTy
+          toW    = Type.numBits toTy
+          bv16   = Ty.mkDynBvExtract 16 16 t
+          intfin = intResize toS toW bv16
+          --fxpt always signed
+            --half    = Ty.IntToDynBv 32 $ Ty.IntLit 32768
+            --negHalf = Ty.IntToDynBv 32 $ Ty.IntLit (-32768)
 
 
-              -- top 16 bits
-              -- $ Ty.DynBvBinExpr
-                            -- Ty.BvAdd
-                            -- 32
-                            -- t
-                            -- $ Ty.mkIte (Ty.mkDynBvBinPred Ty.BvSge t (Ty.IntToDynBv 32 $ Ty.IntLit 0)) half negHalf
-
-        in mkCTerm ( CInt toS toW intfin ) (udef node)
-      Type.FixedPt -> node
-      _ -> badCast t toTy
+            -- top 16 bits
+            -- $ Ty.DynBvBinExpr
+                          -- Ty.BvAdd
+                          -- 32
+                          -- t
+                          -- $ Ty.mkIte (Ty.mkDynBvBinPred Ty.BvSge t (Ty.IntToDynBv 32 $ Ty.IntLit 0)) half negHalf
+      in  mkCTerm (CInt toS toW intfin) (udef node)
+    Type.FixedPt -> node
+    _            -> badCast t toTy
 
   CDouble t -> case toTy of
     _ | Type.isIntegerType toTy ->

@@ -30,7 +30,7 @@ dependencies:
 library:
   source-dirs: src
   dependencies:
-  - z3 >= 4.3.1
+  - z3 >= 408.2
   - mtl >= 2.2.2
   - containers >= 0.5
   - data-binary-ieee754
