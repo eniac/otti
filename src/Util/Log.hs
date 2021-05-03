@@ -6,6 +6,7 @@ module Util.Log
   , Log
   , enableStream
   , enableStreams
+  , prettys
   , logIfPretty
   , logIf
   , logIfM
@@ -63,6 +64,9 @@ enableStream s = modify $ \l -> l { streams = S.insert s $ streams l }
 
 enableStreams :: Foldable f => f String -> Log ()
 enableStreams ss = forM_ ss enableStream
+
+prettys :: (Pretty p) => p -> String
+prettys = render . pretty
 
 logIfPretty :: (MonadLog m, Pretty p) => String -> String -> p -> m ()
 logIfPretty stream msg p = logIf stream . render . hang (text msg) 4 $ pretty p

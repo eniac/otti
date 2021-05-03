@@ -53,6 +53,7 @@ module Codegen.C.Term
   -- Other
   , cCast
   , cBool
+  , cDouble
   , cFixedPt
   -- Literals
   , cBoolLit
@@ -70,6 +71,7 @@ module Codegen.C.Term
   , cType
   -- Utilities
   , asBool
+  , asDouble
   , asInt
   , asStackPtr
   , asArray
@@ -153,6 +155,11 @@ asInt t            = error $ unwords [show t, "is not an integer"]
 asFixedPt :: CTermData -> Ty.TermFixedPt
 asFixedPt (CFixedPt bv) = bv
 asFixedPt t             = error $ unwords [show t, "is not a fixed point"]
+
+asDouble :: CTermData -> Ty.TermDouble
+asDouble (CDouble bv) = bv
+asDouble t            = error $ unwords [show t, "is not a double"]
+
 
 asBool :: CTermData -> Ty.TermBool
 asBool (CBool b) = b
@@ -251,6 +258,9 @@ cBool = asBool . term . cCast Type.Bool
 
 cFixedPt :: CTerm -> Ty.TermFixedPt
 cFixedPt = asFixedPt . term . cCast Type.FixedPt
+
+cDouble :: CTerm -> Ty.TermDouble
+cDouble = asDouble . term . cCast Type.Double
 
 nyi :: String -> a
 nyi msg = error $ "Not yet implemented: " ++ msg

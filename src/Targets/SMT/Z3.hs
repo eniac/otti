@@ -13,6 +13,7 @@ module Targets.SMT.Z3
   , parseZ3Model
   , evalZ3Model
   , tDiffNanos
+  , cToZ3
   , Val(..)
   , i_
   , b_
@@ -55,6 +56,9 @@ import           Z3.Monad                       ( MonadZ3
 import qualified Z3.Monad                      as Z
 import           Util.Log
 import qualified Util.Cfg                      as Cfg
+import           Language.C.Data.Ident
+import           Language.C.Syntax.AST
+import           Language.C.Syntax.Constants
 
 sortToZ3 :: forall z . MonadZ3 z => Sort -> z Z.Sort
 sortToZ3 s = case s of
@@ -80,6 +84,58 @@ valToZ3 v = case v of
   ValFloat  d  -> Z.mkFloatSort >>= Z.mkFpFromFloat d
   ValPf{}      -> error "Prime fields not supported in z3"
   ValArray{}   -> error "Array values not supported in z3"
+
+cToZ3 :: (MonadZ3 z) => CExpr -> z Z.AST
+cToZ3 expr = case expr of
+  CVar (Ident id _ _) _ -> do
+    name <- Z.mkStringSymbol id
+    Z.mkRealSort >>= Z.mkVar name
+  CConst c -> case c of
+    CIntConst (CInteger i _ _) _ -> Z.mkRealSort >>= Z.mkNumeral (show i)
+    CFloatConst (Language.C.Syntax.Constants.CFloat str) _ ->
+      Z.mkRealSort >>= Z.mkNumeral str
+    e -> error $ "Not a real " ++ (prettys e)
+  CBinary op left right _ -> case op of
+    CMulOp -> do
+      l <- cToZ3 left
+      r <- cToZ3 right
+      Z.mkMul [l, r]
+    CAddOp -> do
+      l <- cToZ3 left
+      r <- cToZ3 right
+      Z.mkAdd [l, r]
+    CSubOp -> do
+      l <- cToZ3 left
+      r <- cToZ3 right
+      Z.mkSub [l, r]
+    CLeOp -> do
+      l <- cToZ3 left
+      r <- cToZ3 right
+      Z.mkLt l r
+    CGrOp -> do
+      l <- cToZ3 left
+      r <- cToZ3 right
+      Z.mkGt l r
+    CLeqOp -> do
+      l <- cToZ3 left
+      r <- cToZ3 right
+      Z.mkLe l r
+    CGeqOp -> do
+      l <- cToZ3 left
+      r <- cToZ3 right
+      Z.mkGe l r
+    CEqOp -> do
+      l <- cToZ3 left
+      r <- cToZ3 right
+      Z.mkEq l r
+    e -> error $ "Not a linear operation " ++ (prettys e)
+  CUnary op arg _ -> case op of
+    CPlusOp -> cToZ3 arg
+    CMinOp  -> do
+      minone <- Z.mkRealSort >>= Z.mkNumeral ("-1.0")
+      a      <- cToZ3 arg
+      Z.mkMul [minone, a]
+  e -> error $ "Not supported operation " ++ (prettys e)
 
 toZ3 :: forall s z . (SortClass s, MonadZ3 z) => Term s -> z Z.AST
 toZ3 t = case t of
@@ -360,28 +416,28 @@ evalZ3 term = Z.evalZ3 $ do
       return $ Just s
     Nothing -> return Nothing
 
-maximizeZ3
-  :: (MonadOptimize z3) => [TermBool] -> TermFixedPt -> z3 (Maybe Z.Model)
-maximizeZ3 constraints objective = do
-  _             <- Z.getOptimize
-  z3constraints <- forM constraints toZ3
-  forM_ z3constraints Z.optimizeAssert
-  _     <- Z.optimizeMaximize =<< toZ3 objective
-  res   <- Z.optimizeCheck []
-  model <- Z.optimizeGetModel
-  case res of
-    Z.Sat   -> return $ Just model
-    Z.Unsat -> return Nothing
-    Z.Undef -> error "Why did we get undef for?"
-
-evalMaximizeZ3 :: [TermBool] -> TermFixedPt -> IO (Maybe String)
+evalMaximizeZ3 :: [CExpr] -> CExpr -> IO (Maybe String)
 evalMaximizeZ3 cs obj = Z.evalZ3 $ do
-  m <- maximizeZ3 cs obj
+  constraints <- forM cs cToZ3
+  objective   <- cToZ3 obj
+  m           <- maximizeZ3 constraints objective
   case m of
     Just model -> do
       s <- Z.modelToString model
       return $ Just s
     Nothing -> return Nothing
+ where
+  maximizeZ3 :: (MonadOptimize z3) => [Z.AST] -> Z.AST -> z3 (Maybe Z.Model)
+  maximizeZ3 constraints objective = do
+    _ <- Z.getOptimize
+    forM_ constraints Z.optimizeAssert
+    _     <- Z.optimizeMaximize objective
+    res   <- Z.optimizeCheck []
+    model <- Z.optimizeGetModel
+    case res of
+      Z.Sat   -> return $ Just model
+      Z.Unsat -> return Nothing
+      Z.Undef -> error "Why did we get undef for?"
 
 -- For generating a numerical description of the model
 data Val = IVal Int
@@ -437,32 +493,32 @@ parseZ3Model str time = do
   vs <- forM (init modelLines) $ \line -> return $ case splitOn " -> " line of
     [var, "true" ] -> Just (var, BVal True)
     [var, "false"] -> Just (var, BVal False)
-    [var, strVal] ->
-      let maybeVal = drop 1 strVal
-      in  case maybeVal of
-                                                        -- Special values
-            '_' : ' ' : '-' : 'z' : 'e' : 'r' : 'o' : _ -> Just (var, NegZ)
-            '_' : ' ' : '+' : 'z' : 'e' : 'r' : 'o' : _ -> Just (var, DVal 0)
-            '_' : ' ' : 'N' : 'a' : 'N' : _ -> Just (var, NaN)
-             -- Binary
-            'b' : n -> Just (var, IVal $ readBin n)
-             -- Hex
-            'x' : _ -> Just (var, IVal (read ('0' : maybeVal) :: Int))
-            -- Non-special floating point
-            'f' : 'p' : ' ' : rest ->
-              let components = splitOn " " rest
-                  sign       = read (drop 2 $ components !! 0) :: Integer
-                  exp        = toDec $ drop 2 $ components !! 1
-                  sig = read ('0' : drop 1 (init $ components !! 2)) :: Integer
-                  result =
-                      (sig .&. 0xfffffffffffff)
-                        .|. ((exp .&. 0x7ff) `shiftL` 52)
-                        .|. ((sign .&. 0x1) `shiftL` 63)
-              in  Just (var, DVal $ IEEE754.wordToDouble $ fromIntegral result)
-            -- Array, skip.
-            _ | "as const" `isInfixOf` maybeVal -> Nothing
-            -- Did not recognize the pattern
-            _ -> error $ unwords ["Bad line", show line]
+    [var, strVal ] -> case strVal of
+      _ : '_' : ' ' : '-' : 'z' : 'e' : 'r' : 'o' : _ -> Just (var, NegZ)
+      _ : '_' : ' ' : '+' : 'z' : 'e' : 'r' : 'o' : _ -> Just (var, DVal 0)
+      _ : '_' : ' ' : 'N' : 'a' : 'N' : _ -> Just (var, NaN)
+       -- Binary
+      _ : 'b' : n -> Just (var, IVal $ readBin n)
+       -- Hex
+      _ : 'x' : _ -> Just (var, IVal (read ('0' : drop 1 strVal) :: Int))
+      -- Non-special floating point
+      _ : 'f' : 'p' : ' ' : rest ->
+        let components = splitOn " " rest
+            sign       = read (drop 2 $ components !! 0) :: Integer
+            exp        = toDec $ drop 2 $ components !! 1
+            sig        = read ('0' : drop 1 (init $ components !! 2)) :: Integer
+            result =
+                (sig .&. 0xfffffffffffff)
+                  .|. ((exp .&. 0x7ff) `shiftL` 52)
+                  .|. ((sign .&. 0x1) `shiftL` 63)
+        in  Just (var, DVal $ IEEE754.wordToDouble $ fromIntegral result)
+      -- Real
+      _ | '.' == (last . init $ strVal) ->
+        Just (var, DVal (read strVal :: Double))
+      -- Array, skip.
+      _ | "as const" `isInfixOf` (drop 1 strVal) -> Nothing
+      -- Did not recognize the pattern
+      _ -> error $ unwords ["Bad line", show line, "and val", show strVal]
     _ -> Nothing
   --_ -> error $ unwords ["Bad model", show model]
   return Z3Result { time  = time

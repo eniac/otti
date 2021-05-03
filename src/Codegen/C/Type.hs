@@ -12,6 +12,7 @@ data Type = U8 | S8
           | Bool
           | Float
           | Double
+          | Real
           | Ptr64 Type
           | Ptr32 Type
           | Struct [(String, Type)]
@@ -21,7 +22,8 @@ data Type = U8 | S8
           deriving (Eq, Ord, Show)
 
 isSimple :: Type -> Bool
-isSimple ty = isIntegerType ty || ty == Bool || isDouble ty || isFloat ty || isFixedPt ty
+isSimple ty =
+  isIntegerType ty || ty == Bool || isDouble ty || isFloat ty || isFixedPt ty
 
 isIntegerType :: Type -> Bool
 isIntegerType ty = isSignedInt ty || isUnsignedInt ty
@@ -74,7 +76,7 @@ isUnsignedInt _   = False
 
 isFixedPt :: Type -> Bool
 isFixedPt FixedPt = True
-isFixedPt _ = False
+isFixedPt _       = False
 
 isDouble :: Type -> Bool
 isDouble Double = True
@@ -98,7 +100,8 @@ isArray Array{} = True
 isArray _       = False
 
 isArithType :: Type -> Bool
-isArithType t = isIntegerType t || Bool == t || Float == t || Double == t || FixedPt == t
+isArithType t =
+  isIntegerType t || Bool == t || Float == t || Double == t || FixedPt == t
 
 pointeeType :: Type -> Type
 pointeeType (Ptr64 ty) = ty

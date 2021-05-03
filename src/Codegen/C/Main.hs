@@ -66,7 +66,7 @@ import           Lens.Simple                    ( makeLenses
                                                 , set
                                                 , view
                                                 )
-
+import           Debug.Trace
 data CState = CState
   { _funs          :: Map.Map FunctionName CFunDef
   , _loopBound     :: Int
@@ -187,6 +187,13 @@ assertBug = do
 -- Lift some CUtils stuff to the SSA layer
 ssaBool :: CSsaVal -> Ty.TermBool
 ssaBool = cBool . ssaValAsTerm "cBool"
+
+ssaDouble :: CSsaVal -> Ty.TermDouble
+ssaDouble d
+  | trace ("Value is " ++ show (cDouble . ssaValAsTerm "cDouble" $ d)) False
+  = undefined
+ssaDouble d = cDouble . ssaValAsTerm "cDouble" $ d
+
 
 ssaFixedPt :: CSsaVal -> Ty.TermFixedPt
 ssaFixedPt = cFixedPt . ssaValAsTerm "cFixedPt"
@@ -377,14 +384,10 @@ genSpecialFunction fnName cargs = do
       when bugs . assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
     "__LINEAR_maximize" -> do
-      s           <- deepGet
-      objective   <- genExpr . head $ cargs
-      constraints <- forM (tail cargs) genExpr
-      liftIO . putStrLn $ show (ssaFixedPt objective)
+      s        <- deepGet
       start    <- liftIO getSystemTime
-      Just res <- liftIO
-        $ ToZ3.evalMaximizeZ3 (map ssaBool constraints) (ssaFixedPt objective)
-      end <- liftIO getSystemTime
+      Just res <- liftIO $ ToZ3.evalMaximizeZ3 (tail cargs) (head cargs)
+      end      <- liftIO getSystemTime
       let seconds = (fromInteger (ToZ3.tDiffNanos end start) :: Double) / 1.0e9
       z3result <- liftIO $ ToZ3.parseZ3Model res seconds
       liftIO . putStrLn . show $ z3result
