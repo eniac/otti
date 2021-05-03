@@ -377,12 +377,32 @@ genSpecialFunction fnName cargs = do
       | computingVals -> do
         s        <- deepGet
         start    <- liftIO getSystemTime
-        Just res <- liftIO $ ToZ3.evalMaximizeZ3 (tail cargs) (head cargs)
+        Just res <- liftIO $ ToZ3.evalOptimizeZ3 True (tail cargs) (head cargs)
         end      <- liftIO getSystemTime
         let seconds =
               (fromInteger (ToZ3.tDiffNanos end start) :: Double) / 1.0e9
         z3result <- liftIO $ ToZ3.parseZ3Model res seconds
-        liftIO . putStrLn . show $ z3result
+        liftLog $ logIf "gadgets::user::verification" (show z3result)
+        deepPut s
+        let valuation = Map.toList $ ToZ3.model z3result
+        forM_
+          valuation
+          (\case
+            (id, ToZ3.DVal d) ->
+              liftCircify $ setValue (SLVar id) (double2fixpt d)
+          )
+        return . Just . Base $ cIntLit S32 1
+      | otherwise -> return . Just . Base $ cIntLit S32 1
+    "__GADGET_minimize"
+      | computingVals -> do
+        s        <- deepGet
+        start    <- liftIO getSystemTime
+        Just res <- liftIO $ ToZ3.evalOptimizeZ3 False (tail cargs) (head cargs)
+        end      <- liftIO getSystemTime
+        let seconds =
+              (fromInteger (ToZ3.tDiffNanos end start) :: Double) / 1.0e9
+        z3result <- liftIO $ ToZ3.parseZ3Model res seconds
+        liftLog $ logIf "gadgets::user::verification" (show z3result)
         deepPut s
         let valuation = Map.toList $ ToZ3.model z3result
         forM_

@@ -9,7 +9,7 @@ module Targets.SMT.Z3
   , valToZ3
   , sortToZ3
   , evalZ3
-  , evalMaximizeZ3
+  , evalOptimizeZ3
   , parseZ3Model
   , evalZ3Model
   , tDiffNanos
@@ -417,22 +417,25 @@ evalZ3 term = Z.evalZ3 $ do
       return $ Just s
     Nothing -> return Nothing
 
-evalMaximizeZ3 :: [CExpr] -> CExpr -> IO (Maybe String)
-evalMaximizeZ3 cs obj = Z.evalZ3 $ do
+evalOptimizeZ3 :: Bool -> [CExpr] -> CExpr -> IO (Maybe String)
+evalOptimizeZ3 maximize cs obj = Z.evalZ3 $ do
   constraints <- forM cs cToZ3
   objective   <- cToZ3 obj
-  m           <- maximizeZ3 constraints objective
+  m           <- optimizeZ3 maximize constraints objective
   case m of
     Just model -> do
       s <- Z.modelToString model
       return $ Just s
     Nothing -> return Nothing
  where
-  maximizeZ3 :: (MonadOptimize z3) => [Z.AST] -> Z.AST -> z3 (Maybe Z.Model)
-  maximizeZ3 constraints objective = do
+  optimizeZ3
+    :: (MonadOptimize z3) => Bool -> [Z.AST] -> Z.AST -> z3 (Maybe Z.Model)
+  optimizeZ3 maximize constraints objective = do
     _ <- Z.getOptimize
     forM_ constraints Z.optimizeAssert
-    _     <- Z.optimizeMaximize objective
+    _ <- if maximize
+      then Z.optimizeMaximize objective
+      else Z.optimizeMinimize objective
     res   <- Z.optimizeCheck []
     model <- Z.optimizeGetModel
     case res of
