@@ -135,6 +135,7 @@ cToZ3 expr = case expr of
       minone <- Z.mkRealSort >>= Z.mkNumeral ("-1.0")
       a      <- cToZ3 arg
       Z.mkMul [minone, a]
+    e -> error $ "Not supported operation " ++ (prettys e)
   e -> error $ "Not supported operation " ++ (prettys e)
 
 toZ3 :: forall s z . (SortClass s, MonadZ3 z) => Term s -> z Z.AST

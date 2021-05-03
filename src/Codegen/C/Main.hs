@@ -66,7 +66,6 @@ import           Lens.Simple                    ( makeLenses
                                                 , set
                                                 , view
                                                 )
-import           Debug.Trace
 data CState = CState
   { _funs          :: Map.Map FunctionName CFunDef
   , _loopBound     :: Int
@@ -187,16 +186,6 @@ assertBug = do
 -- Lift some CUtils stuff to the SSA layer
 ssaBool :: CSsaVal -> Ty.TermBool
 ssaBool = cBool . ssaValAsTerm "cBool"
-
-ssaDouble :: CSsaVal -> Ty.TermDouble
-ssaDouble d
-  | trace ("Value is " ++ show (cDouble . ssaValAsTerm "cDouble" $ d)) False
-  = undefined
-ssaDouble d = cDouble . ssaValAsTerm "cDouble" $ d
-
-
-ssaFixedPt :: CSsaVal -> Ty.TermFixedPt
-ssaFixedPt = cFixedPt . ssaValAsTerm "cFixedPt"
 
 ssaType :: CSsaVal -> Type
 ssaType = cType . ssaValAsTerm "cType"
@@ -362,6 +351,7 @@ genSpecialFunction fnName cargs = do
   specifialPrintf <- Cfg.liftCfg $ asks (Cfg._printfOutput . Cfg._cCfg)
   svExtensions    <- Cfg.liftCfg $ asks (Cfg._svExtensions . Cfg._cCfg)
   bugs            <- view findUB <$> get
+  computingVals   <- liftAssert $ Assert.isStoringValues
   case fnName of
     "printf" | specifialPrintf -> do
       -- skip fstring
@@ -383,16 +373,26 @@ genSpecialFunction fnName cargs = do
       prop <- genExpr . head $ cargs
       when bugs . assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
-    "__LINEAR_maximize" -> do
-      s        <- deepGet
-      start    <- liftIO getSystemTime
-      Just res <- liftIO $ ToZ3.evalMaximizeZ3 (tail cargs) (head cargs)
-      end      <- liftIO getSystemTime
-      let seconds = (fromInteger (ToZ3.tDiffNanos end start) :: Double) / 1.0e9
-      z3result <- liftIO $ ToZ3.parseZ3Model res seconds
-      liftIO . putStrLn . show $ z3result
-      deepPut s
-      return $ Just $ Base $ cIntLit S32 1
+    "__GADGET_maximize"
+      | computingVals -> do
+        s        <- deepGet
+        start    <- liftIO getSystemTime
+        Just res <- liftIO $ ToZ3.evalMaximizeZ3 (tail cargs) (head cargs)
+        end      <- liftIO getSystemTime
+        let seconds =
+              (fromInteger (ToZ3.tDiffNanos end start) :: Double) / 1.0e9
+        z3result <- liftIO $ ToZ3.parseZ3Model res seconds
+        liftIO . putStrLn . show $ z3result
+        deepPut s
+        let valuation = Map.toList $ ToZ3.model z3result
+        forM_
+          valuation
+          (\case
+            (id, ToZ3.DVal d) ->
+              liftCircify $ setValue (SLVar id) (double2fixpt d)
+          )
+        return . Just . Base $ cIntLit S32 1
+      | otherwise -> return . Just . Base $ cIntLit S32 1
     "__GADGET_compute" -> do
       -- Enter scratch state
       s    <- deepGet
@@ -412,8 +412,7 @@ genSpecialFunction fnName cargs = do
       -- Add witness if computing values
       forM_ vexpr $ liftCircify . setValue (SLVar exprname)
       Just <$> (liftCircify . getTerm . SLVar $ exprname)
-    "__GADGET_exists" -> do
-      return Nothing
+    "__GADGET_exist" -> return . Just . Base $ cIntLit S32 1
     "__GADGET_check" -> do
       -- Parse propositional arguments see `test/Code/C/max.c`
       args <- traverse genExpr cargs

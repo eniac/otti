@@ -77,6 +77,7 @@ module Codegen.C.Term
   , asArray
   , asVar
   , asLVal
+  , double2fixpt
   , CCirc
   )
 where
@@ -466,15 +467,17 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
     -> Assert.Assert ()
   getBaseInput = setInputFromMap inMap
 
+double2fixpt :: Double -> CTerm
+double2fixpt d =
+  let numer = cCast Type.FixedPt . cIntLit Type.S32 $ round (d * 100)
+      denom = cCast Type.FixedPt $ cIntLit Type.S32 100
+  in  cDiv numer denom
+
 cIntLit :: Type.Type -> Integer -> CTerm
 cIntLit t v =
   let s = Type.isSignedInt t
       w = Type.numBits t
   in  mkCTerm (CInt s w (Ty.DynBvLit $ Bv.bitVec w v)) (Ty.BoolLit False)
-
-cFixedPtLit :: Integer -> CTerm
-cFixedPtLit v =
-  mkCTerm (CFixedPt (Ty.DynBvLit $ Bv.bitVec 32 v)) (Ty.BoolLit False)
 
 cDoubleLit :: Double -> CTerm
 cDoubleLit v = mkCTerm (CDouble $ Ty.Fp64Lit v) (Ty.BoolLit False)
