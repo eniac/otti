@@ -497,41 +497,46 @@ parseZ3Model str time = do
   vs <- forM (init modelLines) $ \line -> return $ case splitOn " -> " line of
     [var, "true" ] -> Just (var, BVal True)
     [var, "false"] -> Just (var, BVal False)
-    [var, strVal ] -> case strVal of
-      _ : '_' : ' ' : '-' : 'z' : 'e' : 'r' : 'o' : _ -> Just (var, NegZ)
-      _ : '_' : ' ' : '+' : 'z' : 'e' : 'r' : 'o' : _ -> Just (var, DVal 0)
-      _ : '_' : ' ' : 'N' : 'a' : 'N' : _ -> Just (var, NaN)
-       -- Binary
-      _ : 'b' : n -> Just (var, IVal $ readBin n)
-       -- Hex
-      _ : 'x' : _ -> Just (var, IVal (read ('0' : drop 1 strVal) :: Int))
-      -- Non-special floating point
-      _ : 'f' : 'p' : ' ' : rest ->
-        let components = splitOn " " rest
-            sign       = read (drop 2 $ components !! 0) :: Integer
-            exp        = toDec $ drop 2 $ components !! 1
-            sig        = read ('0' : drop 1 (init $ components !! 2)) :: Integer
-            result =
-                (sig .&. 0xfffffffffffff)
-                  .|. ((exp .&. 0x7ff) `shiftL` 52)
-                  .|. ((sign .&. 0x1) `shiftL` 63)
-        in  Just (var, DVal $ IEEE754.wordToDouble $ fromIntegral result)
-      -- Real
-      _ : '/' : ' ' : rest -> case splitOn " " . init $ rest of
-        ([a, b]) -> Just (var, DVal $ (read a :: Double) / (read b :: Double))
-        _        -> error $ unwords ["Bad division", show strVal]
-      _ | '.' == (last . init $ strVal) ->
-        Just (var, DVal (read strVal :: Double))
-      -- Array, skip.
-      _ | "as const" `isInfixOf` (drop 1 strVal) -> Nothing
-      -- Did not recognize the pattern
-      _ -> error $ unwords ["Bad line", show line, "and val", show strVal]
-    _ -> Nothing
-  --_ -> error $ unwords ["Bad model", show model]
+    [var, strVal ] -> parseVal var strVal
+    _              -> Nothing
   return Z3Result { time  = time
                   , sat   = True
                   , model = Map.fromList $ catMaybes vs
                   }
+ where
+  parseVal var strVal = case strVal of
+    _ : '_' : ' ' : '-' : 'z' : 'e' : 'r' : 'o' : _ -> Just (var, NegZ)
+    _ : '_' : ' ' : '+' : 'z' : 'e' : 'r' : 'o' : _ -> Just (var, DVal 0)
+    _ : '_' : ' ' : 'N' : 'a' : 'N' : _ -> Just (var, NaN)
+     -- Binary
+    _ : 'b' : n -> Just (var, IVal $ readBin n)
+     -- Hex
+    _ : 'x' : _ -> Just (var, IVal (read ('0' : drop 1 strVal) :: Int))
+    -- Non-special floating point
+    _ : 'f' : 'p' : ' ' : rest ->
+      let components = splitOn " " rest
+          sign       = read (drop 2 $ components !! 0) :: Integer
+          exp        = toDec $ drop 2 $ components !! 1
+          sig        = read ('0' : drop 1 (init $ components !! 2)) :: Integer
+          result =
+              (sig .&. 0xfffffffffffff)
+                .|. ((exp .&. 0x7ff) `shiftL` 52)
+                .|. ((sign .&. 0x1) `shiftL` 63)
+      in  Just (var, DVal $ IEEE754.wordToDouble $ fromIntegral result)
+    -- Real
+    _ : '-' : ' ' : rest -> case parseVal var (init rest) of
+      (Just (_, DVal d)) -> Just (var, DVal $ (-1 * d))
+      (Just (_, IVal i)) -> Just (var, IVal $ (-1 * i))
+      (_               ) -> Nothing
+    _ : '/' : ' ' : rest -> case splitOn " " . init $ rest of
+      ([a, b]) -> Just (var, DVal $ (read a :: Double) / (read b :: Double))
+      _        -> error $ unwords ["Bad division", show strVal]
+    _ | '.' == (last . init $ strVal) ->
+      Just (var, DVal (read strVal :: Double))
+    -- Array, skip.
+    _ | "as const" `isInfixOf` (drop 1 strVal) -> Nothing
+    -- Did not recognize the pattern
+    _ -> error $ unwords ["Bad strVal in model", show strVal]
 
 -- | Returns Nothing if UNSAT, or an association between variables and string if SAT
 evalZ3Model :: TermBool -> Log Z3Result
