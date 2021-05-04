@@ -517,6 +517,9 @@ parseZ3Model str time = do
                   .|. ((sign .&. 0x1) `shiftL` 63)
         in  Just (var, DVal $ IEEE754.wordToDouble $ fromIntegral result)
       -- Real
+      _ : '/' : ' ' : rest -> case splitOn " " . init $ rest of
+        ([a, b]) -> Just (var, DVal $ (read a :: Double) / (read b :: Double))
+        _        -> error $ unwords ["Bad division", show strVal]
       _ | '.' == (last . init $ strVal) ->
         Just (var, DVal (read strVal :: Double))
       -- Array, skip.
