@@ -3,6 +3,7 @@
 {-# LANGUAGE TypeApplications       #-}
 {-# LANGUAGE TypeOperators          #-}
 {-# LANGUAGE TupleSections          #-}
+{-# LANGUAGE StandaloneDeriving     #-}
 module Targets.SMT.Z3
   ( toZ3
   , Z3Result(..)
@@ -439,9 +440,8 @@ evalOptimizeZ3 maximize cs obj = Z.evalZ3 $ do
     res   <- Z.optimizeCheck []
     model <- Z.optimizeGetModel
     case res of
-      Z.Sat   -> return $ Just model
       Z.Unsat -> return Nothing
-      Z.Undef -> error "Why did we get undef for?"
+      _       -> return $ Just model
 
 -- For generating a numerical description of the model
 data Val = IVal Int

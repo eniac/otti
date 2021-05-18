@@ -436,11 +436,8 @@ genSpecialFunction fnName cargs = do
     "__GADGET_check" -> do
       -- Parse propositional arguments see `test/Code/C/max.c`
       args <- traverse genExpr cargs
-      let numbered = zip3 [1 :: Integer ..] cargs args
-      -- Evaluate proposition bools and check if they hold
-      forM_ numbered (uncurry3 assumeGadgetAssertion)
+      forM_ args (assume . ssaBool)
       return . Just . Base $ cIntLit S32 1
-
     "assume_abort_if_not" | svExtensions -> do
       prop <- genExpr . head $ cargs
       when bugs . assume . ssaBool $ prop
@@ -454,30 +451,6 @@ genSpecialFunction fnName cargs = do
       liftCircify $ Just <$> getTerm (SLVar name)
     _ -> return Nothing
  where
-  assumeGadgetAssertion n e cv = do
-    -- Assign to an l-value
-    -- gadget_prop_1 = max_check(a,b,out)
-    let lname = "__gadget_prop_" ++ show n
-    liftCircify $ declareInitVar lname Bool cv
-    -- Compute value with inputs if given, or Nothing
-    cterm <- liftCircify . getValue . SLVar $ lname
-    -- Generate circuitry to check at verifier runtime
-    assume . ssaBool $ cv
-    -- Check at compile time
-    case fmap (asBool . term) cterm of
-      (Just (Ty.BoolLit True)) -> do
-        liftLog
-          $ logIfPretty "gadgets::user::verification" "Verified assertion" e
-      (Just other) -> do
-        liftLog $ logIfPretty "gadgets::user::verification" "Failed assertion" e
-        fail
-          $  "Failed assertion, enable gadgets::user::verification for details"
-          ++ show other
-      -- Must mean inputs are not given at compile-time
-      (Nothing) -> do
-        liftLog $ logIf "gadgets::user::verification"
-                        "Inputs are not given, no verification performed."
-
   nonDetTy :: String -> Type
   nonDetTy s = case drop (length "__VERIFIER_nondet_") s of
     "char"   -> S8
@@ -489,7 +462,6 @@ genSpecialFunction fnName cargs = do
     "float"  -> Float
     "double" -> Double
     _        -> error $ "Unknown nondet suffix in: " ++ s
-
   isNonDet = List.isPrefixOf "__VERIFIER_nondet_"
 
 genExpr :: CExpr -> C CSsaVal
