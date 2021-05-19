@@ -43,6 +43,9 @@ module Codegen.Circify
   , declareVar
   , declareInitVar
   , declareGlobal
+  , compilerExistVar
+  , compilerExistRemove
+  , getExistentials
   , ssaAssign
   , hardAssign
   , deref
@@ -67,13 +70,10 @@ import           Codegen.Circify.Memory         ( Mem
 import           Control.Monad.Reader
 import           Control.Monad.State.Strict
 import           Control.Monad.Fail
-import           Control.Monad.Extra            ( ifM
-                                                , notM
-                                                )
+
 -- Data imports
-import           Data.List                      ( intercalate
-                                                , findIndex
-                                                )
+import           Data.List                      ( (++) )
+import qualified Data.List                     as L
 import           Data.Functor.Identity
 import           Data.Foldable
 import qualified Data.Map                      as M
@@ -121,8 +121,10 @@ data LexScope ty term = LexScope
   , vers     :: M.Map VarName Version
   , terms    :: M.Map SsaVar (SsaVal term)
   , lsPrefix :: String
+  , exist    :: [VarName]
   }
   deriving Show
+
 printLs :: LexScope t v -> IO ()
 printLs s =
   putStr
@@ -159,8 +161,12 @@ initialVersion :: Int
 initialVersion = 0
 
 lsWithPrefix :: String -> LexScope t v
-lsWithPrefix s =
-  LexScope { tys = M.empty, vers = M.empty, terms = M.empty, lsPrefix = s }
+lsWithPrefix s = LexScope { tys      = M.empty
+                          , vers     = M.empty
+                          , terms    = M.empty
+                          , lsPrefix = s
+                          , exist    = []
+                          }
 
 unknownVar :: VarName -> a
 unknownVar var = error $ unwords ["Variable", var, "is unknown"]
@@ -188,7 +194,6 @@ lsDeclareVar isInput var ty scope = case M.lookup var (tys scope) of
     return $ withTyAndVer { terms = M.insert ssaVar (Base term) $ terms scope }
   Just actualTy ->
     error $ unwords ["Already declared", var, "to have type", show actualTy]
-
 
 -- | Get the current version of the variable
 lsGetVer :: VarName -> LexScope t v -> Version
@@ -274,7 +279,7 @@ listModify _ _ []       = error "Could not modify at index"
 -- | Find the scope containing this variable. Indexed from the back.
 fsFindLexScopeOpt :: VarName -> FunctionScope t v -> Maybe Int
 fsFindLexScopeOpt var scope = (nCurrentScopes scope - 1 -)
-  <$> findIndex (M.member var . tys) (lexicalScopes scope)
+  <$> L.findIndex (M.member var . tys) (lexicalScopes scope)
 
 -- | Apply a modification function to the indexed scope.
 fsModifyLexScope
@@ -458,6 +463,22 @@ emptyCircifyState lang = CircifyState { callStack = []
                                       , guardCnt  = 0
                                       }
 
+fsExistVar
+  :: (Embeddable t v c)
+  => VarName
+  -> FunctionScope t v
+  -> Circify t v c ((), FunctionScope t v)
+fsExistVar var fs = do
+  newfs <- fsModifyLexScope
+    1
+    (\scope -> case M.lookup var (tys scope) of
+      Nothing | not (var `elem` (exist scope)) -> do
+        return $ scope { exist = exist scope ++ [var] }
+      _ -> error $ unwords ["Already declared existential", var]
+    )
+    fs
+  return ((), newfs)
+
 compilerRunOnTop
   :: (FunctionScope t v -> Circify t v c (a, FunctionScope t v))
   -> Circify t v c a
@@ -470,6 +491,32 @@ compilerRunOnTop f = do
     $ callStack s
   modify $ \s -> s { callStack = s' : tail (callStack s) }
   return r
+
+compilerExistVar :: (Embeddable t v c) => VarName -> Circify t v c ()
+compilerExistVar var = compilerRunOnTop (fsExistVar var)
+
+compilerExistRemove :: (Embeddable t v c) => VarName -> Circify t v c ()
+compilerExistRemove var = compilerRunOnTop (fsExistRemove var)
+ where
+  fsExistRemove
+    :: VarName -> FunctionScope t v -> Circify t v c ((), FunctionScope t v)
+  fsExistRemove var fs = do
+    newfs <- fsModifyLexScope
+      1
+      (\scope -> return $ scope { exist = filter (/= var) $ exist scope })
+      fs
+    return ((), newfs)
+
+getExistentials :: (Embeddable t v c) => Circify t v c [VarName]
+getExistentials = compilerRunOnTop fsGetExist
+ where
+  fsGetExist
+    :: (Embeddable t v c)
+    => FunctionScope t v
+    -> Circify t v c ([VarName], FunctionScope t v)
+  fsGetExist fs = do
+    let existentials = lexicalScopes fs >>= (L.nub . exist)
+    return (existentials, fs)
 
 ssaLValName :: SsaLVal -> VarName
 ssaLValName ssa = case ssa of
@@ -652,6 +699,9 @@ computingValues = liftAssert Assert.isStoringValues
 setValue :: Embeddable t v c => SsaLVal -> v -> Circify t v c ()
 setValue name cterm = do
   var <- getSsaName name
+  case name of
+    (SLVar name) -> compilerExistRemove name
+    _            -> return ()
   setValueRaw var cterm
 
 setValueRaw :: Embeddable t v c => String -> v -> Circify t v c ()
@@ -813,7 +863,7 @@ pushFunction name ty = do
   c <- gets fnCtr
   let p' = name : p
   let fs =
-        fsWithPrefix ("f" ++ show c ++ "_" ++ intercalate "_" (reverse p')) ty
+        fsWithPrefix ("f" ++ show c ++ "_" ++ L.intercalate "_" (reverse p')) ty
   modify
     (\s -> s { prefix    = p'
              , callStack = fs : callStack s

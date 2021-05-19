@@ -373,6 +373,10 @@ genSpecialFunction fnName cargs = do
       prop <- genExpr . head $ cargs
       when bugs . assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
+    "__GADGET_dual" -> do
+      return $ Just $ Base $ cIntLit S32 1
+    "__GADGET_exist" ->
+      error "Runaway intrinsic __GADGET_exist should be caught earlier"
     "__GADGET_maximize"
       | computingVals -> do
         s        <- deepGet
@@ -432,7 +436,6 @@ genSpecialFunction fnName cargs = do
       -- Add witness if computing values
       forM_ vexpr $ liftCircify . setValue (SLVar exprname)
       Just <$> (liftCircify . getTerm . SLVar $ exprname)
-    "__GADGET_exist" -> return . Just . Base $ cIntLit S32 1
     "__GADGET_check" -> do
       -- Parse propositional arguments see `test/Code/C/max.c`
       args <- traverse genExpr cargs
@@ -729,9 +732,14 @@ genDecl dType d@(CDecl specs decls _) = do
       else case eTy of
         Left  err -> unless skipBadTypes $ error err
         Right ty  -> case mInit of
-          Just init -> do
-            rhs <- genInit ty init
-            liftCircify $ declareInitVar name ty rhs
+          Just init -> case init of
+            (CInitExpr (CCall (CVar fnIdent _) _ _) _)
+              | identToVarName fnIdent == "__GADGET_exist" -> do
+                liftCircify $ compilerExistVar name
+                liftCircify $ declareVar False name ty
+            (_) -> do
+              rhs <- genInit ty init
+              liftCircify $ declareInitVar name ty rhs
           Nothing -> do
             liftCircify $ declareVar (dType == EntryFnArg) name ty
             whenM (view findUB <$> get) $ when (dType /= FnArg) $ do
@@ -764,7 +772,6 @@ genInit ty i = case (ty, i) of
 ---
 --- Pequin conventions
 ---
-
 pequinOutStructName = "Out"
 pequinOutGlobalName = "output_global"
 pequinOutLocalName = "output"
@@ -815,7 +822,11 @@ genFunDef f = do
   logIf "funDef" $ "Starting: " ++ name
   genStmt body
   logIf "funDef" $ "Popping: " ++ name
+  existentials <- liftCircify getExistentials
+  unless (List.null existentials) $ error $ unlines
+    ["Could not discharge all existential values", show existentials]
   returnValue <- liftCircify popFunction
+  -- Collect all existentials
   if pequinIo
     then pequinTeardown
     else do
