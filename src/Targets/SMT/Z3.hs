@@ -60,6 +60,7 @@ import qualified Util.Cfg                      as Cfg
 import           Language.C.Data.Ident
 import           Language.C.Syntax.AST
 import           Language.C.Syntax.Constants
+import qualified Data.Text                     as Text
 
 sortToZ3 :: forall z . MonadZ3 z => Sort -> z Z.Sort
 sortToZ3 s = case s of
@@ -493,7 +494,7 @@ toDec = foldl' (\acc x -> acc * 2 + fromIntegral (digitToInt x)) 0
 -- | Returns Nothing if UNSAT, or an association between variables and string if SAT
 parseZ3Model :: String -> Double -> IO Z3Result
 parseZ3Model str time = do
-  let modelLines = splitOn "\n" str
+  let modelLines = splitOn "\n" . filterExtraNewlines $ str
   vs <- forM (init modelLines) $ \line -> return $ case splitOn " -> " line of
     [var, "true" ] -> Just (var, BVal True)
     [var, "false"] -> Just (var, BVal False)
@@ -504,6 +505,13 @@ parseZ3Model str time = do
                   , model = Map.fromList $ catMaybes vs
                   }
  where
+  filterExtraNewlines str =
+    Text.unpack
+      . Text.replace (Text.pack "\n ") (Text.pack "")
+      . Text.replace (Text.pack "\n\t") (Text.pack "")
+      . Text.pack
+      $ str
+
   parseVal var strVal = case strVal of
     _ : '_' : ' ' : '-' : 'z' : 'e' : 'r' : 'o' : _ -> Just (var, NegZ)
     _ : '_' : ' ' : '+' : 'z' : 'e' : 'r' : 'o' : _ -> Just (var, DVal 0)
@@ -514,7 +522,7 @@ parseZ3Model str time = do
     _ : 'x' : _ -> Just (var, IVal (read ('0' : drop 1 strVal) :: Int))
     -- Non-special floating point
     _ : 'f' : 'p' : ' ' : rest ->
-      let components = splitOn " " rest
+      let components = words rest
           sign       = read (drop 2 $ components !! 0) :: Integer
           exp        = toDec $ drop 2 $ components !! 1
           sig        = read ('0' : drop 1 (init $ components !! 2)) :: Integer
@@ -528,7 +536,7 @@ parseZ3Model str time = do
       (Just (_, DVal d)) -> Just (var, DVal $ (-1 * d))
       (Just (_, IVal i)) -> Just (var, IVal $ (-1 * i))
       (_               ) -> Nothing
-    _ : '/' : ' ' : rest -> case splitOn " " . init $ rest of
+    _ : '/' : ' ' : rest -> case words . init $ rest of
       ([a, b]) -> Just (var, DVal $ (read a :: Double) / (read b :: Double))
       _        -> error $ unwords ["Bad division", show strVal]
     _ | '.' == (last . init $ strVal) ->
