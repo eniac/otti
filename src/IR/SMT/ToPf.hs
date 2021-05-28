@@ -73,7 +73,7 @@ import           Util.Cfg                       ( MonadCfg(..)
                                                 )
 import           Util.Log
 import           Util.Show
-
+import           Debug.Trace
 --- TODO?
 
 
@@ -994,18 +994,19 @@ ensureInputValues
   :: forall n . KnownNat n => Maybe SmtVals -> Set.Set PfVar -> ToPf n ()
 ensureInputValues values inputs = forM_ values $ \values ->
   forM_ inputs $ \input -> do
-    let value = case Map.lookup input values of
-          Nothing   -> error $ "Missing value for input: " ++ show input
-          Just dval -> case fromDynamic dval of
-            Just b  -> toInteger $ fromEnum $ valAsBool b
-            Nothing -> case fromDynamic dval of
-              Just b  -> Bv.uint $ valAsDynBv b
-              Nothing -> case fromDynamic dval of
-                Just b  -> valAsPf @n b
-                Nothing -> error $ "Bad input type: " ++ show dval
-    let v = toP value
+    let dval  = fromJust $ Map.lookup input values
+    let value = valFromDynamic dval
+    let v     = toP value
     logIf "toPfVal" $ input ++ " -> " ++ primeShow v
     modify $ \s -> s { r1cs = r1csSetSignalVal input v $ r1cs s }
+ where
+  valFromDynamic v = case fromDynamic v of
+    Just b  -> toInteger $ fromEnum $ valAsBool b
+    Nothing -> case fromDynamic v of
+      Just b  -> Bv.uint $ valAsDynBv b
+      Nothing -> case fromDynamic v of
+        Just b  -> valAsPf @n b
+        Nothing -> error $ "Bad input type: " ++ show v
 
 toPf
   :: KnownNat n

@@ -107,7 +107,6 @@ import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.TySmt.Alg              as TyAlg
 import           Util.Log
 
-
 type Bv = Ty.TermDynBv
 
 class Bitable s where
@@ -468,10 +467,7 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
   getBaseInput = setInputFromMap inMap
 
 double2fixpt :: Double -> CTerm
-double2fixpt d =
-  let numer = cCast Type.FixedPt . cIntLit Type.S32 $ round (d * 100)
-      denom = cCast Type.FixedPt $ cIntLit Type.S32 100
-  in  cDiv numer denom
+double2fixpt d = cCast Type.FixedPt . cDoubleLit $ d
 
 cIntLit :: Type.Type -> Integer -> CTerm
 cIntLit t v =

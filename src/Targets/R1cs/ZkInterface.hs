@@ -19,6 +19,7 @@ import           FlatBuffers.Vector             ( WriteVector
                                                 , WriteVectorElement
                                                 )
 import qualified FlatBuffers.Vector            as V
+import qualified Data.IntMap.Strict            as IntMap
 import           Data.Field.Galois              ( Prime )
 import qualified Data.Foldable                 as Fold
 import           GHC.TypeLits                   ( KnownNat
@@ -27,10 +28,10 @@ import           GHC.TypeLits                   ( KnownNat
 import           Crypto.Number.Serialize        ( i2osp
                                                 , os2ip
                                                 )
-import qualified Data.IntMap.Strict            as IM
 import           Targets.R1cs.Main
 import           Data.ByteString.Lazy           ( ByteString )
 import           Data.Proxy                     ( Proxy(..) )
+import           Data.Maybe                     ( fromMaybe )
 
 $(mkFlatBuffers "schema/zkinterface.fbs" defaultOptions)
 
@@ -103,13 +104,11 @@ zkifCircuitHeader r1cs =
 
 zkifWitness :: (Show s, KnownNat n) => R1CS s n -> WriteTable Witness
 zkifWitness r1cs =
-  let lookupSignalVal = r1csNumValue r1cs
-      free_var_id     = 1 + nPublicInputs r1cs
-  in  witness
-        . Just
-        . zkifVariables
-        . mapZip lookupSignalVal
-        $ [1 + free_var_id .. (nextSigNum r1cs - 1)]
+  let vs =
+          fromMaybe (error "Witnesses can only be output in `prove` mode")
+            . values
+            $ r1cs
+  in  witness . Just . zkifVariables . IntMap.toList $ vs
 
 zkifCircuitHeaderEncode :: (Show s, Ord s, KnownNat n) => R1CS s n -> ByteString
 zkifCircuitHeaderEncode =

@@ -6,9 +6,11 @@ module Codegen.FrontEnd
   ( FrontEndInputs(..)
   )
 where
-
+import           Control.Monad                  ( )
+import           Control.Monad.State.Strict
 import qualified IR.SMT.Assert                 as Assert
 import           Targets.R1cs.Main              ( R1CS(..) )
+import           Targets.R1cs.Output            ( r1csShow )
 import qualified Targets.R1cs.Opt.Main         as R1csOpt
 import qualified IR.SMT.Opt                    as SmtOpt
 import qualified IR.SMT.Opt.Assert             as OptAssert
@@ -30,4 +32,5 @@ class FrontEndInputs i where
                       (OptAssert._public newSmt)
                       (OptAssert._sizes newSmt)
                       (OptAssert.listAssertions newSmt)
+    liftIO . putStrLn . r1csShow $ r
     R1csOpt.opt r

@@ -23,6 +23,7 @@ import           Control.Monad
 import           Control.Monad.State.Strict
 import           Control.Monad.Reader
 import qualified Data.Text                     as T
+import           Data.Maybe                     ( fromMaybe )
 import           Data.Aeson
 import qualified Data.ByteString.Lazy          as ByteString
 import qualified Data.ByteString.Lazy.Char8    as Char8
@@ -100,8 +101,18 @@ instance forall s n. (Show s, KnownNat n) => Show (R1CS s n) where
 
 r1csShow :: (KnownNat n, Show s, Ord s) => R1CS s n -> String
 r1csShow r1cs =
-  List.intercalate "" $ map (\qeq -> "  " ++ qeqShow qeq ++ "\n") $ r1csQeqs
-    r1cs
+  List.intercalate "\n"
+    $  ["==== Constraints"]
+    ++ (map (\qeq -> "  " ++ qeqShow qeq) . r1csQeqs $ r1cs)
+    ++ ["==== Values"]
+    ++ (map show . fromMaybe [] . fmap IntMap.toList . values $ r1cs)
+    ++ ["==== numSigs"]
+    ++ (map show . IntMap.toList . numSigs $ r1cs)
+    ++ ["==== publicInputs"]
+    ++ [show . IntSet.toList . publicInputs $ r1cs]
+    ++ ["==== sigNums"]
+    ++ (map show . Map.toList . sigNums $ r1cs)
+
 
 primeToSignedInt :: forall n . KnownNat n => Prime n -> Integer
 primeToSignedInt p =
