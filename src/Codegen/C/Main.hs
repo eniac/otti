@@ -373,8 +373,6 @@ genSpecialFunction fnName cargs = do
       prop <- genExpr . head $ cargs
       when bugs . assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
-    "__GADGET_dual" -> do
-      return $ Just $ Base $ cIntLit S32 1
     "__GADGET_exist" ->
       error "Runaway intrinsic __GADGET_exist should be caught earlier"
     "__GADGET_maximize"
@@ -764,7 +762,7 @@ genDecl dType d@(CDecl specs decls _) = do
             (CInitExpr (CCall (CVar fnIdent _) _ _) _)
               | identToVarName fnIdent == "__GADGET_exist" -> do
                 liftCircify $ compilerExistVar name
-                liftCircify $ declareVar False name ty
+                liftCircify $ declareVar True name ty
             (_) -> do
               rhs <- genInit ty init
               liftCircify $ declareInitVar name ty rhs

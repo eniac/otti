@@ -502,7 +502,7 @@ compilerExistRemove var = compilerRunOnTop (fsExistRemove var)
     :: VarName -> FunctionScope t v -> Circify t v c ((), FunctionScope t v)
   fsExistRemove var fs = do
     newfs <- fsModifyLexScope
-      1
+      0
       (\scope -> return $ scope { exist = filter (/= var) $ exist scope })
       fs
     return ((), newfs)
