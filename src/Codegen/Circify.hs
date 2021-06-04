@@ -699,9 +699,6 @@ computingValues = liftAssert Assert.isStoringValues
 setValue :: Embeddable t v c => SsaLVal -> v -> Circify t v c ()
 setValue name cterm = do
   var <- getSsaName name
-  case name of
-    (SLVar name) -> compilerExistRemove name
-    _            -> return ()
   setValueRaw var cterm
 
 setValueRaw :: Embeddable t v c => String -> v -> Circify t v c ()

@@ -19,16 +19,15 @@ import qualified IR.SMT.Opt                    as SmtOpt
 import qualified IR.SMT.Opt.Assert             as OptAssert
 import qualified IR.SMT.ToPf                   as ToPf
 import           GHC.TypeNats                   ( KnownNat )
+import           Util.Log
 
 instance KnownNat n => BackEnd (R1CS String n) where
   target a = do
     newSmt <- SmtOpt.opt a
-    liftIO . putStrLn $ "====== Old R1cs"
-    liftIO . putStrLn . show $ newSmt
-    r <- ToPf.toPf @n (OptAssert._vals newSmt)
-                      (OptAssert._public newSmt)
-                      (OptAssert._sizes newSmt)
-                      (OptAssert.listAssertions newSmt)
-    liftIO . putStrLn $ "====== New R1cs"
-    liftIO . putStrLn . r1csShow $ r
+    r      <- ToPf.toPf @n (OptAssert._vals newSmt)
+                           (OptAssert._public newSmt)
+                           (OptAssert._sizes newSmt)
+                           (OptAssert.listAssertions newSmt)
+    liftLog . logIf "r1cs" $ "====== Final R1cs"
+    liftLog . logIf "r1cs" . r1csShow $ r
     R1csOpt.opt r
