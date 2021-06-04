@@ -604,7 +604,7 @@ intPromotion t =
 -- No-op if there is a non-arith term.
 usualArithConversions :: CTerm -> CTerm -> Bool -> (CTerm, CTerm)
 usualArithConversions x y noFxPt =
-  if Type.isArithType (cType x) && Type.isArithType (cType y) && sameType
+  if Type.isArithType (cType x) && Type.isArithType (cType y) -- && sameType
     then
       let (x', y') = inner x y
       in
@@ -615,14 +615,14 @@ usualArithConversions x y noFxPt =
               ["UAC failed:", show (x, y), "to non-equal", show (x', y')]
     else (x, y)
  where
-  sameType = noFxPt || (cType x /= Type.FixedPt && cType y /= Type.FixedPt)
+  -- sameType = noFxPt || (cType x /= Type.FixedPt && cType y /= Type.FixedPt)
   inner a b
+    | Type.isFixedPt aTy || Type.isFixedPt bTy
+    = (cCast Type.FixedPt a, cCast Type.FixedPt b)
     | Type.isDouble aTy || Type.isDouble bTy
     = (cCast Type.Double a, cCast Type.Double b)
     | Type.isFloat aTy || Type.isFloat bTy
     = (cCast Type.Float a, cCast Type.Float b)
-    | Type.isFixedPt aTy || Type.isFixedPt bTy
-    = (cCast Type.FixedPt a, cCast Type.FixedPt b)
     | aPromTy == bPromTy
     = (aProm, bProm)
     | Type.isSignedInt aPromTy == Type.isSignedInt bPromTy

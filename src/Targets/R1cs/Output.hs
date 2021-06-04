@@ -106,7 +106,11 @@ r1csShow r1cs =
     $  ["==== Constraints"]
     ++ (map (\qeq -> "  " ++ qeqShow qeq) . r1csQeqs $ r1cs)
     ++ ["==== Values"]
-    ++ (map show . fromMaybe [] . fmap IntMap.toList . values $ r1cs)
+    ++ ( fromMaybe ["<not in prove mode>"]
+       . fmap (map show . IntMap.toList)
+       . values
+       $ r1cs
+       )
     ++ ["==== numSigs"]
     ++ (map show . IntMap.toList . numSigs $ r1cs)
     ++ ["==== publicInputs"]

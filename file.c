@@ -1,5 +1,5 @@
 #define epsilon (fp32)1.0e-2
-typedef double fp32;
+typedef float fp32;
 
 int hw(fp32 x){
   return 1;
@@ -21,21 +21,45 @@ fp32 abs_val(fp32 x){
   }
 }
 
-fp32 sqrt_val(fp32 n){
-    fp32 x = n;
-    fp32 root;
-    int count = 0;
-    while (1)
-    {
-        count++;
-        root = 0.5 * (x + (n / x));
-        // Check for closeness
-        if (abs_val(root - x) < epsilon)
-            break;
-        // Update root
-        x = root;
-    }
-    return root;
+fp32 sqrt_val(fp32 num){
+
+  //TODO NEG catch?
+
+  int start = 0;
+  int end = num;
+  int mid;
+  fp32 ans;
+
+  while (start <= end && mid*mid !=num) {
+
+      mid = (start + end) / 2;
+
+      if (mid * mid == num) {
+    ans = (fp32)mid;
+      }
+
+      if (mid * mid < num) {
+    start = mid + 1;
+    ans = (fp32)mid;
+      }
+
+      else {
+    end = mid - 1;
+      }
+  }
+
+  fp32 increment = (fp32)0.1;
+  for (int i = 0; i < 5; i++) {
+      while (ans * ans <= num) {
+    ans += (fp32)increment;
+      }
+
+      ans = ans - (fp32)increment;
+      increment = increment / 10;
+  }
+
+  return ans;
+
 }
 
 //n,m, C, X, big array of A's, b, sol_y, sol_x
@@ -44,7 +68,7 @@ int check_sdp(fp32 n,fp32 m,fp32 c0, fp32 c1, fp32 c2, fp32 c3, fp32 c4, fp32 c5
   fp32 a0_0, fp32 a0_1, fp32 a0_2, fp32 a0_3, fp32 a0_4, fp32 a0_5, fp32 a0_6, fp32 a0_7, fp32 a0_8, fp32 a1_0, fp32 a1_1, fp32 a1_2, fp32 a1_3, fp32 a1_4, fp32 a1_5, fp32 a1_6, fp32 a1_7, fp32 a1_8,
   fp32 b0, fp32 b1, fp32 y0, fp32 y1){
   int solved = 1;
-/*
+
   if (1){
 
     // (X) feasible
@@ -148,8 +172,8 @@ int check_sdp(fp32 n,fp32 m,fp32 c0, fp32 c1, fp32 c2, fp32 c3, fp32 c4, fp32 c5
   }
 
   return solved;
-  */
-  return 1;
+
+  //return 1;
 }
 
 
@@ -193,10 +217,10 @@ int test(){
   fp32 y1 = 0;//= __GADGET_exist();
 
 //n,m, C, X, big array of A's, b, sol_y, sol_x
- //__GADGET_sdp(2,2,-0.1983367,  0.54620727, 0.54620727,  0.29183634,1.3713053, 0.16070848,0.16070848, 1.43693619,-0.99890972, 0.14410886,0.14410886, -0.73737868,0.14047667, -0.17714865,-0.17714865,  0.49857682,-2.3830572764539832, 0.8521208961278653);
+  __GADGET_sdp(2,2,-0.1983367,  0.54620727, 0.54620727,  0.29183634,1.3713053, 0.16070848,0.16070848, 1.43693619,-0.99890972, 0.14410886,0.14410886, -0.73737868,0.14047667, -0.17714865,-0.17714865,  0.49857682,-2.3830572764539832, 0.8521208961278653);
 
 
-  int check = __GADGET_check(hw(2.0));//check_sdp(3,2,-0.1983367,  0.54620727, 0.54620727,  0.29183634, 0,0,0,0,0, x0,x1,x2,x3,0,0,0,0,0,-0.99890972, 0.14410886,0.14410886, -0.73737868,0,0,0,0,0, 0.14047667, -0.17714865,-0.17714865,  0.49857682,0,0,0,0,0, -2.3830572764539832, 0.8521208961278653, y0,y1));
+  int check = __GADGET_check(check_sdp(3,2,-0.1983367,  0.54620727, 0.54620727,  0.29183634, 0,0,0,0,0, x0,x1,x2,x3,0,0,0,0,0,-0.99890972, 0.14410886,0.14410886, -0.73737868,0,0,0,0,0, 0.14047667, -0.17714865,-0.17714865,  0.49857682,0,0,0,0,0, -2.3830572764539832, 0.8521208961278653, y0,y1));
 
   return check;
 

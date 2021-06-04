@@ -1030,7 +1030,6 @@ ensureInputValues values inputs = forM_ values $ \values ->
         Nothing -> error $ "Bad input type: " ++ show v
 -}
 
-
 toPf
   :: KnownNat n
   => Maybe SmtVals

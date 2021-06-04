@@ -419,13 +419,10 @@ genSpecialFunction fnName cargs = do
       prop <- genExpr . head $ cargs
       when bugs . assume . ssaBool $ prop
       return $ Just $ Base $ cIntLit S32 1
-    "__GADGET_dual" -> do
-      return $ Just $ Base $ cIntLit S32 1
     "__GADGET_exist" ->
       error "Runaway intrinsic __GADGET_exist should be caught earlier"
-    "__GADGET_maximize"
-      | computingVals -> do
-        s        <- deepGet
+    "__GADGET_maximize" -> if computingVals
+      then do
         start    <- liftIO getSystemTime
         Just res <- liftIO $ ToZ3.evalOptimizeZ3 True (tail cargs) (head cargs)
         end      <- liftIO getSystemTime
@@ -433,19 +430,19 @@ genSpecialFunction fnName cargs = do
               (fromInteger (ToZ3.tDiffNanos end start) :: Double) / 1.0e9
         z3result <- liftIO $ ToZ3.parseZ3Model res seconds
         liftLog $ logIf "gadgets::user::verification" (show z3result)
-        deepPut s
-        let valuation = Map.toList $ ToZ3.model z3result
         forM_
-          valuation
+          (Map.toList $ ToZ3.model z3result) -- Valuation
           (\case
             (id, ToZ3.DVal d) ->
               liftCircify $ setValue (SLVar id) (double2fixpt d)
           )
         return . Just . Base $ cIntLit S32 1
-      | otherwise -> return . Just . Base $ cIntLit S32 1
-    "__GADGET_minimize"
-      | computingVals -> do
-        s        <- deepGet
+      else do
+        liftLog $ logIf "gadgets::user::verification"
+                        "Runs linear programming solver in prove mode only"
+        return . Just . Base $ cIntLit S32 1
+    "__GADGET_minimize" -> if computingVals
+      then do
         start    <- liftIO getSystemTime
         Just res <- liftIO $ ToZ3.evalOptimizeZ3 False (tail cargs) (head cargs)
         end      <- liftIO getSystemTime
@@ -453,16 +450,17 @@ genSpecialFunction fnName cargs = do
               (fromInteger (ToZ3.tDiffNanos end start) :: Double) / 1.0e9
         z3result <- liftIO $ ToZ3.parseZ3Model res seconds
         liftLog $ logIf "gadgets::user::verification" (show z3result)
-        deepPut s
-        let valuation = Map.toList $ ToZ3.model z3result
         forM_
-          valuation
+          (Map.toList $ ToZ3.model z3result) -- Valuation
           (\case
             (id, ToZ3.DVal d) ->
               liftCircify $ setValue (SLVar id) (double2fixpt d)
           )
         return . Just . Base $ cIntLit S32 1
-      | otherwise -> return . Just . Base $ cIntLit S32 1
+        else do
+          liftLog $ logIf "gadgets::user::verification"
+                          "Runs linear programming solver in prove mode only"
+          return . Just . Base $ cIntLit S32 1
     "__GADGET_sdp" -> do
 
       expr_n <- genExpr $ cargs!!0
@@ -533,7 +531,7 @@ genSpecialFunction fnName cargs = do
       -- Give an l-var to the gadget expression
       let exprname = "__gadget_out"
       let ctype = cType . ssaValAsTerm "gadget evaluation" $ expr
-      liftCircify $ declareInitVar exprname ctype expr
+      liftCircify $ declareInitVar exprname ctype expr -- This one?
       vexpr <- liftCircify . getValue . SLVar $ exprname
       logIfPretty "gadget::user::analytics"
                   ("Gadget computed for " ++ show vexpr ++ " from expr ")

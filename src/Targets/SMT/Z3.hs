@@ -442,7 +442,7 @@ evalOptimizeZ3 maximize cs obj = Z.evalZ3 $ do
     model <- Z.optimizeGetModel
     case res of
       Z.Unsat -> return Nothing
-      _       -> return $ Just model
+      Z.Undef -> error "Optimizer returned undef."
 
 -- For generating a numerical description of the model
 data Val = IVal Int

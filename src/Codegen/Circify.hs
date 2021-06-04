@@ -275,7 +275,7 @@ fsAppendGuards gs fs = FunctionScope { guards = guards fs ++ map Guard gs
 listModify :: Functor m => Int -> (a -> m a) -> [a] -> m [a]
 listModify 0 f (x : xs) = (: xs) `fmap` f x
 listModify n f (x : xs) = (x :) `fmap` listModify (n - 1) f xs
-listModify _ _ []       = error "Could not modify at index"
+listModify n _ []       = error ("Could not modify at index " ++ show n)
 
 -- | Find the scope containing this variable. Indexed from the back.
 fsFindLexScopeOpt :: VarName -> FunctionScope t v -> Maybe Int
@@ -290,7 +290,7 @@ fsModifyLexScope
   -> FunctionScope t v
   -> m (FunctionScope t v)
 fsModifyLexScope i f scope = do
-  n <- trace ("listModify ") $ listModify (nCurrentScopes scope - i - 1) f $ trace ("lexicalScopes") $ lexicalScopes scope
+  n <- trace ("listModify ") $ listModify (nCurrentScopes scope - i - 1) f $ trace ("lexicalScopes " ) $ lexicalScopes scope
   return $ scope { lexicalScopes = n }
 
 -- | Apply a fetching function to the indexed scope.
@@ -497,7 +497,7 @@ compilerExistVar :: (Embeddable t v c) => VarName -> Circify t v c ()
 compilerExistVar var = compilerRunOnTop (fsExistVar var)
 
 compilerExistRemove :: (Embeddable t v c) => VarName -> Circify t v c ()
-compilerExistRemove var = compilerRunOnTop (fsExistRemove var)
+compilerExistRemove var = compilerRunOnTop (trace ("fsExistRemove name:" ++ show var) $ fsExistRemove var)
  where
   fsExistRemove
     :: VarName -> FunctionScope t v -> Circify t v c ((), FunctionScope t v)
@@ -701,7 +701,7 @@ setValue :: Embeddable t v c => SsaLVal -> v -> Circify t v c ()
 setValue name cterm = do
   var <- getSsaName name
   case name of
-    (SLVar name) -> trace ("calling compilerExistRemove from setValue on " ++ show name) $ compilerExistRemove name
+    --(SLVar name) -> trace ("calling compilerExistRemove from setValue on " ++ show name) $ compilerExistRemove name
     _            -> return ()
   trace ("calling setValueRaw from setValue") $ setValueRaw var cterm
 
