@@ -1,0 +1,19 @@
+{
+  "message_type": "Witness",
+  "message": {
+    "assigned_variables": {
+      "variable_ids": [
+        1,
+        2
+      ],
+      "values": [
+        0,
+        0,
+        7,
+        0,
+        0,
+        0
+      ]
+    }
+  }
+}

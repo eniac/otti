@@ -11,6 +11,7 @@ module IR.SMT.TySmt.DefaultMap
   , emptyWithDefault
   , DefaultMap
   , fromMap
+  , elems
   )
 where
 
@@ -51,3 +52,6 @@ emptyWithDefault = DefaultMap Map.empty . Just
 
 fromMap :: Map k v -> M k v
 fromMap = flip DefaultMap Nothing
+
+elems :: M k v -> [v]
+elems (DefaultMap m d) = Map.elems m

@@ -106,6 +106,7 @@ import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.TySmt.Alg              as TyAlg
 import           Util.Log
+import           Debug.Trace
 
 type Bv = Ty.TermDynBv
 
@@ -273,7 +274,7 @@ cSetValues trackUndef name t = do
   logIf "values" $ "Setting " ++ show name ++ " to " ++ show t
   case term t of
     CBool b     -> Assert.evalAndSetValue name b
-    CInt _ _ i  -> Assert.evalAndSetValue name i
+    CInt _ _ i  -> trace ("call evalandset from int csetvalues") $ Assert.evalAndSetValue name i
     CFixedPt fx -> Assert.evalAndSetValue name fx
     CFloat   f  -> Assert.evalAndSetValue name f
     CDouble  d  -> Assert.evalAndSetValue name d
@@ -465,6 +466,7 @@ cDeclVar inMap trackUndef ty smtName mUserName = do
     -> Maybe String
     -> Assert.Assert ()
   getBaseInput = setInputFromMap inMap
+
 
 double2fixpt :: Double -> CTerm
 double2fixpt d = cCast Type.FixedPt . cDoubleLit $ d

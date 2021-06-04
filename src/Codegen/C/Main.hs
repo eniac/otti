@@ -4,6 +4,7 @@
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE ForeignFunctionInterface   #-}
 module Codegen.C.Main
   ( CInputs(..)
   , evalFn
@@ -66,6 +67,39 @@ import           Lens.Simple                    ( makeLenses
                                                 , set
                                                 , view
                                                 )
+import           Foreign.Marshal.Array
+import qualified Foreign.C.Types                as FTypes
+import qualified Foreign                        as F
+import           Data.Typeable
+import           Control.Monad                  ( )
+import           Control.Monad.State.Strict
+import           Targets.R1cs.Main              ( R1CS(..) )
+import qualified Targets.R1cs.Opt.Main         as R1csOpt
+import           Targets.R1cs.Output            ( r1csShow )
+import           Targets.BackEnd
+import qualified IR.SMT.Opt                    as SmtOpt
+import qualified IR.SMT.Opt.Assert             as OptAssert
+import qualified IR.SMT.ToPf                   as ToPf
+import           GHC.TypeNats                   ( KnownNat )
+
+import           Debug.Trace
+
+-- N, M, C, X, big array of A's, b, sol_y, sol_x
+
+foreign import ccall "sdp_solve" cSDP :: FTypes.CInt -> FTypes.CInt -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> IO (F.Ptr FTypes.CDouble)
+
+sdpSolve :: FTypes.CInt -> FTypes.CInt -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> IO (F.Ptr FTypes.CDouble)
+sdpSolve n m ptC ptrX ptrAs ptrB =
+  do
+    cSDP (fromIntegral n) (fromIntegral m) ptC ptrX ptrAs ptrB
+
+cArrayAlloc :: [FTypes.CDouble] -> IO (F.Ptr FTypes.CDouble)
+cArrayAlloc list = newArray list
+
+cArrayPeek :: F.Ptr FTypes.CDouble -> Integer -> IO [FTypes.CDouble]
+cArrayPeek list l = peekArray (fromIntegral l) list
+
+
 data CState = CState
   { _funs          :: Map.Map FunctionName CFunDef
   , _loopBound     :: Int
@@ -82,6 +116,7 @@ type CCircState = CircifyState Type CTerm (Maybe InMap, Bool)
 
 newtype C a = C (StateT CState (Circify Type CTerm (Maybe InMap, Bool)) a)
     deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem, MonadFail, MonadCircify Type CTerm (Maybe InMap, Bool), MonadCfg, MonadDeepState (((Assert.AssertState, Mem.MemState), CCircState), CState))
+
 
 emptyCState :: Bool -> CState
 emptyCState findBugs = CState { _funs          = Map.empty
@@ -345,6 +380,17 @@ unwrap e = case e of
 noneIfVoid :: Type -> Maybe Type
 noneIfVoid t = if Void == t then Nothing else Just t
 
+unwrapConstInt :: CTerm -> Integer
+unwrapConstInt cterm = case cterm of
+                      (CTerm (CInt _ _ (Ty.DynBvLit bv)) _) -> BV.int bv
+                      _                                     -> error $ "Input int variable not read correctly"
+
+unwrapConstDouble :: CTerm -> FTypes.CDouble
+unwrapConstDouble cterm = case cterm of
+                      (CTerm (CDouble (Ty.FpUnExpr Ty.FpNeg (Ty.Fp64Lit d))) _) -> realToFrac (-1*d)
+                      (CTerm (CDouble (Ty.Fp64Lit d)) _) -> realToFrac d
+                      _                                     -> error $ "Input double variable not read correctly"
+
 -- | Handle special functions, returning whether this function was special
 genSpecialFunction :: VarName -> [CExpr] -> C (Maybe CSsaVal)
 genSpecialFunction fnName cargs = do
@@ -417,6 +463,69 @@ genSpecialFunction fnName cargs = do
           )
         return . Just . Base $ cIntLit S32 1
       | otherwise -> return . Just . Base $ cIntLit S32 1
+    "__GADGET_sdp" -> do
+
+      expr_n <- genExpr $ cargs!!0
+      let n = unwrapConstInt $ ssaValAsTerm "sdp val extraction" $ expr_n
+
+      expr_m <- genExpr $ cargs!!1
+      let m = unwrapConstInt $ ssaValAsTerm "sdp val extraction" $ expr_m
+
+      let expr_c = take (fromIntegral $ n*n) (drop 2 cargs)
+      c <- forM expr_c $ \q -> do
+        expr <- genExpr $ q
+        let vars = unwrapConstDouble $ ssaValAsTerm "sdp val extraction" $ expr
+        return vars
+
+      let expr_x = take (fromIntegral $ n*n) (drop (fromIntegral $ 2+(n*n)) cargs)
+      x <- forM expr_x $ \q -> do
+        expr <- genExpr $ q
+        let vars = unwrapConstDouble $ ssaValAsTerm "sdp val extraction" $ expr
+        return vars
+
+      let expr_a = take (fromIntegral $ m*n*n) (drop (fromIntegral $ 2+2*(n*n)) cargs)
+      a <- forM expr_a $ \q -> do
+        expr <- genExpr $ q
+        let vars = unwrapConstDouble $ ssaValAsTerm "sdp val extraction" $ expr
+        return vars
+
+      let expr_b = take (fromIntegral m) (drop (fromIntegral $ 2+2*(n*n)+(m*n*n)) cargs)
+      b <- forM expr_b $ \q -> do
+        expr <- genExpr $ q
+        let vars = unwrapConstDouble $ ssaValAsTerm "sdp val extraction" $ expr
+        return vars
+
+      -- compute SDP
+      c1 <- liftIO $ cArrayAlloc c
+      x1 <- liftIO $ cArrayAlloc x
+      a1 <- liftIO $ cArrayAlloc a
+      b1 <- liftIO $ cArrayAlloc b
+
+      -- N, M, C, X, big array of A's, b, y
+      sol <- liftIO $ sdpSolve (fromIntegral n) (fromIntegral m) c1 x1 a1 b1
+      sol1 <- liftIO $ cArrayPeek sol (n*n+m)
+
+      let sol_x = take (fromIntegral $ n*n) sol1
+      let sol_y = drop (fromIntegral $ n*n) sol1
+
+      --error $ "Out EXPR CTEN " ++ show sol_x ++ "sol y " ++ show sol_y
+
+      let i = 0
+      forM sol_x $ \q -> do
+        liftCircify $ setValue (SLVar ("x" ++ show i)) (double2fixpt $ realToFrac q)
+        let i = i+1
+        return ()
+
+      let i = 0
+      forM sol_y $ \q -> do
+        liftCircify $ setValue (SLVar ("y" ++ show i)) (double2fixpt $ realToFrac q)
+        let i = i+1
+        return ()
+
+      --trace ("calling setValue in sdp") (liftCircify $ setValue (SLVar "a0") (double2fixpt 7.0))
+      --liftCircify $ setValue (SLVar "a1") (cIntLit S32 7)
+
+      return . Just . Base $ cIntLit S32 1
     "__GADGET_compute" -> do
       -- Enter scratch state
       s    <- deepGet
@@ -435,10 +544,11 @@ genSpecialFunction fnName cargs = do
       liftCircify $ declareVar False exprname ctype
       -- Add witness if computing values
       forM_ vexpr $ liftCircify . setValue (SLVar exprname)
+
       Just <$> (liftCircify . getTerm . SLVar $ exprname)
     "__GADGET_check" -> do
       -- Parse propositional arguments see `test/Code/C/max.c`
-      args <- traverse genExpr cargs
+      args <- traverse (trace ("genExpr from GADGET check") $ genExpr) cargs
       forM_ args (assume . ssaBool)
       return . Just . Base $ cIntLit S32 1
     "assume_abort_if_not" | svExtensions -> do

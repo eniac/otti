@@ -54,6 +54,7 @@ import           Util.Cfg                       ( liftCfg
                                                 , CfgState(..)
                                                 )
 import           System.FilePath                ( (-<.>) )
+import           Debug.Trace
 
 instance {-# OVERLAPS #-} forall s n. (Show s, KnownNat n) => ToJSON (LC s (Prime n)) where
   toJSON (m, c) =
@@ -191,11 +192,11 @@ r1csWriteAssignments r1cs inputPath witPath = do
     (\path ->
       ByteString.writeFile (path -<.> ".wit.zkif") . zkifWitnessEncode $ r1cs
     )
-  let lookupSignalVal = r1csNumValue r1cs
+  let lookupSignalVal = trace ("r1cs lookup in output") $ r1csNumValue r1cs
   liftIO $ emitAssignment
     (map lookupSignalVal [2 .. (1 + nPublicInputs r1cs)])
     inputPath
-  liftIO $ emitAssignment
+  liftIO $ trace ("emitAssign in output " ++ show (map lookupSignalVal [])) $ emitAssignment
     (map lookupSignalVal [(2 + nPublicInputs r1cs) .. (nextSigNum r1cs - 1)])
     witPath
 
@@ -211,7 +212,7 @@ r1csCheck
 r1csCheck r1cs = if (null $ values r1cs)
   then Right ()
   else forM_ (constraints r1cs) $ \c ->
-    let v = qeqEval r1cs c
+    let v = trace ("qeqEval from r1csCheck") $ qeqEval r1cs c
     in  if 0 == fromP v
           then Right ()
           else Left $ unwords
@@ -234,4 +235,3 @@ qeqEval r1cs (a, b, c) = lcEval a * lcEval b - lcEval c
   lcEval :: LC Int (Prime n) -> Prime n
   lcEval (m, c) =
     c + sum (map (\(k, v) -> v * r1csNumValue r1cs k) $ Map.toList m)
-

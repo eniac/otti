@@ -3,7 +3,7 @@
 
 typedef float fixed_point_precision_16_16;
 
-static const fixed_point_precision_16_16 epsilon   = (fixed_point_precision_16_16)1.0e-5;
+static const fixed_point_precision_16_16 epsilon   = (fixed_point_precision_16_16)1.0e-2;
 static int valid = 1;
 
 typedef struct {
@@ -98,7 +98,7 @@ void print_vec(Vector v);
 void print_vec_b(Big_Vector v);
 fixed_point_precision_16_16 abs_val(fixed_point_precision_16_16 x);
 fixed_point_precision_16_16 sqrt_val(fixed_point_precision_16_16 num);
-fixed_point_precision_16_16 dot(Matrix A, Matrix B);
+fixed_point_precision_16_16 dot(Matrix A, Matrix B, int size);
 fixed_point_precision_16_16 vec_comb(Vector a, Vector b);
 Matrix scal_div(Matrix A, fixed_point_precision_16_16 s);
 Matrix mat_mul(Matrix A, Matrix B);
@@ -134,6 +134,6 @@ Matrix matrixize(Vector a, int rows, int cols);
 Problem_Box sdp(Matrix C, Matrix Xp, Matrix_List A, Vector b, fixed_point_precision_16_16 theta, fixed_point_precision_16_16 beta);
 int sdp_check(Problem_Box P, int feasible);
 Matrix sdp_gadget(Matrix C, Matrix X, Matrix_List A, Vector b);
-fixed_point_precision_16_16 get_big(int i, int j, Big_Matrix mat);
-fixed_point_precision_16_16 norm_circ(Big_Vector e, Big_Matrix LL, Big_Vector z);
+fixed_point_precision_16_16 get_big(int i, int j, Big_Matrix mat, int c);
+fixed_point_precision_16_16 norm_circ(Big_Vector e, Big_Matrix LL, int size, Big_Vector z);
 fixed_point_precision_16_16 pow_2(fixed_point_precision_16_16 b);

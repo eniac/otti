@@ -74,7 +74,7 @@ import           Util.Cfg                       ( MonadCfg(..)
 import           Util.Log
 import           Util.Show
 import           Debug.Trace
---- TODO?
+
 
 
 type PfVar = String
@@ -593,7 +593,7 @@ data BvOpKind = Division | Arith | Shift
 
 bvToPf :: forall n . KnownNat n => Maybe SmtVals -> TermDynBv -> ToPf n ()
 bvToPf env term = do
-  entry <- getIntM term
+  entry <- trace ("getIntM from bvToPf") $ getIntM term
   s     <- get
   when (isNothing entry) $ do
     logIf "toPf::cache" $ "Cache " ++ show (ints s)
@@ -631,7 +631,7 @@ bvToPf env term = do
   -- Uncached
   bvToPfUncached :: KnownNat n => TermDynBv -> ToPf n ()
   bvToPfUncached bv = do
-    r1cs'                <- gets r1cs
+    r1cs'                <- trace ("gets r1cs from bvToPfUncached") $ gets r1cs
     assumeInputsInRange' <- gets (assumeInputsInRange . cfg)
     aliasVars'           <- gets aliasVars
     let omitRangeCheck input =
@@ -990,6 +990,27 @@ publicizeInputs is = do
 -- | Ensure that the provided @inputs@ have an R1CS value assigned to
 -- them, consistent with the SMT value found in @values@. A no-op if
 -- @values@ is [Nothing].
+
+ensureInputValues
+  :: forall n . KnownNat n => Maybe SmtVals -> Set.Set PfVar -> ToPf n ()
+ensureInputValues values inputs = forM_ values $ \values ->
+  forM_ (Map.toList values) $ \(key, dval) -> do
+    let value = trace ("===== Dynamic " ++ show (valFromDynamic dval)) $ valFromDynamic dval
+    let v     = trace ("toP from ensureInputValues") $ toP value
+    logIf "toPf" $ key ++ " -> " ++ primeShow v
+    modify $ \s -> s { r1cs = r1csSetSignalVal key v $ r1cs s }
+ where
+  valFromDynamic v = case fromDynamic v of
+    Just b  -> toInteger $ fromEnum $ valAsBool b
+    Nothing -> case fromDynamic v of
+      Just b  -> trace ("BVint dyn translation from ensureInputValues") $ Bv.uint $ valAsDynBv b
+      Nothing -> case fromDynamic v of
+        Just b  -> valAsPf @n b
+        Nothing -> error $ "Bad input type: " ++ show v
+
+
+
+{-
 ensureInputValues
   :: forall n . KnownNat n => Maybe SmtVals -> Set.Set PfVar -> ToPf n ()
 ensureInputValues values inputs = forM_ values $ \values ->
@@ -1007,6 +1028,8 @@ ensureInputValues values inputs = forM_ values $ \values ->
       Nothing -> case fromDynamic v of
         Just b  -> valAsPf @n b
         Nothing -> error $ "Bad input type: " ++ show v
+-}
+
 
 toPf
   :: KnownNat n
@@ -1028,3 +1051,29 @@ toPf env inputs arraySizes' bs = do
   r <- r1cs <$> execStateT a emptyState { arraySizes = arraySizes' }
   logIf "toPf" "Done with toPf"
   return r
+
+{-}
+toPf
+  :: KnownNat n
+  => Maybe SmtVals
+  -> Set.Set PfVar
+  -> ArraySizes
+  -> [TermBool]
+  -> Log (R1CS PfVar n)
+toPf (Just env) inputs arraySizes' bs |
+  trace ("==== toPf with " ++ show env ++ "\n-----\n" ++ show inputs) False = undefined
+toPf (Just env) inputs arraySizes' bs = do
+  let ToPf a = do
+        forM_ (Just env) $ \_ -> modify $ \s -> s { r1cs = r1csInitSigVals $ r1cs s }
+        configureFromEnv
+        publicizeInputs inputs
+        forM_ bs (enforceAsPf (Just env))
+        -- After enforcement, we ensure the inputs have values
+        -- because if an input is missing from the constraints
+        -- it will not yet have an assigned value.
+        trace ("call ensureInputValues from toPf") $ ensureInputValues (Just env) inputs
+  r <- r1cs <$> execStateT a emptyState { arraySizes = arraySizes' }
+  logIf "toPf" "Done with toPf"
+  return r
+toPf Nothing inputs arraySizes' bs = error "Why is the env Nothing?"
+-}

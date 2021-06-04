@@ -18,6 +18,7 @@ import           Targets.R1cs.Opt.RedLin        ( reduceLinearities )
 import           Targets.R1cs.Opt.Fold          ( foldEqs )
 import qualified Util.Cfg                      as Cfg
 import           Util.Log
+import           Debug.Trace
 
 runOpt
   :: (Show s, Ord s, KnownNat n)
@@ -45,10 +46,10 @@ opt r1cs = do
   logIf "r1csOpt" $ "Constraints before r1csOpt: " ++ show
     (Seq.length $ constraints r1cs)
   logIf "r1csOpt" $ "Public inputs: " ++ show (publicInputs r1cs)
-  r1cs <- runOpt "foldEqs" foldEqs 1 r1cs
-  r1cs <- runOpt "reduceLin" reduceLinearities 2 r1cs
-  r1cs <- runOpt "remove dead" (return . removeDeadSignals) 1 r1cs
-  r1cs <- runOpt "compactify" (return . compactifySigNums) 1 r1cs
+  r1cs <- trace ("R1csopt pre foldeqs" ++ show r1cs) $ runOpt "foldEqs" foldEqs 1 r1cs
+  r1cs <- trace ("R1csopt pre reducelin " ++ show r1cs) $ runOpt "reduceLin" reduceLinearities 2 r1cs
+  --r1cs <- trace ("R1csopt pre removedead " ++ show r1cs) $ runOpt "remove dead" (return . removeDeadSignals) 1 r1cs
+  r1cs <- trace ("R1csopt pre compactify " ++ show r1cs) $ runOpt "compactify" (return . compactifySigNums) 1 r1cs
   logIf "r1csOpt" $ "Constraints after r1csOpt: " ++ show
     (Seq.length $ constraints r1cs)
   return r1cs

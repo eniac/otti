@@ -92,6 +92,7 @@ import           Util.Control                   ( MonadDeepState(..)
                                                 , whenM
                                                 )
 import           Util.Log
+import           Debug.Trace
 
 {-|
 
@@ -289,7 +290,7 @@ fsModifyLexScope
   -> FunctionScope t v
   -> m (FunctionScope t v)
 fsModifyLexScope i f scope = do
-  n <- listModify (nCurrentScopes scope - i - 1) f $ lexicalScopes scope
+  n <- trace ("listModify ") $ listModify (nCurrentScopes scope - i - 1) f $ trace ("lexicalScopes") $ lexicalScopes scope
   return $ scope { lexicalScopes = n }
 
 -- | Apply a fetching function to the indexed scope.
@@ -486,7 +487,7 @@ compilerRunOnTop f = do
   s       <- get
   (r, s') <-
     f
-    $ fromMaybe (error "Cannot run in function: no function!")
+    $ fromMaybe (error "Cannot run in function: no function! ")
     $ listToMaybe
     $ callStack s
   modify $ \s -> s { callStack = s' : tail (callStack s) }
@@ -501,7 +502,7 @@ compilerExistRemove var = compilerRunOnTop (fsExistRemove var)
   fsExistRemove
     :: VarName -> FunctionScope t v -> Circify t v c ((), FunctionScope t v)
   fsExistRemove var fs = do
-    newfs <- fsModifyLexScope
+    newfs <- trace ("fsModifyLexScope from compilerExistRemove") $ fsModifyLexScope
       1
       (\scope -> return $ scope { exist = filter (/= var) $ exist scope })
       fs
@@ -700,14 +701,14 @@ setValue :: Embeddable t v c => SsaLVal -> v -> Circify t v c ()
 setValue name cterm = do
   var <- getSsaName name
   case name of
-    (SLVar name) -> compilerExistRemove name
+    (SLVar name) -> trace ("calling compilerExistRemove from setValue on " ++ show name) $ compilerExistRemove name
     _            -> return ()
-  setValueRaw var cterm
+  trace ("calling setValueRaw from setValue") $ setValueRaw var cterm
 
 setValueRaw :: Embeddable t v c => String -> v -> Circify t v c ()
 setValueRaw var cterm = whenM computingValues $ do
   e <- gets (setValues . langCfg)
-  liftAssert $ e var cterm
+  liftAssert $ trace ("calling gets (setValues . langCfg) from setValueRaw") $ e var cterm
 
 -- | Get the term currently bound to some l-value.
 getTerm :: SsaLVal -> Circify t v c (SsaVal v)

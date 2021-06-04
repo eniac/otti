@@ -63,6 +63,7 @@ import           GHC.TypeLits                   ( KnownNat
                                                 , natVal
                                                 )
 import           Data.Proxy                     ( Proxy(..) )
+import           Debug.Trace
 -- Faster IO?
 -- import qualified Data.Text.IO                  as TextIO
 -- import           System.IO                      ( openFile
@@ -273,5 +274,5 @@ r1csNumValue r1cs i =
       (error $ "Could not find r1cs var: " ++ show i ++ ": " ++ show
         (numSigs r1cs IntMap.!? i)
       )
-    $         fromMaybe (error "No r1cs values!") (values r1cs)
+    $         fromMaybe (error "No r1cs values!") (trace ("r1csNumValue, print values " ++ show (values r1cs)) $ values r1cs)
     IntMap.!? i

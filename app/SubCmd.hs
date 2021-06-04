@@ -46,6 +46,7 @@ import           Util.Cfg                       ( Cfg
                                                 , liftCfg
                                                 )
 import           Util.Log
+import           Debug.Trace
 
 checkProcess :: FilePath -> [String] -> String -> IO ()
 checkProcess pgm args input = do
@@ -75,10 +76,10 @@ runProofAction r1cs o a = case a of
       ["setup", "-V", vkPath o, "-P", pkPath o, "-C", r1csPath o]
       ""
   Prove -> do
-    case R1cs.r1csCheck r1cs of
+    case trace ("================================ r1cscheck from subcmd " ++ show r1cs) $ R1cs.r1csCheck r1cs of
       Right _ -> return ()
       Left  e -> liftIO (putStrLn e >> exitFailure)
-    R1cs.r1csWriteAssignments r1cs (xPath o) (wPath o)
+    trace ("write r1cs assignments") $ R1cs.r1csWriteAssignments r1cs (xPath o) (wPath o)
     liftIO $ runLibsnarkProve o
 
 runLibsnarkProve :: ProofOpts -> IO ()
@@ -117,8 +118,8 @@ runBackend b a = case b of
           forM_ (inputs Map.!? k) $ \kk -> putStrLn $ unwords [kk, show v]
       else putStrLn "UNSAT"
   Proof o act -> do
-    r1cs <- target @(R1CS String Order) a
-    liftCfg $ runProofAction r1cs o act
+    r1cs <- trace ("TARGET " ++ show a) $ target @(R1CS String Order) a
+    liftCfg $ trace ("================================= runProofAction from runBackend; r1cs = "++ show r1cs) $ runProofAction r1cs o act
 
 runFrontend :: Maybe FilePath -> FrontEnd -> Log Assert.AssertState
 runFrontend inPath fe = do
@@ -182,4 +183,4 @@ runCmd c = case c of
           )
           (wPath pfOpts)
         liftIO $ runLibsnarkProve pfOpts
-      else liftCfg $ runProofAction r1cs pfOpts pfAct
+      else liftCfg $  trace ("================================= runProofAction from runCmd") $ runProofAction r1cs pfOpts pfAct

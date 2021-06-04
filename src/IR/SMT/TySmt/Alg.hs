@@ -44,7 +44,7 @@ import           IR.SMT.TySmt
 import qualified IR.SMT.TySmt.DefaultMap       as DMap
 import           IR.SMT.TySmt.DefaultMap        ( DefaultMap )
 import           IR.SMT.Util
-
+import           Debug.Trace
 
 -- |
 -- Given a function that optionally transforms a term, traverses the term
@@ -514,7 +514,7 @@ eval e t = case t of
     ValBv $ bvNaryFn o (bvNaryId rs o) (map (valAsBv . eval e) rs)
   BvBinPred o l r ->
     ValBool $ bvBinPredFn o (valAsBv $ eval e l) (valAsBv $ eval e r)
-  IntToBv i  -> ValBv $ Bv.bitVec (size t) $ valAsInt $ eval e i
+  IntToBv i  -> trace ("InttoBv in Alg.eval") $ ValBv $ Bv.bitVec (size t) $ valAsInt $ eval e i
   FpToBv  tt -> ValBv $ asBits $ asRepr (eval e tt)
 
   StatifyBv t' ->
@@ -533,7 +533,7 @@ eval e t = case t of
           then ValDynBv $ bvUnFn o inner
           else
             throw $ SortError $ "bitwidth mis-match while evaluating " ++ show t
-  DynBvLit bv -> ValDynBv bv
+  DynBvLit bv -> trace ("DynBvLit in Alg.eval") $ ValDynBv bv
   DynBvUext _ wDelta t' ->
     ValDynBv $ Bv.zeroExtend wDelta $ valAsDynBv $ eval e t'
   DynBvSext _ wDelta t' ->
