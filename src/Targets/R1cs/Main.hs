@@ -274,5 +274,5 @@ r1csNumValue r1cs i =
       (error $ "Could not find r1cs var: " ++ show i ++ ": " ++ show
         (numSigs r1cs IntMap.!? i)
       )
-    $         fromMaybe (error "No r1cs values!") (trace ("r1csNumValue, print values " ++ show (values r1cs)) $ values r1cs)
+    $         fromMaybe (error "No r1cs values!") (values r1cs)
     IntMap.!? i
