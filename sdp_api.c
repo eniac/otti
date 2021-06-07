@@ -20,24 +20,27 @@
 
     //Matrix_List A = {M,A0,A1};
 
-	  //Solution Q = sdp(C,X,A,b,1.0,0.25);
-	  //print_mat(Q.X);
-	  //sdp_check(C, Q.X, A, b, Q.y, Q.feasible);
 
+//prob 2x2x2
+  double C[4] = {-0.1983367,  0.54620727, 0.54620727,  0.29183634};
+  double b[4] = {-2.3830572764539832, 0.8521208961278653, 0, 0};
+  double X[4] = {1.3713053, 0.16070848,0.16070848, 1.43693619};
 
-    double *sol_x = sdp_solve(3,2,C,X,A,b);
+  double A[8] = {-0.99890972, 0.14410886,0.14410886, -0.73737868, 0.14047667, -0.17714865,-0.17714865,  0.49857682};
+ // Matrix A1 = {N,N,{0.14047667, -0.17714865,-0.17714865,  0.49857682}};
+ // Matrix_List A = {M,A0,A1};
+
+    double *sol_x = sdp_solve(2,2,C,X,A,b);
 
     printf("\n\n");
     for (int i = 0; i < 9; i++){
        printf("x - %6.3f\n", sol_x[i]);
     }
-
-
-	}
+}
 */
 
 // N, M, C, X, big array of A's, b, y, feasible
-double *sdp_solve(int n, int m, double *c, double *x, double *a, double *b){
+void *sdp_solve(int n, int m, double *c, double *x, double *a, double *b, double *sol){
 
 
 
@@ -60,7 +63,7 @@ double *sdp_solve(int n, int m, double *c, double *x, double *a, double *b){
     Matrix A0 = {n,n,{0}};
     Matrix A1 = {n,n,{0}};
 
-    print_mat(C);
+//    print_mat(C);
 
     for (int i = 0; i < m*n*n; i++){
       if (i < n*n){
@@ -70,11 +73,11 @@ double *sdp_solve(int n, int m, double *c, double *x, double *a, double *b){
       }
       a++;
     }
-
+/*
     printf("As\n");
     print_mat(A0);
     print_mat(A1);
-
+*/
     Matrix_List A = {m,A0,A1};
 
 
@@ -83,7 +86,7 @@ double *sdp_solve(int n, int m, double *c, double *x, double *a, double *b){
     //x = Q.X.m;
     //y = Q.y.v;
 
-    double *sol = malloc(n*n+m * sizeof(double));
+    //double *sol = malloc(n*n+m * sizeof(double));
 
     for (int i = 0; i < n*n; i++){
       sol[i] = Q.X.m[i];
@@ -93,16 +96,15 @@ double *sdp_solve(int n, int m, double *c, double *x, double *a, double *b){
        sol[(n*n)+i] = Q.y.v[i];
      }
 
-
+/*
     printf("SOL\n\n");
     print_mat(Q.X);
 
     for (int i = 0; i < n*n; i++){
       printf("x - %6.3f\n", sol[i]);
     }
+*/
 
-
-    return sol;
 
   }
 

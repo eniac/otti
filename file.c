@@ -1,5 +1,6 @@
-#define epsilon (fp32)1.0e-2
 typedef float fp32;
+
+#define epsilon (fp32)1.0e-2
 
 int hw(fp32 x){
   return 1;
@@ -62,13 +63,22 @@ fp32 sqrt_val(fp32 num){
 
 }
 
+int test_check(fp32 x0){
+  int solved = (d_equal(x0,1.706));
+  return solved;
+}
+
 //n,m, C, X, big array of A's, b, sol_y, sol_x
 
 int check_sdp(fp32 n,fp32 m,fp32 c0, fp32 c1, fp32 c2, fp32 c3, fp32 c4, fp32 c5, fp32 c6, fp32 c7, fp32 c8, fp32 x0, fp32 x1, fp32 x2, fp32 x3, fp32 x4, fp32 x5, fp32 x6, fp32 x7, fp32 x8,
   fp32 a0_0, fp32 a0_1, fp32 a0_2, fp32 a0_3, fp32 a0_4, fp32 a0_5, fp32 a0_6, fp32 a0_7, fp32 a0_8, fp32 a1_0, fp32 a1_1, fp32 a1_2, fp32 a1_3, fp32 a1_4, fp32 a1_5, fp32 a1_6, fp32 a1_7, fp32 a1_8,
   fp32 b0, fp32 b1, fp32 y0, fp32 y1){
-  int solved = 1;
+  int solved = (d_equal(x0,1.706));
+  return solved;
 
+
+
+/*
   if (1){
 
     // (X) feasible
@@ -174,6 +184,8 @@ int check_sdp(fp32 n,fp32 m,fp32 c0, fp32 c1, fp32 c2, fp32 c3, fp32 c4, fp32 c5
   return solved;
 
   //return 1;
+
+*/
 }
 
 
@@ -201,10 +213,10 @@ int test(){
 */
 
 
-  fp32 x0 = 0;// = __GADGET_exist();
-  fp32 x1 = 0;// __GADGET_exist();
-  fp32 x2 = 0;// __GADGET_exist();
-  fp32 x3 = 0;// __GADGET_exist();
+  fp32 x0 = 3;// = __GADGET_exist();
+  fp32 x1 = 3;// __GADGET_exist();
+  fp32 x2 = 3;// __GADGET_exist();
+  fp32 x3 = 3;// __GADGET_exist();
   /*
   fp32 x4 = __GADGET_exist();
   fp32 x5 = __GADGET_exist();
@@ -213,15 +225,19 @@ int test(){
   fp32 x8 = __GADGET_exist();
   */
 
-  fp32 y0 = 0;//= __GADGET_exist();
-  fp32 y1 = 0;//= __GADGET_exist();
+  fp32 y0 = 3;//= __GADGET_exist();
+  fp32 y1 = 3;//= __GADGET_exist();
 
 //n,m, C, X, big array of A's, b, sol_y, sol_x
-  __GADGET_sdp(2,2,-0.1983367,  0.54620727, 0.54620727,  0.29183634,1.3713053, 0.16070848,0.16070848, 1.43693619,-0.99890972, 0.14410886,0.14410886, -0.73737868,0.14047667, -0.17714865,-0.17714865,  0.49857682,-2.3830572764539832, 0.8521208961278653);
+//  __GADGET_sdp(2,2,-0.1983367,  0.54620727, 0.54620727,  0.29183634,1.3713053, 0.16070848,0.16070848, 1.43693619,-0.99890972, 0.14410886,0.14410886, -0.73737868,0.14047667, -0.17714865,-0.17714865,  0.49857682,-2.3830572764539832, 0.8521208961278653);
+
+  x0 = (fp32)1.706;
+
+  int check = __GADGET_check(test_check(x0));
 
 
-  int check = __GADGET_check(check_sdp(3,2,-0.1983367,  0.54620727, 0.54620727,  0.29183634, 0,0,0,0,0, x0,x1,x2,x3,0,0,0,0,0,-0.99890972, 0.14410886,0.14410886, -0.73737868,0,0,0,0,0, 0.14047667, -0.17714865,-0.17714865,  0.49857682,0,0,0,0,0, -2.3830572764539832, 0.8521208961278653, y0,y1));
+//check_sdp(3,2,-0.1983367,  0.54620727, 0.54620727,  0.29183634, 0,0,0,0,0, x0,x1,x2,x3,0,0,0,0,0,-0.99890972, 0.14410886,0.14410886, -0.73737868,0,0,0,0,0, 0.14047667, -0.17714865,-0.17714865,  0.49857682,0,0,0,0,0, -2.3830572764539832, 0.8521208961278653, y0,y1));
 
   return check;
-
+//    return 1;
 }

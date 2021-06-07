@@ -86,12 +86,12 @@ import           Debug.Trace
 
 -- N, M, C, X, big array of A's, b, sol_y, sol_x
 
-foreign import ccall "sdp_solve" cSDP :: FTypes.CInt -> FTypes.CInt -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> IO (F.Ptr FTypes.CDouble)
+foreign import ccall "sdp_solve" cSDP :: FTypes.CInt -> FTypes.CInt -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> IO ()
 
-sdpSolve :: FTypes.CInt -> FTypes.CInt -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> IO (F.Ptr FTypes.CDouble)
-sdpSolve n m ptC ptrX ptrAs ptrB =
+sdpSolve :: FTypes.CInt -> FTypes.CInt -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> IO ()
+sdpSolve n m ptrC ptrX ptrAs ptrB ptrSol=
   do
-    cSDP (fromIntegral n) (fromIntegral m) ptC ptrX ptrAs ptrB
+    cSDP (fromIntegral n) (fromIntegral m) ptrC ptrX ptrAs ptrB ptrSol
 
 cArrayAlloc :: [FTypes.CDouble] -> IO (F.Ptr FTypes.CDouble)
 cArrayAlloc list = newArray list
@@ -499,8 +499,12 @@ genSpecialFunction fnName cargs = do
       a1 <- liftIO $ cArrayAlloc a
       b1 <- liftIO $ cArrayAlloc b
 
+      let pre = replicate (fromIntegral $ n*n+m) 0
+      sol <- liftIO $ cArrayAlloc pre
+
+
       -- N, M, C, X, big array of A's, b, y
-      sol <- liftIO $ sdpSolve (fromIntegral n) (fromIntegral m) c1 x1 a1 b1
+      liftIO $ sdpSolve (fromIntegral n) (fromIntegral m) c1 x1 a1 b1 sol
       sol1 <- liftIO $ cArrayPeek sol (n*n+m)
 
       let sol_x = take (fromIntegral $ n*n) sol1
@@ -508,21 +512,14 @@ genSpecialFunction fnName cargs = do
 
       --error $ "Out EXPR CTEN " ++ show sol_x ++ "sol y " ++ show sol_y
 
-      let i = 0
-      forM sol_x $ \q -> do
-        liftCircify $ setValue (SLVar ("x" ++ show i)) (double2fixpt $ realToFrac q)
-        let i = i+1
+      forM (zip sol_x [0..(n*n-1)]) $ \(q,i) -> do
+        liftCircify $ trace ("setting x" ++ show i) $ setValue (SLVar ("x" ++ show i)) (double2fixpt $ realToFrac q)
         return ()
 
-      let i = 0
-      forM sol_y $ \q -> do
-        liftCircify $ setValue (SLVar ("y" ++ show i)) (double2fixpt $ realToFrac q)
-        let i = i+1
+      forM (zip sol_y [0..(m-1)]) $ \(q,i) -> do
+        liftCircify $ trace ("setting y" ++ show i) $ setValue (SLVar ("y" ++ show i)) (double2fixpt $ realToFrac q)
         return ()
-
-      --trace ("calling setValue in sdp") (liftCircify $ setValue (SLVar "a0") (double2fixpt 7.0))
-      --liftCircify $ setValue (SLVar "a1") (cIntLit S32 7)
-
+ 
       return . Just . Base $ cIntLit S32 1
     "__GADGET_compute" -> do
       -- Enter scratch state
