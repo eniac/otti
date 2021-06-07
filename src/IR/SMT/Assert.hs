@@ -82,13 +82,13 @@ evalToTerm :: Ty.SortClass s => Ty.Term s -> Assert (Maybe (Ty.Term s))
 evalToTerm t = fmap Alg.valueToTerm <$> eval t
 
 evalAndSetValue :: Ty.SortClass s => String -> Ty.Term s -> Assert ()
-evalAndSetValue variable term = (trace ("call eval from evalandsetvalue") $ eval term) >>= mapM_ (trace ("call setvalue from evalandsetvalue") $ setValue variable)
+evalAndSetValue variable term = (eval term) >>= mapM_ (setValue variable)
 
 
 setValue :: Ty.SortClass s => String -> Ty.Value s -> Assert ()
 setValue variable value = do
   logIf "witness" $ show variable ++ " -> " ++ show value
-  modify $ \s -> s { vals = trace ("M.insert in vals in setValue") $ M.insert variable (trace ("to Dyn: " ++ show value ++ " in setValue") $ Dyn.toDyn value) <$> vals s }
+  modify $ \s -> s { vals = M.insert variable (Dyn.toDyn value) <$> vals s }
   --logIf "witness" $ show (M.lookup variable vals) ++ " <-!"
 
 inputize :: String -> String -> Assert ()

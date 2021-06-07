@@ -196,11 +196,11 @@ r1csWriteAssignments r1cs inputPath witPath = do
     (\path ->
       ByteString.writeFile (path -<.> ".wit.zkif") . zkifWitnessEncode $ r1cs
     )
-  let lookupSignalVal = trace ("r1cs lookup in output") $ r1csNumValue r1cs
+  let lookupSignalVal = r1csNumValue r1cs --let lookupSignalVal = trace ("r1cs lookup in output") $ r1csNumValue r1cs
   liftIO $ emitAssignment
     (map lookupSignalVal [2 .. (1 + nPublicInputs r1cs)])
     inputPath
-  liftIO $ trace ("emitAssign in output " ++ show (map lookupSignalVal [])) $ emitAssignment
+  liftIO $ emitAssignment
     (map lookupSignalVal [(2 + nPublicInputs r1cs) .. (nextSigNum r1cs - 1)])
     witPath
 
@@ -216,7 +216,7 @@ r1csCheck
 r1csCheck r1cs = if (null $ values r1cs)
   then Right ()
   else forM_ (constraints r1cs) $ \c ->
-    let v = trace ("qeqEval from r1csCheck") $ qeqEval r1cs c
+    let v = qeqEval r1cs c --let v = trace ("qeqEval from r1csCheck") $ qeqEval r1cs c
     in  if 0 == fromP v
           then Right ()
           else Left $ unwords

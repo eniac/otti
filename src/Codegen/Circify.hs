@@ -290,7 +290,7 @@ fsModifyLexScope
   -> FunctionScope t v
   -> m (FunctionScope t v)
 fsModifyLexScope i f scope = do
-  n <- trace ("listModify ") $ listModify (nCurrentScopes scope - i - 1) f $ trace ("lexicalScopes " ) $ lexicalScopes scope
+  n <- listModify (nCurrentScopes scope - i - 1) f $ lexicalScopes scope
   return $ scope { lexicalScopes = n }
 
 -- | Apply a fetching function to the indexed scope.
@@ -497,12 +497,12 @@ compilerExistVar :: (Embeddable t v c) => VarName -> Circify t v c ()
 compilerExistVar var = compilerRunOnTop (fsExistVar var)
 
 compilerExistRemove :: (Embeddable t v c) => VarName -> Circify t v c ()
-compilerExistRemove var = compilerRunOnTop (trace ("fsExistRemove name:" ++ show var) $ fsExistRemove var)
+compilerExistRemove var = compilerRunOnTop (fsExistRemove var)
  where
   fsExistRemove
     :: VarName -> FunctionScope t v -> Circify t v c ((), FunctionScope t v)
   fsExistRemove var fs = do
-    newfs <- trace ("fsModifyLexScope from compilerExistRemove") $ fsModifyLexScope
+    newfs <- fsModifyLexScope
       1
       (\scope -> return $ scope { exist = filter (/= var) $ exist scope })
       fs
@@ -700,15 +700,12 @@ computingValues = liftAssert Assert.isStoringValues
 setValue :: Embeddable t v c => SsaLVal -> v -> Circify t v c ()
 setValue name cterm = do
   var <- getSsaName name
-  case name of
-    --(SLVar name) -> trace ("calling compilerExistRemove from setValue on " ++ show name) $ compilerExistRemove name
-    _            -> return ()
-  trace ("calling setValueRaw from setValue") $ setValueRaw var cterm
+  setValueRaw var cterm
 
 setValueRaw :: Embeddable t v c => String -> v -> Circify t v c ()
 setValueRaw var cterm = whenM computingValues $ do
   e <- gets (setValues . langCfg)
-  liftAssert $ trace ("calling gets (setValues . langCfg) from setValueRaw") $ e var cterm
+  liftAssert $ e var cterm
 
 -- | Get the term currently bound to some l-value.
 getTerm :: SsaLVal -> Circify t v c (SsaVal v)
