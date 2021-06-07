@@ -42,8 +42,6 @@
 // N, M, C, X, big array of A's, b, y, feasible
 void *sdp_solve(int n, int m, double *c, double *x, double *a, double *b, double *sol){
 
-
-
     Matrix C = {n,n,{0}};
     Vector B = {m,{0}};
     Matrix X = {n,n,{0}};

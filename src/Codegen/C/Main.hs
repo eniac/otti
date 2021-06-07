@@ -457,10 +457,10 @@ genSpecialFunction fnName cargs = do
               liftCircify $ setValue (SLVar id) (double2fixpt d)
           )
         return . Just . Base $ cIntLit S32 1
-        else do
-          liftLog $ logIf "gadgets::user::verification"
-                          "Runs linear programming solver in prove mode only"
-          return . Just . Base $ cIntLit S32 1
+      else do
+        liftLog $ logIf "gadgets::user::verification"
+                        "Runs linear programming solver in prove mode only"
+        return . Just . Base $ cIntLit S32 1
     "__GADGET_sdp" -> do
 
       expr_n <- genExpr $ cargs!!0
@@ -519,7 +519,7 @@ genSpecialFunction fnName cargs = do
       forM (zip sol_y [0..(m-1)]) $ \(q,i) -> do
         liftCircify $ trace ("setting y" ++ show i) $ setValue (SLVar ("y" ++ show i)) (double2fixpt $ realToFrac q)
         return ()
- 
+
       return . Just . Base $ cIntLit S32 1
     "__GADGET_compute" -> do
       -- Enter scratch state
