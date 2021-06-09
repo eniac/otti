@@ -71,12 +71,12 @@ cValueTests = benchTestGroup
     , ("f0_foo_lex1__k_v0"   , i 127)
     , ("f0_foo_lex1__five_v0", i 5)
     , ("f0_foo_lex1__six_v0" , i 6)
-    , ("f0_foo_lex1__m_v0"   , i 1009254)
+    , ("f0_foo_lex1__m_v0"   , i 1971)
     , ( "f0_foo_lex1__o_v0"
-      , i 4293001216
+      , i . double2fixpt $ (-30.0)
       ) -- 2s comp
-    , ("f0_foo_lex1__q_v0", i 6815744)
-    , ("f0_foo_lex1__r_v0", i 714342)
+    , ("f0_foo_lex1__q_v0", i . double2fixpt $ (104))
+    , ("f0_foo_lex1__r_v0", i . double2fixpt $ (10.9))
     , ("f0_foo_lex1__s_v0", i 10)
     , ("f0_foo_lex1__u_v0", i 4294967285) -- (-11) 2s comp
     ]
@@ -362,41 +362,41 @@ cValueTests = benchTestGroup
   , constraintValueTest "fixed point add"
                         "add"
                         "test/Code/C/fixed_pt_arith.c"
-                        [("f0_add_lex1__z_v0", i 98304)]
+                        [("f0_add_lex1__z_v0", i 192)]
   , constraintValueTest "fixed point sub"
                         "sub"
                         "test/Code/C/fixed_pt_arith.c"
-                        [("f0_sub_lex1__z_v0", i 98304)]
+                        [("f0_sub_lex1__z_v0", i 192)]
   , constraintValueTest
     "fixed point mult"
     "mult"
     "test/Code/C/fixed_pt_arith.c"
-    [ ("f0_mult_lex1__z1_v0", i 252313)
-    , ("f0_mult_lex1__z2_v0", i 1513881)
-    , ("f0_mult_lex1__z3_v0", i 98304)
+    [ ("f0_mult_lex1__z1_v0", i 493) --TODO 492??
+    , ("f0_mult_lex1__z2_v0", i 2956)
+    , ("f0_mult_lex1__z3_v0", i 192)
     ]
   , constraintValueTest
     "fixed point div"
     "div"
     "test/Code/C/fixed_pt_arith.c"
-    [ ("f0_div_lex1__z1_v0", i 271506)
-    , ("f0_div_lex1__z2_v0", i 105585)
-    , ("f0_div_lex1__z3_v0", i 168521)
+    [ ("f0_div_lex1__z1_v0", i 530)
+    , ("f0_div_lex1__z2_v0", i 206)
+    , ("f0_div_lex1__z3_v0", i 329)
     ]
   , constraintValueTest
     "fixed point pos"
     "pos"
     "test/Code/C/fixed_pt_entry.c"
-    [ ("f0_pos_lex1__a_v0", i 2147483647)
-    , ("f0_pos_lex1__b_v0", i 65536)
+    [ ("f0_pos_lex1__a_v0", i 4294967295)
+    , ("f0_pos_lex1__b_v0", i 128)
     , ("f0_pos_lex1__z_v0", i 0)
     ]
   , constraintValueTest
     "fixed point neg"
     "neg"
     "test/Code/C/fixed_pt_entry.c"
-    [ ("f0_neg_lex1__c_v0", i . double2fixpt $ (-0.0000152587890625))
-    , ("f0_neg_lex1__d_v0", i . double2fixpt $ (-32768.0))
+    [ ("f0_neg_lex1__c_v0", i . double2fixpt $ (-0.0078125))
+    , ("f0_neg_lex1__d_v0", i . double2fixpt $ (-64.0))
     ]
   , constraintValueTest
     "fixed point comparisons"
@@ -412,7 +412,7 @@ cValueTests = benchTestGroup
     "fixed point rounding"
     "round"
     "test/Code/C/fixed_pt_round.c"
-    [ ("f0_round_lex1__b_v0", i 2555904)
+    [ ("f0_round_lex1__b_v0", i 4992)
     , ("f0_round_lex1__c_v0", i 39)
     , ("f0_round_lex1__f_v0", i 38)
     , ( "f0_round_lex1__i_v0"

@@ -725,7 +725,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble a b =
               sign   = True
               l      = intResize s 64 $ asFixedPt $ term $ cCast Type.FixedPt a -- cast to 64 for overflow
               r      = intResize sign 64 fx'
-              f      = Ty.IntToDynBv 64 $ Ty.IntLit (2 ^ 16)
+              f      = Ty.IntToDynBv 64 $ Ty.IntLit (2 ^ 7)
               cl     = mkCTerm (CInt sign 64 l) (udef a)
               cf     = mkCTerm (CInt sign 64 f) (udef b)
               div_bv = case (term (cMul cl cf)) of --checks overflow in recursive call
@@ -783,7 +783,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble a b =
                 _ ->
                   error $ unwords
                     ["Error in FxPt multiplication of", show a, "and", show b]
-              fact_bv = Ty.IntToDynBv 64 $ Ty.IntLit (2 ^ 16)
+              fact_bv = Ty.IntToDynBv 64 $ Ty.IntLit (2 ^ 7)
               expr = bvBinExpr ((const $ Left Ty.BvUdiv) sign) mult_bv fact_bv
               fxpt = intResize sign 32 expr
             in
@@ -793,7 +793,7 @@ cWrapBinArith name bvOp doubleF ubF allowDouble a b =
               sign   = True
               l      = intResize sign 64 fx -- cast to 64 for overflow
               r      = intResize sign 64 fx'
-              f      = Ty.IntToDynBv 64 $ Ty.IntLit (2 ^ 16)
+              f      = Ty.IntToDynBv 64 $ Ty.IntLit (2 ^ 7)
               cl     = mkCTerm (CInt sign 64 l) (udef a)
               cf     = mkCTerm (CInt sign 64 f) (udef b)
               div_bv = case (term (cMul cl cf)) of --checks overflow in recursive call
@@ -1051,8 +1051,8 @@ cCast toTy node = case term node of
       (udef node)
     -- cast int to fixedpt
     Type.FixedPt ->
-      let t'   = intResize fromS 16 t -- cast to 16 bit int
-          fxpt = CFixedPt $ Ty.DynBvConcat 32 t' $ Ty.DynBvLit $ Bv.zeros 16 -- append the part after the point
+      let t'   = intResize fromS 25 t -- cast to 25 bit int
+          fxpt = CFixedPt $ Ty.DynBvConcat 32 t' $ Ty.DynBvLit $ Bv.zeros 7 -- append the part after the point
           u    = udef node
       in  mkCTerm fxpt u
     Type.Bool -> mkCTerm
@@ -1064,8 +1064,8 @@ cCast toTy node = case term node of
       let fromS  = True
           toS    = Type.isSignedInt toTy
           toW    = Type.numBits toTy
-          bv16   = Ty.mkDynBvExtract 16 16 t
-          intfin = intResize toS toW bv16
+          bv25   = Ty.mkDynBvExtract 7 25 t --TODO: correct?
+          intfin = intResize toS toW bv25
           --fxpt always signed
             --half    = Ty.IntToDynBv 32 $ Ty.IntLit 32768
             --negHalf = Ty.IntToDynBv 32 $ Ty.IntLit (-32768)
@@ -1101,7 +1101,7 @@ cCast toTy node = case term node of
     Type.FixedPt ->
       let
         t' = Ty.RoundFpToDynBv 64 True $ Ty.FpBinExpr Ty.FpMul t $ Ty.Fp64Lit
-          (2 ^ 16)
+          (2 ^ 7)
         fxpt = intResize True 32 t'
       in
         mkCTerm (CFixedPt $ fxpt) (udef node)
@@ -1132,7 +1132,7 @@ cCast toTy node = case term node of
     Type.FixedPt ->
       let
         t' = Ty.RoundFpToDynBv 32 True $ Ty.FpBinExpr Ty.FpMul t $ Ty.Fp32Lit
-          (2 ^ 16)
+          (2 ^ 7)
         fxpt = intResize True 32 t'
       in
         mkCTerm (CFixedPt $ fxpt) (udef node)
