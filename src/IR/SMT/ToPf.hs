@@ -44,6 +44,7 @@ import qualified Util.ShowMap                  as SMap
 import           Util.ShowMap                   ( ShowMap )
 import qualified Data.Bits                     as Bits
 import qualified Data.BitVector                as Bv
+import qualified Data.Binary.IEEE754           as IEEE754
 import           Data.Dynamic                   ( Dynamic
                                                 , fromDyn
                                                 , fromDynamic
@@ -73,6 +74,7 @@ import           Util.Cfg                       ( MonadCfg(..)
                                                 )
 import           Util.Log
 import           Util.Show
+import           GHC.Float
 import           Debug.Trace
 --- TODO?
 
@@ -651,6 +653,21 @@ bvToPf env term = do
         -> saveConstBv bv $ asBits ((-1 * fl) * fr)
       RoundFpToDynBv 32 True (FpBinExpr FpMul (FpUnExpr FpNeg (Fp32Lit fl)) (Fp32Lit fr))
         -> saveConstBv bv $ asBits ((-1 * fl) * fr)
+
+      -- rounding
+      -- float pos
+      RoundFpToDynBv 32 True (FpBinExpr FpAdd (FpBinExpr FpMul (FpToFp (Fp64Lit val)) (Fp32Lit m)) (Ite (FpUnPred FpIsPositive (FpToFp (Fp64Lit tval))) (Fp32Lit pos) (Fp32Lit (neg))))
+        -> saveConstBv bv $ (Bv.bitVec 32 . IEEE754.doubleToWord) ((val * float2Double m) + float2Double pos)
+      -- float neg
+      RoundFpToDynBv 32 True (FpBinExpr FpAdd (FpBinExpr FpMul (FpToFp (FpUnExpr FpNeg (Fp64Lit val))) (Fp32Lit m)) (Ite (FpUnPred FpIsPositive (FpToFp (FpUnExpr FpNeg (Fp64Lit tval)))) (Fp32Lit pos) (Fp32Lit (neg))))
+        -> saveConstBv bv $ (Bv.bitVec 32 . IEEE754.doubleToWord) ((val * float2Double m) + float2Double neg)
+      -- double pos
+      RoundFpToDynBv 32 True (FpBinExpr FpAdd (FpBinExpr FpMul (Fp64Lit val) (Fp64Lit m)) (Ite (FpUnPred FpIsPositive (Fp64Lit tval)) (Fp64Lit pos) (Fp64Lit (neg))))
+        -> saveConstBv bv $ (Bv.bitVec 32 . IEEE754.doubleToWord) ((val * m) + pos)
+      -- double neg
+      RoundFpToDynBv 32 True (FpBinExpr FpAdd (FpBinExpr FpMul (FpUnExpr FpNeg (Fp64Lit val)) (Fp64Lit m)) (Ite (FpUnPred FpIsPositive (FpUnExpr FpNeg (Fp64Lit tval))) (Fp64Lit pos) (Fp64Lit (neg))))
+        -> saveConstBv bv $ (Bv.bitVec 32 . IEEE754.doubleToWord) ((val * m) + neg)
+
 
       DynBvLit l          -> saveConstBv bv l
       Var name (SortBv w) -> do
