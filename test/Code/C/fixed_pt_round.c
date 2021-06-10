@@ -29,11 +29,11 @@ int round () {
   fp32 p = (fp32)o;
   int q = (int)p;
 
-  float r = -39.5;
+  double r = -39.5;
   fp32 s = (fp32)r;
   int t = (int)s;
 
-  int u = -38.5;
+  double u = -38.5;
   fp32 v = (fp32)u;
   int w = (int)v;
 

@@ -21,6 +21,7 @@ int foo () {
 
   float l = 15.4;
   fp32 m = (fp32)l;
+
   double n = -30.0;
   fp32 o = (fp32)n;
 
@@ -32,5 +33,6 @@ int foo () {
 
   fp32 t = -10.9;
   int u = (int)t;
+
 
 }

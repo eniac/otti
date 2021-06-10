@@ -21,7 +21,7 @@ b = b_
 d = d_
 
 double2fixpt :: Double -> Int
-double2fixpt d = fromIntegral . BV.uint . BV.bitVec 32 . floor $ d * 2 ^ 16
+double2fixpt d = fromIntegral . BV.uint . BV.bitVec 32 . round $ d * 2 ^ 7
 
 cValueTests :: BenchTest
 cValueTests = benchTestGroup
@@ -362,17 +362,19 @@ cValueTests = benchTestGroup
   , constraintValueTest "fixed point add"
                         "add"
                         "test/Code/C/fixed_pt_arith.c"
-                        [("f0_add_lex1__z_v0", i 192)]
+                        [("f0_add_lex1__z_v0", i (double2fixpt 1.5))]
   , constraintValueTest "fixed point sub"
                         "sub"
                         "test/Code/C/fixed_pt_arith.c"
-                        [("f0_sub_lex1__z_v0", i 192)]
+                        [("f0_sub_lex1__z_v0", i (double2fixpt 1.5))]
   , constraintValueTest
     "fixed point mult"
     "mult"
     "test/Code/C/fixed_pt_arith.c"
-    [ ("f0_mult_lex1__z1_v0", i 492) --truncate
-    , ("f0_mult_lex1__z2_v0", i 2955) --truncate
+    [ ("f0_mult_lex1__z1_v0", i 493)
+    , ("f0_mult_lex1__w_v0", i 3)
+    , ("f0_mult_lex1__x_v0", i (double2fixpt 7.7))
+    , ("f0_mult_lex1__z2_v0", i (double2fixpt 23.1))
     , ("f0_mult_lex1__z3_v0", i 192)
     ]
   , constraintValueTest
@@ -387,16 +389,16 @@ cValueTests = benchTestGroup
     "fixed point pos"
     "pos"
     "test/Code/C/fixed_pt_entry.c"
-    [ ("f0_pos_lex1__a_v0", i 4294967295)
-    , ("f0_pos_lex1__b_v0", i 128)
+    [--("f0_pos_lex1__a_v0", i 4294967295) TODO
+    ("f0_pos_lex1__b_v0", i 128)
     , ("f0_pos_lex1__z_v0", i 0)
     ]
   , constraintValueTest
     "fixed point neg"
     "neg"
     "test/Code/C/fixed_pt_entry.c"
-    [ ("f0_neg_lex1__c_v0", i 4294967295) -- smallest negative -0.0078125
-    , ("f0_neg_lex1__d_v0", i 4294967232) -- -64
+    [ ("f0_neg_lex1__c_v0", i 4294967295) -- -0.0078125 -> -1 TODO rounding
+    , ("f0_neg_lex1__d_v0", i 4294959104) -- -64 fp
     ]
   , constraintValueTest
     "fixed point comparisons"
@@ -424,14 +426,13 @@ cValueTests = benchTestGroup
     "fixed point rounding2"
     "round"
     "test/Code/C/fixed_pt_round.c"
-    [ ("f0_round_lex1__n_v0", i 40)
+    [ ("f0_round_lex1__m_v0", i (double2fixpt 39.5)) -- 39.5 in fp
+    , ("f0_round_lex1__n_v0", i 40)
     , ("f0_round_lex1__q_v0", i 39)
-    , ("f0_round_lex1__s_v0", i 4294962368) -- -39.5 in fp
-    , ( "f0_round_lex1__t_v0"
-      , i 4294967256
-      ) -- -40
-    , ("f0_round_lex1__w_v0", i 4294967257)
-    ] -- -39
+    , ("f0_round_lex1__s_v0", i (double2fixpt (-39.5))) -- -39.5 in fp
+    , ( "f0_round_lex1__t_v0", i 4294967257) -- -39 - trucate
+    , ("f0_round_lex1__w_v0", i 4294967258) -- trucate -38
+    ]
   ]
 
 cGadgetTests :: BenchTest
