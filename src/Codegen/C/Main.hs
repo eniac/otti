@@ -513,11 +513,11 @@ genSpecialFunction fnName cargs = do
       --error $ "Out EXPR CTEN " ++ show sol_x ++ "sol y " ++ show sol_y
 
       forM (zip sol_x [0..(n*n-1)]) $ \(q,i) -> do
-        liftCircify $ trace ("setting x" ++ show i) $ setValue (SLVar ("x" ++ show i)) (double2fixpt $ realToFrac q)
+        liftCircify $ trace ("setting x" ++ show i ++ " as " ++ show q) $ setValue (SLVar ("x" ++ show i)) (double2fixpt $ realToFrac q)
         return ()
 
       forM (zip sol_y [0..(m-1)]) $ \(q,i) -> do
-        liftCircify $ trace ("setting y" ++ show i) $ setValue (SLVar ("y" ++ show i)) (double2fixpt $ realToFrac q)
+        liftCircify $ trace ("setting y" ++ show i ++ " as " ++ show q) $ setValue (SLVar ("y" ++ show i)) (double2fixpt $ realToFrac q)
         return ()
 
       return . Just . Base $ cIntLit S32 1

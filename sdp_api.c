@@ -1,7 +1,136 @@
-#include <stdlib.h>
+//print#include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
 #include "sdp_api.h"
+
+int check_sdp2(double n,double m,double c0, double c1, double c2, double c3, double c4, double c5, double c6, double c7, double c8, double x0, double x1, double x2, double x3, double x4, double x5, double x6, double x7, double x8,
+  double a0_0, double a0_1, double a0_2, double a0_3, double a0_4, double a0_5, double a0_6, double a0_7, double a0_8, double a1_0, double a1_1, double a1_2, double a1_3, double a1_4, double a1_5, double a1_6, double a1_7, double a1_8,
+  double b0, double b1, double y0, double y1){
+
+  int solved = 1;
+	printf("SAT = %d\n", solved);
+
+  if (1){
+
+    // (X) feasible
+
+    //solved = solved && psd(X);
+
+    //double R[4] = {0,0,0,0};
+    double r00 = (double)0.0;
+    double r01 = (double)0.0;
+    double r10 = (double)0.0;
+    double r11 = (double)0.0;
+
+    //i = 0
+      //j=0
+    double s = (double)0.0;
+    double to_root = x0 - s;
+    if (to_root < (double)(0.0)){
+      solved = 0;
+    } else {
+      double root = sqrt_val(to_root);
+      r00 = root;
+    }
+
+		printf("SAT = %d\n", solved);
+
+
+      //j=0
+    // = 1
+    s = (double)0.0;
+    r10 = (double)(1.0) / r00 * (x2 - s);
+
+
+      //j=1
+    s = r10 * r10;
+    to_root = x3 - s;
+    if (to_root < (double)(0.0)){
+            solved = 0;
+     } else {
+            double root = sqrt_val(to_root);
+            r11 = root;
+     }
+
+		 printf("SAT = %d\n", solved);
+
+      double dot_s0f = (a0_0*x0) + (a0_1*x1) + (a0_2*x2) + (a0_3*x3);
+      double dot_s1f = (a1_0*x0) + (a1_1*x1) + (a1_2*x2) + (a1_3*x3);
+
+
+      solved = solved && d_equal(dot_s0f,b0);
+      solved = solved && d_equal(dot_s1f,b1);
+
+			printf("SAT = %d\n", solved);
+
+      //}
+
+      // (y,S) feasible
+      //Matrix S = mat_sub(C, mat_comb(y,A)); // sum from 1 to m of yi*Ai
+      //comb - Matrix sum = scal_mul(A.m0, y.v[0]);
+      //sum = mat_add(sum,scal_mul(A.m1, y.v[1]));
+    //    Matrix S = {N,N,{0,0,0,0}};
+    //    for (int i = 0; i < S.rows*S.cols; i++){
+      double s0 = c0 - ((a0_0 * y0) + (a1_0 * y1));
+      double s1 = c1 - ((a0_1 * y0) + (a1_1 * y1));
+      double s2 = c2 - ((a0_2 * y0) + (a1_2 * y1));
+      double s3 = c3 - ((a0_3 * y0) + (a1_3 * y1));
+
+    //    }
+
+    //    solved = solved && psd(S);
+      //double R[4] = {0,0,0,0};
+      double r00s = (double)0.0;
+      double r01s = (double)0.0;
+      double r10s = (double)0.0;
+      double r11s = (double)0.0;
+
+      //i = 0
+        //j=0
+      double ss = (double)0.0;
+      double to_roots = x0 - ss;
+      if (to_roots < (double)(0.0)){
+        solved = 0;
+      } else {
+        double roots = sqrt_val(to_roots);
+        r00s = roots;
+      }
+
+			printf("SAT = %d\n", solved);
+        //j=0
+      // = 1
+      ss = (double)0.0;
+      r10s = (double)(1.0) / r00s * (x2 - ss);
+
+
+        //j=1
+      ss = r10s * r10s;
+      to_roots = x3 - ss;
+      if (to_roots < (double)(0.0)){
+              solved = 0;
+       } else {
+              double roots = sqrt_val(to_roots);
+              r11s = roots;
+       }
+
+			 printf("SAT = %d\n", solved);
+
+      // C*X - sum(yi*bi) = 0 (duality gap = 0)
+    double gap = (s0*x0) + (s1*x1) + (s2*x2) + (s3*x3); // = dot(S,X);
+    //dot(P.C,P.X) - vec_comb(y,b);
+
+		printf("GAP = %f\n", gap);
+
+    solved = solved && (d_equal(gap,0.0));
+
+		printf("SAT = %d\n", solved);
+
+  }
+
+  return solved;
+
+
+}
 
 /*
 	int main(void) {
@@ -30,17 +159,26 @@
  // Matrix A1 = {N,N,{0.14047667, -0.17714865,-0.17714865,  0.49857682}};
  // Matrix_List A = {M,A0,A1};
 
-    double *sol_x = sdp_solve(2,2,C,X,A,b);
+  double *sol = malloc(6 * sizeof(double));
+
+	sdp_solve(2,2,C,X,A,b,sol);
 
     printf("\n\n");
     for (int i = 0; i < 9; i++){
-       printf("x - %6.3f\n", sol_x[i]);
+       printf("x - %6.3f\n", sol[i]);
     }
+
+		int check = check_sdp2(3,2,-0.1983367,  0.54620727, 0.54620727,  0.29183634, 0,0,0,0,0, sol[0],sol[1],sol[2],sol[3],0,0,0,0,0,-0.99890972, 0.14410886,0.14410886, -0.73737868,0,0,0,0,0, 0.14047667, -0.17714865,-0.17714865,  0.49857682,0,0,0,0,0, -2.3830572764539832, 0.8521208961278653, sol[4],sol[5]);
+
+		printf("CHECK = %d\n", check);
+
+
+
 }
 */
 
 // N, M, C, X, big array of A's, b, y, feasible
-void *sdp_solve(int n, int m, double *c, double *x, double *a, double *b, double *sol){
+void sdp_solve(int n, int m, double *c, double *x, double *a, double *b, double *sol){
 
     Matrix C = {n,n,{0}};
     Vector B = {m,{0}};
@@ -1050,8 +1188,8 @@ double sqrt_val(double n)
 	  }
 
 	  Big_Matrix Ap = mat_mul_big(P,A);
-    printf("REAL AP");
-    print_mat_b(Ap);
+    //printf("REAL AP");
+    //print_mat_b(Ap);
 
 	  for (int v=0; v<n; v++){
 	    L.m[v*(L.cols)+v] = 1.0;
@@ -1351,7 +1489,7 @@ double sqrt_val(double n)
       }
     }
   }
-  print_mat(R);
+  //print_mat(R);
   return r;
 }
 
@@ -2156,8 +2294,8 @@ double sqrt_val(double n)
 
 	        //4. update all values
 	        Q.y = new_y;
-          printf("Y");
-          print_vec(new_y);
+          //printf("Y");
+          //print_vec(new_y);
 
 
 

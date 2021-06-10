@@ -3,7 +3,7 @@
 
 //typedef float double;
 
-static const double epsilon   = (double)1.0e-5;
+static const double epsilon   = (double)1.0e-2;
 static int valid = 1;
 
 typedef struct {
@@ -56,7 +56,7 @@ typedef struct {
   Vector y;
 } Solution;
 
-void *sdp_solve(int n, int m, double *c, double *x, double *a, double *b, double *sol);
+void sdp_solve(int n, int m, double *c, double *x, double *a, double *b, double *sol);
 double get(int i, int j, Matrix mat);
 int d_equal(double a, double b);
 int d_equal_ep(double a, double b,double ep);
