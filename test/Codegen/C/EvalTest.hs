@@ -374,7 +374,7 @@ cValueTests = benchTestGroup
     [ ("f0_mult_lex1__z1_v0", i 493)
     , ("f0_mult_lex1__w_v0", i 3)
     , ("f0_mult_lex1__x_v0", i (double2fixpt 7.7))
-    , ("f0_mult_lex1__z2_v0", i (double2fixpt 23.1))
+    , ("f0_mult_lex1__z2_v0", i 2958)
     , ("f0_mult_lex1__z3_v0", i 192)
     ]
   , constraintValueTest
