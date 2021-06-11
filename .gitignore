@@ -8,3 +8,4 @@ comp
 scratch
 /inputs
 *.jq
+.DS_Store

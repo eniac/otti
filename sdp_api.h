@@ -1,5 +1,5 @@
+#define N 3
 #define M 2
-#define N 2
 
 //typedef float double;
 
@@ -8,40 +8,32 @@ static int valid = 1;
 
 typedef struct {
   int len;
-  double v[9];
+  double v[M];
 } Vector;
 
 typedef struct {
   int len;
-  double v[500];
+  double v[(M+N*N)*(M+N*N)];
 } Big_Vector;
 
 typedef struct {
-  int len;
-  double v[9];
-  int sols;
-} Gauss_Vec;
-
-typedef struct {
   int rows; int cols;
-  double m[9];
+  double m[N*N];
 } Matrix;
 
 typedef struct {
   int rows; int cols;
-  double m[500];
+  double m[(M+N*N)*(M+N*N)];
 } Big_Matrix;
 
 typedef struct {
   int len;
-  Matrix m0;
-  Matrix m1;
+  Matrix m[M];
 } Matrix_List;
 
 typedef struct {
   int len;
-  Big_Matrix m0;
-  Big_Matrix m1;
+  Big_Matrix m[M];
 } Big_Matrix_List;
 
 typedef struct {
@@ -82,7 +74,7 @@ Vector vec_sub(Vector a, Vector b);
 Big_Vector vec_sub_big(Big_Vector a, Big_Vector b);
 Big_Vector vectorize(Big_Matrix A);
 Big_Matrix biggify_mat(Matrix P, int rows, int cols);
-Vector reg_vec(Gauss_Vec g);
+//Vector reg_vec(Gauss_Vec g);
 Matrix swap_rows(Matrix X, int a, int b);
 Big_Matrix swap_rows_big(Big_Matrix X, int a, int b);
 Matrix div_row(Matrix X, int a, double s);

@@ -1,20 +1,20 @@
 int comp () {
 
-  typedef float fixed_point_precision_16_16;
+  typedef float fp32;
 
-  fixed_point_precision_16_16 a = 978.382;
-  fixed_point_precision_16_16 b = -100.09;
+  fp32 a = 978.382;
+  fp32 b = -100.09;
   int c = -400;
   int d = 39;
-  fixed_point_precision_16_16 e = (fixed_point_precision_16_16)d;
+  fp32 e = (fp32)d;
   int f = (int)e;
 
   int y = 0;
-  if (a < (fixed_point_precision_16_16)1000.0) {
+  if (a < (fp32)1000.0) {
       y += 1;
   }
 
-  if (a < (fixed_point_precision_16_16)1000) {
+  if (a < (fp32)1000) {
       y += 1;
   }
 
@@ -22,7 +22,7 @@ int comp () {
       y += 1;
   }
 
-  if ((fixed_point_precision_16_16)c < b) {
+  if ((fp32)c < b) {
       y += 1;
   }
 
