@@ -19,7 +19,7 @@ int foo () {
   int five = 0 ? (_Bool)0 : (int)5;
   int six = (_Bool)0 + (int)6;
 
-  float l = 15.4;
+  double l = 15.4;
   fp32 m = (fp32)l;
 
   double n = -30.0;

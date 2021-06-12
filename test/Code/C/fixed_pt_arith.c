@@ -28,6 +28,11 @@ int mult() {
   fp32 z2 = x*w;
   fp32 z3 = w*y;
 
+
+  fp32 a = 621250.0;
+  fp32 b = -0.640;
+  fp32 c = a * b;
+
 }
 
 int div() {
