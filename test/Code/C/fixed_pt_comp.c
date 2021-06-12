@@ -1,20 +1,20 @@
 int comp () {
 
-  typedef float fp32;
+  typedef float fp64;
 
-  fp32 a = 978.382;
-  fp32 b = -100.09;
+  fp64 a = 978.382;
+  fp64 b = -100.09;
   int c = -400;
   int d = 39;
-  fp32 e = (fp32)d;
+  fp64 e = (fp64)d;
   int f = (int)e;
 
   int y = 0;
-  if (a < (fp32)1000.0) {
+  if (a < (fp64)1000.0) {
       y += 1;
   }
 
-  if (a < (fp32)1000) {
+  if (a < (fp64)1000) {
       y += 1;
   }
 
@@ -22,7 +22,7 @@ int comp () {
       y += 1;
   }
 
-  if ((fp32)c < b) {
+  if ((fp64)c < b) {
       y += 1;
   }
 
