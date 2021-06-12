@@ -1,6 +1,6 @@
 int maximize() {
-  typedef double fp32;
-  fp32 x,y;
+  typedef double fp64;
+  fp64 x,y;
 
   __GADGET_maximize(
       3 * x + 4 * y,   // objective
@@ -10,8 +10,8 @@ int maximize() {
 }
 
 int minimize() {
-  typedef double fp32;
-  fp32 x1,x2;
+  typedef double fp64;
+  fp64 x1,x2;
 
   __GADGET_minimize(
       x1 + 2*x2,   // objective
@@ -21,4 +21,3 @@ int minimize() {
       x1 >= 0,
       x2 >= 0);
 }
-

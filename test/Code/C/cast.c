@@ -1,6 +1,6 @@
 
 int foo () {
-  typedef float fp32;
+  typedef float fp64;
 
   int a = (_Bool)1;
   int b = (_Bool)2;
@@ -20,18 +20,18 @@ int foo () {
   int six = (_Bool)0 + (int)6;
 
   double l = 15.4;
-  fp32 m = (fp32)l;
+  fp64 m = (fp64)l;
 
   double n = -30.0;
-  fp32 o = (fp32)n;
+  fp64 o = (fp64)n;
 
   short p = 104;
-  fp32 q = (fp32)p;
+  fp64 q = (fp64)p;
 
-  fp32 r = 10.9;
+  fp64 r = 10.9;
   int s = (int)r;
 
-  fp32 t = -10.9;
+  fp64 t = -10.9;
   int u = (int)t;
 
 

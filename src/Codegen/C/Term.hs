@@ -1072,8 +1072,8 @@ cCast toTy node = case term node of
       let fromS  = True
           toS    = Type.isSignedInt toTy
           toW    = Type.numBits toTy
-          bv32   = intResize toS toW $ Ty.mkDynBvExtract 32 32 t --TODO: correct?
-          r      = Ty.mkDynBvExtractBit 31 t --TODO: correct??? CHECK!!!
+          bv32   = intResize toS toW $ Ty.mkDynBvExtract 32 32 t
+          r      = Ty.mkDynBvExtractBit 31 t
           ite    = Ty.mkIte r (Ty.mkDynBvNaryExpr Ty.BvAdd [bv32, (Ty.DynBvLit $ Bv.zeros (toW-1) Bv.# (Bv.ones 1))]) bv32 -- cond t f
       in  mkCTerm (CInt toS toW ite) (udef node)
     Type.FixedPt -> node
