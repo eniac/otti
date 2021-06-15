@@ -3,8 +3,8 @@ int add () {
 
   typedef double fp64;
   fp64 x = 1.0;
-  //fp64 y = 0.5;
-  //fp64 z = x+y;
+  fp64 y = 0.5;
+  fp64 z = x+y;
 
 }
 

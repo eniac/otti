@@ -1098,12 +1098,12 @@ cCast toTy node = case term node of
             )
             (udef node)
     Type.FixedPt ->
-      let
+      {-let
         fxpt = Ty.RoundFpToDynBv 64 True $ Ty.FpBinExpr Ty.FpMul t $ Ty.Fp64Lit (2 ^ 32)
         --fxpt = intResize True 64 t'
       in
         trace ("from cCast double -> " ++ show (mkCTerm (CFixedPt $ fxpt) (udef node))) $ mkCTerm (CFixedPt $ fxpt) (udef node)
-      {-
+      -}
       let
         half    = Ty.Fp64Lit 0.5
         negHalf = Ty.Fp64Lit (-0.5)
@@ -1121,7 +1121,7 @@ cCast toTy node = case term node of
             )
         )
         (udef node)
-        -}
+
 
     Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
@@ -1147,13 +1147,13 @@ cCast toTy node = case term node of
             (udef node)
 
     Type.FixedPt ->
-
+      {-
       let
         fxpt = Ty.RoundFpToDynBv 64 True $ Ty.FpBinExpr Ty.FpMul t $ Ty.Fp32Lit (2 ^ 32)
         --fxpt = intResize True 64 t'
       in
         trace ("from cCast float -> " ++ show (mkCTerm (CFixedPt $ fxpt) (udef node))) $ mkCTerm (CFixedPt $ fxpt) (udef node)
-      {-
+      -}
       let
         half    = Ty.Fp32Lit 0.5
         negHalf = Ty.Fp32Lit (-0.5)
@@ -1166,11 +1166,11 @@ cCast toTy node = case term node of
            (Ty.FpBinExpr
               Ty.FpAdd
               t'
-              (Ty.mkIte (Ty.FpUnPred Ty.FpIsPositive t) negHalf half)
+              (Ty.mkIte (Ty.FpUnPred Ty.FpIsPositive t') negHalf half)
             )
         )
         (udef node)
-        -}
+
     Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)
     Type.Double -> mkCTerm (CDouble $ Ty.FpToFp t) (udef node)
