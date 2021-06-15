@@ -1,7 +1,5 @@
-#define N 3
+#define N 2
 #define M 2
-
-//typedef float double;
 
 static const double epsilon   = (double)1.0e-2;
 static int valid = 1;
@@ -48,7 +46,6 @@ typedef struct {
   Vector y;
 } Solution;
 
-void sdp_solve(int n, int m, double *c, double *x, double *a, double *b, double *sol);
 double get(int i, int j, Matrix mat);
 int d_equal(double a, double b);
 int d_equal_ep(double a, double b,double ep);
@@ -96,3 +93,5 @@ int sdp_check(Matrix C, Matrix X, Matrix_List A, Vector b, Vector y, int feasibl
 Matrix sdp_gadget(Matrix C, Matrix X, Matrix_List A, Vector b);
 double get_big(int i, int j, Big_Matrix mat);
 double norm_circ(Big_Vector e, Big_Matrix LL, Big_Vector z);
+
+void sdp_solve(int n, int m, double *c, double *x, double *a, double *b, double *sol);

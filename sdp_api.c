@@ -3,6 +3,9 @@
 #include <math.h>
 #include <stdlib.h>
 #include "sdp_api.h"
+
+
+
 /*
 int check_sdp2(double n,double m,double c0, double c1, double c2, double c3, double c4, double c5, double c6, double c7, double c8, double x0, double x1, double x2, double x3, double x4, double x5, double x6, double x7, double x8,
   double a0_0, double a0_1, double a0_2, double a0_3, double a0_4, double a0_5, double a0_6, double a0_7, double a0_8, double a1_0, double a1_1, double a1_2, double a1_3, double a1_4, double a1_5, double a1_6, double a1_7, double a1_8,
@@ -17,42 +20,8 @@ int check_sdp2(double n,double m,double c0, double c1, double c2, double c3, dou
 
     //solved = solved && psd(X);
 
-    //double R[4] = {0,0,0,0};
-    double r00 = (double)0.0;
-    double r01 = (double)0.0;
-    double r10 = (double)0.0;
-    double r11 = (double)0.0;
-
-    //i = 0
-      //j=0
-    double s = (double)0.0;
-    double to_root = x0 - s;
-    if (to_root < (double)(0.0)){
-      solved = 0;
-    } else {
-      double root = sqrt_val(to_root);
-      r00 = root;
-    }
-
-		//printf("SAT = %d\n", solved);
-
-
-      //j=0
-    // = 1
-    s = (double)0.0;
-    r10 = (double)(1.0) / r00 * (x2 - s);
-
-
-      //j=1
-    s = r10 * r10;
-    to_root = x3 - s;
-    if (to_root < (double)(0.0)){
-            solved = 0;
-     } else {
-            double root = sqrt_val(to_root);
-            r11 = root;
-     }
-
+		double det = (x0*x3) - (x1*x2);
+    solved = solved && (x0 > -0.01) && (x3 > -0.01) && (det > -0.01);
 		 //printf("SAT = %d\n", solved);
 
       double dot_s0f = (a0_0*x0) + (a0_1*x1) + (a0_2*x2) + (a0_3*x3);
@@ -80,39 +49,8 @@ int check_sdp2(double n,double m,double c0, double c1, double c2, double c3, dou
     //    }
 
     //    solved = solved && psd(S);
-      //double R[4] = {0,0,0,0};
-      double r00s = (double)0.0;
-      double r01s = (double)0.0;
-      double r10s = (double)0.0;
-      double r11s = (double)0.0;
-
-      //i = 0
-        //j=0
-      double ss = (double)0.0;
-      double to_roots = x0 - ss;
-      if (to_roots < (double)(0.0)){
-        solved = 0;
-      } else {
-        double roots = sqrt_val(to_roots);
-        r00s = roots;
-      }
-
-			//printf("SAT = %d\n", solved);
-        //j=0
-      // = 1
-      ss = (double)0.0;
-      r10s = (double)(1.0) / r00s * (x2 - ss);
-
-
-        //j=1
-      ss = r10s * r10s;
-      to_roots = x3 - ss;
-      if (to_roots < (double)(0.0)){
-              solved = 0;
-       } else {
-              double roots = sqrt_val(to_roots);
-              r11s = roots;
-       }
+		det = (s0*s3) - (s1*s2);
+		solved = solved && (s0 > -0.01) && (s3 > -0.01) && (det > -0.01);
 
 			 //printf("SAT = %d\n", solved);
 
@@ -133,9 +71,10 @@ int check_sdp2(double n,double m,double c0, double c1, double c2, double c3, dou
 
 }
 */
-
+/*
 	int main(void) {
 
+		printf("START\n");
 
 	  // problem
 
@@ -150,7 +89,7 @@ int check_sdp2(double n,double m,double c0, double c1, double c2, double c3, dou
 
     //Matrix_List A = {M,A0,A1};
 
-/*
+
 //prob 2x2x2
   double C[4] = {-0.1983367,  0.54620727, 0.54620727,  0.29183634};
   double b[4] = {-2.3830572764539832, 0.8521208961278653, 0, 0};
@@ -159,10 +98,14 @@ int check_sdp2(double n,double m,double c0, double c1, double c2, double c3, dou
   double A[8] = {-0.99890972, 0.14410886,0.14410886, -0.73737868, 0.14047667, -0.17714865,-0.17714865,  0.49857682};
  // Matrix A1 = {N,N,{0.14047667, -0.17714865,-0.17714865,  0.49857682}};
  // Matrix_List A = {M,A0,A1};
-*/
+
   double *sol = malloc(6 * sizeof(double));
 
-	sdp_solve(3,2,C,X,A,b,sol);
+		printf("CHECK 1\n");
+
+	sdp_solve(N,M,C,X,A,b,sol);
+
+	printf("CHECK FINAL\n");
 
     //printf("\n\n");
     for (int i = 0; i < 9; i++){
@@ -171,12 +114,12 @@ int check_sdp2(double n,double m,double c0, double c1, double c2, double c3, dou
 
 		//int check = check_sdp2(3,2,-0.1983367,  0.54620727, 0.54620727,  0.29183634, 0,0,0,0,0, sol[0],sol[1],sol[2],sol[3],0,0,0,0,0,-0.99890972, 0.14410886,0.14410886, -0.73737868,0,0,0,0,0, 0.14047667, -0.17714865,-0.17714865,  0.49857682,0,0,0,0,0, -2.3830572764539832, 0.8521208961278653, sol[4],sol[5]);
 
-		////printf("CHECK = %d\n", check);
 
-
+		//printf("CHECK = %d\n", check);
 
 }
 
+*/
 
 // N, M, C, X, big array of A's, b, y, feasible
 void sdp_solve(int n, int m, double *c, double *x, double *a, double *b, double *sol){

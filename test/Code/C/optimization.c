@@ -3,7 +3,7 @@ typedef double fp32;
 int max_check(fp32 x1, fp32 x2, fp32 y1, fp32 y2, fp32 y3){
 
   // duality gap
-  fp32 xc = 3 * x1 + 4 * x2; 
+  fp32 xc = 3 * x1 + 4 * x2;
   fp32 yb = 14 * y1 + 2 * y3;
   int dual = (xc == yb);
 
@@ -53,4 +53,3 @@ int minimize() {
       x1 >= 0,
       x2 >= 0);
 }
-

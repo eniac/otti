@@ -83,7 +83,8 @@ getStruct n = untypedef ("struct " ++ n)
 parseBaseTy :: [CTypeSpec] -> CCirc (Either String Type)
 parseBaseTy ty = case ty of
   [CVoidType{}] -> return $ Right Void
-  [CTypeDef (Ident "fp32" _ _) _] -> return $ Right FixedPt
+  [CTypeDef (Ident "fp64" _ _) _] -> return $ Right FixedPt
+  [CTypeDef (Ident "fp32" _ _) _] -> return $ Right FixedPt -- this is the same as above
   [CTypeDef (Ident "fixed_point_precision_16_16" _ _) _] -> return $ Right FixedPt
     -- fixed point new
   [CTypeDef (Ident name _ _) _] ->
