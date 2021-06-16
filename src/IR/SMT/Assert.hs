@@ -99,17 +99,22 @@ evalToTerm :: Ty.SortClass s => Ty.Term s -> Assert (Maybe (Ty.Term s))
 evalToTerm t = fmap Alg.valueToTerm <$> eval t
 
 evalAndSetValue :: Ty.SortClass s => String -> Ty.Term s -> Assert ()
-evalAndSetValue variable term = eval term >>= mapM_ (setValue variable)
+evalAndSetValue variable term = (eval term) >>= mapM_ (setValue variable)
+
 
 setValue :: Ty.SortClass s => String -> Ty.Value s -> Assert ()
 setValue variable value = do
   logIf "witness" $ show variable ++ " -> " ++ show value
   modify $ \s -> s { vals = M.insert variable (Dyn.toDyn value) <$> vals s }
+  --logIf "witness" $ show (M.lookup variable vals) ++ " <-!"
 
 inputize :: String -> String -> Assert ()
 inputize userName smtName = do
   logIf "inputize" $ "Inputize: " ++ userName ++ " -> " ++ smtName
   modify $ \s -> s { inputs = M.insert smtName userName $ inputs s }
+
+listAssertions :: AssertState -> [Ty.TermBool]
+listAssertions = F.toList . asserted
 
 publicize :: String -> Assert ()
 publicize n = do

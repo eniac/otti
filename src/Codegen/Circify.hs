@@ -92,6 +92,7 @@ import           Util.Control                   ( MonadDeepState(..)
                                                 , whenM
                                                 )
 import           Util.Log
+import           Debug.Trace
 
 {-|
 
@@ -274,7 +275,7 @@ fsAppendGuards gs fs = FunctionScope { guards = guards fs ++ map Guard gs
 listModify :: Functor m => Int -> (a -> m a) -> [a] -> m [a]
 listModify 0 f (x : xs) = (: xs) `fmap` f x
 listModify n f (x : xs) = (x :) `fmap` listModify (n - 1) f xs
-listModify _ _ []       = error "Could not modify at index"
+listModify n _ []       = error ("Could not modify at index " ++ show n)
 
 -- | Find the scope containing this variable. Indexed from the back.
 fsFindLexScopeOpt :: VarName -> FunctionScope t v -> Maybe Int
@@ -486,7 +487,7 @@ compilerRunOnTop f = do
   s       <- get
   (r, s') <-
     f
-    $ fromMaybe (error "Cannot run in function: no function!")
+    $ fromMaybe (error "Cannot run in function: no function! ")
     $ listToMaybe
     $ callStack s
   modify $ \s -> s { callStack = s' : tail (callStack s) }
@@ -502,7 +503,7 @@ compilerExistRemove var = compilerRunOnTop (fsExistRemove var)
     :: VarName -> FunctionScope t v -> Circify t v c ((), FunctionScope t v)
   fsExistRemove var fs = do
     newfs <- fsModifyLexScope
-      0
+      1
       (\scope -> return $ scope { exist = filter (/= var) $ exist scope })
       fs
     return ((), newfs)

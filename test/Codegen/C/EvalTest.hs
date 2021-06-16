@@ -449,8 +449,8 @@ cGadgetTests = benchTestGroup
     "maximize"
     "test/Code/C/optimization.c"
     []
-    [ ("f0_maximize_lex1__x_v0", i (double2fixpt 6.0))
-    , ("f0_maximize_lex1__y_v0", i (double2fixpt 4.0))
+    [ ("f0_maximize_lex1__x1_v0", i (double2fixpt 6.0))
+    , ("f0_maximize_lex1__x2_v0", i (double2fixpt 4.0))
     ]
   , inputValueTest
     "minimize gadget"

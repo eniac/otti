@@ -63,6 +63,7 @@ import           GHC.TypeLits                   ( KnownNat
                                                 , natVal
                                                 )
 import           Data.Proxy                     ( Proxy(..) )
+import           Debug.Trace
 -- Faster IO?
 -- import qualified Data.Text.IO                  as TextIO
 -- import           System.IO                      ( openFile

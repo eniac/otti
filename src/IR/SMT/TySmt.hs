@@ -272,6 +272,7 @@ valAsDynBv (ValDynBv b) = b
 valAsArray :: Value (ArraySort k v) -> DefaultMap (Value k) (Value v)
 valAsArray (ValArray b) = b
 
+
 asVarName :: Term s -> Maybe String
 asVarName (Var n _) = Just n
 asVarName _         = Nothing

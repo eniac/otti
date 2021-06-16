@@ -1,0 +1,4 @@
+python sdp_meta.py
+gcc sdp_new.c -o out
+./out
+

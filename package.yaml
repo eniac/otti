@@ -29,6 +29,7 @@ dependencies:
 
 library:
   source-dirs: src
+  c-sources: sdp_api.c
   dependencies:
   - z3 >= 408.2
   - mtl >= 2.2.2
@@ -65,6 +66,7 @@ executables:
   compiler-exe:
     main:                Main.hs
     source-dirs:         app
+    c-sources: sdp_api.c
     ghc-options:
     - -threaded
     - -rtsopts
@@ -81,6 +83,7 @@ tests:
   compiler-test:
     main:                Spec.hs
     source-dirs:         test
+    c-sources: sdp_api.c
     ghc-options:
     - -threaded
     - -rtsopts

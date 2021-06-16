@@ -76,7 +76,7 @@ import           Util.Log
 import           Util.Show
 import           GHC.Float
 import           Debug.Trace
---- TODO?
+
 
 
 type PfVar = String
@@ -657,17 +657,22 @@ bvToPf env term = do
 
       -- rounding
       -- float pos
-      RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (FpToFp (Fp64Lit val)) (Fp32Lit m)) (Ite (FpUnPred FpIsPositive (FpToFp (Fp64Lit tval))) (Fp32Lit neg) (Fp32Lit pos)))
-        -> saveConstBv bv $ Bv.bitVec 64 $ round ((val * float2Double m) + float2Double neg)
+
+      RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (Fp64Lit val) (Fp64Lit m)) (Ite (FpUnPred FpIsPositive (FpBinExpr FpMul (Fp64Lit tval) (Fp64Lit tm))) (Fp64Lit (neg)) (Fp64Lit pos)))
+        -> saveConstBv bv $ Bv.bitVec 64 $ round ((val * m) + neg)
+      --RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (FpToFp (Fp64Lit val)) (Fp32Lit m)) (Ite (FpUnPred FpIsPositive (FpToFp (Fp64Lit tval))) (Fp32Lit neg) (Fp32Lit pos)))
+      --  -> saveConstBv bv $ Bv.bitVec 64 $ round ((val * float2Double m) + float2Double neg)
       -- float neg
-      RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (FpToFp (FpUnExpr FpNeg (Fp64Lit val))) (Fp32Lit m)) (Ite (FpUnPred FpIsPositive (FpToFp (FpUnExpr FpNeg (Fp64Lit tval)))) (Fp32Lit neg) (Fp32Lit pos)))
-        -> saveConstBv bv $ Bv.bitVec 64 $ round ((-1 * val * float2Double m) + float2Double pos)
+      RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (FpUnExpr FpNeg (Fp64Lit val)) (Fp64Lit m)) (Ite (FpUnPred FpIsPositive (FpBinExpr FpMul (FpUnExpr FpNeg (Fp64Lit tval)) (Fp64Lit tm))) (Fp64Lit (neg)) (Fp64Lit pos)))
+        -> saveConstBv bv $ Bv.bitVec 64 $ round ((-1 * val * m) + pos)
+      --RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (FpToFp (FpUnExpr FpNeg (Fp64Lit val))) (Fp32Lit m)) (Ite (FpUnPred FpIsPositive (FpToFp (FpUnExpr FpNeg (Fp64Lit tval)))) (Fp32Lit neg) (Fp32Lit pos)))
+      --  -> saveConstBv bv $ Bv.bitVec 64 $ round ((-1 * val * float2Double m) + float2Double pos)
       -- double pos
-      RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (Fp64Lit val) (Fp64Lit m)) (Ite (FpUnPred FpIsPositive (Fp64Lit tval)) (Fp64Lit neg) (Fp64Lit pos)))
+      RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (Fp64Lit val) (Fp64Lit m)) (Ite (FpUnPred FpIsPositive (FpBinExpr FpMul (Fp64Lit tval) (Fp64Lit tm))) (Fp64Lit neg) (Fp64Lit pos)))
         -> saveConstBv bv $ Bv.bitVec 64 $ round ((val * m) + neg)
       -- double neg
-      RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (FpUnExpr FpNeg (Fp64Lit val)) (Fp64Lit m)) (Ite (FpUnPred FpIsPositive (FpUnExpr FpNeg (Fp64Lit tval))) (Fp64Lit neg) (Fp64Lit pos)))
-        -> saveConstBv bv $ Bv.bitVec 64 $ round ((val * m) + pos)
+      RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (FpUnExpr FpNeg (Fp64Lit val)) (Fp64Lit m)) (Ite (FpUnPred FpIsPositive (FpBinExpr FpMul (FpUnExpr FpNeg (Fp64Lit tval)) (Fp64Lit tm))) (Fp64Lit neg) (Fp64Lit pos)))
+        -> saveConstBv bv $ Bv.bitVec 64 $ round ((-1 * val * m) + pos)
 
 
       DynBvLit l          -> saveConstBv bv l
@@ -1008,6 +1013,28 @@ publicizeInputs is = do
 -- | Ensure that the provided @inputs@ have an R1CS value assigned to
 -- them, consistent with the SMT value found in @values@. A no-op if
 -- @values@ is [Nothing].
+
+
+ensureInputValues
+  :: forall n . KnownNat n => Maybe SmtVals -> Set.Set PfVar -> ToPf n ()
+ensureInputValues values inputs = forM_ values $ \values ->
+  forM_ (Map.toList values) $ \(key, dval) -> do
+    let value = valFromDynamic dval
+    let v     = toP value
+    logIf "toPf" $ key ++ " -> " ++ primeShow v
+    modify $ \s -> s { r1cs = r1csSetSignalVal key v $ r1cs s }
+ where
+  valFromDynamic v = case fromDynamic v of
+    Just b  -> toInteger $ fromEnum $ valAsBool b
+    Nothing -> case fromDynamic v of
+      Just b  -> Bv.uint $ valAsDynBv b
+      Nothing -> case fromDynamic v of
+        Just b  -> valAsPf @n b
+        Nothing -> error $ "Bad input type: " ++ show v
+
+
+
+{-
 ensureInputValues
   :: forall n . KnownNat n => Maybe SmtVals -> Set.Set PfVar -> ToPf n ()
 ensureInputValues values inputs = forM_ values $ \values ->
@@ -1025,6 +1052,7 @@ ensureInputValues values inputs = forM_ values $ \values ->
       Nothing -> case fromDynamic v of
         Just b  -> valAsPf @n b
         Nothing -> error $ "Bad input type: " ++ show v
+-}
 
 toPf
   :: KnownNat n

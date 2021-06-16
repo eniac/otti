@@ -4,6 +4,7 @@
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE ForeignFunctionInterface   #-}
 module Codegen.C.Main
   ( CInputs(..)
   , evalFn
@@ -66,6 +67,50 @@ import           Lens.Simple                    ( makeLenses
                                                 , set
                                                 , view
                                                 )
+import           Foreign.Marshal.Array
+import qualified Foreign.C.Types               as FTypes
+import qualified Foreign                       as F
+import           Data.Typeable
+import           Control.Monad                  ( )
+import           Control.Monad.State.Strict
+import           Targets.R1cs.Main              ( R1CS(..) )
+import qualified Targets.R1cs.Opt.Main         as R1csOpt
+import           Targets.R1cs.Output            ( r1csShow )
+import           Targets.BackEnd
+import qualified IR.SMT.Opt                    as SmtOpt
+import qualified IR.SMT.Opt.Assert             as OptAssert
+import qualified IR.SMT.ToPf                   as ToPf
+import           GHC.TypeNats                   ( KnownNat )
+import           Text.PrettyPrint               ( hang
+                                                , text
+                                                , render
+                                                )
+import           Language.C.Pretty
+import           Debug.Trace
+
+-- N, M, C, X, big array of A's, b, sol_y, sol_x
+{-
+foreign import ccall "sdp_solve" cSDP :: FTypes.CInt -> FTypes.CInt -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> IO ()
+
+sdpSolve
+  :: FTypes.CInt
+  -> FTypes.CInt
+  -> F.Ptr FTypes.CDouble
+  -> F.Ptr FTypes.CDouble
+  -> F.Ptr FTypes.CDouble
+  -> F.Ptr FTypes.CDouble
+  -> F.Ptr FTypes.CDouble
+  -> IO ()
+sdpSolve n m ptrC ptrX ptrAs ptrB ptrSol = do
+  cSDP (fromIntegral n) (fromIntegral m) ptrC ptrX ptrAs ptrB ptrSol
+
+cArrayAlloc :: [FTypes.CDouble] -> IO (F.Ptr FTypes.CDouble)
+cArrayAlloc list = newArray list
+
+cArrayPeek :: F.Ptr FTypes.CDouble -> Integer -> IO [FTypes.CDouble]
+cArrayPeek list l = peekArray (fromIntegral l) list
+-}
+
 data CState = CState
   { _funs          :: Map.Map FunctionName CFunDef
   , _loopBound     :: Int
@@ -82,6 +127,7 @@ type CCircState = CircifyState Type CTerm (Maybe InMap, Bool)
 
 newtype C a = C (StateT CState (Circify Type CTerm (Maybe InMap, Bool)) a)
     deriving (Functor, Applicative, Monad, MonadState CState, MonadIO, MonadLog, MonadAssert, MonadMem, MonadFail, MonadCircify Type CTerm (Maybe InMap, Bool), MonadCfg, MonadDeepState (((Assert.AssertState, Mem.MemState), CCircState), CState))
+
 
 emptyCState :: Bool -> CState
 emptyCState findBugs = CState { _funs          = Map.empty
@@ -345,6 +391,18 @@ unwrap e = case e of
 noneIfVoid :: Type -> Maybe Type
 noneIfVoid t = if Void == t then Nothing else Just t
 
+unwrapConstInt :: CTerm -> Integer
+unwrapConstInt cterm = case cterm of
+  (CTerm (CInt _ _ (Ty.DynBvLit bv)) _) -> BV.int bv
+  _ -> error $ "Input int variable not read correctly"
+
+unwrapConstDouble :: CTerm -> FTypes.CDouble
+unwrapConstDouble cterm = case cterm of
+  (CTerm (CDouble (Ty.FpUnExpr Ty.FpNeg (Ty.Fp64Lit d))) _) ->
+    realToFrac (-1 * d)
+  (CTerm (CDouble (Ty.Fp64Lit d)) _) -> realToFrac d
+  _ -> error $ "Input double variable not read correctly"
+
 -- | Handle special functions, returning whether this function was special
 genSpecialFunction :: VarName -> [CExpr] -> C (Maybe CSsaVal)
 genSpecialFunction fnName cargs = do
@@ -378,8 +436,12 @@ genSpecialFunction fnName cargs = do
     "__GADGET_maximize" -> if computingVals
       then do
         start    <- liftIO getSystemTime
-        Just res <- liftIO $ ToZ3.evalOptimizeZ3 True (tail cargs) (head cargs)
-        end      <- liftIO getSystemTime
+        maybeRes <- liftIO $ ToZ3.evalOptimizeZ3 True (tail cargs) (head cargs)
+        let res = fromMaybe
+              (error $ "Could not maximize " ++ (render . pretty . head $ cargs)
+              )
+              maybeRes
+        end <- liftIO getSystemTime
         let seconds =
               (fromInteger (ToZ3.tDiffNanos end start) :: Double) / 1.0e9
         z3result <- liftIO $ ToZ3.parseZ3Model res seconds
@@ -398,8 +460,12 @@ genSpecialFunction fnName cargs = do
     "__GADGET_minimize" -> if computingVals
       then do
         start    <- liftIO getSystemTime
-        Just res <- liftIO $ ToZ3.evalOptimizeZ3 False (tail cargs) (head cargs)
-        end      <- liftIO getSystemTime
+        maybeRes <- liftIO $ ToZ3.evalOptimizeZ3 False (tail cargs) (head cargs)
+        let res = fromMaybe
+              (error $ "Could not minimize " ++ (render . pretty . head $ cargs)
+              )
+              maybeRes
+        end <- liftIO getSystemTime
         let seconds =
               (fromInteger (ToZ3.tDiffNanos end start) :: Double) / 1.0e9
         z3result <- liftIO $ ToZ3.parseZ3Model res seconds
@@ -415,6 +481,75 @@ genSpecialFunction fnName cargs = do
         liftLog $ logIf "gadgets::user::verification"
                         "Runs linear programming solver in prove mode only"
         return . Just . Base $ cIntLit S32 1
+{-    "__GADGET_sdp" -> do
+
+      expr_n <- genExpr $ cargs !! 0
+      let n = unwrapConstInt $ ssaValAsTerm "sdp val extraction" $ expr_n
+
+      expr_m <- genExpr $ cargs !! 1
+      let m      = unwrapConstInt $ ssaValAsTerm "sdp val extraction" $ expr_m
+
+      let expr_c = take (fromIntegral $ n * n) (drop 2 cargs)
+      c <- forM expr_c $ \q -> do
+        expr <- genExpr $ q
+        let vars = unwrapConstDouble $ ssaValAsTerm "sdp val extraction" $ expr
+        return vars
+
+      let
+        expr_x =
+          take (fromIntegral $ n * n) (drop (fromIntegral $ 2 + (n * n)) cargs)
+      x <- forM expr_x $ \q -> do
+        expr <- genExpr $ q
+        let vars = unwrapConstDouble $ ssaValAsTerm "sdp val extraction" $ expr
+        return vars
+
+      let expr_a = take (fromIntegral $ m * n * n)
+                        (drop (fromIntegral $ 2 + 2 * (n * n)) cargs)
+      a <- forM expr_a $ \q -> do
+        expr <- genExpr $ q
+        let vars = unwrapConstDouble $ ssaValAsTerm "sdp val extraction" $ expr
+        return vars
+
+      let expr_b = take
+            (fromIntegral m)
+            (drop (fromIntegral $ 2 + 2 * (n * n) + (m * n * n)) cargs)
+      b <- forM expr_b $ \q -> do
+        expr <- genExpr $ q
+        let vars = unwrapConstDouble $ ssaValAsTerm "sdp val extraction" $ expr
+        return vars
+
+      -- compute SDP
+      c1 <- liftIO $ cArrayAlloc c
+      x1 <- liftIO $ cArrayAlloc x
+      a1 <- liftIO $ cArrayAlloc a
+      b1 <- liftIO $ cArrayAlloc b
+
+      let pre = replicate (fromIntegral $ n * n + m) 0
+      sol <- liftIO $ cArrayAlloc pre
+
+
+      -- N, M, C, X, big array of A's, b, y
+      liftIO $ sdpSolve (fromIntegral n) (fromIntegral m) c1 x1 a1 b1 sol
+      sol1 <- liftIO $ cArrayPeek sol (n * n + m)
+
+      let sol_x = take (fromIntegral $ n * n) sol1
+      let sol_y = drop (fromIntegral $ n * n) sol1
+
+      --error $ "Out EXPR CTEN " ++ show sol_x ++ "sol y " ++ show sol_y
+
+      forM (zip sol_x [0 .. (n * n - 1)]) $ \(q, i) -> do
+        liftCircify
+          $ trace ("setting x" ++ show i ++ " as " ++ show q)
+          $ setValue (SLVar ("x" ++ show i)) (double2fixpt $ realToFrac q)
+        return ()
+
+      forM (zip sol_y [0 .. (m - 1)]) $ \(q, i) -> do
+        liftCircify
+          $ trace ("setting y" ++ show i ++ " as " ++ show q)
+          $ setValue (SLVar ("y" ++ show i)) (double2fixpt $ realToFrac q)
+        return ()
+
+      return . Just . Base $ cIntLit S32 1 -}
     "__GADGET_compute" -> do
       -- Enter scratch state
       s    <- deepGet
@@ -433,6 +568,7 @@ genSpecialFunction fnName cargs = do
       liftCircify $ declareVar False exprname ctype
       -- Add witness if computing values
       forM_ vexpr $ liftCircify . setValue (SLVar exprname)
+
       Just <$> (liftCircify . getTerm . SLVar $ exprname)
     "__GADGET_check" -> do
       -- Parse propositional arguments see `test/Code/C/max.c`
@@ -495,7 +631,6 @@ genSpecialFunction fnName cargs = do
     "float"  -> Float
     "double" -> Double
     _        -> error $ "Unknown nondet suffix in: " ++ s
-
   isNonDet = List.isPrefixOf "__VERIFIER_nondet_"
 
 genExpr :: CExpr -> C CSsaVal

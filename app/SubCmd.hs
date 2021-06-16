@@ -46,6 +46,7 @@ import           Util.Cfg                       ( Cfg
                                                 , liftCfg
                                                 )
 import           Util.Log
+import           Debug.Trace
 
 checkProcess :: FilePath -> [String] -> String -> IO ()
 checkProcess pgm args input = do

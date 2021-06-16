@@ -3,6 +3,7 @@
 {-# LANGUAGE TypeApplications       #-}
 {-# LANGUAGE TypeOperators          #-}
 {-# LANGUAGE TupleSections          #-}
+{-# LANGUAGE StandaloneDeriving     #-}
 module Targets.SMT.Z3
   ( toZ3
   , Z3Result(..)
