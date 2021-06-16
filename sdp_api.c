@@ -71,12 +71,12 @@ int check_sdp2(double n,double m,double c0, double c1, double c2, double c3, dou
 
 }
 */
-/*
+
 	int main(void) {
 
 		printf("START\n");
 
-	  // problem
+/*	  // problem
 
 	  double C[9] = {-0.99154214,  0.65386878, -0.64033738, 0.65386878,  0.93792596, -0.14210919, -0.64033738, -0.14210919,  0.30795382};
 	  double b[9] = {3.9888687923835366, -1.0823059466682765};
@@ -89,7 +89,7 @@ int check_sdp2(double n,double m,double c0, double c1, double c2, double c3, dou
 
     //Matrix_List A = {M,A0,A1};
 
-
+*/
 //prob 2x2x2
   double C[4] = {-0.1983367,  0.54620727, 0.54620727,  0.29183634};
   double b[4] = {-2.3830572764539832, 0.8521208961278653, 0, 0};
@@ -119,7 +119,12 @@ int check_sdp2(double n,double m,double c0, double c1, double c2, double c3, dou
 
 }
 
-*/
+Matrix *create_matrix(int l, arr *a){
+	Matrix *mat = (Matrix *)malloc(sizeof(Matrix));
+	mat->len = l;
+	mat->m = a;
+}
+
 
 // N, M, C, X, big array of A's, b, y, feasible
 void sdp_solve(int n, int m, double *c, double *x, double *a, double *b, double *sol){
@@ -182,6 +187,8 @@ void sdp_solve(int n, int m, double *c, double *x, double *a, double *b, double 
 
 
   }
+
+
 
 
 

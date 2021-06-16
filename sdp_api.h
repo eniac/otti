@@ -6,32 +6,32 @@ static int valid = 1;
 
 typedef struct {
   int len;
-  double v[M];
+  double *v; //[M];
 } Vector;
 
 typedef struct {
   int len;
-  double v[(M+N*N)*(M+N*N)];
+  double *v;  //double v[(M+N*N)*(M+N*N)];
 } Big_Vector;
 
 typedef struct {
   int rows; int cols;
-  double m[N*N];
+  double *m; //double m[N*N];
 } Matrix;
 
 typedef struct {
   int rows; int cols;
-  double m[(M+N*N)*(M+N*N)];
+  double *m; //[(M+N*N)*(M+N*N)];
 } Big_Matrix;
 
 typedef struct {
   int len;
-  Matrix m[M];
+  Matrix m*; //Matrix m[M];
 } Matrix_List;
 
 typedef struct {
   int len;
-  Big_Matrix m[M];
+  Big_Matrix *m; //[M];
 } Big_Matrix_List;
 
 typedef struct {
