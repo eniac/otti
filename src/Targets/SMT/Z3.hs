@@ -424,11 +424,8 @@ evalOptimizeZ3 maximize cs obj = Z.evalZ3 $ do
   constraints <- forM cs cToZ3
   objective   <- cToZ3 obj
   m           <- optimizeZ3 maximize constraints objective
-  case m of
-    Just model -> do
-      s <- Z.modelToString model
-      return $ Just s
-    Nothing -> return Nothing
+  z           <- traverse Z.modelToString m
+  return z
  where
   optimizeZ3
     :: (MonadOptimize z3) => Bool -> [Z.AST] -> Z.AST -> z3 (Maybe Z.Model)

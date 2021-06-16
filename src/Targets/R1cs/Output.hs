@@ -54,7 +54,6 @@ import           Util.Cfg                       ( liftCfg
                                                 , CfgState(..)
                                                 )
 import           System.FilePath                ( (-<.>) )
-import           Debug.Trace
 
 instance {-# OVERLAPS #-} forall s n. (Show s, KnownNat n) => ToJSON (LC s (Prime n)) where
   toJSON (m, c) =

@@ -32,5 +32,5 @@ class FrontEndInputs i where
                       (OptAssert._public newSmt)
                       (OptAssert._sizes newSmt)
                       (OptAssert.listAssertions newSmt)
-    liftIO . putStrLn . r1csShow $ r
+    logIf "r1cs" . r1csShow $ r
     R1csOpt.opt r
