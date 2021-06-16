@@ -21,7 +21,9 @@ import           Util.Cfg                       ( Cfg
 import           Util.Log
 import           Util.ShowMap                   ( ShowMap )
 import qualified Util.ShowMap                  as SMap
-
+import qualified Data.BitVector                as Bv
+import           Data.Dynamic                   ( fromDynamic )
+import qualified Data.Maybe                    as Maybe
 ---
 --- Monad defintions
 ---
@@ -69,6 +71,22 @@ initValues = modify $ \s -> s { vals = Just M.empty }
 
 isStoringValues :: Assert Bool
 isStoringValues = gets (isJust . vals)
+
+printValues :: Assert String
+printValues = do
+  vs <- Maybe.fromJust <$> gets vals
+  return
+    . unlines
+    . map (\(a, b) -> show a ++ " -> " ++ (stringFromDynamic $ b))
+    . M.toList
+    $ vs
+ where
+  stringFromDynamic v = case fromDynamic v of
+    Just b  -> show . toInteger $ fromEnum $ Ty.valAsBool b
+    Nothing -> case fromDynamic v of
+      Just b  -> show . Bv.uint $ Ty.valAsDynBv b
+      Nothing -> show v
+
 
 -- | Evaluate a term to a value, if values are being stored
 eval :: Ty.SortClass s => Ty.Term s -> Assert (Maybe (Ty.Value s))

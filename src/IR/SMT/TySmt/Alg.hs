@@ -45,7 +45,6 @@ import qualified IR.SMT.TySmt.DefaultMap       as DMap
 import           IR.SMT.TySmt.DefaultMap        ( DefaultMap )
 import           IR.SMT.Util
 
-
 -- |
 -- Given a function that optionally transforms a term, traverses the term
 -- applying that function at every stage. When the function returns something,

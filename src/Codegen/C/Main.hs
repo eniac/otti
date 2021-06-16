@@ -437,7 +437,7 @@ genSpecialFunction fnName cargs = do
     "__GADGET_check" -> do
       -- Parse propositional arguments see `test/Code/C/max.c`
       args <- traverse genExpr cargs
-      let numbered = zip3 [1 :: Integer ..] cargs args
+      let numbered = zip3 [1 :: Int ..] cargs args
       -- Evaluate proposition bools and check if they hold
       forM_ numbered (uncurry3 assumeGadgetAssertion)
       return . Just . Base $ cIntLit S32 1
@@ -455,6 +455,7 @@ genSpecialFunction fnName cargs = do
       liftCircify $ Just <$> getTerm (SLVar name)
     _ -> return Nothing
  where
+  assumeGadgetAssertion :: Int -> CExpr -> CSsaVal -> C ()
   assumeGadgetAssertion n e cv = do
     -- Assign to an l-value
     -- gadget_prop_1 = max_check(a,b,out)
@@ -462,22 +463,26 @@ genSpecialFunction fnName cargs = do
     liftCircify $ declareInitVar lname Bool cv
     -- Compute value with inputs if given, or Nothing
     cterm <- liftCircify . getValue . SLVar $ lname
+
     -- Generate circuitry to check at verifier runtime
     assume . ssaBool $ cv
     -- Check at compile time
     case fmap (asBool . term) cterm of
       (Just (Ty.BoolLit True)) -> do
-        liftLog
-          $ logIfPretty "gadgets::user::verification" "Verified assertion" e
+        logIfPretty "gadgets::user::verification" "Verified assertion" e
       (Just other) -> do
-        liftLog $ logIfPretty "gadgets::user::verification" "Failed assertion" e
+        vs <- liftAssert $ Assert.printValues
+        logIf "gadgets::user::verification"
+              "============ Valuation ============"
+        logIf "gadgets::user::verification" $ vs
+        logIfPretty "gadgets::user::verification" "Failed assertion" e
         fail
           $  "Failed assertion, enable gadgets::user::verification for details"
           ++ show other
       -- Must mean inputs are not given at compile-time
       (Nothing) -> do
-        liftLog $ logIf "gadgets::user::verification"
-                        "Inputs are not given, no verification performed."
+        logIf "gadgets::user::verification"
+              "Inputs are not given, no verification performed."
 
   nonDetTy :: String -> Type
   nonDetTy s = case drop (length "__VERIFIER_nondet_") s of
