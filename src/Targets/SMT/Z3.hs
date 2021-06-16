@@ -441,6 +441,7 @@ evalOptimizeZ3 maximize cs obj = Z.evalZ3 $ do
     res   <- Z.optimizeCheck []
     model <- Z.optimizeGetModel
     case res of
+      Z.Sat   -> return $ Just model
       Z.Unsat -> return Nothing
       Z.Undef -> error "Optimizer returned undef."
 
