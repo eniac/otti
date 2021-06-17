@@ -1109,8 +1109,7 @@ cCast toTy node = case term node of
         negHalf = Ty.Fp64Lit (-0.5)
         t' = Ty.FpBinExpr Ty.FpMul t $ Ty.Fp64Lit (2^32)
       in
-        trace ("mkCterm from cCast " ++ show (mkCTerm ( CFixedPt
-         $ Ty.RoundFpToDynBv 64 True (Ty.FpBinExpr Ty.FpAdd t' (Ty.mkIte (Ty.FpUnPred Ty.FpIsPositive t') negHalf half))) (udef node))) $ mkCTerm ( CFixedPt
+         mkCTerm ( CFixedPt
          $ Ty.RoundFpToDynBv
             64
             True
