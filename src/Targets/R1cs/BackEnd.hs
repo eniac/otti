@@ -23,6 +23,7 @@ import           Util.Log
 
 instance KnownNat n => BackEnd (R1CS String n) where
   target a = do
+    liftIO . putStrLn $ "Running opt"
     newSmt <- SmtOpt.opt a
     r      <- ToPf.toPf @n (OptAssert._vals newSmt)
                            (OptAssert._public newSmt)

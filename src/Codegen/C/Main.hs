@@ -435,6 +435,7 @@ genSpecialFunction fnName cargs = do
       error "Runaway intrinsic __GADGET_exist should be caught earlier"
     "__GADGET_maximize" -> if computingVals
       then do
+	liftLog . logIf "gadgets::user::verification" $ "Starting optimization solver..."
         start    <- liftIO getSystemTime
         maybeRes <- liftIO $ ToZ3.evalOptimizeZ3 True (tail cargs) (head cargs)
         let res = fromMaybe
@@ -442,6 +443,7 @@ genSpecialFunction fnName cargs = do
               )
               maybeRes
         end <- liftIO getSystemTime
+	liftLog . logIf "gadgets::user::verification" $ "Finished solving"
         let seconds =
               (fromInteger (ToZ3.tDiffNanos end start) :: Double) / 1.0e9
         z3result <- liftIO $ ToZ3.parseZ3Model res seconds
@@ -459,6 +461,7 @@ genSpecialFunction fnName cargs = do
         return . Just . Base $ cIntLit S32 1
     "__GADGET_minimize" -> if computingVals
       then do
+	liftLog . logIf "gadgets::user::verification" $ "Starting optimization solver..."
         start    <- liftIO getSystemTime
         maybeRes <- liftIO $ ToZ3.evalOptimizeZ3 False (tail cargs) (head cargs)
         let res = fromMaybe

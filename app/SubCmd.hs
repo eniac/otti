@@ -90,23 +90,26 @@ runVerify :: ProofOpts -> IO ()
 runVerify o = return ()
 
 runBackend :: BackEnd -> Assert.AssertState -> Log ()
-runBackend b a = case b of
-  Solve -> do
-    liftIO $ hPutStr stderr "Running Z3...\n"
-    satRes <- target a
-    liftIO $ if Z3.sat satRes
-      then do
-        let inputs = Assert.inputs a
-        liftIO $ hPutStr stderr "SAT\n"
-        forM_ (Map.toList $ modelMapToExtMap $ Z3.model satRes) $ \(k, v) ->
-          forM_ (inputs Map.!? k) $ \kk -> putStrLn $ unwords [kk, show v]
-      else putStrLn "UNSAT"
-  Proof o act -> do
-    r1cs <- target @(R1CS String Order) a
-    liftCfg $ runProofAction r1cs o act
+runBackend b a = do
+  logIf "basic" $ "Running backend..."
+  case b of
+      Solve -> do
+	liftIO $ hPutStr stderr "Running Z3...\n"
+	satRes <- target a
+	liftIO $ if Z3.sat satRes
+	  then do
+	    let inputs = Assert.inputs a
+	    liftIO $ hPutStr stderr "SAT\n"
+	    forM_ (Map.toList $ modelMapToExtMap $ Z3.model satRes) $ \(k, v) ->
+	      forM_ (inputs Map.!? k) $ \kk -> putStrLn $ unwords [kk, show v]
+	  else putStrLn "UNSAT"
+      Proof o act -> do
+	r1cs <- target @(R1CS String Order) a
+	liftCfg $ runProofAction r1cs o act
 
 runFrontend :: Maybe FilePath -> FrontEnd -> Log Assert.AssertState
 runFrontend inPath fe = do
+  logIf "basic" $ "Parsing C file " ++ (show inPath)
   inMap <- forM inPath $ \i -> liftIO $ parseToMap <$> readFile i
   a     <- liftCfg $ case fe of
     C fn path bugs -> do
@@ -119,6 +122,7 @@ runFrontend inPath fe = do
         path
         ast
         inMap
+  logIf "basic" $ "Building assertions " ++ (show inPath)
   liftCfg $ Assert.execAssert a
 
 runCmd :: Cmd -> Log ()
