@@ -47,6 +47,7 @@ import qualified Data.Set                      as Set
 import           IR.SMT.Assert                  ( MonadAssert
                                                 , liftAssert
                                                 )
+import qualified System.Process                as Proc
 import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
 import           IR.SMT.TySmt                   ( )
@@ -81,12 +82,8 @@ import qualified IR.SMT.Opt                    as SmtOpt
 import qualified IR.SMT.Opt.Assert             as OptAssert
 import qualified IR.SMT.ToPf                   as ToPf
 import           GHC.TypeNats                   ( KnownNat )
-import           Text.PrettyPrint               ( hang
-                                                , text
-                                                , render
-                                                )
 import           Language.C.Pretty
-import           Debug.Trace
+import           Codegen.C.LP
 
 -- N, M, C, X, big array of A's, b, sol_y, sol_x
 {-
@@ -433,17 +430,44 @@ genSpecialFunction fnName cargs = do
       return $ Just $ Base $ cIntLit S32 1
     "__GADGET_exist" ->
       error "Runaway intrinsic __GADGET_exist should be caught earlier"
+    "__GADGET_lpsolve" -> if computingVals
+      then do
+        liftLog
+          . logIf "gadgets::user::verification"
+          $ "Starting external LPsolver (primal) ..."
+        CConst (CStrConst cstr _) <- return . head $ cargs
+        pvals                     <- liftLog $ lp_solve (getCString cstr) Primal
+        dvals                     <- liftLog $ lp_solve (getCString cstr) Dual
+        forM_
+          (zip [0 :: Int ..] pvals) -- Valuation
+          (\case
+            (id, d) ->
+              liftCircify $ setValue (SLVar $ "X" ++ show id) (double2fixpt d)
+          )
+        forM_
+          (zip [0 :: Int ..] $ dvals) -- Valuation
+          (\case
+            (id, d) ->
+              liftCircify $ setValue (SLVar $ "Y" ++ show id) (double2fixpt d)
+          )
+        return . Just . Base $ cIntLit S32 1
+      else do
+        liftLog $ logIf "gadgets::user::verification"
+                        "Runs linear programming solver in prove mode only"
+        return . Just . Base $ cIntLit S32 1
+
     "__GADGET_maximize" -> if computingVals
       then do
-	liftLog . logIf "gadgets::user::verification" $ "Starting optimization solver..."
+        liftLog
+          . logIf "gadgets::user::verification"
+          $ "Starting optimization solver..."
         start    <- liftIO getSystemTime
         maybeRes <- liftIO $ ToZ3.evalOptimizeZ3 True (tail cargs) (head cargs)
         let res = fromMaybe
-              (error $ "Could not maximize " ++ (render . pretty . head $ cargs)
-              )
+              (error $ "Could not maximize " ++ (prettys . head $ cargs))
               maybeRes
         end <- liftIO getSystemTime
-	liftLog . logIf "gadgets::user::verification" $ "Finished solving"
+        liftLog . logIf "gadgets::user::verification" $ "Finished solving"
         let seconds =
               (fromInteger (ToZ3.tDiffNanos end start) :: Double) / 1.0e9
         z3result <- liftIO $ ToZ3.parseZ3Model res seconds
@@ -461,12 +485,13 @@ genSpecialFunction fnName cargs = do
         return . Just . Base $ cIntLit S32 1
     "__GADGET_minimize" -> if computingVals
       then do
-	liftLog . logIf "gadgets::user::verification" $ "Starting optimization solver..."
+        liftLog
+          . logIf "gadgets::user::verification"
+          $ "Starting optimization solver..."
         start    <- liftIO getSystemTime
         maybeRes <- liftIO $ ToZ3.evalOptimizeZ3 False (tail cargs) (head cargs)
         let res = fromMaybe
-              (error $ "Could not minimize " ++ (render . pretty . head $ cargs)
-              )
+              (error $ "Could not minimize " ++ (prettys . head $ cargs))
               maybeRes
         end <- liftIO getSystemTime
         let seconds =
@@ -542,13 +567,11 @@ genSpecialFunction fnName cargs = do
 
       forM (zip sol_x [0 .. (n * n - 1)]) $ \(q, i) -> do
         liftCircify
-          $ trace ("setting x" ++ show i ++ " as " ++ show q)
           $ setValue (SLVar ("x" ++ show i)) (double2fixpt $ realToFrac q)
         return ()
 
       forM (zip sol_y [0 .. (m - 1)]) $ \(q, i) -> do
         liftCircify
-          $ trace ("setting y" ++ show i ++ " as " ++ show q)
           $ setValue (SLVar ("y" ++ show i)) (double2fixpt $ realToFrac q)
         return ()
 
