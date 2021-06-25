@@ -22,6 +22,7 @@ ghc-options:
 - -Wall
 - -Wno-missing-signatures
 - -Wno-name-shadowing
+- +RTS -c -A1m -t -s -RTS
 
 dependencies:
 - base >= 4.7 && < 5
