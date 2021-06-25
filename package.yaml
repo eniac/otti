@@ -65,6 +65,7 @@ executables:
   compiler-exe:
     main:                Main.hs
     source-dirs:         app
+    c-sources: test/Code/C/sdp_api.c
     ghc-options:
     - -threaded
     - -rtsopts
@@ -81,6 +82,7 @@ tests:
   compiler-test:
     main:                Spec.hs
     source-dirs:         test
+    c-sources: test/Code/C/sdp_api.c
     ghc-options:
     - -threaded
     - -rtsopts

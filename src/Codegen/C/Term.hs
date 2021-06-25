@@ -138,8 +138,8 @@ ctermDataTy t = case t of
   CInt False 32 _  -> Type.U32
   CInt True  64 _  -> Type.S64
   CInt False 64 _  -> Type.U64
-  CInt True  128 _  -> Type.S128
-  CInt False 128 _  -> Type.U128
+  CInt True  96 _  -> Type.S96
+  CInt False 96 _  -> Type.U96
   CInt _     w  _  -> error $ unwords ["Invalid int width:", show w]
   CBool{}          -> Type.Bool
   CFixedPt _       -> Type.FixedPt
@@ -778,30 +778,30 @@ cWrapBinArith name bvOp doubleF ubF allowDouble a b =
           "*" ->
             let
               sign    = True
-              l       = intResize sign 128 fx -- cast to 64 for overflow
-              r       = intResize sign 128 fx'
-              cl      = mkCTerm (CInt sign 128 l) (udef a)
-              cr      = mkCTerm (CInt sign 128 r) (udef b) -- essentially casting here without extra factor
+              l       = intResize sign 96 fx -- cast to 64 for overflow
+              r       = intResize sign 96 fx'
+              cl      = mkCTerm (CInt sign 96 l) (udef a)
+              cr      = mkCTerm (CInt sign 96 r) (udef b) -- essentially casting here without extra factor
               mult_bv = case (term (cMul cl cr)) of --checks overflow in recursive call
                 (CInt _ _ bv) -> bv
                 _ ->
                   error $ unwords
                     ["Error in FxPt multiplication of", show a, "and", show b]
               rnd     = Ty.mkDynBvExtractBit 31 mult_bv
-              ite     = Ty.mkIte rnd (Ty.mkDynBvNaryExpr Ty.BvAdd [mult_bv, (Ty.DynBvLit $ (Bv.zeros 96) Bv.# (Bv.ones 1) Bv.# (Bv.zeros 31))]) mult_bv
+              ite     = Ty.mkIte rnd (Ty.mkDynBvNaryExpr Ty.BvAdd [mult_bv, (Ty.DynBvLit $ (Bv.zeros 64) Bv.# (Bv.ones 1) Bv.# (Bv.zeros 31))]) mult_bv
               fxpt    = Ty.mkDynBvExtract 32 64 ite
 
-              fact_bv = Ty.IntToDynBv 128 $ Ty.IntLit (2 ^ 32) -- just for the overflow/size check below
+              fact_bv = Ty.IntToDynBv 64 $ Ty.IntLit (2 ^ 32) -- just for the overflow/size check below
             in
               (CFixedPt $ fxpt, ubF >>= (\f -> f sign ite fact_bv))
           "/" ->
             let
               sign   = True
-              l      = intResize sign 128 fx -- cast to 64 for overflow
-              r      = intResize sign 128 fx'
-              f      = Ty.IntToDynBv 128 $ Ty.IntLit (2 ^ 33) -- extra bit for rounding
-              cl     = mkCTerm (CInt sign 128 l) (udef a)
-              cf     = mkCTerm (CInt sign 128 f) (udef b)
+              l      = intResize sign 96 fx -- cast to 64 for overflow
+              r      = intResize sign 96 fx'
+              f      = Ty.IntToDynBv 96 $ Ty.IntLit (2 ^ 33) -- extra bit for rounding
+              cl     = mkCTerm (CInt sign 96 l) (udef a)
+              cf     = mkCTerm (CInt sign 96 f) (udef b)
               div_bv = case (term (cMul cl cf)) of --checks overflow in recursive call
                 (CInt _ _ bv) -> bv
                 _ ->
