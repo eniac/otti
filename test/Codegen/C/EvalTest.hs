@@ -374,9 +374,10 @@ cValueTests = benchTestGroup
     [ ("f0_mult_lex1__z1_v0", i (double2fixpt $ 7.7*0.5))
     , ("f0_mult_lex1__w_v0", i 3)
     , ("f0_mult_lex1__x_v0", i (double2fixpt 7.7))
-    , ("f0_mult_lex1__z2_v0", i 99213744537) -- (double2fixpt $ 7.7*3)) close as possible
+    , ("f0_mult_lex1__z2_v0", i 99213744537) --(double2fixpt $ 7.7*3)) --close as possible
     , ("f0_mult_lex1__z3_v0", i (double2fixpt $ 3*0.5))
-    , ("f0_mult_lex1__c_v0", i (-1707678996616250)) -- (double2fixpt $ 621250.0 * (-0.640))) close as possible
+    , ("f0_mult_lex1__c_v0", i (-1707678996616250))--(double2fixpt $ 621250.0 * (-0.640))) --close as possible
+    , ("f0_mult_lex1__q_v0", i (double2fixpt $ 4))
     ]
   , constraintValueTest
     ("fixed point div" ++ show (double2fixpt $ 14.5 / 3.5))

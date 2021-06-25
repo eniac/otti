@@ -18,7 +18,6 @@ import           Targets.R1cs.Opt.RedLin        ( reduceLinearities )
 import           Targets.R1cs.Opt.Fold          ( foldEqs )
 import qualified Util.Cfg                      as Cfg
 import           Util.Log
-import           Debug.Trace
 
 runOpt
   :: (Show s, Ord s, KnownNat n)

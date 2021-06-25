@@ -46,7 +46,6 @@ import           Util.Cfg                       ( Cfg
                                                 , liftCfg
                                                 )
 import           Util.Log
-import           Debug.Trace
 
 checkProcess :: FilePath -> [String] -> String -> IO ()
 checkProcess pgm args input = do
@@ -93,19 +92,19 @@ runBackend :: BackEnd -> Assert.AssertState -> Log ()
 runBackend b a = do
   logIf "basic" $ "Running backend..."
   case b of
-      Solve -> do
-	liftIO $ hPutStr stderr "Running Z3...\n"
-	satRes <- target a
-	liftIO $ if Z3.sat satRes
-	  then do
-	    let inputs = Assert.inputs a
-	    liftIO $ hPutStr stderr "SAT\n"
-	    forM_ (Map.toList $ modelMapToExtMap $ Z3.model satRes) $ \(k, v) ->
-	      forM_ (inputs Map.!? k) $ \kk -> putStrLn $ unwords [kk, show v]
-	  else putStrLn "UNSAT"
-      Proof o act -> do
-	r1cs <- target @(R1CS String Order) a
-	liftCfg $ runProofAction r1cs o act
+    Solve -> do
+      liftIO $ hPutStr stderr "Running Z3...\n"
+      satRes <- target a
+      liftIO $ if Z3.sat satRes
+        then do
+          let inputs = Assert.inputs a
+          liftIO $ hPutStr stderr "SAT\n"
+          forM_ (Map.toList $ modelMapToExtMap $ Z3.model satRes) $ \(k, v) ->
+            forM_ (inputs Map.!? k) $ \kk -> putStrLn $ unwords [kk, show v]
+        else putStrLn "UNSAT"
+    Proof o act -> do
+      r1cs <- target @(R1CS String Order) a
+      liftCfg $ runProofAction r1cs o act
 
 runFrontend :: Maybe FilePath -> FrontEnd -> Log Assert.AssertState
 runFrontend inPath fe = do

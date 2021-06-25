@@ -86,7 +86,7 @@ import           Language.C.Pretty
 import           Codegen.C.LP
 
 -- N, M, C, X, big array of A's, b, sol_y, sol_x
-{-
+
 foreign import ccall "sdp_solve" cSDP :: FTypes.CInt -> FTypes.CInt -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> IO ()
 
 sdpSolve
@@ -106,7 +106,7 @@ cArrayAlloc list = newArray list
 
 cArrayPeek :: F.Ptr FTypes.CDouble -> Integer -> IO [FTypes.CDouble]
 cArrayPeek list l = peekArray (fromIntegral l) list
--}
+
 
 data CState = CState
   { _funs          :: Map.Map FunctionName CFunDef
@@ -509,7 +509,7 @@ genSpecialFunction fnName cargs = do
         liftLog $ logIf "gadgets::user::verification"
                         "Runs linear programming solver in prove mode only"
         return . Just . Base $ cIntLit S32 1
-{-    "__GADGET_sdp" -> do
+    "__GADGET_sdp" -> do
 
       expr_n <- genExpr $ cargs !! 0
       let n = unwrapConstInt $ ssaValAsTerm "sdp val extraction" $ expr_n
@@ -575,7 +575,7 @@ genSpecialFunction fnName cargs = do
           $ setValue (SLVar ("y" ++ show i)) (double2fixpt $ realToFrac q)
         return ()
 
-      return . Just . Base $ cIntLit S32 1 -}
+      return . Just . Base $ cIntLit S32 1 
     "__GADGET_compute" -> do
       -- Enter scratch state
       s    <- deepGet

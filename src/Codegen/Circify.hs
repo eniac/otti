@@ -92,7 +92,6 @@ import           Util.Control                   ( MonadDeepState(..)
                                                 , whenM
                                                 )
 import           Util.Log
-import           Debug.Trace
 
 {-|
 
