@@ -106,7 +106,6 @@ import qualified IR.SMT.Assert                 as Assert
 import qualified IR.SMT.TySmt                  as Ty
 import qualified IR.SMT.TySmt.Alg              as TyAlg
 import           Util.Log
-import           Debug.Trace
 
 type Bv = Ty.TermDynBv
 
@@ -138,8 +137,8 @@ ctermDataTy t = case t of
   CInt False 32 _  -> Type.U32
   CInt True  64 _  -> Type.S64
   CInt False 64 _  -> Type.U64
-  CInt True  128 _  -> Type.S128
-  CInt False 128 _  -> Type.U128
+  CInt True  96 _  -> Type.S96
+  CInt False 96 _  -> Type.U96
   CInt _     w  _  -> error $ unwords ["Invalid int width:", show w]
   CBool{}          -> Type.Bool
   CFixedPt _       -> Type.FixedPt
@@ -778,30 +777,42 @@ cWrapBinArith name bvOp doubleF ubF allowDouble a b =
           "*" ->
             let
               sign    = True
-              l       = intResize sign 128 fx -- cast to 64 for overflow
-              r       = intResize sign 128 fx'
-              cl      = mkCTerm (CInt sign 128 l) (udef a)
-              cr      = mkCTerm (CInt sign 128 r) (udef b) -- essentially casting here without extra factor
+              l       = intResize sign 96 fx -- cast to 64 for overflow
+              r       = intResize sign 96 fx'
+              cl      = mkCTerm (CInt sign 96 l) (udef a)
+              cr      = mkCTerm (CInt sign 96 r) (udef b) -- essentially casting here without extra factor
               mult_bv = case (term (cMul cl cr)) of --checks overflow in recursive call
                 (CInt _ _ bv) -> bv
                 _ ->
                   error $ unwords
                     ["Error in FxPt multiplication of", show a, "and", show b]
-              rnd     = Ty.mkDynBvExtractBit 31 mult_bv
-              ite     = Ty.mkIte rnd (Ty.mkDynBvNaryExpr Ty.BvAdd [mult_bv, (Ty.DynBvLit $ (Bv.zeros 96) Bv.# (Bv.ones 1) Bv.# (Bv.zeros 31))]) mult_bv
+              rnd = Ty.mkDynBvExtractBit 31 mult_bv
+              ite = Ty.mkIte
+                rnd
+                (Ty.mkDynBvNaryExpr
+                  Ty.BvAdd
+                  [ mult_bv
+                  , (    Ty.DynBvLit
+                    $    (Bv.zeros 64)
+                    Bv.# (Bv.ones 1)
+                    Bv.# (Bv.zeros 31)
+                    )
+                  ]
+                )
+                mult_bv
               fxpt    = Ty.mkDynBvExtract 32 64 ite
 
-              fact_bv = Ty.IntToDynBv 128 $ Ty.IntLit (2 ^ 32) -- just for the overflow/size check below
+              fact_bv = Ty.IntToDynBv 64 $ Ty.IntLit (2 ^ 32) -- just for the overflow/size check below
             in
               (CFixedPt $ fxpt, ubF >>= (\f -> f sign ite fact_bv))
           "/" ->
             let
               sign   = True
-              l      = intResize sign 128 fx -- cast to 64 for overflow
-              r      = intResize sign 128 fx'
-              f      = Ty.IntToDynBv 128 $ Ty.IntLit (2 ^ 33) -- extra bit for rounding
-              cl     = mkCTerm (CInt sign 128 l) (udef a)
-              cf     = mkCTerm (CInt sign 128 f) (udef b)
+              l      = intResize sign 96 fx -- cast to 64 for overflow
+              r      = intResize sign 96 fx'
+              f      = Ty.IntToDynBv 96 $ Ty.IntLit (2 ^ 33) -- extra bit for rounding
+              cl     = mkCTerm (CInt sign 96 l) (udef a)
+              cf     = mkCTerm (CInt sign 96 f) (udef b)
               div_bv = case (term (cMul cl cf)) of --checks overflow in recursive call
                 (CInt _ _ bv) -> bv
                 _ ->
@@ -810,9 +821,15 @@ cWrapBinArith name bvOp doubleF ubF allowDouble a b =
 
               expr = bvBinExpr (bvOp sign) div_bv r
 
-              rnd     = Ty.mkDynBvExtractBit 0 expr
-              resz    = Ty.mkDynBvExtract 1 64 expr
-              ite     = Ty.mkIte rnd (Ty.mkDynBvNaryExpr Ty.BvAdd [resz, (Ty.DynBvLit $ (Bv.zeros 63) Bv.# (Bv.ones 1))]) resz
+              rnd  = Ty.mkDynBvExtractBit 0 expr
+              resz = Ty.mkDynBvExtract 1 64 expr
+              ite  = Ty.mkIte
+                rnd
+                (Ty.mkDynBvNaryExpr
+                  Ty.BvAdd
+                  [resz, (Ty.DynBvLit $ (Bv.zeros 63) Bv.# (Bv.ones 1))]
+                )
+                resz
             in
               (CFixedPt $ ite, ubF >>= (\f -> f sign div_bv r))
           _ ->
@@ -1070,12 +1087,18 @@ cCast toTy node = case term node of
     _ -> badCast t toTy
   CFixedPt t -> case toTy of
     _ | Type.isIntegerType toTy ->
-      let fromS  = True
-          toS    = Type.isSignedInt toTy
-          toW    = Type.numBits toTy
-          bv32   = intResize toS toW $ Ty.mkDynBvExtract 32 32 t
-          r      = Ty.mkDynBvExtractBit 31 t
-          ite    = Ty.mkIte r (Ty.mkDynBvNaryExpr Ty.BvAdd [bv32, (Ty.DynBvLit $ Bv.zeros (toW-1) Bv.# (Bv.ones 1))]) bv32 -- cond t f
+      let fromS = True
+          toS   = Type.isSignedInt toTy
+          toW   = Type.numBits toTy
+          bv32  = intResize toS toW $ Ty.mkDynBvExtract 32 32 t
+          r     = Ty.mkDynBvExtractBit 31 t
+          ite   = Ty.mkIte
+            r
+            (Ty.mkDynBvNaryExpr
+              Ty.BvAdd
+              [bv32, (Ty.DynBvLit $ Bv.zeros (toW - 1) Bv.# (Bv.ones 1))]
+            )
+            bv32 -- cond t f
       in  mkCTerm (CInt toS toW ite) (udef node)
     Type.FixedPt -> node
     _            -> badCast t toTy
@@ -1104,22 +1127,20 @@ cCast toTy node = case term node of
       in
         trace ("from cCast double -> " ++ show (mkCTerm (CFixedPt $ fxpt) (udef node))) $ mkCTerm (CFixedPt $ fxpt) (udef node)
       -}
-      let
-        half    = Ty.Fp64Lit 0.5
-        negHalf = Ty.Fp64Lit (-0.5)
-        t' = Ty.FpBinExpr Ty.FpMul t $ Ty.Fp64Lit (2^32)
-      in
-         mkCTerm ( CFixedPt
-         $ Ty.RoundFpToDynBv
-            64
-            True
-           (Ty.FpBinExpr
-              Ty.FpAdd
-              t'
-              (Ty.mkIte (Ty.FpUnPred Ty.FpIsPositive t') negHalf half)
+      let half    = Ty.Fp64Lit 0.5
+          negHalf = Ty.Fp64Lit (-0.5)
+          t'      = Ty.FpBinExpr Ty.FpMul t $ Ty.Fp64Lit (2 ^ 32)
+      in  mkCTerm
+            (CFixedPt $ Ty.RoundFpToDynBv
+              64
+              True
+              (Ty.FpBinExpr
+                Ty.FpAdd
+                t'
+                (Ty.mkIte (Ty.FpUnPred Ty.FpIsPositive t') negHalf half)
+              )
             )
-        )
-        (udef node)
+            (udef node)
 
 
     Type.Bool ->
@@ -1153,22 +1174,20 @@ cCast toTy node = case term node of
       in
         trace ("from cCast float -> " ++ show (mkCTerm (CFixedPt $ fxpt) (udef node))) $ mkCTerm (CFixedPt $ fxpt) (udef node)
       -}
-      let
-        half    = Ty.Fp32Lit 0.5
-        negHalf = Ty.Fp32Lit (-0.5)
-        t' = Ty.FpBinExpr Ty.FpMul t $ Ty.Fp32Lit (2^32)
-      in
-        mkCTerm ( CFixedPt
-         $ Ty.RoundFpToDynBv
-            64
-            True
-           (Ty.FpBinExpr
-              Ty.FpAdd
-              t'
-              (Ty.mkIte (Ty.FpUnPred Ty.FpIsPositive t') negHalf half)
+      let half    = Ty.Fp32Lit 0.5
+          negHalf = Ty.Fp32Lit (-0.5)
+          t'      = Ty.FpBinExpr Ty.FpMul t $ Ty.Fp32Lit (2 ^ 32)
+      in  mkCTerm
+            (CFixedPt $ Ty.RoundFpToDynBv
+              64
+              True
+              (Ty.FpBinExpr
+                Ty.FpAdd
+                t'
+                (Ty.mkIte (Ty.FpUnPred Ty.FpIsPositive t') negHalf half)
+              )
             )
-        )
-        (udef node)
+            (udef node)
 
     Type.Bool ->
       mkCTerm (CBool $ Ty.Not $ Ty.FpUnPred Ty.FpIsZero t) (udef node)

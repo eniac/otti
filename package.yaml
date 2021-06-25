@@ -22,7 +22,7 @@ ghc-options:
 - -Wall
 - -Wno-missing-signatures
 - -Wno-name-shadowing
-- +RTS -c -A1m -t -s -RTS
+- +RTS -c -A2m -RTS
 
 dependencies:
 - base >= 4.7 && < 5
@@ -67,6 +67,7 @@ executables:
   compiler-exe:
     main:                Main.hs
     source-dirs:         app
+    c-sources: test/Code/C/sdp_api.c
     ghc-options:
     - -threaded
     - -rtsopts
@@ -83,6 +84,7 @@ tests:
   compiler-test:
     main:                Spec.hs
     source-dirs:         test
+    c-sources: test/Code/C/sdp_api.c
     ghc-options:
     - -threaded
     - -rtsopts
