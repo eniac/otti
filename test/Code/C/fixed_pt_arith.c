@@ -33,6 +33,11 @@ int mult() {
   fp64 b = -0.640;
   fp64 c = a * b;
 
+
+  fp64 s = (fp64)-2;
+  fp64 r = (fp64)-2;
+  fp64 q = s*r;
+
 }
 
 int div() {
