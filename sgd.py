@@ -20,7 +20,7 @@ def grad(clf, X, y, i):
     return 2*(y[i]*np.dot(w, X[i]) - 1) * y[i]*X[i]
 
 def fit_and_check(X, y):
-  clf = SGDClassifier(loss="squared_hinge", alpha = 0.0, eta0 = 1.0, learning_rate='adaptive', random_state=11, max_iter=50000, tol=0.0001, fit_intercept=True)
+  clf = SGDClassifier(loss="squared_hinge", alpha = 0.0, eta0 = 1.0, learning_rate='adaptive', random_state=222, max_iter=80000, tol=0.001, fit_intercept=True)
   clf.fit(X, y)
   grads = [ np.linalg.norm(grad(clf, X, y, i)) for i in range(len(y)) ]
   S = sum(grads)
