@@ -84,6 +84,8 @@ import qualified IR.SMT.ToPf                   as ToPf
 import           GHC.TypeNats                   ( KnownNat )
 import           Language.C.Pretty
 import           Codegen.C.LP
+import           Codegen.C.SGD
+import           Debug.Trace
 
 -- N, M, C, X, big array of A's, b, sol_y, sol_x
 
@@ -430,6 +432,36 @@ genSpecialFunction fnName cargs = do
       return $ Just $ Base $ cIntLit S32 1
     "__GADGET_exist" ->
       error "Runaway intrinsic __GADGET_exist should be caught earlier"
+
+    "__GADGET_sgd" -> if computingVals
+      then do
+        CConst (CIntConst dc _) <- return . head $ cargs
+        CConst (CIntConst nc _) <- return . head . tail $ cargs
+        let
+          dataset =
+            map
+                (\x -> case x of
+                  (CConst (CFloatConst (Language.C.Syntax.Constants.CFloat fs) _))
+                    -> fs
+                  (CUnary CMinOp (CConst (CFloatConst (Language.C.Syntax.Constants.CFloat fs) _)) _)
+                    -> "-" ++ fs
+                  o -> error $ show o
+                )
+              . tail
+              . tail
+              $ cargs
+        wvals <- liftLog $ sgd_train (getCInteger dc) (getCInteger nc) dataset
+        forM_
+          (zip [0 :: Int ..] $ traceShowId wvals) -- Valuation
+          (\case
+            (id, d) ->
+              liftCircify $ setValue (SLVar $ "W" ++ show id) (cIntLit S64 d)
+          )
+        return . Just . Base $ cIntLit S32 1
+      else do
+        liftLog $ logIf "gadgets::user::verification"
+                        "Runs SGD training in prove mode only"
+        return . Just . Base $ cIntLit S32 1
     "__GADGET_lpsolve" -> if computingVals
       then do
         liftLog
@@ -575,7 +607,7 @@ genSpecialFunction fnName cargs = do
           $ setValue (SLVar ("y" ++ show i)) (double2fixpt $ realToFrac q)
         return ()
 
-      return . Just . Base $ cIntLit S32 1 
+      return . Just . Base $ cIntLit S32 1
     "__GADGET_compute" -> do
       -- Enter scratch state
       s    <- deepGet
