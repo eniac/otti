@@ -262,7 +262,7 @@ genVar (Ident name _ _) = liftCircify $ getTerm $ SLVar name
 cIntConstant :: Integer -> Flags CIntFlag -> CTerm
 cIntConstant i fs = case tys of
   ty : _ -> cIntLit ty i
-  []     -> error $ show i ++ " does not fit in any int type"
+  []     -> error $ show i ++ " does not fit in any int type; tys=" ++ show (filter (fitsIn i) $ [S32,S64]) 
  where
   l   = testFlag FlagLong fs
   ll  = testFlag FlagLongLong fs
@@ -274,8 +274,8 @@ cIntConstant i fs = case tys of
           then (i >= -(two ^ (n - 1))) && i < (two ^ (n - 1))
           else i >= 0 && i < (two ^ n)
   tys = filter (fitsIn i) $ map (flip makeIntTy s) $ filter
-    (\size -> (not l && not ll) || size >= 64)
-    [32, 64]
+    (\size -> (not l && not ll) || size >= 64) -- JESS EDIT
+    [32, 64, 96]
 
 genConst :: CConst -> C CTerm
 genConst c = case c of

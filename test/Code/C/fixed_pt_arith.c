@@ -6,6 +6,8 @@ int add () {
   fp64 y = 0.5;
   fp64 z = x+y;
 
+  long long q = 18446744073709551613;
+
 }
 
 int sub() {

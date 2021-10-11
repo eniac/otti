@@ -361,7 +361,9 @@ cValueTests = benchTestGroup
   , constraintValueTest "fixed point add"
                         "add"
                         "test/Code/C/fixed_pt_arith.c"
-                        [("f0_add_lex1__z_v0", i (double2fixpt 1.5))]
+                        [("f0_add_lex1__z_v0", i (double2fixpt 1.5))
+                        ,("f0_add_lex1__q_v0", i 18446744073709551613)
+                        ]
   , constraintValueTest "fixed point sub"
                         "sub"
                         "test/Code/C/fixed_pt_arith.c"

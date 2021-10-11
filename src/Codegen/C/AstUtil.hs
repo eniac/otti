@@ -61,7 +61,7 @@ cParseIntTypeLength l = case l of
   [CIntType{} ]              -> Just 32
   [CLongType{}]              -> Just 64
   [CLongType{}, CIntType{} ] -> Just 64
-  [CLongType{}, CLongType{}] -> Just 64
+  [CLongType{}, CLongType{}] -> Just 96
   [CLongType{}, CLongType{}, CIntType{}] -> Just 64
   _                          -> Nothing
 
