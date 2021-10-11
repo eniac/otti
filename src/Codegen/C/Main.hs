@@ -264,7 +264,8 @@ genVar (Ident name _ _) = liftCircify $ getTerm $ SLVar name
 cIntConstant :: Integer -> Flags CIntFlag -> CTerm
 cIntConstant i fs = case tys of
   ty : _ -> cIntLit ty i
-  []     -> error $ show i ++ " does not fit in any int type; tys=" ++ show (filter (fitsIn i) $ [S32,S64]) 
+  []     -> error $ show i ++ " does not fit in any int type; tys=" ++ show
+    (filter (fitsIn i) $ [S32, S64])
  where
   l   = testFlag FlagLong fs
   ll  = testFlag FlagLongLong fs
@@ -441,6 +442,9 @@ genSpecialFunction fnName cargs = do
           dataset =
             map
                 (\x -> case x of
+                  (CConst (CIntConst cn _)) -> show $ getCInteger cn
+                  (CUnary CMinOp (CConst (CIntConst cn _)) _) ->
+                    show $ -1 * getCInteger cn
                   (CConst (CFloatConst (Language.C.Syntax.Constants.CFloat fs) _))
                     -> fs
                   (CUnary CMinOp (CConst (CFloatConst (Language.C.Syntax.Constants.CFloat fs) _)) _)
