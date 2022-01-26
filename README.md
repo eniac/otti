@@ -1,5 +1,7 @@
-# Compiler to circuit representations
+# otti
+A SNARK compiler for optimization problems
 
+## Functionality
 Currently we have frontends for:
 - C
 - circom
@@ -81,8 +83,8 @@ enabled.
 ```
 ├── app               -- Compiler executable
 ├── src
-│   ├── AST           -- Circom AST and C AST helpers 
-│   ├── Codegen       -- Machinery for generating circuits 
+│   ├── AST           -- Circom AST and C AST helpers
+│   ├── Codegen       -- Machinery for generating circuits
 │   │   ├── Circify   -- Language-indended machinery (branches, fns, scopes)
 │   │   │   └── Memory-- Stack allocations and accesses
 │   │   ├── Circom    -- Circom
@@ -95,11 +97,12 @@ enabled.
 │   │   │   └── ToPf  -- Converting SMT to R1cs
 │   │   └── R1cs      -- R1cs
 │   │       └── Opt   -- Optimizations over R1cs
-│   ├── Parser        -- Machinery for parsing source files 
+│   ├── Parser        -- Machinery for parsing source files
 │   ├── Targets       -- TBD: Alex after code changes
 │   └── Util          -- Utilities (e.g., logging)
 │       ├── Log       -- Logging
 │       └── Cfg       -- Configuration
 └── test              -- Tests
 ```
+
 
