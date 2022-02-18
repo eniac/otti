@@ -1,0 +1,38 @@
+{
+	"analcatdata_authorship": {
+		"classes": [2, 3],
+		"seed": 222,
+	        "eta0": 10.0,
+                "maxiter": 80000,
+                "tol": 0.001
+	},
+
+	"confidence": {
+		"classes": [3, 5],
+		"seed": 221,
+		"eta0": 10.0,
+		"maxiter": 40000,
+		"tol": 0.001
+	},
+	"dermatology": {
+		"classes": [1, 3],
+		"seed": 221,
+		"eta0": 100.0,
+		"maxiter": 40000,
+		"tol": 0.001
+	},
+	"iris": {
+		"classes": [0, 1],
+		"seed": 222,
+		"eta0": 100.0,
+		"maxiter": 80000,
+		"tol": 0.001
+	},
+	"kddcup": {
+		"classes": [0, 3],
+		"seed": 221,
+		"eta0": 10.0,
+		"maxiter": 40000,
+		"tol": 0.001
+	}
+}
