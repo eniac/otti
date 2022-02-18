@@ -21,7 +21,7 @@ And then get terminal access to it.
 docker run -it otti
 ```
 
-## Reproducting results
+## Reproducing experimental results
 
 After connecting to the Docker container, run the following script to reproduce the experimental results from [Otti](https://eprint.iacr.org/2021/1436).
 ```
@@ -35,16 +35,19 @@ explicitly give a path to a dataset file.
 A subset of each dataset that can be reproduced on a personal computer with x86_64 architecture and > 4GB of RAM.
 These datasets are expected to take less than 1 hour.
 
-## Running the full suite
+
+### Running the full suite
 A subset of each MPS dataset that can be reproduced on a large machine with x86_64 architecture and > 512GB RAM.
 These datasets can take several hours, in the order of 2-3 days to terminate. If your computer does not have sufficient
 RAM memory or more applications have reserved memory, this might be killed by the OS. This is a well-known limitation
 of the compiler that consumes large amounts of memory.
 
+
 ### Running individual files in `datasets/*`
 Our script will generate a C-file from the dataset file including non-deterministic checks. We
 compile it with the Otti compiler, prove and verify it and print `Verification successful` and the total runtime.
 of each stage.
+
 
 # Directory structure
 ```
