@@ -1,108 +1,64 @@
-# otti
-A SNARK compiler for optimization problems
+Otti
+------
+A zkSNARK compiler, solver, prover and verifier for optimization problems.
 
-## Functionality
-Currently we have frontends for:
-- C
-- circom
-
-We have backends for:
-- R1CS (proofs via libsnark)
-- SMT
-
-# Install
-
-## Install dependencies
-
-- [z3](https://github.com/Z3Prover/z3)
-- The Haskell tool [Stack](https://docs.haskellstack.org/en/stable/README/)
-
-## Build project
-
-Once the dependencies are installed, you should be able to build the compiler:
-
+# Cloning
+To clone this repository and its submodules run
 ```
-stack build
+git clone --recurse-submodules git@github.com:eniac/otti.git
 ```
 
-# Test
+# Building
+First, make sure you have installed [Docker CE](https://docs.docker.com/get-docker/).
 
+Then build the Otti container
 ```
-stack test
-```
-
-To run an individual test (e.g., C value test), use:
-
-```
-stack test --ta '-p C value test'
+docker build -t otti .
 ```
 
-# Format
-
-We use `brittany`. You can format all files (slow) with `make fmt`.
-
-
-You can format all files changed since a git-ref `REF` in a directory using
+And then get terminal access to it.
 ```
-./scripts/format.bash REF DIR
+docker run -it otti
 ```
 
-You can format all files in a directory using
+## Reproducting results
 
+After connecting to the Docker container, run the following script to reproduce the experimental results from [Otti](https://eprint.iacr.org/2021/1436).
 ```
-./scripts/format.bash all DIR
-```
-
-The formatting script will not format files which have unstaged changes.
-
-# Run
-
-For usage information:
-
-```
-stack exec compiler-exe -- -h
+./run.py [--lp | --sdp | --sgd] [--small | -- full] [datasets/<path to dataset>]
 ```
 
-# Configuration
+One of the `--lp | --sdp | --sgd` options is required. Then either execute with the `--small` or `--full` flag or
+explicitly give a path to a dataset file.
 
-There is a configuration system in `src/Util/Cfg.hs`. You can add new
-configuration options there. Configuration options can be set by environmental
-variables, like so:
+### Running the small suite
+A subset of each dataset that can be reproduced on a personal computer with x86_64 architecture and > 4GB of RAM.
+These datasets are expected to take less than 1 hour.
 
-```
-C_cfg_with_underscores_instead_of_dashes=value stack run -- ...
-```
+## Running the full suite
+A subset of each MPS dataset that can be reproduced on a large machine with x86_64 architecture and > 512GB RAM.
+These datasets can take several hours, in the order of 2-3 days to terminate. If your computer does not have sufficient
+RAM memory or more applications have reserved memory, this might be killed by the OS. This is a well-known limitation
+of the compiler that consumes large amounts of memory.
 
-One particularly useful configuration options is `C_streams`, which enables
-logging streams. You can log to named streams using `logIf` in
-`src/Util/Log.hs`, and the output will only appear if the specified stream is
-enabled.
+### Running individual files in `datasets/*`
+Our script will generate a C-file from the dataset file including non-deterministic checks. We
+compile it with the Otti compiler, prove and verify it and print `Verification successful` and the total runtime.
+of each stage.
 
 # Directory structure
-
 ```
-├── app               -- Compiler executable
-├── src
-│   ├── AST           -- Circom AST and C AST helpers
-│   ├── Codegen       -- Machinery for generating circuits
-│   │   ├── Circify   -- Language-indended machinery (branches, fns, scopes)
-│   │   │   └── Memory-- Stack allocations and accesses
-│   │   ├── Circom    -- Circom
-│   │   └── C         -- C
-│   ├── IR            -- The typed SMT intermediate representation
-│   │   ├── SMT       -- Logging
-│   │   │   ├── TySmt -- Sort-typed SMT terms
-│   │   │   ├── Assert-- Monad for accumulating SMT assertions
-│   │   │   ├── Opt   -- Optimizations over SMT
-│   │   │   └── ToPf  -- Converting SMT to R1cs
-│   │   └── R1cs      -- R1cs
-│   │       └── Opt   -- Optimizations over R1cs
-│   ├── Parser        -- Machinery for parsing source files
-│   ├── Targets       -- TBD: Alex after code changes
-│   └── Util          -- Utilities (e.g., logging)
-│       ├── Log       -- Logging
-│       └── Cfg       -- Configuration
-└── test              -- Tests
+├── compiler             -- zkSNARK compiler written in Haskell, a fork of CirC.
+├── codegen              -- Code generators convert LP, SDP, SGD datasets to C files with non-deterministic checkers
+├── datasets             -- The datasets from the Otti paper evaluation
+│   ├── LP               -- Linear programming (LP) dataset based on Netlib-LP
+│   ├── SDP              -- Semi-definite programming (SDP) dataset
+│   ├── SGD              -- Stochastic Gradient Descent (SGD) dataset references and hyperparameters for PMLB dataset
+├── Dockerfile           -- The Dockerfile that builds Otti
+├── README.md            -- This file
+├── Spartan              -- The Spartan zkSNARK prover/verifier back-end from Microsoft
+├── spartan-zkinterface  -- A compatibility layer between the compiler and Spartan
+└── deps                 -- External dependensieshttps://github.com/circify/circ
 ```
 
 
