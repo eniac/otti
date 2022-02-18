@@ -1,6 +1,6 @@
 Otti
 ------
-A zkSNARK compiler, solver, prover and verifier for optimization problems.
+A zkSNARK compiler, solver, prover and verifier for optimization problems ([paper](https://eprint.iacr.org/2021/1436)).
 
 # Cloning
 To clone this repository and its submodules run
@@ -59,6 +59,7 @@ of each stage.
 │   ├── SGD              -- Stochastic Gradient Descent (SGD) dataset references and hyperparameters for PMLB dataset
 ├── Dockerfile           -- The Dockerfile that builds Otti
 ├── README.md            -- This file
+├── run.py               -- Entry point executable script for reproducing experimental results (artifact eval)
 ├── Spartan              -- The Spartan zkSNARK prover/verifier back-end from Microsoft
 ├── spartan-zkinterface  -- A compatibility layer between the compiler and Spartan
 └── deps                 -- External dependensieshttps://github.com/circify/circ
