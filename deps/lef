@@ -1,0 +1,8 @@
+# OpenBLAS (BLAS and LAPACK), gfortran
+sudo apt install libopenblas-dev gfortran
+
+# CSDP
+tar -xvf modified-csdp-6.2.0.tar.gz
+cd modified-csdp-6.2.0
+make
+
