@@ -88,27 +88,7 @@ import           Codegen.C.SGD
 import           Codegen.C.SDP
 import           Debug.Trace
 
-cArrayAlloc :: [FTypes.CDouble] -> IO (F.Ptr FTypes.CDouble)
-cArrayAlloc list = newArray list
 
-cArrayPeek :: F.Ptr FTypes.CDouble -> Integer -> IO [FTypes.CDouble]
-cArrayPeek list l = peekArray (fromIntegral l) list
-
--- N, M, C, X, big array of A's, b, sol_y, sol_x
-
-foreign import ccall "sdp_solve" cSDP :: FTypes.CInt -> FTypes.CInt -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> F.Ptr FTypes.CDouble -> IO ()
-
-sdpSolve
-  :: FTypes.CInt
-  -> FTypes.CInt
-  -> F.Ptr FTypes.CDouble
-  -> F.Ptr FTypes.CDouble
-  -> F.Ptr FTypes.CDouble
-  -> F.Ptr FTypes.CDouble
-  -> F.Ptr FTypes.CDouble
-  -> IO ()
-sdpSolve n m ptrC ptrX ptrAs ptrB ptrSol = do
-  cSDP (fromIntegral n) (fromIntegral m) ptrC ptrX ptrAs ptrB ptrSol
 
 data CState = CState
   { _funs          :: Map.Map FunctionName CFunDef
@@ -545,14 +525,75 @@ genSpecialFunction fnName cargs = do
         liftLog $ logIf "gadgets::user::verification"
                         "Runs linear programming solver in prove mode only"
         return . Just . Base $ cIntLit S32 1
-    "__GADGET_sdp" -> do
+    "__GADGET_sdp" -> if computingVals
+      then do
+	expr_n <- genExpr $ cargs !! 0
+        let n = unwrapConstInt $ ssaValAsTerm "sdp val extraction" $ expr_n
+
+        expr_m <- genExpr $ cargs !! 1
+        let m = unwrapConstInt $ ssaValAsTerm "sdp val extraction" $ expr_m
+
+        liftLog
+          . logIf "gadgets::user::verification"
+          $ "Starting external SDPsolver ..."
+        CConst (CStrConst cstr _) <- return $ cargs !! 2
+       
+	vals                     <- liftLog $ sdp_solve (getCString cstr)
+        
+	let xvals = take (fromIntegral $ n * n) vals
+	forM_
+          (zip [0 :: Int ..] xvals) -- Valuation
+          (\case
+            (id, d) ->
+              liftCircify $ setValue (SLVar $ "X" ++ show id) (double2fixpt d)
+          )
+
+	let yvals = take (fromIntegral $ m) (drop (fromIntegral $ (n * n)) vals)
+        forM_
+          (zip [0 :: Int ..] $ yvals) -- Valuation
+          (\case
+            (id, d) ->
+              liftCircify $ setValue (SLVar $ "Y" ++ show id) (double2fixpt d)
+          )
+
+	let xlvals = take (fromIntegral $ div (n * (n+1)) 2) (drop (fromIntegral $ m + (n * n)) vals)
+	forM_
+          (zip [0 :: Int ..] $ xlvals) -- Valuation
+          (\case
+            (id, d) ->
+              liftCircify $ setValue (SLVar $ "XL" ++ show id) (double2fixpt d)
+          )
+
+	let slvals = take (fromIntegral $ div (n * (n+1)) 2) (drop (fromIntegral $ (div (n * (n+1))  2) + m + (n * n)) vals)
+	forM_
+          (zip [0 :: Int ..] $ slvals) -- Valuation
+          (\case
+            (id, d) ->
+              liftCircify $ setValue (SLVar $ "SL" ++ show id) (double2fixpt d)
+          )
+
+        return . Just . Base $ cIntLit S32 1
+      else do
+        liftLog $ logIf "gadgets::user::verification"
+                        "Runs semidefinite programming solver in prove mode only"
+        return . Just . Base $ cIntLit S32 1
+
+
+{-
+do
 
       expr_n <- genExpr $ cargs !! 0
       let n = unwrapConstInt $ ssaValAsTerm "sdp val extraction" $ expr_n
 
       expr_m <- genExpr $ cargs !! 1
-      let m      = unwrapConstInt $ ssaValAsTerm "sdp val extraction" $ expr_m
+      let m = unwrapConstInt $ ssaValAsTerm "sdp val extraction" $ expr_m
 
+      expr_fp <- genExpr $ cargs !! 2
+      let fp = unwrapString $ ssaValAsTerm "sdp fp extraction" $ expr_fp
+
+      error $ "Out sdp fp: " ++ fp
+-}
+      {-
       let expr_c = take (fromIntegral $ n * n) (drop 2 cargs)
       c <- forM expr_c $ \q -> do
         expr <- genExpr $ q
@@ -610,8 +651,7 @@ genSpecialFunction fnName cargs = do
         liftCircify
           $ setValue (SLVar ("y" ++ show i)) (double2fixpt $ realToFrac q)
         return ()
-
-      return . Just . Base $ cIntLit S32 1
+      -}
     "__GADGET_compute" -> do
       -- Enter scratch state
       s    <- deepGet
