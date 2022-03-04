@@ -22,6 +22,8 @@ RUN ghcup install stack && \
     tar xvf lp_solve_5.5.2.11_dev_ux64.tar.gz  --one-top-level=dev && \
     tar xvf lp_solve_5.5.2.11_exe_ux64.tar.gz  --one-top-level=exe && \
     tar xvf lp_solve_5.5.2.11_Python_source.tar.gz --one-top-level=Python && \
+    tar xvf csdp6.2.0linuxx86_64.tgz && \
+    cp csdp6.2.0linuxx86_64/bin/csdp /usr/bin/ && \
     cd dev && cp *.h /usr/include/ && cp liblpsolve55.a /usr/lib/ && cp liblpsolve55.so /usr/lib/ && cd .. && \
     cd exe && cp *.so /usr/lib/ && cp lp_solve /usr/bin/ && cd .. && \
     cd Python/lp_solve_5.5/extra/Python && python2 setup.py install
