@@ -5,9 +5,13 @@ import qualified Data.List                     as L
 import qualified System.Process                as Proc
 import           Util.Log
 import           Control.Monad.IO.Class
+import qualified Foreign.C.Types               as FTypes
+import qualified Foreign                       as F
 
-sgd_train :: Integer -> Integer -> [String] -> Log [Integer]
-sgd_train d n dataset = do
+
+
+sdp :: Integer -> Integer -> [String] -> Log [Integer]
+sdp d n dataset = do
   poutput <- do
     logIf "gadgets::user::verification" $ "Starting external SGD solver ..."
     liftIO
