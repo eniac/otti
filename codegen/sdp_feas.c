@@ -13,18 +13,19 @@ int d_equal(fp64 a, fp64 b) {
 
 
 //n,m, C, X, big array of A's, b, sol_y, sol_x
-int check_sdp(int n,int m,$fp){
+int check_sdp(int n,int m,$params){
 
   int solved = 1;
 
-$det1
+$dot_calc
 
+$chol1
 
 $a_x
 
 $s_mat
 
-$det2
+$chol2
 
 
 fp64 gap = $gap;
@@ -42,7 +43,8 @@ $xvars
 
 $yvars
 
-//n,m, C, X, big array of A's, b, sol_y, sol_x
+$lvars
+
 __GADGET_sdp($seq1);
 
 int check = __GADGET_check(check_sdp($seq2));

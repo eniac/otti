@@ -7,64 +7,11 @@ import smcp
 from smcp import SDP
 import os
 
-def dot(A,B):
-    s = 0
-    X = A*B
-    return np.sum(X)
-
 def prod_sum(X,Y):
     return np.matrix.sum(np.multiply(X,Y))
 
 
-    '''
-    with open(init_path, 'r') as f:
-        content = [line.rstrip('\n').strip().split('=')[0] for line in f.readlines()]
-
-        idx = 0
-        for line in content:
-
-            if (idx > 0):
-                 vals = line.split()
-                 n_mat = int(vals[0])
-                 n_block = int(vals[1])
-                 rel_i = int(vals[2])
-                 rel_j = int(vals[3])
-                 val = float(vals[4])
-
-                 abs_i = block_base[n_block-1] + rel_i - 1
-                 abs_j = block_base[n_block-1] + rel_j - 1
-
-                 if n_mat == 2:
-                     X[abs_i, abs_j] = val
-
-            idx += 1
-
-        print(X)
-        '''
-
-def mod_sol(probfile, solfile):
-    copylines = []
-
-    with open(probfile, 'r') as f:
-        c = 0
-        for line in f.readlines():
-            if not (line.startswith('"') or line.startswith('*')):
-                copylines = copylines ++ [line]
-                c = c+1
-            if c >= 3: break
-
-    with open(solfile, 'r') as f:   
-        content = f.readlines();
-        content = copylines ++ content
-
-    with open("temp_"+solfile, 'w') as f:
-        for line in content:
-                f.write('%s\n' % line)
-
-    os.rename("temp_"+solfile,solfile);
-
-
-def parse_problem_file(probfile, solfile):
+def parse_problem_file(probfile):
     Prob = SDP(probfile)
 
     n = Prob.n
@@ -95,38 +42,8 @@ def parse_problem_file(probfile, solfile):
         A.append(Aim)
 
 
-    mod_sol(probfile,solfile)
-            
-    Sol = SDP(solfile)
+    return {'ndim':n, 'mdim':m, 'C':C, 'A':A, 'b':B}
 
-    Y = np.zeros(m)
-    for i in range(m):
-        Y[i] = Sol.b[i]
-    print(B)
-
-    X = np.zeros([n,n])
-    S = np.zeros([n,n])
-
-    A0 = Sol.get_A(0)
-    A1 = Sol.get_A(0)
-
-    for a in range(n):
-            for b in range(n):
-                if (a <= b): #lower t
-                   S[a][b] = A0[a*n+b]
-                   S[b][a] = A0[a*n+b]
-
-                   X[a][b] = A1[a*n+b]
-                   X[b][a] = A1[a*n+b]
-
-    return {'ndim':n, 'mdim':m, 'C':C, 'A':A, 'b':B, 'X':X, 'y':Y, 'S':S}
-
-
-def linear_comb_matrices(y,A):
-
-    #yl = y.T.tolist()[0]
-  
-    return sum([y_i * a_i for y_i, a_i in zip(y,A)])
 
 def rand_mat(m,n):
     return 2*np.mat(np.random.rand(m,n)) - np.mat(np.ones((m,n)))
@@ -159,43 +76,23 @@ def random_problem(m,n):
 
 if __name__ == "__main__":
     
-        #TODO sort out lower tri
+    dats = sys.argv[1]
 
-    P = parse_problem_file(sys.argv[1], sys.argv[2])
+    P = parse_problem_file(dats)
 
-    #print(P)
-    
     C = P['C']
-    X = P['X']
     A = P['A']
     B = P['b']
     N = P['ndim'] # matrices n x n
     M = P['mdim'] # len of A list and b
-    Y = P['Y'] 
-    S = P['S']
 
-    for i in range(M):
-        s = 0.0
-        for q in range(N):
-            for w in range(N):
-                s = s + (A[i][q,w] * X[q,w])
-        ep = abs(s - B[i])
-        print("CORRECT: " + str(ep < 1.0))
-
-
-    print(C)
-    print(X)
     C_flat = np.array(C).reshape(1,N*N)[0]
-    print(C_flat)
+    #print(C_flat)
 
-    X_flat = np.array(X).reshape(1,N*N)[0]
-    print(X_flat)
 
     # Read in the file
-    with open('sdp_fease.c', 'r') as file :
+    with open('sdp_feas.c', 'r') as file :
       filedata = file.read()
-
-    print("starting read in")
 
     s = ""
     for i in range(N*N):
@@ -209,22 +106,23 @@ if __name__ == "__main__":
         s = s + "fp64 b"+str(i)+","
     for i in range(M):
         s = s + "fp64 y"+str(i)+","
-
-    for i in range(N*N):
-        s = s + "fp64 xq"+str(i)+","
-    for i in range(N*N-1):
-        s = s + "fp64 sq"+str(i)+","
-    s = s + "fp64 sq"+str(N*N-1)
-
-    filedata = filedata.replace('$params', s) #TODO get rid
+    for i in range(N):
+        for j in range(N):
+            if (i >= j):
+                s = s + "fp64 xq"+str(i*N+j)+","
+    for i in range(N):
+        for j in range(N):
+            if (i >= j):
+                 s = s + "fp64 sq"+str(i*N+j)+","
+    s = s[:-1]
+    filedata = filedata.replace('$params', s)
 
     s = ""
-    
     #lower triangular
     for i in range(N):
         for j in range(N):
             if (i < j):
-                s = s + "int xq"+str(i*N+j)+" = 0.0;\n)" 
+                s = s + "fp64 xq"+str(i*N+j)+" = 0.0;\n" 
                 #s = s + "solved = solved && (d_equal(xq"+str(i*N+j)+",0.0));\n"
     
     #transpose
@@ -254,7 +152,7 @@ if __name__ == "__main__":
     for i in range(N):
         for j in range(N):
             if (i < j):
-                s = s + "int xq"+str(i*N+j)+" = 0.0;\n)"
+                s = s + "fp64 sq"+str(i*N+j)+" = 0.0;\n"
                 #s = s + "solved = solved && (d_equal(sq"+str(i*N+j)+",0.0));\n"
 
     #transpose
@@ -306,22 +204,24 @@ if __name__ == "__main__":
 
     s = ""
     for i in range(M):
-        s = s + "fp64 y"+str(i)+" = 0;\n"
+        s = s + "fp64 y"+str(i)+" = __GADGET_exist();\n"
     filedata = filedata.replace('$yvars', s)
 
     s = ""
-    for i in range(N*N):
-        s = s + "fp64 xq"+str(i)+" = 0;\n"
-    for i in range(N*N):
-        s = s + "fp64 sq"+str(i)+" = 0;\n"
-    filedata = filedata.replace('$hvars', s)
+    for i in range(N):
+        for j in range(N):
+            if (i >= j):
+                s = s + "fp64 xq"+str(i*N+j)+" = __GADGET_exist();\n"
+    for i in range(N):
+        for j in range(N):
+            if (i >= j):
+                s = s + "fp64 sq"+str(i)+" = __GADGET_exist();\n"
+    filedata = filedata.replace('$lvars', s)
 
     s = ""
-    s = str(N)+","+str(M)+","
+    s = str(N)+","+str(M)+","+dats+","
     for i in range(N*N):
         s = s +str(C_flat[i])+","
-    for i in range(N*N):
-        s = s +str(X_flat[i])+","
     for i in range(M):
         for j in range(N*N):
             s = s +str(np.array(A[i]).reshape(1,N*N)[0][j])+","
@@ -345,13 +245,16 @@ if __name__ == "__main__":
     for i in range(M):
         s = s + "y"+str(i)+","
 
-    for i in range(N*N):
-        s = s + "xq"+str(i)+","
-    for i in range(N*N-1):
-        s = s + "sq"+str(i)+","
-    s = s + "sq"+str(N*N-1)
+    for i in range(N):
+        for j in range(N):
+            if (i >= j):
+                s = s + "xq"+str(i*N+j)+","
+    for i in range(N):
+        for j in range(N):
+            if (i >= j):
+                 s = s + "sq"+str(i*N+j)+","
+    s = s[:-1]
     filedata = filedata.replace('$seq2', s)
-
 
     s = ""
     for j in range(M):
@@ -361,6 +264,7 @@ if __name__ == "__main__":
         s = s + "(a"+str(j)+"_"+str((N*N)-1)+"*x"+str((N*N)-1)+");\n"
     filedata = filedata.replace('$dot_calc', s)
 
+    ''' INFEASIBLILITY
     s = ""
     for i in range(M):
         s = s + "solved = solved || (dot_b"+str(i)+" != b"+str(i)+");\n"
@@ -386,10 +290,9 @@ if __name__ == "__main__":
         s = s + "(sq"+str(e)+" < 0.0));\n\n"
 
     filedata = filedata.replace('$eigen', s)
- 
-    print("writing")
+    '''
 
     # Write the file out again
-    out = sys.argv[2] #.replace('.dat-s','') + "_circ.c"
+    out = dats + ".c"
     with open(out, 'w+') as file:
       file.write(filedata)
