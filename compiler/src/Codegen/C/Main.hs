@@ -527,7 +527,7 @@ genSpecialFunction fnName cargs = do
         return . Just . Base $ cIntLit S32 1
     "__GADGET_sdp" -> if computingVals
       then do
-	expr_n <- genExpr $ cargs !! 0
+      	expr_n <- genExpr $ cargs !! 0
         let n = unwrapConstInt $ ssaValAsTerm "sdp val extraction" $ expr_n
 
         expr_m <- genExpr $ cargs !! 1
@@ -538,38 +538,40 @@ genSpecialFunction fnName cargs = do
           $ "Starting external SDPsolver ..."
         CConst (CStrConst cstr _) <- return $ cargs !! 2
        
-	vals                     <- liftLog $ sdp_solve (getCString cstr)
+	      vals <- liftLog $ sdp_solve (getCString cstr)
         
-	let xvals = take (fromIntegral $ n * n) vals
-	forM_
+	      let xvals = take (fromIntegral $ n * n) vals
+	      forM_
           (zip [0 :: Int ..] xvals) -- Valuation
           (\case
             (id, d) ->
-              liftCircify $ setValue (SLVar $ "X" ++ show id) (double2fixpt d)
+              liftCircify $ setValue (SLVar $ "x" ++ show id) (double2fixpt d)
           )
 
-	let yvals = take (fromIntegral $ m) (drop (fromIntegral $ (n * n)) vals)
+	      let yvals = take (fromIntegral $ m) (drop (fromIntegral $ (n * n)) vals)
         forM_
           (zip [0 :: Int ..] $ yvals) -- Valuation
           (\case
             (id, d) ->
-              liftCircify $ setValue (SLVar $ "Y" ++ show id) (double2fixpt d)
+              liftCircify $ setValue (SLVar $ "y" ++ show id) (double2fixpt d)
           )
 
-	let xlvals = take (fromIntegral $ div (n * (n+1)) 2) (drop (fromIntegral $ m + (n * n)) vals)
-	forM_
-          (zip [0 :: Int ..] $ xlvals) -- Valuation
+        let idp = range ((0,0),(n,n))
+        let ids = [(i*n+j) for (i,j) in idp | j >= i]
+	      let xlvals = take (fromIntegral $ div (n * (n+1)) 2) (drop (fromIntegral $ m + (n * n)) vals)
+        forM_
+          (zip ids $ xlvals) -- Valuation
           (\case
             (id, d) ->
-              liftCircify $ setValue (SLVar $ "XL" ++ show id) (double2fixpt d)
+              liftCircify $ setValue (SLVar $ "xq" ++ show id) (double2fixpt d)
           )
 
-	let slvals = take (fromIntegral $ div (n * (n+1)) 2) (drop (fromIntegral $ (div (n * (n+1))  2) + m + (n * n)) vals)
-	forM_
-          (zip [0 :: Int ..] $ slvals) -- Valuation
+	      let slvals = take (fromIntegral $ div (n * (n+1)) 2) (drop (fromIntegral $ (div (n * (n+1))  2) + m + (n * n)) vals)
+	      forM_
+          (zip ids $ slvals) -- Valuation
           (\case
             (id, d) ->
-              liftCircify $ setValue (SLVar $ "SL" ++ show id) (double2fixpt d)
+              liftCircify $ setValue (SLVar $ "sq" ++ show id) (double2fixpt d)
           )
 
         return . Just . Base $ cIntLit S32 1
@@ -578,80 +580,6 @@ genSpecialFunction fnName cargs = do
                         "Runs semidefinite programming solver in prove mode only"
         return . Just . Base $ cIntLit S32 1
 
-
-{-
-do
-
-      expr_n <- genExpr $ cargs !! 0
-      let n = unwrapConstInt $ ssaValAsTerm "sdp val extraction" $ expr_n
-
-      expr_m <- genExpr $ cargs !! 1
-      let m = unwrapConstInt $ ssaValAsTerm "sdp val extraction" $ expr_m
-
-      expr_fp <- genExpr $ cargs !! 2
-      let fp = unwrapString $ ssaValAsTerm "sdp fp extraction" $ expr_fp
-
-      error $ "Out sdp fp: " ++ fp
--}
-      {-
-      let expr_c = take (fromIntegral $ n * n) (drop 2 cargs)
-      c <- forM expr_c $ \q -> do
-        expr <- genExpr $ q
-        let vars = unwrapConstDouble $ ssaValAsTerm "sdp val extraction" $ expr
-        return vars
-
-      let
-        expr_x =
-          take (fromIntegral $ n * n) (drop (fromIntegral $ 2 + (n * n)) cargs)
-      x <- forM expr_x $ \q -> do
-        expr <- genExpr $ q
-        let vars = unwrapConstDouble $ ssaValAsTerm "sdp val extraction" $ expr
-        return vars
-
-      let expr_a = take (fromIntegral $ m * n * n)
-                        (drop (fromIntegral $ 2 + 2 * (n * n)) cargs)
-      a <- forM expr_a $ \q -> do
-        expr <- genExpr $ q
-        let vars = unwrapConstDouble $ ssaValAsTerm "sdp val extraction" $ expr
-        return vars
-
-      let expr_b = take
-            (fromIntegral m)
-            (drop (fromIntegral $ 2 + 2 * (n * n) + (m * n * n)) cargs)
-      b <- forM expr_b $ \q -> do
-        expr <- genExpr $ q
-        let vars = unwrapConstDouble $ ssaValAsTerm "sdp val extraction" $ expr
-        return vars
-
-      -- compute SDP
-      c1 <- liftIO $ cArrayAlloc c
-      x1 <- liftIO $ cArrayAlloc x
-      a1 <- liftIO $ cArrayAlloc a
-      b1 <- liftIO $ cArrayAlloc b
-
-      let pre = replicate (fromIntegral $ n * n + m) 0
-      sol <- liftIO $ cArrayAlloc pre
-
-
-      -- N, M, C, X, big array of A's, b, y
-      liftIO $ sdpSolve (fromIntegral n) (fromIntegral m) c1 x1 a1 b1 sol
-      sol1 <- liftIO $ cArrayPeek sol (n * n + m)
-
-      let sol_x = take (fromIntegral $ n * n) sol1
-      let sol_y = drop (fromIntegral $ n * n) sol1
-
-      --error $ "Out EXPR CTEN " ++ show sol_x ++ "sol y " ++ show sol_y
-
-      forM (zip sol_x [0 .. (n * n - 1)]) $ \(q, i) -> do
-        liftCircify
-          $ setValue (SLVar ("x" ++ show i)) (double2fixpt $ realToFrac q)
-        return ()
-
-      forM (zip sol_y [0 .. (m - 1)]) $ \(q, i) -> do
-        liftCircify
-          $ setValue (SLVar ("y" ++ show i)) (double2fixpt $ realToFrac q)
-        return ()
-      -}
     "__GADGET_compute" -> do
       -- Enter scratch state
       s    <- deepGet
