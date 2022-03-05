@@ -11,6 +11,9 @@ git clone --recurse-submodules git@github.com:eniac/otti.git
 # Building
 First, make sure you have installed [Docker CE](https://docs.docker.com/get-docker/).
 
+Note: it is likely you will need to increase the memory limits for Docker on
+your system.
+
 Then build the Otti container
 ```
 docker build -t otti .

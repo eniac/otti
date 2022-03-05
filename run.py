@@ -1,55 +1,75 @@
 #!/usr/bin/env python3
 import subprocess
 import argparse
+import enum
+import os
 
-print("Placeholder")
+class Size(enum.Enum):
+    SMALL = 0
+    FULL = 1
 
-SMALL = 0
-FULL = 1
-
-
-def run_sdp(dataset_path):
-        for f in dataset_path:
-                if f.endswith(".dat-s"):
-
-                        print("making c file for " ++ f)
-                        subprocess.run(["cd", "codegen/"])
-                        subprocess.run(["python3", "sdpcodegen.py", dataset_path+f])
-                        subprocess.run(["mv", f+".c", "../out/cfiles/"])
-                        subprocess.run(["cd", "../compiler/"])
-
-                        print("compiling R1CS for " ++ f)
-                        subprocess.run(["C_outputs="+f+".zkif", "stack", "run", "--", "c", "main", "../out/cfiles/"+f+".c", "--emit-r1cs"])
-                        subprocess.run(["C_outputs="+f+".zkif", "stack", "run","--", "c", "main", "../out/cfiles/"+f+".c", "--prove", "-i", '<(echo "")'])
-                        subprocess.run(["mv", f+"inp.zkif", "../out/zkif/"])
-                        subprocess.run(["mv", f+"wit.zkif", "../out/zkif/"])
-                        subprocess.run(["mv", f+".zkif", "../out/zkif/"])
-                        subprocess.run(["cd", "../spartan-zkinterface/"])
-        
-                        print("generating proof for " ++ f)
-                        subprocess.run(["", "", ""])
-                else:
-                        print(f++" is not a .dat-s file")
+class Type(enum.Enum):
+    LP = 0
+    SDP = 1
+    SGD = 2
 
 
-def parse_sdp(size=-1, custom=None):
-        if size == SMALL:
+def run_file(f, ty):
+        codegen = ""
+        if (ty == Type.LP):
+            codegen="lpcodegen.py"
+        elif (ty == Type.SDP):
+            if not f.endswith(".dat-s"):
+                print("ERROR: "+f+ " is not a dat-s file")
+                return
+            codegen="sdpcodegen.py"
+        elif (ty == Type.SGD):
+            codegen="sgdcodegen.py"
+        else:
+            print("ERROR: Type of "+f+ " not valid")
+            return
+
+        print("making c file for " ++ f)
+        subprocess.run(["cd", "codegen/"])
+        subprocess.run(["python3", codegen, dataset_path+f])
+        subprocess.run(["mv", f+".c", "../out/cfiles/"])
+        subprocess.run(["cd", "../compiler/"])
+
+        print("compiling R1CS for " ++ f)
+        subprocess.run(["C_outputs="+f+".zkif", "stack", "run", "--", "c", "main", "../out/cfiles/"+f+".c", "--emit-r1cs"])
+        subprocess.run(["C_outputs="+f+".zkif", "stack", "run","--", "c", "main", "../out/cfiles/"+f+".c", "--prove", "-i", '<(echo "")'])
+        subprocess.run(["mv", f+"inp.zkif", "../out/zkif/"])
+        subprocess.run(["mv", f+"wit.zkif", "../out/zkif/"])
+        subprocess.run(["mv", f+".zkif", "../out/zkif/"])
+        subprocess.run(["cd", "../spartan-zkinterface/"])
+
+        print("generating proof for " ++ f)
+        subprocess.run(["./target/release/spzk", "verify", "--nizk","../out/zkif/"+f+".zkif", "../out/zkif/"+f+".inp.zkif", "../out/zkif/"+f+".wit.zkif",])
+
+
+def run_dir(direc_path, ty):
+        for f in os.listdir(direc_path):
+            run_file(f, ty)
+
+def parse_sdp(size=-1, ty, custom=None):
+        if size == Size.SMALL:
                 print("running SDP small Otti dataset")
-                run_sdp("datasets/SDP/small/");
+                direc = os.fsencode("datasets/SDP/small/")
+                run_dir(direc,Type.SDP)
 
-        elif size == FULL:
+        elif size == Size.FULL:
                 print("running SDP full Otti dataset, WARNING: do not attempt this without a lot of RAM")
-                run_sdp("datasets/SDP/full/");
+                direc = os.fsencode("datasets/SDP/full/")
+                run_dir(direc,Type.SDP))
 
         elif custom != None:
                 print("running SDP custom dataset")
-#ends with /?
-                run_sdp("");
+                run_file(custom,Type.SDP));
 
         else:
                 print("dataset for SDP not specified, running small Otti dataset")
-                run_sdp("datasets/SDP/small/");
-
+                direc = os.fsencode("datasets/SDP/small/")
+                run_dir(direc,Type.SDP))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -66,10 +86,10 @@ if __name__ == "__main__":
 
     size = -1;
     if args.small:
-        size = SMALL;
+        size = Size.SMALL;
 
     if args.full:
-        size = FULL;
+        size = Size.FULL;
 
     if args.sdp:
         parse_sdp(size,args.custom)
