@@ -219,7 +219,7 @@ if __name__ == "__main__":
     filedata = filedata.replace('$lvars', s)
 
     s = ""
-    s = str(N)+","+str(M)+","+dats+","
+    s = str(N)+","+str(M)+',"'+dats+'",'
     for i in range(N*N):
         s = s +str(C_flat[i])+","
     for i in range(M):

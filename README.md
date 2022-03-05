@@ -25,11 +25,11 @@ docker run -it otti
 
 After connecting to the Docker container, run the following script to reproduce the experimental results from [Otti](https://eprint.iacr.org/2021/1436).
 ```
-./run.py [--lp | --sdp | --sgd] [--small | -- full] [datasets/<path to dataset>]
+./run.py [--lp | --sdp | --sgd] [--small | --full | --custom datasets/<path to dataset>]
 ```
 
-One of the `--lp | --sdp | --sgd` options is required. Then either execute with the `--small` or `--full` flag or
-explicitly give a path to a dataset file.
+One of the `--lp | --sdp | --sgd` options is required. Then either execute with
+the `--small` or `--full` flag or `--custom` and explicitly give a path to a dataset file.
 
 ### Running the small suite
 A subset of each dataset that can be reproduced on a personal computer with x86_64 architecture and > 4GB of RAM.

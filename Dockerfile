@@ -10,7 +10,7 @@ ENV BOOTSTRAP_HASKELL_NONINTERACTIVE=0
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
 	build-essential curl libffi-dev libgmp-dev libgmp10 libncurses-dev libncurses5 libtinfo5 \
-	git python3 python3-pip python2 python2-dev z3 libz3-dev && \
+	git python3 python3-pip python3-dev python2 python2-dev z3 libz3-dev && \
     pip3 install pysmps numpy pmlb scikit-learn smcp && \
     curl https://sh.rustup.rs -sSf | bash -s -- -y && \
     curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh && \

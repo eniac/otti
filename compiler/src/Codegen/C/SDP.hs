@@ -13,7 +13,7 @@ sdp_solve dats_file = do
     logIf "gadgets::user::verification"
       $ "Starting external SDP solver..."
     liftIO
-      $ Proc.readProcess "python3" ["sgd.py"] [] --, ("sol_" ++ dats_file)]
+      $ Proc.readProcess "python3" ["sdp.py", dats_file] []
 
   return $ parseDoubles poutput
  where
