@@ -527,28 +527,25 @@ genSpecialFunction fnName cargs = do
         return . Just . Base $ cIntLit S32 1
     "__GADGET_sdp" -> if computingVals
       then do
-      	expr_n <- genExpr $ cargs !! 0
+        expr_n <- genExpr $ cargs !! 0
         let n = unwrapConstInt $ ssaValAsTerm "sdp val extraction" $ expr_n
 
         expr_m <- genExpr $ cargs !! 1
         let m = unwrapConstInt $ ssaValAsTerm "sdp val extraction" $ expr_m
 
-        liftLog
-          . logIf "gadgets::user::verification"
-          $ "Starting external SDPsolver ..."
         CConst (CStrConst cstr _) <- return $ cargs !! 2
-       
-	      vals <- liftLog $ sdp_solve (getCString cstr)
+      
+	vals <- liftLog $ sdp_solve (getCString cstr)
         
-	      let xvals = take (fromIntegral $ n * n) vals
-	      forM_
+	let xvals = take (fromIntegral $ n * n) vals
+	forM_
           (zip [0 :: Int ..] xvals) -- Valuation
           (\case
             (id, d) ->
               liftCircify $ setValue (SLVar $ "x" ++ show id) (double2fixpt d)
           )
 
-	      let yvals = take (fromIntegral $ m) (drop (fromIntegral $ (n * n)) vals)
+	let yvals = take (fromIntegral $ m) (drop (fromIntegral $ (n * n)) vals)
         forM_
           (zip [0 :: Int ..] $ yvals) -- Valuation
           (\case
@@ -556,9 +553,9 @@ genSpecialFunction fnName cargs = do
               liftCircify $ setValue (SLVar $ "y" ++ show id) (double2fixpt d)
           )
 
-        let idp = range ((0,0),(n,n))
-        let ids = [(i*n+j) for (i,j) in idp | j >= i]
-	      let xlvals = take (fromIntegral $ div (n * (n+1)) 2) (drop (fromIntegral $ m + (n * n)) vals)
+        let idp = [(x, y) | x <- [0..n-1], y <- [0..n-1]]
+        let ids = [(i*n+j) | (i,j) <- idp, j >= i]
+        let xlvals = take (fromIntegral $ div (n * (n+1)) 2) (drop (fromIntegral $ m + (n * n)) vals)
         forM_
           (zip ids $ xlvals) -- Valuation
           (\case
@@ -566,8 +563,8 @@ genSpecialFunction fnName cargs = do
               liftCircify $ setValue (SLVar $ "xq" ++ show id) (double2fixpt d)
           )
 
-	      let slvals = take (fromIntegral $ div (n * (n+1)) 2) (drop (fromIntegral $ (div (n * (n+1))  2) + m + (n * n)) vals)
-	      forM_
+        let slvals = take (fromIntegral $ div (n * (n+1)) 2) (drop (fromIntegral $ (div (n * (n+1))  2) + m + (n * n)) vals)
+        forM_
           (zip ids $ slvals) -- Valuation
           (\case
             (id, d) ->

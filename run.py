@@ -16,8 +16,8 @@ def run_sdp(dataset_path):
 			subprocess.run(["mv", f+".c", "out/cfiles/"])
 
 			print("compiling R1CS for " ++ f)
-			subprocess.run(["C_outputs="+f+".zkif", "stack", "run", "--", "main", "out/cfiles/"+f, "--emit-r1cs"])
-			subprocess.run(["C_outputs="+f+".zkif", "stack", "run", "--", "main", "out/cfiles/"+f, "--prove", "-i", '<(echo "")'])
+			subprocess.run(["C_outputs="+f+".zkif", "stack", "run", "--", "c", "main", "out/cfiles/"+f, "--emit-r1cs"])
+			subprocess.run(["C_outputs="+f+".zkif", "stack", "run", "--", "c", "main", "out/cfiles/"+f, "--prove", "-i", '<(echo "")'])
 			subprocess.run(["mv", f+"inp.zkif", "out/zkif/"])
 			subprocess.run(["mv", f+"wit.zkif", "out/zkif/"])
 			subprocess.run(["mv", f+".zkif", "out/zkif/"])
