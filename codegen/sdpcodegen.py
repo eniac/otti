@@ -199,7 +199,7 @@ if __name__ == "__main__":
 
     s = ""
     for i in range(N*N):
-        s = s + "fp64 x"+str(i)+" = 0;\n"
+        s = s + "fp64 x"+str(i)+" = __GADGET_exist();\n"
     filedata = filedata.replace('$xvars', s)
 
     s = ""
@@ -215,7 +215,7 @@ if __name__ == "__main__":
     for i in range(N):
         for j in range(N):
             if (i >= j):
-                s = s + "fp64 sq"+str(i)+" = __GADGET_exist();\n"
+                s = s + "fp64 sq"+str(i*N+j)+" = __GADGET_exist();\n"
     filedata = filedata.replace('$lvars', s)
 
     s = ""

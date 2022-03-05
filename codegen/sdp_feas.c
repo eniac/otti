@@ -37,7 +37,7 @@ return solved;
 }
 
 
-int sdp_instance(){
+int main(){
 
 $xvars
 
