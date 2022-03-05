@@ -98,7 +98,7 @@ if __name__ == "__main__":
     sol = "sol_"+dats
 
     #run csdp
-    #subprocess.run(["csdp", dats, sol])
+    subprocess.run(["csdp", dats, sol], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     #read in solution file
     P = parse_problem_file(dats, sol)
@@ -116,9 +116,6 @@ if __name__ == "__main__":
     XL = np.linalg.cholesky(X)
 
     SL = np.linalg.cholesky(S)
-
-    print(XL)
-    print(SL)
 
     XLf = []
     SLf = []
