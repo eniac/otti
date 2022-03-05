@@ -165,24 +165,24 @@ return solved;
 }
 
 
-int sdp_instance(){
+int main(){
 
-fp64 x0 = 0;
-fp64 x1 = 0;
-fp64 x2 = 0;
-fp64 x3 = 0;
-fp64 x4 = 0;
-fp64 x5 = 0;
-fp64 x6 = 0;
-fp64 x7 = 0;
-fp64 x8 = 0;
-fp64 x9 = 0;
-fp64 x10 = 0;
-fp64 x11 = 0;
-fp64 x12 = 0;
-fp64 x13 = 0;
-fp64 x14 = 0;
-fp64 x15 = 0;
+fp64 x0 = __GADGET_exist();
+fp64 x1 = __GADGET_exist();
+fp64 x2 = __GADGET_exist();
+fp64 x3 = __GADGET_exist();
+fp64 x4 = __GADGET_exist();
+fp64 x5 = __GADGET_exist();
+fp64 x6 = __GADGET_exist();
+fp64 x7 = __GADGET_exist();
+fp64 x8 = __GADGET_exist();
+fp64 x9 = __GADGET_exist();
+fp64 x10 = __GADGET_exist();
+fp64 x11 = __GADGET_exist();
+fp64 x12 = __GADGET_exist();
+fp64 x13 = __GADGET_exist();
+fp64 x14 = __GADGET_exist();
+fp64 x15 = __GADGET_exist();
 
 
 fp64 y0 = __GADGET_exist();
@@ -200,15 +200,15 @@ fp64 xq13 = __GADGET_exist();
 fp64 xq14 = __GADGET_exist();
 fp64 xq15 = __GADGET_exist();
 fp64 sq0 = __GADGET_exist();
-fp64 sq1 = __GADGET_exist();
-fp64 sq1 = __GADGET_exist();
-fp64 sq2 = __GADGET_exist();
-fp64 sq2 = __GADGET_exist();
-fp64 sq2 = __GADGET_exist();
-fp64 sq3 = __GADGET_exist();
-fp64 sq3 = __GADGET_exist();
-fp64 sq3 = __GADGET_exist();
-fp64 sq3 = __GADGET_exist();
+fp64 sq4 = __GADGET_exist();
+fp64 sq5 = __GADGET_exist();
+fp64 sq8 = __GADGET_exist();
+fp64 sq9 = __GADGET_exist();
+fp64 sq10 = __GADGET_exist();
+fp64 sq12 = __GADGET_exist();
+fp64 sq13 = __GADGET_exist();
+fp64 sq14 = __GADGET_exist();
+fp64 sq15 = __GADGET_exist();
 
 
 __GADGET_sdp(4,2,sample.dat-s,-1.0,0.0,0.0,0.0,0.0,-2.0,0.0,0.0,0.0,0.0,-3.0,0.0,0.0,0.0,0.0,-4.0,-1.0,0.0,0.0,0.0,0.0,-1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-1.0,0.0,0.0,0.0,0.0,-5.0,-2.0,0.0,0.0,-2.0,-6.0,-10.0,-20.0);
