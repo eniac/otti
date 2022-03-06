@@ -58,7 +58,7 @@ of each stage.
 ├── codegen              -- Code generators convert LP, SDP, SGD datasets to C files with non-deterministic checkers
 ├── datasets             -- The datasets from the Otti paper evaluation
 │   ├── LP               -- Linear programming (LP) dataset based on Netlib-LP
-│   ├── SDP              -- Semi-definite programming (SDP) dataset
+│   ├── SDP              -- Semi-definite programming (SDP) dataset based on SDPLIB
 │   ├── SGD              -- Stochastic Gradient Descent (SGD) dataset references and hyperparameters for PMLB dataset
 ├── Dockerfile           -- The Dockerfile that builds Otti
 ├── README.md            -- This file
