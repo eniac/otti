@@ -28,7 +28,7 @@ def run_file(name, path_name, ty, home):
         else:
             print("ERROR: Type of "+f+ " not valid")
             return
-
+        
         print("Making c file for " + f)
         subprocess.run(["python3", codegen, path+f])
         subprocess.run(["mv", f+".c", home+"/out/cfiles/"])
@@ -40,10 +40,12 @@ def run_file(name, path_name, ty, home):
         subprocess.run(["mv", f+".inp.zkif", home+"/out/zkif/"])
         subprocess.run(["mv", f+".wit.zkif", home+"/out/zkif/"])
         subprocess.run(["mv", f+".zkif", home+"/out/zkif/"])
+        
         os.chdir(home+"/spartan-zkinterface/")
-
+        
         print("Generating proof for " + f)
-        subprocess.run("./target/release/spzk verify --nizk "+home+"/out/zkif/"+f+".zkif "+home+"/out/zkif/"+f+".inp.zkif "+home+"out/zkif/"+f+".wit.zkif", shell=True)
+
+        subprocess.run("./target/release/spzk verify --nizk "+home+"/out/zkif/"+f+".zkif "+home+"/out/zkif/"+f+".inp.zkif "+home+"/out/zkif/"+f+".wit.zkif", shell=True)
 
 
 def run_dir(direc_path, ty, home):

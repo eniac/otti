@@ -28,11 +28,11 @@ def mod_sol(probfile, solfile):
         content = copylines + content
 
     if cont:
-        with open("temp_"+solfile, 'w') as f:
+        with open(solfile+"_temp", 'w+') as f:
             for line in content:
                 f.write('%s' % line)
 
-        os.rename("temp_"+solfile,solfile);
+        os.rename(solfile+"_temp",solfile);
 
 
 def parse_problem_file(probfile, solfile):
