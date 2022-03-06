@@ -99,12 +99,12 @@ if __name__ == "__main__":
     sol = '/'.join(ds[:-1])+"/sol_"+ds[-1]
 
     #run csdp
-    #subprocess.run(["csdp", dats, sol], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(["csdp", dats, sol], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
     #read in solution file
     P = parse_problem_file(dats, sol)
 
-    #subprocess.run("rm "+sol, shell=True)
+    subprocess.run("rm "+sol, shell=True)
     
     C = P['C']
     X = P['X']
