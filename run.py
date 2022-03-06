@@ -13,24 +13,35 @@ class Type(enum.Enum):
     SDP = 1
     SGD = 2
 
+def run_lp(): #TODO
+    print("placeholder")
 
-def run_file(name, path_name, ty, home):
+def parse_lp(home, size, ty, custom=None): #TODO Lef
+        if size == Size.SMALL:
+                print("Running LP small Otti dataset")
+                direc = os.fsencode(home+"/datasets/LP/MPS-small/")
+
+        elif size == Size.FULL:
+                print("Running LP full Otti dataset")
+                direc = os.fsencode(home+"/datasets/LP/MPS-full/")
+
+        elif custom != None:
+                print("Running LP custom dataset")
+                run_file(custom,Type.LP,home);
+
+        else:
+                print("Dataset for LP not specified, running small Otti dataset")
+                direc = os.fsencode(home+"/datasets/LP/MPS-small/")
+
+def run_sdp(name, path_name, home):
         f = name.decode('UTF-8')
         path = path_name.decode('UTF-8')
-        codegen = ""
-        if (ty == Type.LP):
-            codegen=home+"/codegen/lpcodegen.py"
-        elif (ty == Type.SDP):
-            if not f.endswith('.dat-s'):
-                print("ERROR: "+f+ " is not a dat-s file")
-                return
-            codegen=home+"/codegen/sdpcodegen.py"
-        else:
-            print("ERROR: Type of "+f+ " not valid")
+        if not f.endswith('.dat-s'):
+            print("ERROR: "+f+ " is not a dat-s file")
             return
-        
+    
         print("Making c file for " + f)
-        subprocess.run(["python3", codegen, path+f])
+        subprocess.run(["python3", home+"/codegen/sdpcodegen.py", path+f])
         subprocess.run(["mv", f+".c", home+"/out/cfiles/"])
         os.chdir(home+"/compiler/")
         
@@ -48,49 +59,28 @@ def run_file(name, path_name, ty, home):
         subprocess.run("./target/release/spzk verify --nizk "+home+"/out/zkif/"+f+".zkif "+home+"/out/zkif/"+f+".inp.zkif "+home+"/out/zkif/"+f+".wit.zkif", shell=True)
 
 
-def run_dir(direc_path, ty, home):
-        for f in os.listdir(direc_path):
-            run_file(f, direc_path, ty, home)
-
-def parse_lp(home, size, ty, custom=None): #TODO Lef
-        if size == Size.SMALL:
-                print("Running LP small Otti dataset")
-                direc = os.fsencode(home+"/datasets/LP/MPS-small/")
-                run_dir(direc,Type.LP,home)
-
-        elif size == Size.FULL:
-                print("Running LP full Otti dataset")
-                direc = os.fsencode(home+"/datasets/LP/MPS-full/")
-                run_dir(direc,Type.LP,home)
-
-        elif custom != None:
-                print("Running LP custom dataset")
-                run_file(custom,Type.LP,home);
-
-        else:
-                print("Dataset for LP not specified, running small Otti dataset")
-                direc = os.fsencode(home+"/datasets/LP/MPS-small/")
-                run_dir(direc,Type.LP,home)
-
 def parse_sdp(home, size, ty, custom=None):
         if size == Size.SMALL:
                 print("Running SDP small Otti dataset")
                 direc = os.fsencode(home+"/datasets/SDP/small/")
-                run_dir(direc,Type.SDP,home)
+                for f in os.listdir(direc):
+                    run_sdp(f, direc, home)
 
         elif size == Size.FULL:
                 print("Running SDP full Otti dataset, WARNING: do not attempt this without a lot of RAM")
                 direc = os.fsencode(home+"/datasets/SDP/full/")
-                run_dir(direc,Type.SDP,home)
+                for f in os.listdir(direc):
+                    run_sdp(f, direc, home)
 
         elif custom != None:
                 print("Running SDP custom dataset")
-                run_file(custom,Type.SDP,home);
+                run_sdp(custom,Type.SDP,home);
 
         else:
                 print("Dataset for SDP not specified, running small Otti dataset")
                 direc = os.fsencode(home+"/datasets/SDP/small/")
-                run_dir(direc,Type.SDP,home)
+                for f in os.listdir(direc):
+                    run_sdp(f, direc, home)
 
 def run_sgd():
     print("Placeholder")
@@ -129,7 +119,7 @@ if __name__ == "__main__":
         size = Size.FULL;
 
     if args.lp:
-        parse_lp(home,size,args,custom)
+        parse_lp(home,size,args.custom)
 
     if args.sdp:
         parse_sdp(home,size,args.custom)
