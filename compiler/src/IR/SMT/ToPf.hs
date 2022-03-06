@@ -642,16 +642,16 @@ bvToPf env term = do
       IntToDynBv w (IntLit i)             -> saveConstBv bv (Bv.bitVec w i)
 
       -- stop gap addition until Fp is impl'd
-      RoundFpToDynBv 64 True (Fp64Lit fp) -> saveConstBv bv $ asBits fp
-      RoundFpToDynBv 32 True (Fp32Lit fp) -> saveConstBv bv $ asBits fp
+      RoundFpToDynBv 64 True (Fp64Lit fp) -> saveConstBv bv $ Bv.bitVec 64 $ round fp
+      RoundFpToDynBv 32 True (Fp32Lit fp) -> saveConstBv bv $ Bv.bitVec 64 $ round fp
       RoundFpToDynBv 64 True (FpBinExpr FpMul (Fp64Lit fl) (Fp64Lit fr)) ->
-        saveConstBv bv $ asBits (fl * fr)
+        saveConstBv bv $ Bv.bitVec 64 $ round (fl * fr)
       RoundFpToDynBv 32 True (FpBinExpr FpMul (Fp32Lit fl) (Fp32Lit fr)) ->
-        saveConstBv bv $ asBits (fl * fr)
+        saveConstBv bv $ Bv.bitVec 64 $ round (fl * fr)
       RoundFpToDynBv 64 True (FpBinExpr FpMul (FpUnExpr FpNeg (Fp64Lit fl)) (Fp64Lit fr))
-        -> saveConstBv bv $ asBits ((-1 * fl) * fr)
+        -> saveConstBv bv $ Bv.bitVec 64 $ round ((-1 * fl) * fr)
       RoundFpToDynBv 32 True (FpBinExpr FpMul (FpUnExpr FpNeg (Fp32Lit fl)) (Fp32Lit fr))
-        -> saveConstBv bv $ asBits ((-1 * fl) * fr)
+        -> saveConstBv bv $ Bv.bitVec 64 $ round ((-1 * fl) * fr)
 
 
       -- rounding
@@ -659,19 +659,23 @@ bvToPf env term = do
 
       RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (Fp64Lit val) (Fp64Lit m)) (Ite (FpUnPred FpIsPositive (FpBinExpr FpMul (Fp64Lit tval) (Fp64Lit tm))) (Fp64Lit (neg)) (Fp64Lit pos)))
         -> saveConstBv bv $ Bv.bitVec 64 $ round ((val * m) + neg)
+
       --RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (FpToFp (Fp64Lit val)) (Fp32Lit m)) (Ite (FpUnPred FpIsPositive (FpToFp (Fp64Lit tval))) (Fp32Lit neg) (Fp32Lit pos)))
       --  -> saveConstBv bv $ Bv.bitVec 64 $ round ((val * float2Double m) + float2Double neg)
       -- float neg
+
       RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (FpUnExpr FpNeg (Fp64Lit val)) (Fp64Lit m)) (Ite (FpUnPred FpIsPositive (FpBinExpr FpMul (FpUnExpr FpNeg (Fp64Lit tval)) (Fp64Lit tm))) (Fp64Lit (neg)) (Fp64Lit pos)))
         -> saveConstBv bv $ Bv.bitVec 64 $ round ((-1 * val * m) + pos)
+
+
       --RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (FpToFp (FpUnExpr FpNeg (Fp64Lit val))) (Fp32Lit m)) (Ite (FpUnPred FpIsPositive (FpToFp (FpUnExpr FpNeg (Fp64Lit tval)))) (Fp32Lit neg) (Fp32Lit pos)))
       --  -> saveConstBv bv $ Bv.bitVec 64 $ round ((-1 * val * float2Double m) + float2Double pos)
       -- double pos
-      RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (Fp64Lit val) (Fp64Lit m)) (Ite (FpUnPred FpIsPositive (FpBinExpr FpMul (Fp64Lit tval) (Fp64Lit tm))) (Fp64Lit neg) (Fp64Lit pos)))
-        -> saveConstBv bv $ Bv.bitVec 64 $ round ((val * m) + neg)
+      --RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (Fp64Lit val) (Fp64Lit m)) (Ite (FpUnPred FpIsPositive (FpBinExpr FpMul (Fp64Lit tval) (Fp64Lit tm))) (Fp64Lit neg) (Fp64Lit pos)))
+      --  -> saveConstBv bv $ Bv.bitVec 64 $ round ((val * m) + neg)
       -- double neg
-      RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (FpUnExpr FpNeg (Fp64Lit val)) (Fp64Lit m)) (Ite (FpUnPred FpIsPositive (FpBinExpr FpMul (FpUnExpr FpNeg (Fp64Lit tval)) (Fp64Lit tm))) (Fp64Lit neg) (Fp64Lit pos)))
-        -> saveConstBv bv $ Bv.bitVec 64 $ round ((-1 * val * m) + pos)
+      --RoundFpToDynBv 64 True (FpBinExpr FpAdd (FpBinExpr FpMul (FpUnExpr FpNeg (Fp64Lit val)) (Fp64Lit m)) (Ite (FpUnPred FpIsPositive (FpBinExpr FpMul (FpUnExpr FpNeg (Fp64Lit tval)) (Fp64Lit tm))) (Fp64Lit neg) (Fp64Lit pos)))
+      --  -> saveConstBv bv $ Bv.bitVec 64 $ round ((-1 * val * m) + pos)
 
 
       DynBvLit l          -> saveConstBv bv l

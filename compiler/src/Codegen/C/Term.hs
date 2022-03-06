@@ -1134,11 +1134,14 @@ cCast toTy node = case term node of
             (CFixedPt $ Ty.RoundFpToDynBv
               64
               True
+              t'
+{-
               (Ty.FpBinExpr
                 Ty.FpAdd
                 t'
                 (Ty.mkIte (Ty.FpUnPred Ty.FpIsPositive t') negHalf half)
               )
+-}
             )
             (udef node)
 
@@ -1181,11 +1184,13 @@ cCast toTy node = case term node of
             (CFixedPt $ Ty.RoundFpToDynBv
               64
               True
-              (Ty.FpBinExpr
+              t'
+{-              (Ty.FpBinExpr
                 Ty.FpAdd
                 t'
                 (Ty.mkIte (Ty.FpUnPred Ty.FpIsPositive t') negHalf half)
               )
+-}
             )
             (udef node)
 

@@ -5,23 +5,20 @@ import qualified Data.List                     as L
 import qualified System.Process                as Proc
 import           Util.Log
 import           Control.Monad.IO.Class
-import qualified Foreign.C.Types               as FTypes
-import qualified Foreign                       as F
 
 
-
-sdp :: Integer -> Integer -> [String] -> Log [Integer]
-sdp d n dataset = do
+sdp_solve :: String -> Log [Double]
+sdp_solve dats_file = do
   poutput <- do
-    logIf "gadgets::user::verification" $ "Starting external SGD solver ..."
+    logIf "gadgets::user::verification"
+      $ "Starting external SDP solver..."
     liftIO
-      $  Proc.readProcess "python3" ["sgd.py", show d, show n]
-      $  L.intercalate "," dataset
-      ++ "\n"
-  return $ parseInts poutput
+      $ Proc.readProcess "python3" ["sdp.py", dats_file] []
+
+  return $ parseDoubles poutput
  where
-  parseInts out =
-    fmap (\x -> read x :: Integer)
+  parseDoubles out =
+    fmap (\x -> read x :: Double)
       . fmap T.unpack
       . T.splitOn (T.pack ",")
       . T.init
