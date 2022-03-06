@@ -72,7 +72,7 @@ def parse_problem_file(probfile, solfile):
 
     Y = np.zeros(m)
     for i in range(m):
-        Y[i] = Sol.b[i]
+        Y[i] = Sol.b[i]*-1
 
     X = np.zeros([n,n])
     S = np.zeros([n,n])
@@ -95,14 +95,16 @@ def parse_problem_file(probfile, solfile):
 if __name__ == "__main__":
     
     dats = sys.argv[1]
-    sol = "sol_"+dats
+    ds = dats.split('/')
+    sol = '/'.join(ds[:-1])+"/sol_"+ds[-1]
 
     #run csdp
-    subprocess.run(["csdp", dats, sol], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
+    #subprocess.run(["csdp", dats, sol], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
     #read in solution file
     P = parse_problem_file(dats, sol)
 
+    #subprocess.run("rm "+sol, shell=True)
     
     C = P['C']
     X = P['X']
@@ -113,17 +115,44 @@ if __name__ == "__main__":
     Y = P['y'] 
     S = P['S']
 
+    np.set_printoptions(precision=15)
+
     XL = np.linalg.cholesky(X)
 
     SL = np.linalg.cholesky(S)
 
+    Xf = []
+    Yf = []
     XLf = []
     SLf = []
     for i in range(N):
         for j in range(N):
+            Xf = Xf + [X[i][j]]
             if (i >= j): #low tri
                 XLf = XLf + [XL[i][j]]
                 SLf = SLf + [SL[i][j]]
+    for i in range(M):
+        Yf = Yf + [Y[i]]
 
-    print(",".join(["%f" % x for x in XLf]) +",".join(["%f" % x for x in SLf]))
+    A0 = []
+    A1 = []
 
+    for i in range(N):
+        for j in range(N):
+            A0 = A0 + [A[0][i][j]]
+            A1 = A1 + [A[1][i][j]]
+
+    b0 = sum([ai*xi for (ai,xi) in zip(A0,Xf)])
+    b1 = sum([ai*xi for (ai,xi) in zip(A1,Xf)])
+
+#    print(Xf)
+#    print(Yf)
+#    print(XLf)
+#    print(SLf)
+
+    out = Xf+Yf+XLf+SLf
+    for i in range(len(out)):
+        if out[i] == -0.0:
+            out[i] = 0.0
+
+    print(out)

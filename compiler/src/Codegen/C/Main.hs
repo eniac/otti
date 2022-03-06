@@ -536,7 +536,7 @@ genSpecialFunction fnName cargs = do
         CConst (CStrConst cstr _) <- return $ cargs !! 2
       
 	vals <- liftLog $ sdp_solve (getCString cstr)
-        
+ 
 	let xvals = take (fromIntegral $ n * n) vals
 	forM_
           (zip [0 :: Int ..] xvals) -- Valuation
@@ -554,7 +554,7 @@ genSpecialFunction fnName cargs = do
           )
 
         let idp = [(x, y) | x <- [0..n-1], y <- [0..n-1]]
-        let ids = [(i*n+j) | (i,j) <- idp, j >= i]
+        let ids = [(i*n+j) | (i,j) <- idp, i >= j]
         let xlvals = take (fromIntegral $ div (n * (n+1)) 2) (drop (fromIntegral $ m + (n * n)) vals)
         forM_
           (zip ids $ xlvals) -- Valuation

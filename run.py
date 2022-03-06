@@ -14,64 +14,68 @@ class Type(enum.Enum):
     SGD = 2
 
 
-def run_file(f, ty):
+def run_file(name, path_name, ty, home):
+        f = name.decode('UTF-8')
+        path = path_name.decode('UTF-8')
         codegen = ""
         if (ty == Type.LP):
-            codegen="lpcodegen.py"
+            codegen=home+"/codegen/lpcodegen.py"
         elif (ty == Type.SDP):
-            if not f.endswith(".dat-s"):
+            if not f.endswith('.dat-s'):
                 print("ERROR: "+f+ " is not a dat-s file")
                 return
-            codegen="sdpcodegen.py"
+            codegen=home+"/codegen/sdpcodegen.py"
         elif (ty == Type.SGD):
-            codegen="sgdcodegen.py"
+            codegen=home+"/codegen/sgdcodegen.py"
         else:
             print("ERROR: Type of "+f+ " not valid")
             return
 
-        print("making c file for " ++ f)
-        subprocess.run(["cd", "codegen/"])
-        subprocess.run(["python3", codegen, dataset_path+f])
-        subprocess.run(["mv", f+".c", "../out/cfiles/"])
-        subprocess.run(["cd", "../compiler/"])
+        print("making c file for " + f)
+        print(path+f)
+        subprocess.run(["python3", codegen, path+f])
+        subprocess.run(["mv", f+".c", home+"/out/cfiles/"])
+        os.chdir(home+"/compiler/")
+        
+        print("compiling R1CS for " + f)
+        subprocess.run("C_outputs="+f+".zkif stack run -- c main "+home+"/out/cfiles/"+f+".c --emit-r1cs", shell=True)
+        subprocess.run("C_outputs="+f+".zkif stack run -- c main "+home+"/out/cfiles/"+f+".c --prove -i input", shell=True)
+        subprocess.run(["mv", f+".inp.zkif", home+"/out/zkif/"])
+        subprocess.run(["mv", f+".wit.zkif", home+"/out/zkif/"])
+        subprocess.run(["mv", f+".zkif", home+"/out/zkif/"])
+        os.chdir(home+"/spartan-zkinterface/")
 
-        print("compiling R1CS for " ++ f)
-        subprocess.run(["C_outputs="+f+".zkif", "stack", "run", "--", "c", "main", "../out/cfiles/"+f+".c", "--emit-r1cs"])
-        subprocess.run(["C_outputs="+f+".zkif", "stack", "run","--", "c", "main", "../out/cfiles/"+f+".c", "--prove", "-i", '<(echo "")'])
-        subprocess.run(["mv", f+"inp.zkif", "../out/zkif/"])
-        subprocess.run(["mv", f+"wit.zkif", "../out/zkif/"])
-        subprocess.run(["mv", f+".zkif", "../out/zkif/"])
-        subprocess.run(["cd", "../spartan-zkinterface/"])
-
-        print("generating proof for " ++ f)
-        subprocess.run(["./target/release/spzk", "verify", "--nizk","../out/zkif/"+f+".zkif", "../out/zkif/"+f+".inp.zkif", "../out/zkif/"+f+".wit.zkif",])
+        print("generating proof for " + f)
+        subprocess.run("./target/release/spzk verify --nizk "+home+"/out/zkif/"+f+".zkif "+home+"/out/zkif/ .inp.zkif "+home+"out/zkif/"+f+".wit.zkif", shell=True)
 
 
-def run_dir(direc_path, ty):
+def run_dir(direc_path, ty, home):
         for f in os.listdir(direc_path):
-            run_file(f, ty)
+            run_file(f, direc_path, ty, home)
 
-def parse_sdp(size=-1, ty, custom=None):
+def parse_sdp(home, size, ty, custom=None):
         if size == Size.SMALL:
                 print("running SDP small Otti dataset")
-                direc = os.fsencode("datasets/SDP/small/")
-                run_dir(direc,Type.SDP)
+                direc = os.fsencode(home+"/datasets/SDP/small/")
+                run_dir(direc,Type.SDP,home)
 
         elif size == Size.FULL:
                 print("running SDP full Otti dataset, WARNING: do not attempt this without a lot of RAM")
-                direc = os.fsencode("datasets/SDP/full/")
-                run_dir(direc,Type.SDP))
+                direc = os.fsencode(home+"/datasets/SDP/full/")
+                run_dir(direc,Type.SDP,home)
 
         elif custom != None:
                 print("running SDP custom dataset")
-                run_file(custom,Type.SDP));
+                run_file(custom,Type.SDP,home);
 
         else:
                 print("dataset for SDP not specified, running small Otti dataset")
-                direc = os.fsencode("datasets/SDP/small/")
-                run_dir(direc,Type.SDP))
+                direc = os.fsencode(home+"/datasets/SDP/small/")
+                run_dir(direc,Type.SDP,home)
 
 if __name__ == "__main__":
+    home = os. getcwd() 
+
     parser = argparse.ArgumentParser()
 
     group = parser.add_mutually_exclusive_group()
@@ -92,7 +96,7 @@ if __name__ == "__main__":
         size = Size.FULL;
 
     if args.sdp:
-        parse_sdp(size,args.custom)
+        parse_sdp(home,size,args.custom)
 
 
 

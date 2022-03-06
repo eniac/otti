@@ -1,21 +1,16 @@
 typedef float fp64;
-
 #define epsilon (fp64)1.0e-2
-
 
 int d_equal(fp64 a, fp64 b) {
   if ((a-b) > 0) {
     return (a-b) < epsilon;
   } else {
-    return -1*(a-b);
+    return -1*(a-b) < epsilon;
   }
 }
 
-
-//n,m, C, X, big array of A's, b, sol_y, sol_x
 int check_sdp(int n,int m,fp64 c0,fp64 c1,fp64 c2,fp64 c3,fp64 c4,fp64 c5,fp64 c6,fp64 c7,fp64 c8,fp64 c9,fp64 c10,fp64 c11,fp64 c12,fp64 c13,fp64 c14,fp64 c15,fp64 x0,fp64 x1,fp64 x2,fp64 x3,fp64 x4,fp64 x5,fp64 x6,fp64 x7,fp64 x8,fp64 x9,fp64 x10,fp64 x11,fp64 x12,fp64 x13,fp64 x14,fp64 x15,fp64 a0_0,fp64 a0_1,fp64 a0_2,fp64 a0_3,fp64 a0_4,fp64 a0_5,fp64 a0_6,fp64 a0_7,fp64 a0_8,fp64 a0_9,fp64 a0_10,fp64 a0_11,fp64 a0_12,fp64 a0_13,fp64 a0_14,fp64 a0_15,fp64 a1_0,fp64 a1_1,fp64 a1_2,fp64 a1_3,fp64 a1_4,fp64 a1_5,fp64 a1_6,fp64 a1_7,fp64 a1_8,fp64 a1_9,fp64 a1_10,fp64 a1_11,fp64 a1_12,fp64 a1_13,fp64 a1_14,fp64 a1_15,fp64 b0,fp64 b1,fp64 y0,fp64 y1,fp64 xq0,fp64 xq4,fp64 xq5,fp64 xq8,fp64 xq9,fp64 xq10,fp64 xq12,fp64 xq13,fp64 xq14,fp64 xq15,fp64 sq0,fp64 sq4,fp64 sq5,fp64 sq8,fp64 sq9,fp64 sq10,fp64 sq12,fp64 sq13,fp64 sq14,fp64 sq15){
-
-  int solved = 1;
+int solved = 1;
 
 fp64 dot_b0 = (a0_0*x0) + (a0_1*x1) + (a0_2*x2) + (a0_3*x3) + (a0_4*x4) + (a0_5*x5) + (a0_6*x6) + (a0_7*x7) + (a0_8*x8) + (a0_9*x9) + (a0_10*x10) + (a0_11*x11) + (a0_12*x12) + (a0_13*x13) + (a0_14*x14) + (a0_15*x15);
 fp64 dot_b1 = (a1_0*x0) + (a1_1*x1) + (a1_2*x2) + (a1_3*x3) + (a1_4*x4) + (a1_5*x5) + (a1_6*x6) + (a1_7*x7) + (a1_8*x8) + (a1_9*x9) + (a1_10*x10) + (a1_11*x11) + (a1_12*x12) + (a1_13*x13) + (a1_14*x14) + (a1_15*x15);
@@ -155,15 +150,11 @@ solved = solved && (d_equal(s14,sm14));
 solved = solved && (d_equal(s15,sm15));
 
 
-
 fp64 gap = (s0*x0) + (s1*x1) + (s2*x2) + (s3*x3) + (s4*x4) + (s5*x5) + (s6*x6) + (s7*x7) + (s8*x8) + (s9*x9) + (s10*x10) + (s11*x11) + (s12*x12) + (s13*x13) + (s14*x14) + (s15*x15);
 
 solved = solved && (d_equal(gap,0.0));
-
 return solved;
-
 }
-
 
 int main(){
 
@@ -211,10 +202,9 @@ fp64 sq14 = __GADGET_exist();
 fp64 sq15 = __GADGET_exist();
 
 
-__GADGET_sdp(4,2,"sample.dat-s",-1.0,0.0,0.0,0.0,0.0,-2.0,0.0,0.0,0.0,0.0,-3.0,0.0,0.0,0.0,0.0,-4.0,-1.0,0.0,0.0,0.0,0.0,-1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-1.0,0.0,0.0,0.0,0.0,-5.0,-2.0,0.0,0.0,-2.0,-6.0,-10.0,-20.0);
+__GADGET_sdp(4,2,"/Users/jesskwoods/docker_test/otti/datasets/SDP/small/sample.dat-s",-1.0,0.0,0.0,0.0,0.0,-2.0,0.0,0.0,0.0,0.0,-3.0,0.0,0.0,0.0,0.0,-4.0,-1.0,0.0,0.0,0.0,0.0,-1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-1.0,0.0,0.0,0.0,0.0,-5.0,-2.0,0.0,0.0,-2.0,-6.0,-10.0,-20.0);
 
 int check = __GADGET_check(check_sdp(4,2,-1.0,0.0,0.0,0.0,0.0,-2.0,0.0,0.0,0.0,0.0,-3.0,0.0,0.0,0.0,0.0,-4.0,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15,-1.0,0.0,0.0,0.0,0.0,-1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-1.0,0.0,0.0,0.0,0.0,-5.0,-2.0,0.0,0.0,-2.0,-6.0,-10.0,-20.0,y0,y1,xq0,xq4,xq5,xq8,xq9,xq10,xq12,xq13,xq14,xq15,sq0,sq4,sq5,sq8,sq9,sq10,sq12,sq13,sq14,sq15));
 
 return check;
-
 }
