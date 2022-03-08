@@ -1,21 +1,14 @@
-typedef double fp64;
+#include <stdbool.h>
 
-// Iterate over d
-int grad_check($ws, $xis, short int y) {
-  return y*($dot_wsxis) >= 1;
-}
+bool main($existentials) {
 
-int main() {
+    int neg = 1-2;
 
-    long int $existentials;
+    $change
 
-    __GADGET_sgd($d, $n,
-        $dataset
-    );
+    $grad_checks
 
-    int check = __GADGET_check(
-        $grad_checks);
+    bool check = $and_checks;
 
     return check;
 }
-

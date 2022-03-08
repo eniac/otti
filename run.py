@@ -3,6 +3,7 @@ import subprocess
 import argparse
 import enum
 import os
+import json
 
 class Size(enum.Enum):
     SMALL = 0
@@ -16,7 +17,7 @@ class Type(enum.Enum):
 def run_lp(): #TODO
     print("placeholder")
 
-def parse_lp(home, size, ty, custom=None): #TODO Lef
+def parse_lp(home, size, custom=None): #TODO Lef
         if size == Size.SMALL:
                 print("Running LP small Otti dataset")
                 direc = os.fsencode(home+"/datasets/LP/MPS-small/")
@@ -26,15 +27,13 @@ def parse_lp(home, size, ty, custom=None): #TODO Lef
                 direc = os.fsencode(home+"/datasets/LP/MPS-full/")
 
         elif custom != None:
-                print("Running LP custom dataset")
+                print("Running LP custom data")
 
         else:
                 print("Dataset for LP not specified, running small Otti dataset")
                 direc = os.fsencode(home+"/datasets/LP/MPS-small/")
 
-def run_sdp(name, path_name, home):
-        f = name.decode('UTF-8')
-        path = path_name.decode('UTF-8')
+def run_sdp(f, path, home):
         if not f.endswith('.dat-s'):
             print("ERROR: "+f+ " is not a dat-s file")
             return
@@ -58,38 +57,80 @@ def run_sdp(name, path_name, home):
         subprocess.run("./target/release/spzk verify --nizk "+home+"/out/zkif/"+f+".zkif "+home+"/out/zkif/"+f+".inp.zkif "+home+"/out/zkif/"+f+".wit.zkif", shell=True)
 
 
-def parse_sdp(home, size, ty, custom=None):
+def parse_sdp(home, size, custom=None):
         if size == Size.SMALL:
                 print("Running SDP small Otti dataset")
                 direc = os.fsencode(home+"/datasets/SDP/small/")
-                for f in os.listdir(direc):
-                    run_sdp(f, direc, home)
+                for name in os.listdir(direc):
+                    f = name.decode('UTF-8')
+                    path = direc.decode('UTF-8')
+                    run_sdp(f, path, home)
 
         elif size == Size.FULL:
                 print("Running SDP full Otti dataset, WARNING: do not attempt this without a lot of RAM")
                 direc = os.fsencode(home+"/datasets/SDP/full/")
-                for f in os.listdir(direc):
-                    run_sdp(f, direc, home)
+                for name in os.listdir(direc):
+                    f = name.decode('UTF-8')
+                    path = direc.decode('UTF-8')
+                    run_sdp(f, path, home)
 
         elif custom != None:
-                print("Running SDP custom dataset")
-                run_sdp(custom,Type.SDP,home);
+                print("Running SDP custom data")
+                
+                abspath = os.path.abspath(custom)
+                name = os.path.basename(custom)
+                path = abspath[:(-1*len(name))]
+                run_sdp(name, path, home)
 
         else:
                 print("Dataset for SDP not specified, running small Otti dataset")
                 direc = os.fsencode(home+"/datasets/SDP/small/")
-                for f in os.listdir(direc):
-                    run_sdp(f, direc, home)
-
-def run_sgd():
-    print("Placeholder")
-
-
-def parse_sgd(home,size,ty,custom=None): 
-    print("Placeholder")
+                for name in os.listdir(direc):
+                    f = name.decode('UTF-8')
+                    path = direc.decode('UTF-8')
+                    run_sdp(f, path, home)
 
 
+def run_sgd(home, cfile, wfile, dataset, c1, c2, seed, eta0, maxiter, tol):
 
+    subprocess.run(["python3", home+"/codegen/sgdcodegen.py", cfile, wfile,dataset, c1, c2, seed, eta0, maxiter, tol])
+    subprocess.run(["mv", cfile, home+"/out/cfiles/"])
+    subprocess.run(["mv", wfile, home+"/out/wit/"])
+
+    print("Compile, solve, and prove " + dataset)
+    os.chdir(home+"/rust-circ/")
+    subprocess.run("./target/release/examples/circ --inputs "+home+"/out/wit/"+wfile+" "+home+"/out/cfiles/"+cfile+" r1cs --action spartan", shell=True)
+
+
+def parse_sgd(home,size,custom=None): 
+        if size == Size.SMALL:
+                print("Running SGD small Otti dataset")
+                json_file = (home+"/datasets/SGD/pmlb-small.json")
+ 
+        elif size == Size.FULL:
+                print("Running SGD full Otti dataset")
+                json_file = (home+"/datasets/SGD/pmlb-small.json")
+
+        elif custom != None:
+                print("SGD custom data not available")
+                return
+        else:
+            
+                print("Dataset for SDP not specified, running small Otti dataset")
+                json_file = (home+"/datasets/SGD/pmlb-small.json")
+
+        with open(json_file) as f:
+            data = json.load(f)
+            
+            for dataset in data: 
+                cfile = dataset+".c"
+                wfile = dataset+".in"
+
+                run_sgd(home, cfile, wfile, dataset,\
+                        str(data[dataset]["classes"][0]),\
+                        str(data[dataset]["classes"][1]),\
+                        str(data[dataset]["seed"]), str(data[dataset]["eta0"]),\
+                        str(data[dataset]["maxiter"]), str(data[dataset]["tol"]))
 
 if __name__ == "__main__":
     home = os. getcwd() 
@@ -112,7 +153,9 @@ if __name__ == "__main__":
         subprocess.run(["mkdir", home+"/out/cfiles"])
     if not os.path.isdir(home+"/out/zkif"):
         subprocess.run(["mkdir", home+"/out/zkif"])
-
+    if not os.path.isdir(home+"/out/wit"):
+        subprocess.run(["mkdir", home+"/out/wit"])
+    
     size = -1;
     if args.small:
         size = Size.SMALL;
@@ -129,7 +172,7 @@ if __name__ == "__main__":
         subprocess.run(["rm", home+"/compiler/C",  home+"/compiler/x", home+"/compiler/w"])
 
     elif args.sgd:
-        print("placeholder")
+        parse_sgd(home,size,args.custom)
 
     else:
         parser.print_help()

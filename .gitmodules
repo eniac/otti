@@ -1,6 +1,3 @@
-[submodule "compiler/spartan-zkinterface"]
-	path = compiler/spartan-zkinterface
-	url = git@github.com:elefthei/spartan-zkinterface.git
 [submodule "spartan-zkinterface"]
 	path = spartan-zkinterface
 	url = git@github.com:elefthei/spartan-zkinterface.git
