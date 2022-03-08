@@ -7,7 +7,7 @@ int d_equal(fp64 a, fp64 b) {
   if ((a-b) > 0) {
     return (a-b) < epsilon;
   } else {
-    return -1*(a-b);
+    return -1*(a-b) < epsilon;
   }
 }
 

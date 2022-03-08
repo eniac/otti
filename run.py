@@ -27,7 +27,6 @@ def parse_lp(home, size, ty, custom=None): #TODO Lef
 
         elif custom != None:
                 print("Running LP custom dataset")
-                run_file(custom,Type.LP,home);
 
         else:
                 print("Dataset for LP not specified, running small Otti dataset")
@@ -107,9 +106,12 @@ if __name__ == "__main__":
     parser.add_argument("--sgd", action='store_true')
     args = parser.parse_args()
 
-    subprocess.run(["mkdir", home+"/out"])
-    subprocess.run(["mkdir", home+"/out/cfiles"])
-    subprocess.run(["mkdir", home+"/out/zkif"])
+    if not os.path.isdir(home+"/out"):
+        subprocess.run(["mkdir", home+"/out"])
+    if not os.path.isdir(home+"/out/cfiles"):
+        subprocess.run(["mkdir", home+"/out/cfiles"])
+    if not os.path.isdir(home+"/out/zkif"):
+        subprocess.run(["mkdir", home+"/out/zkif"])
 
     size = -1;
     if args.small:
@@ -120,9 +122,16 @@ if __name__ == "__main__":
 
     if args.lp:
         parse_lp(home,size,args.custom)
+        subprocess.run(["rm", home+"/compiler/C",  home+"/compiler/x", home+"/compiler/w"])
 
-    if args.sdp:
+    elif args.sdp:
         parse_sdp(home,size,args.custom)
+        subprocess.run(["rm", home+"/compiler/C",  home+"/compiler/x", home+"/compiler/w"])
 
+    elif args.sgd:
+        print("placeholder")
+
+    else:
+        parser.print_help()
 
 
