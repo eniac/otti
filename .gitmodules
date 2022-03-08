@@ -6,4 +6,8 @@
 	url = git@github.com:elefthei/spartan-zkinterface.git
 [submodule "Spartan"]
 	path = Spartan
-	url = git@github.com:elefthei/Spartan.git
+  url = git@github.com:elefthei/Spartan.git
+[submodule "rust-circ"]
+	path = rust-circ
+	url = https://github.com/jkwoods/circ
+	branch = spartan
