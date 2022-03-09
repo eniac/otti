@@ -1,0 +1,23 @@
+{
+ "clean1": {
+    "classes": [0, 1],
+    "seed": 221,
+    "eta0": 0.01,
+    "maxiter": 40000,
+    "tol": 0.001
+  },
+  "clean2": {
+    "classes": [0, 1],
+    "seed": 220,
+    "eta0": 0.01,
+    "maxiter": 20000,
+    "tol": 0.001
+  },
+  "GAMETES_Epistasis_2_Way_1000atts_0.4H_EDM_1": { TODO
+    "classes": [0, 1],
+    "seed": 221,
+    "eta0": 0.01,
+    "maxiter": 40000,
+    "tol": 0.001
+  }
+}

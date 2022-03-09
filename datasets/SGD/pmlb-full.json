@@ -1,0 +1,128 @@
+{
+  "confidence": {
+    "classes": [3, 5],
+    "seed": 221,
+    "eta0": 10.0,
+    "maxiter": 40000,
+    "tol": 0.001
+  },
+  "haberman": { TODO
+    "classes": [0, 1],
+    "seed": 221,
+    "eta0": 10.0,
+    "maxiter": 40000,
+    "tol": 0.001
+  },
+  "iris": {
+    "classes": [0, 1],
+    "seed": 222,
+    "eta0": 100.0,
+    "maxiter": 80000,
+    "tol": 0.001
+  },
+  "new_thyroid": {
+    "classes": [2, 3],
+    "seed": 220,
+    "eta0": 0.01,
+    "maxiter": 20000,
+    "tol": 0.001
+  },
+  "krkopt": {
+    "classes": [3, 5],
+    "seed": 220,
+    "eta0": 1.0,
+    "maxiter": 20000,
+    "tol": 0.001
+  },
+  "diabetes": { TODO
+    "classes": [0, 1],
+    "seed": 222,
+    "eta0": 100.0,
+    "maxiter": 80000,
+    "tol": 0.001
+  },
+  "glass": {
+    "classes": [3, 5],
+    "seed": 220,
+    "eta0": 1.0,
+    "maxiter": 20000,
+    "tol": 0.001
+  },
+  "labor": {
+    "classes": [0, 1],
+    "seed": 220,
+    "eta0": 10.0,
+    "maxiter": 20000,
+    "tol": 0.001
+  },
+  "letter": {
+    "classes": [1, 23],
+    "seed": 220,
+    "eta0": 1.0,
+    "maxiter": 80000,
+    "tol": 0.001
+  },
+  "lymphography": {
+    "classes": [1, 2],
+    "seed": 220,
+    "eta0": 1.0,
+    "maxiter": 40000,
+    "tol": 0.001
+  },
+  "collins": {
+    "classes": [0, 2],
+    "seed": 220,
+    "eta0": 0.01,
+    "maxiter": 40000,
+    "tol": 0.001
+  },
+  "allbp": {
+    "classes": [0, 1],
+    "seed": 220,
+    "eta0": 0.01,
+    "maxiter": 80000,
+    "tol": 0.001
+  },
+  "dermatology": {
+    "classes": [1, 2],
+    "seed": 221,
+    "eta0": 0.01,
+    "maxiter": 40000,
+    "tol": 0.001
+  },
+  "kddcup": {
+    "classes": [0, 3],
+    "seed": 221,
+    "eta0": 10.0,
+    "maxiter": 40000,
+    "tol": 0.001
+  },
+  "molecular_biology_promoters": {
+    "classes": [0, 1],
+    "seed": 220,
+    "eta0": 1.0,
+    "maxiter": 20000,
+    "tol": 0.001
+  },
+  "mfeat_karhunen": {
+    "classes": [0, 1],
+    "seed": 220,
+    "eta0": 1.0,
+    "maxiter": 40000,
+    "tol": 0.001
+  },
+	"analcatdata_authorship": {
+		"classes": [2, 3],
+		"seed": 222,
+	  "eta0": 10.0,
+    "maxiter": 80000,
+    "tol": 0.001
+	},
+  "clean1": {
+    "classes": [0, 1],
+    "seed": 221,
+    "eta0": 0.01,
+    "maxiter": 40000,
+    "tol": 0.001
+  }
+}

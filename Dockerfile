@@ -2,7 +2,7 @@ FROM ubuntu:20.04
 
 ADD . /files
 
-ARG RUST_TOOLCHAIN=nightly-2021-03-24
+ARG RUST_TOOLCHAIN=nightly-2021-11-15   #nightly-2021-03-24
 ENV PATH="$HOME/.cabal/bin:/root/.ghcup/bin:/root/.cargo/bin:${PATH}"
 ENV RUSTFLAGS="-C target_cpu=native"
 ENV BOOTSTRAP_HASKELL_NONINTERACTIVE=0
@@ -34,7 +34,7 @@ RUN \
     cd /files/spartan-zkinterface && \
     rustup override set ${RUST_TOOLCHAIN} && \
     cargo build --release && \
-    cd /files/rust-circ/ && \
-    cargo build --release --example circ
+    cd /files/rust-circ && \
+    cargo build --release --example circ && \
 
 CMD /bin/bash

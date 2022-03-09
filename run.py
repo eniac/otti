@@ -91,9 +91,11 @@ def parse_sdp(home, size, custom=None):
                     run_sdp(f, path, home)
 
 
-def run_sgd(home, cfile, wfile, dataset, c1, c2, seed, eta0, maxiter, tol):
+def run_sgd(home, cfile, wfile, dataset, c1, c2, seed, eta0, maxiter, tol,
+        prob_check=1):
 
-    subprocess.run(["python3", home+"/codegen/sgdcodegen.py", cfile, wfile,dataset, c1, c2, seed, eta0, maxiter, tol])
+    subprocess.run(["python3", home+"/codegen/sgdcodegen.py", cfile,\
+        wfile,dataset, c1, c2, seed, eta0, maxiter, tol, prob_check])
     subprocess.run(["mv", cfile, home+"/out/cfiles/"])
     subprocess.run(["mv", wfile, home+"/out/wit/"])
 
@@ -101,15 +103,37 @@ def run_sgd(home, cfile, wfile, dataset, c1, c2, seed, eta0, maxiter, tol):
     os.chdir(home+"/rust-circ/")
     subprocess.run("./target/release/examples/circ --inputs "+home+"/out/wit/"+wfile+" "+home+"/out/cfiles/"+cfile+" r1cs --action spartan", shell=True)
 
+def parse_sgd_json(home,json_file,prob_check=0):
+    with open(json_file) as f:
+            data = json.load(f)
+
+            for dataset in data:
+                cfile = dataset+".c"
+                wfile = dataset+".in"
+                if prob_check:
+                    cfile = "prob_"+cfile
+                    wfile = "prob_"+wfile
+
+                run_sgd(home, cfile, wfile, dataset,\
+                        str(data[dataset]["classes"][0]),\
+                        str(data[dataset]["classes"][1]),\
+                        str(data[dataset]["seed"]), str(data[dataset]["eta0"]),\
+                        str(data[dataset]["maxiter"]),\
+                        str(data[dataset]["tol"]), prob_check)
+
 
 def parse_sgd(home,size,custom=None): 
         if size == Size.SMALL:
                 print("Running SGD small Otti dataset")
                 json_file = (home+"/datasets/SGD/pmlb-small.json")
- 
+                parse_sgd_json(home,json_file)
+
         elif size == Size.FULL:
                 print("Running SGD full Otti dataset")
-                json_file = (home+"/datasets/SGD/pmlb-small.json")
+                json_file = (home+"/datasets/SGD/pmlb-full.json")
+                parse_sgd_json(home,json_file)
+                json_file = (home+"/datasets/SGD/pmlb-prob.json")
+                parse_sgd_json(home,json_file,1)
 
         elif custom != None:
                 print("SGD custom data not available")
@@ -118,19 +142,8 @@ def parse_sgd(home,size,custom=None):
             
                 print("Dataset for SDP not specified, running small Otti dataset")
                 json_file = (home+"/datasets/SGD/pmlb-small.json")
+                parse_sgd_json(home,json_file)
 
-        with open(json_file) as f:
-            data = json.load(f)
-            
-            for dataset in data: 
-                cfile = dataset+".c"
-                wfile = dataset+".in"
-
-                run_sgd(home, cfile, wfile, dataset,\
-                        str(data[dataset]["classes"][0]),\
-                        str(data[dataset]["classes"][1]),\
-                        str(data[dataset]["seed"]), str(data[dataset]["eta0"]),\
-                        str(data[dataset]["maxiter"]), str(data[dataset]["tol"]))
 
 if __name__ == "__main__":
     home = os. getcwd() 
