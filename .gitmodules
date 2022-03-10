@@ -7,4 +7,3 @@
 [submodule "rust-circ"]
 	path = rust-circ
 	url = https://github.com/jkwoods/circ
-	branch = spartan

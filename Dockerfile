@@ -2,7 +2,8 @@ FROM ubuntu:20.04
 
 ADD . /files
 
-ARG RUST_TOOLCHAIN=nightly-2021-11-15   #nightly-2021-03-24
+#ARG RUST_TOOLCHAIN1=nightly-2021-03-24
+#ARG RUST_TOOLCHAIN2=nightly-2021-11-15
 ENV PATH="$HOME/.cabal/bin:/root/.ghcup/bin:/root/.cargo/bin:${PATH}"
 ENV RUSTFLAGS="-C target_cpu=native"
 ENV BOOTSTRAP_HASKELL_NONINTERACTIVE=0
@@ -10,14 +11,15 @@ ENV BOOTSTRAP_HASKELL_NONINTERACTIVE=0
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
 	build-essential curl libffi-dev libgmp-dev libgmp10 libncurses-dev libncurses5 libtinfo5 \
-	git python3 python3-pip python3-dev python2 python2-dev z3 libz3-dev m4 && \
+	git python3 python3-pip python3-dev python2 python2-dev z3 libz3-dev m4 coinor-libcbc-dev && \
     pip3 install pysmps numpy pmlb scikit-learn smcp && \
     curl https://sh.rustup.rs -sSf | bash -s -- -y && \
     curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh && \
     rm -rf /var/lib/apt/lists/*
 
 RUN ghcup install stack && \
-    rustup toolchain install ${RUST_TOOLCHAIN} && \
+    rustup toolchain install nightly-2021-03-24 && \
+    rustup toolchain install nightly-2021-11-15 && \
     cd /files/deps && \
     tar xvf lp_solve_5.5.2.11_dev_ux64.tar.gz  --one-top-level=dev && \
     tar xvf lp_solve_5.5.2.11_exe_ux64.tar.gz  --one-top-level=exe && \
@@ -32,9 +34,10 @@ RUN \
     cd /files/compiler && \
     stack build && \
     cd /files/spartan-zkinterface && \
-    rustup override set ${RUST_TOOLCHAIN} && \
+    rustup override set nightly-2021-03-24 && \
     cargo build --release && \
     cd /files/rust-circ && \
-    cargo build --release --example circ && \
+    rustup override set nightly-2021-11-15 && \
+    cargo build --release --example circ
 
 CMD /bin/bash
