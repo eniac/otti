@@ -11,8 +11,8 @@ There are two directories with MPS data
 2. full
 
 ## small
-A subset of SDPLIB datasets that can be reproduced on a personal computer,
-x86_64 architecture and > 12GB of RAM.
+An artificial example dataset from the SDPA sparse format file that can be reproduced on a personal computer,
+x86_64 architecture and > 12GB of RAM. (Replicating any real SDP examples takes a lot of memory.)
 
 ## full
 A subset of SDPLIB datasets that can be reproduced on a large machine,
