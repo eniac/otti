@@ -3,18 +3,13 @@ import sys
 import traceback
 import itertools
 
-var = 'X'
 delta = 0.01
 
 class Show:
-    def show():
+    def show(var):
         raise ValueError("Not implemented")
-    def __repr__(self):
-        return self.show()
-    def __str__(self):
-        return self.show()
 
-class Sign(Show):
+class Sign:
     def __init__(self, s):
         sign = 0
         if(s == 'G'):
@@ -64,7 +59,7 @@ class Constraint(Show):
         self.sign = sign
         self.const = const
 
-    def show(self):
+    def show(self, var):
         num_vars = len(self.mult)
         terms = [ None  if m == 0.000 else "{}{}".format(var,v) if m == 1.0 else "{:.8f}*{}{}".format(m, var,v) for (m,v) in zip(self.mult, range(num_vars)) ]
         terms = filter(lambda x: x != None, terms)
@@ -76,7 +71,7 @@ class Constraint(Show):
                 return False
         return True
 
-    def show_delta(self):
+    def show_delta(self, var):
         num_vars = len(self.mult)
         terms = [ None  if m == 0.000 else "{}{}".format(var,v) if m == 1.0 else "{:.8f}*{}{}".format(m, var,v) for (m,v) in zip(self.mult, range(num_vars)) ]
         terms = filter(lambda x: x != None, terms)
@@ -87,7 +82,7 @@ class Constraint(Show):
         elif self.sign.sign == -1:
             return "dle(" + ", ".join([" + ".join(terms), "{:.8f}".format(self.const), str(delta)]) + ")"
         else:
-            raise ValueError("Wrong sign in show_delta " + self.show())
+            raise ValueError("Wrong sign in show_delta " + self.show(var))
 
 # Three types of range constraints x >= 0, x <= 0, x \in R (unbounded)
 class RangeConstraint(Show):
@@ -116,13 +111,13 @@ class RangeConstraint(Show):
         else:
             return Sign('E')
 
-    def show(self):
+    def show(self, var):
         if(self.bounded):
             return "{}{} {} {:.8f}".format(var,self.index, self.sign.show(), 0.0)
         else:
             return ""
 
-    def show_delta(self):
+    def show_delta(self, var):
         if self.sign.sign == 0:
             return "deq(" + "{}{}".format(var, self.index) + ", 0.0, {})".format(delta)
         elif self.sign.sign == 1:
@@ -130,13 +125,13 @@ class RangeConstraint(Show):
         elif self.sign.sign == -1:
             return "dle(" + "{}{}".format(var, self.index) + ", 0.0, {})".format(delta)
         else:
-            raise ValueError("Wrong sign in show_delta " + self.show())
+            raise ValueError("Wrong sign in show_delta " + self.show(var))
 
 class ObjectiveConstraint(Show):
     def __init__(self, mult):
         self.mult = mult
 
-    def show(self):
+    def show(self, var):
         terms = [ None  if m == 0.000 else "{}{}".format(var, i) if m == 1.0 else "{:.8f}*{}{}".format(m, var, i) for (i, m) in enumerate(self.mult) ]
         terms = list(filter(lambda x: x != None, terms))
         if(len(terms) == 0):
@@ -144,10 +139,10 @@ class ObjectiveConstraint(Show):
         return " + ".join(terms)
 
 
-def ccheckgen(constraints, range_constraints):
+def ccheckgen(constraints, range_constraints, var):
     return ",\n\t".join(
-            [c.show_delta() for c in constraints if not c.is_zero()] +
-            [c.show_delta() for c in range_constraints if c.show() != ""]
+            [c.show_delta(var) for c in constraints if not c.is_zero()] +
+            [c.show_delta(var) for c in range_constraints if c.show(var) != ""]
         )
 
 # substitution dict
@@ -209,9 +204,9 @@ def parse(filename):
     )
 
 # MAIN
-def generate(filename):
+def generate(inp):
     (pconstraints, pobj, pnum_vars, pmin_max, prangeconstraints,
-    dconstraints, dobj, dnum_vars, dmin_max, drangeconstraints) = parse(filename)
+    dconstraints, dobj, dnum_vars, dmin_max, drangeconstraints) = parse(inp)
 
     c_header = '''
     typedef double fp64;
@@ -231,18 +226,17 @@ def generate(filename):
     int main() {
     '''
 
-    mps_call = '    __GADGET_lpsolve("{}");'.format(filename)
+    mps_call = '    __GADGET_lpsolve("{}");'.format(inp)
     check_header = "    int check = __GADGET_check("
 
-    var = 'X'
-    primal_obj = pobj.show()
+    primal_obj = pobj.show('X')
     primal_check = ccheckgen(
         pconstraints,
-        prangeconstraints
+        prangeconstraints,
+        'X'
     )
 
-    var = 'Y'
-    dual_obj = dobj.show()
+    dual_obj = dobj.show('Y')
 
     certificate = "deq({}, {}, {})".format(
         primal_obj,
@@ -256,5 +250,5 @@ def generate(filename):
     }
     '''
 
-    return("\n".join([c_header, cvargen('X', pnum_vars), cvargen('Y', dnum_vars), mps_call, check_header, "\t" + primal_check + ",\n\t" + certificate, c_foot]))
+    return "\n".join([c_header, cvargen('X', pnum_vars), cvargen('Y', dnum_vars), mps_call, check_header, "\t" + primal_check + ",\n\t" + certificate, c_foot])
 

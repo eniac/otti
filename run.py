@@ -19,13 +19,7 @@ class Type(enum.Enum):
 def absoluteFilePaths(directory):
     for dirpath,_,filenames in os.walk(directory):
         for f in filenames:
-            yield os.path.abspath(os.path.join(dirpath, f))
-
-def mightDecode(bstr):
-    try:
-        return bstr.decode("utf-8")
-    except:
-        return str(bstr)
+            yield os.path.abspath(os.path.join(dirpath, f)).decode("utf-8")
 
 def run_lp(home, files):
     # Make workdirs
@@ -34,35 +28,35 @@ def run_lp(home, files):
     zkifs = os.path.join(workdir, "zkif")
     os.makedirs(cfiles, exist_ok=True)
     os.makedirs(zkifs, exist_ok=True)
-
     # Generate C files
     for f in files:
+        fn = os.path.basename(f)
         # write C code to file
-        fn  = mightDecode(f)
         cpath = os.path.join(cfiles, fn + ".c")
-        fqfn = os.path.abspath
-        # Open file
-        c_code = lpcodegen.generate(fn)
-        print(c_code)
-        print(cpath)
-        fd = open(cpath, "w")
-        fd.write(c_code)
-        fd.close()
+
+        # Open file and write C code
+        with open(cpath, "w") as fd:
+            c_code = lpcodegen.generate(f)
+            fd.write(c_code)
 
         # Compile to zkif
         print("Compiling " + fn)
         os.chdir(home+"/compiler/")
-        subprocess.run("C_outputs=" + fn + ".zkif stack run -- c main " + cpath + " --emit-r1cs", shell=True)
-        subprocess.run("C_outputs=" + fn + ".zkif stack run -- c main " + cpath + " --prove -i input", shell=True)
-        subprocess.run(["mv", fn + ".inp.zkif", zkifs])
-        subprocess.run(["mv", fn + ".wit.zkif", zkifs])
-        subprocess.run(["mv", fn + ".zkif", zkifs])
+        subprocess.run("C_outputs=" + fn + ".zkif stack run -- c main " + cpath + " --emit-r1cs", shell=True, check=True)
+        subprocess.run("C_outputs=" + fn + ".zkif stack run -- c main " + cpath + " --prove -i input", shell=True, check=True)
+        subprocess.run(["mv", fn + ".inp.zkif", zkifs], check=True)
+        subprocess.run(["mv", fn + ".wit.zkif", zkifs], check=True)
+        subprocess.run(["mv", fn + ".zkif", zkifs], check=True)
 
         # Verify spartan
         os.chdir(home+"/spartan-zkinterface/")
-        print("Generating proof for " + fn)
+        rust_env = os.environ.copy()
+        rust_env["RUSTFLAGS"] = "-C target_cpu=native"
+        zkpath = os.path.join(zkifs, fn)
 
-        subprocess.run("cargo run --release -- verify --nizk " + zkifs + fn + ".zkif " + zkifs + fn + ".inp.zkif" + zkifs + fn + " wit.zkif", shell=True)
+        print("Generating proof for " + fn)
+        subprocess.run("cargo run --release -- verify --nizk " + zkpath + ".zkif " + zkpath + ".inp.zkif " + zkpath + ".wit.zkif",
+            shell=True, check=True, env=rust_env)
 
 def parse_lp(home, size, custom=None):
         direc = None
@@ -80,7 +74,7 @@ def parse_lp(home, size, custom=None):
         else:
                 print("Dataset for LP not specified, running small Otti dataset")
                 direc = os.fsencode(home+"/datasets/LP/MPS-small/")
-        return absoluteFilePaths(direc)
+        return list(absoluteFilePaths(direc))
 
 def run_sdp(f, path, home):
         if not f.endswith('.dat-s'):
