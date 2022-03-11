@@ -35,9 +35,9 @@ One of the `--lp | --sdp | --sgd` options is required. Then either execute with
 the `--small` or `--full` flag or `--custom` and explicitly give a path to a dataset file.
 
 ### Running the small suite
-A subset of each dataset that can be reproduced on a personal computer with x86_64 architecture and > 4GB of RAM.
+A subset of each dataset that can be reproduced on a personal computer with x86_64 architecture and >= 12GB of RAM.
 These datasets are expected to take less than 1 hour.
-
+We advise the user to make sure that they set their Docker's memory as large as possible for their machine.
 
 ### Running the full suite
 A subset of each MPS dataset that can be reproduced on a large machine with x86_64 architecture and > 200GB RAM.
