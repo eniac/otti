@@ -19,9 +19,9 @@ Then build the Otti container
 docker build -t otti .
 ```
 
-And then get terminal access to it.
+And then run the container with 200GB of memory and get terminal access
 ```
-docker run -it otti
+docker run -m 200g -it otti
 ```
 
 ## Reproducing experimental results
