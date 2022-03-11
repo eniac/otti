@@ -63,16 +63,21 @@ if __name__ == "__main__":
     eta0 = float(sys.argv[7])
     maxiter = int(sys.argv[8])
     tol = float(sys.argv[9])
+    prob = int(sys.argv[10])
 
-
-# TODO = make in
-# make c with witnesses
-
+    # make c with witnesses
     X, y, vals = pmlb_fetch(dataset_name,c1,c2,seed,eta0,maxiter,tol)
     n, d = X.shape
     for i in range(y.size):
         if (y[i] == 0):
             y[i] = -1
+
+    if prob:
+        n = math.floor(n/2)
+        X = X[:n,:]
+        y = y[:n]
+        vals = vals[:n]
+
 
     # Read in the file
     C = """#include <stdbool.h>

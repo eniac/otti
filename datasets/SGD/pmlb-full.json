@@ -6,13 +6,6 @@
     "maxiter": 40000,
     "tol": 0.001
   },
-  "haberman": { TODO
-    "classes": [0, 1],
-    "seed": 221,
-    "eta0": 10.0,
-    "maxiter": 40000,
-    "tol": 0.001
-  },
   "iris": {
     "classes": [0, 1],
     "seed": 222,
@@ -32,13 +25,6 @@
     "seed": 220,
     "eta0": 1.0,
     "maxiter": 20000,
-    "tol": 0.001
-  },
-  "diabetes": { TODO
-    "classes": [0, 1],
-    "seed": 222,
-    "eta0": 100.0,
-    "maxiter": 80000,
     "tol": 0.001
   },
   "glass": {

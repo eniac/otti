@@ -135,7 +135,7 @@ def parse_sdp(home, size, custom=None):
 
 
 def run_sgd(home, cfile, wfile, dataset, c1, c2, seed, eta0, maxiter, tol,
-        prob_check=1):
+        prob_check="0"):
 
     subprocess.run(["python3", home+"/codegen/sgdcodegen.py", cfile,\
         wfile,dataset, c1, c2, seed, eta0, maxiter, tol, prob_check])
@@ -162,7 +162,7 @@ def parse_sgd_json(home,json_file,prob_check=0):
                         str(data[dataset]["classes"][1]),\
                         str(data[dataset]["seed"]), str(data[dataset]["eta0"]),\
                         str(data[dataset]["maxiter"]),\
-                        str(data[dataset]["tol"]), prob_check)
+                        str(data[dataset]["tol"]), str(prob_check))
 
 
 def parse_sgd(home,size,custom=None):
@@ -175,6 +175,7 @@ def parse_sgd(home,size,custom=None):
                 print("Running SGD full Otti dataset")
                 json_file = (home+"/datasets/SGD/pmlb-full.json")
                 parse_sgd_json(home,json_file)
+                print("Running SGD probablistic Otti dataset")
                 json_file = (home+"/datasets/SGD/pmlb-prob.json")
                 parse_sgd_json(home,json_file,1)
 
@@ -221,7 +222,6 @@ if __name__ == "__main__":
 
     if args.lp:
         inputs = parse_lp(home,size,args.custom)
-        print(list(inputs))
         run_lp(home, inputs)
 
     elif args.sdp:

@@ -40,7 +40,7 @@ These datasets are expected to take less than 1 hour.
 
 
 ### Running the full suite
-A subset of each MPS dataset that can be reproduced on a large machine with x86_64 architecture and > 512GB RAM.
+A subset of each MPS dataset that can be reproduced on a large machine with x86_64 architecture and > 200GB RAM.
 These datasets can take several hours, in the order of 2-3 days to terminate. If your computer does not have sufficient
 RAM memory or more applications have reserved memory, this might be killed by the OS. This is a well-known limitation
 of the compiler that consumes large amounts of memory.
@@ -50,6 +50,8 @@ of the compiler that consumes large amounts of memory.
 Our script will generate a C-file from the dataset file including non-deterministic checks. We
 compile it with the Otti compiler, prove and verify it and print `Verification successful` and the total runtime.
 of each stage.
+Note that running indiviudal SGD datasets not from plmb is not supported at
+this time.
 
 
 # Directory structure
