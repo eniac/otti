@@ -38,4 +38,5 @@ RUN \
     rustup override set nightly-2021-11-15 && \
     cargo build --release --example circ
 
-CMD ["/bin/bash", "/files"]
+WORKDIR "/files"
+CMD "/bin/bash"
