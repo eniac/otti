@@ -7,3 +7,6 @@
 [submodule "rust-circ"]
 	path = rust-circ
 	url = https://github.com/jkwoods/circ
+[submodule "circ-haskell"]
+	path = compiler
+	url = git@github.com:elefthei/circ-haskell.git

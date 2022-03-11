@@ -1,5 +1,0 @@
-import "EMBED/unpack" as unpack
-
-def main(field x) -> bool[254]:
-    return unpack(x)
-

@@ -209,51 +209,52 @@ def parse(filename):
     )
 
 # MAIN
-(pconstraints, pobj, pnum_vars, pmin_max, prangeconstraints,
-dconstraints, dobj, dnum_vars, dmin_max, drangeconstraints) = parse(sys.argv[1])
+def generate(filename):
+    (pconstraints, pobj, pnum_vars, pmin_max, prangeconstraints,
+    dconstraints, dobj, dnum_vars, dmin_max, drangeconstraints) = parse(filename)
 
-c_header = '''
-typedef double fp64;
+    c_header = '''
+    typedef double fp64;
 
-int deq(fp64 a, fp64 b, fp64 delta) {
-    return ((-1 * delta) <= (a - b)) && ((a - b) <= delta);
-}
+    int deq(fp64 a, fp64 b, fp64 delta) {
+        return ((-1 * delta) <= (a - b)) && ((a - b) <= delta);
+    }
 
-int dge(fp64 a, fp64 b, fp64 delta) {
-    return (a + delta) >= b;
-}
+    int dge(fp64 a, fp64 b, fp64 delta) {
+        return (a + delta) >= b;
+    }
 
-int dle(fp64 a, fp64 b, fp64 delta) {
-    return a <= (b + delta);
-}
+    int dle(fp64 a, fp64 b, fp64 delta) {
+        return a <= (b + delta);
+    }
 
-int main() {
-'''
+    int main() {
+    '''
 
-mps_call = '    __GADGET_lpsolve("{}");'.format(sys.argv[1])
-check_header = "    int check = __GADGET_check("
+    mps_call = '    __GADGET_lpsolve("{}");'.format(filename)
+    check_header = "    int check = __GADGET_check("
 
-var = 'X'
-primal_obj = pobj.show()
-primal_check = ccheckgen(
-    pconstraints,
-    prangeconstraints
-)
+    var = 'X'
+    primal_obj = pobj.show()
+    primal_check = ccheckgen(
+        pconstraints,
+        prangeconstraints
+    )
 
-var = 'Y'
-dual_obj = dobj.show()
+    var = 'Y'
+    dual_obj = dobj.show()
 
-certificate = "deq({}, {}, {})".format(
-    primal_obj,
-    dual_obj,
-    delta
-);
+    certificate = "deq({}, {}, {})".format(
+        primal_obj,
+        dual_obj,
+        delta
+    );
 
-c_foot = '''    );
+    c_foot = '''    );
 
-    return check;
-}
-'''
+        return check;
+    }
+    '''
 
-print("\n".join([c_header, cvargen('X', pnum_vars), cvargen('Y', dnum_vars), mps_call, check_header, "\t" + primal_check + ",\n\t" + certificate, c_foot]))
+    return("\n".join([c_header, cvargen('X', pnum_vars), cvargen('Y', dnum_vars), mps_call, check_header, "\t" + primal_check + ",\n\t" + certificate, c_foot]))
 

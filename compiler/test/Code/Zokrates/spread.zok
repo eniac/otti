@@ -1,4 +1,0 @@
-def main(field x) -> field[3]:
-  field[2] a = [x,2]
-  return [...a,2+4+x,x][0..3]
-

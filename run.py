@@ -5,6 +5,8 @@ import enum
 import os
 import json
 
+from codegen import lpcodegen
+
 class Size(enum.Enum):
     SMALL = 0
     FULL = 1
@@ -14,10 +16,56 @@ class Type(enum.Enum):
     SDP = 1
     SGD = 2
 
-def run_lp(): #TODO
-    print("placeholder")
+def absoluteFilePaths(directory):
+    for dirpath,_,filenames in os.walk(directory):
+        for f in filenames:
+            yield os.path.abspath(os.path.join(dirpath, f))
 
-def parse_lp(home, size, custom=None): #TODO Lef
+def mightDecode(bstr):
+    try:
+        return bstr.decode("utf-8")
+    except:
+        return str(bstr)
+
+def run_lp(home, files):
+    # Make workdirs
+    workdir = os.path.join(home, "LP")
+    cfiles = os.path.join(workdir, "cfiles")
+    zkifs = os.path.join(workdir, "zkif")
+    os.makedirs(cfiles, exist_ok=True)
+    os.makedirs(zkifs, exist_ok=True)
+
+    # Generate C files
+    for f in files:
+        # write C code to file
+        fn  = mightDecode(f)
+        cpath = os.path.join(cfiles, fn + ".c")
+        fqfn = os.path.abspath
+        # Open file
+        c_code = lpcodegen.generate(fn)
+        print(c_code)
+        print(cpath)
+        fd = open(cpath, "w")
+        fd.write(c_code)
+        fd.close()
+
+        # Compile to zkif
+        print("Compiling " + fn)
+        os.chdir(home+"/compiler/")
+        subprocess.run("C_outputs=" + fn + ".zkif stack run -- c main " + cpath + " --emit-r1cs", shell=True)
+        subprocess.run("C_outputs=" + fn + ".zkif stack run -- c main " + cpath + " --prove -i input", shell=True)
+        subprocess.run(["mv", fn + ".inp.zkif", zkifs])
+        subprocess.run(["mv", fn + ".wit.zkif", zkifs])
+        subprocess.run(["mv", fn + ".zkif", zkifs])
+
+        # Verify spartan
+        os.chdir(home+"/spartan-zkinterface/")
+        print("Generating proof for " + fn)
+
+        subprocess.run("cargo run --release -- verify --nizk " + zkifs + fn + ".zkif " + zkifs + fn + ".inp.zkif" + zkifs + fn + " wit.zkif", shell=True)
+
+def parse_lp(home, size, custom=None):
+        direc = None
         if size == Size.SMALL:
                 print("Running LP small Otti dataset")
                 direc = os.fsencode(home+"/datasets/LP/MPS-small/")
@@ -28,30 +76,31 @@ def parse_lp(home, size, custom=None): #TODO Lef
 
         elif custom != None:
                 print("Running LP custom data")
-
+                return [os.path.abspath(custom)]
         else:
                 print("Dataset for LP not specified, running small Otti dataset")
                 direc = os.fsencode(home+"/datasets/LP/MPS-small/")
+        return absoluteFilePaths(direc)
 
 def run_sdp(f, path, home):
         if not f.endswith('.dat-s'):
             print("ERROR: "+f+ " is not a dat-s file")
             return
-    
+
         print("Making c file for " + f)
         subprocess.run(["python3", home+"/codegen/sdpcodegen.py", path+f])
         subprocess.run(["mv", f+".c", home+"/out/cfiles/"])
         os.chdir(home+"/compiler/")
-        
+
         print("Compiling R1CS for " + f)
         subprocess.run("C_outputs="+f+".zkif stack run -- c main "+home+"/out/cfiles/"+f+".c --emit-r1cs", shell=True)
         subprocess.run("C_outputs="+f+".zkif stack run -- c main "+home+"/out/cfiles/"+f+".c --prove -i input", shell=True)
         subprocess.run(["mv", f+".inp.zkif", home+"/out/zkif/"])
         subprocess.run(["mv", f+".wit.zkif", home+"/out/zkif/"])
         subprocess.run(["mv", f+".zkif", home+"/out/zkif/"])
-        
+
         os.chdir(home+"/spartan-zkinterface/")
-        
+
         print("Generating proof for " + f)
 
         subprocess.run("./target/release/spzk verify --nizk "+home+"/out/zkif/"+f+".zkif "+home+"/out/zkif/"+f+".inp.zkif "+home+"/out/zkif/"+f+".wit.zkif", shell=True)
@@ -76,7 +125,7 @@ def parse_sdp(home, size, custom=None):
 
         elif custom != None:
                 print("Running SDP custom data")
-                
+
                 abspath = os.path.abspath(custom)
                 name = os.path.basename(custom)
                 path = abspath[:(-1*len(name))]
@@ -122,7 +171,7 @@ def parse_sgd_json(home,json_file,prob_check=0):
                         str(data[dataset]["tol"]), prob_check)
 
 
-def parse_sgd(home,size,custom=None): 
+def parse_sgd(home,size,custom=None):
         if size == Size.SMALL:
                 print("Running SGD small Otti dataset")
                 json_file = (home+"/datasets/SGD/pmlb-small.json")
@@ -139,14 +188,14 @@ def parse_sgd(home,size,custom=None):
                 print("SGD custom data not available")
                 return
         else:
-            
+
                 print("Dataset for SDP not specified, running small Otti dataset")
                 json_file = (home+"/datasets/SGD/pmlb-small.json")
                 parse_sgd_json(home,json_file)
 
 
 if __name__ == "__main__":
-    home = os. getcwd() 
+    home = os. getcwd()
 
     parser = argparse.ArgumentParser()
 
@@ -168,7 +217,7 @@ if __name__ == "__main__":
         subprocess.run(["mkdir", home+"/out/zkif"])
     if not os.path.isdir(home+"/out/wit"):
         subprocess.run(["mkdir", home+"/out/wit"])
-    
+
     size = -1;
     if args.small:
         size = Size.SMALL;
@@ -177,8 +226,9 @@ if __name__ == "__main__":
         size = Size.FULL;
 
     if args.lp:
-        parse_lp(home,size,args.custom)
-        subprocess.run(["rm", home+"/compiler/C",  home+"/compiler/x", home+"/compiler/w"])
+        inputs = parse_lp(home,size,args.custom)
+        print(list(inputs))
+        run_lp(home, inputs)
 
     elif args.sdp:
         parse_sdp(home,size,args.custom)
