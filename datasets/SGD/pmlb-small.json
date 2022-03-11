@@ -2,9 +2,9 @@
 	"analcatdata_authorship": {
 		"classes": [2, 3],
 		"seed": 222,
-	        "eta0": 10.0,
-                "maxiter": 80000,
-                "tol": 0.001
+	  "eta0": 10.0,
+    "maxiter": 80000,
+    "tol": 0.001
 	},
 
 	"confidence": {
