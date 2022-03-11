@@ -174,7 +174,7 @@ def parse_sgd(home,size,custom=None):
         elif size == Size.FULL:
                 print("Running SGD full Otti dataset")
                 json_file = (home+"/datasets/SGD/pmlb-full.json")
-                #parse_sgd_json(home,json_file)
+                parse_sgd_json(home,json_file)
                 print("Running SGD probablistic Otti dataset")
                 json_file = (home+"/datasets/SGD/pmlb-prob.json")
                 parse_sgd_json(home,json_file,1)
