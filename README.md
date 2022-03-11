@@ -11,9 +11,6 @@ git clone --recurse-submodules git@github.com:eniac/otti.git
 # Building
 First, make sure you have installed [Docker CE](https://docs.docker.com/get-docker/).
 
-Note: it is likely you will need to increase the memory limits for Docker on
-your system.
-
 Then build the Otti container
 ```
 docker build -t otti .
@@ -37,7 +34,6 @@ the `--small` or `--full` flag or `--custom` and explicitly give a path to a dat
 ### Running the small suite
 A subset of each dataset that can be reproduced on a personal computer with x86_64 architecture and >= 12GB of RAM.
 These datasets are expected to take less than 1 hour.
-We advise the user to make sure that they set their Docker's memory as large as possible for their machine.
 
 ### Running the full suite
 A subset of each MPS dataset that can be reproduced on a large machine with x86_64 architecture and > 200GB RAM.
