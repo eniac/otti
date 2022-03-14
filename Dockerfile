@@ -2,8 +2,6 @@ FROM ubuntu:20.04
 
 ADD . /files
 
-#ARG RUST_TOOLCHAIN1=nightly-2021-03-24
-#ARG RUST_TOOLCHAIN2=nightly-2021-11-15
 ENV PATH="$HOME/.cabal/bin:/root/.ghcup/bin:/root/.cargo/bin:${PATH}"
 ENV RUSTFLAGS="-C target_cpu=native"
 ENV BOOTSTRAP_HASKELL_NONINTERACTIVE=0
