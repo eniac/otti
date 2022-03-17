@@ -16,7 +16,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 RUN ghcup install stack && \
-    rustup toolchain install nightly-2022-02-24 && \
+    rustup toolchain install nightly-2022-03-16 && \
     cd /files/deps && \
     tar xvf lp_solve_5.5.2.11_dev_ux64.tar.gz  --one-top-level=dev && \
     tar xvf lp_solve_5.5.2.11_exe_ux64.tar.gz  --one-top-level=exe && \
