@@ -1,0 +1,17 @@
+#include <stdbool.h>
+
+bool main(__attribute__((public(0))) int w0, __attribute__((public(0))) int w1, __attribute__((public(0))) int w2) {
+
+    int neg = 1-2;
+
+    	w0 = neg * w0;
+
+
+    bool c0 = -1 *(w0 * 51 + w1 * 5 + w2 * -97)>=1;
+	bool c1 = -1 *(w0 * -50 + w1 * -44 + w2 * 24)>=1;
+	bool c2 = 1 *(w0 * -7 + w1 * 96 + w2 * -75)>=1;
+
+    bool check = c0 && c1 && c2;
+
+    return check;
+}

@@ -16,7 +16,6 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 RUN ghcup install stack && \
-    rustup toolchain install nightly-2022-03-16 && \
     cd /files/deps && \
     tar xvf lp_solve_5.5.2.11_dev_ux64.tar.gz  --one-top-level=dev && \
     tar xvf lp_solve_5.5.2.11_exe_ux64.tar.gz  --one-top-level=exe && \
@@ -33,8 +32,9 @@ RUN \
     cd /files/spartan-zkinterface && \
     cargo build --release && \
     cd /files/rust-circ && \
-    rustup override set nightly-2021-11-15 && \
-    cargo build --release --example circ
+    rustup override set stablei && \
+    cargo build --release --example circ --features "c, r1cs"
+
 
 WORKDIR "/files"
 CMD "/bin/bash"

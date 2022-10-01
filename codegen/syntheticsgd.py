@@ -3,6 +3,7 @@ import itertools
 import numpy as np
 import sys
 import math
+import random
 from pmlb import fetch_data
 from sklearn.linear_model import SGDClassifier
 from sklearn.datasets import make_classification
@@ -14,9 +15,9 @@ def grad(clf, X, y, i):
   else:
     return 2*(y[i]*np.dot(w, X[i]) - 1) * y[i]*X[i]
 
-def fit_and_check(X, y,seed,e,mi,t):
+def fit_and_check(X, y,e,mi,t):
   clf = SGDClassifier(loss="squared_hinge",\
-      alpha = 0.0, eta0 = e, learning_rate='adaptive', random_state=seed,\
+      alpha = 0.0, eta0 = e, learning_rate='adaptive',\
       max_iter=mi, tol=t, fit_intercept=True)
   clf.fit(X, y)
   grads = [ np.linalg.norm(grad(clf, X, y, i)) for i in range(len(y)) ]
@@ -24,7 +25,21 @@ def fit_and_check(X, y,seed,e,mi,t):
   if S == 0.0:
     return [ int(i) for i in clf.coef_.flatten() ]
   else:
-    raise Exception("SGD check failed", grads)
+    return [] #raise Exception("SGD check failed", grads)
+
+def random_gen(samples, features):
+    
+    r = []
+    while r == []:
+        rscale = random.randint(1,100)
+        X,y = make_classification(n_samples=samples,n_features=features,n_redundant=0,scale=rscale)
+
+        X = np.array(X).astype(int)
+        y = np.array([(1 if yi == 1 else -1) for yi in y]).astype(int)
+        
+        r = fit_and_check(X, y,0.01,1000,0.001)
+    
+    return X,y,r
 
 def pmlb_fetch(dataset,c1,c2,seed,eta0,maxiter,tol):
   data = fetch_data(dataset)
@@ -58,28 +73,25 @@ if __name__ == "__main__":
 
     c_file = sys.argv[1]
     w_file = sys.argv[2]
-    dataset_name = sys.argv[3]
-    c1 = int(sys.argv[4])
-    c2 = int(sys.argv[5])
-    seed = int(sys.argv[6])
-    eta0 = float(sys.argv[7])
-    maxiter = int(sys.argv[8])
-    tol = float(sys.argv[9])
-    prob = int(sys.argv[10])
+    samples = int(sys.argv[3])
+    features = int(sys.argv[4])
+    #dataset_name = sys.argv[3]
+    #c1 = int(sys.argv[4])
+    #c2 = int(sys.argv[5])
+    #seed = int(sys.argv[5])
+    #eta0 = float(sys.argv[7])
+    #maxiter = int(sys.argv[8])
+    #tol = float(sys.argv[9])
+    #prob = int(sys.argv[10])
 
     # make c with witnesses
-    X, y, vals = pmlb_fetch(dataset_name,c1,c2,seed,eta0,maxiter,tol)
+    X, y, vals = random_gen(samples, features)
+    print(X,y)
+
     n, d = X.shape
     for i in range(y.size):
         if (y[i] == 0):
             y[i] = -1
-
-    if prob:
-        n = math.floor(n/2)
-        X = X[:n,:]
-        y = y[:n]
-        vals = vals[:n]
-
 
     # Read in the file
     C = """#include <stdbool.h>
