@@ -32,7 +32,7 @@ RUN \
     cd /files/spartan-zkinterface && \
     cargo build --release && \
     cd /files/rust-circ && \
-    rustup override set stablei && \
+    rustup override set stable && \
     cargo build --release --example circ --features "c, r1cs"
 
 

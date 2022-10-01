@@ -5,7 +5,9 @@ A zkSNARK compiler, solver, prover and verifier for optimization problems ([pape
 # Cloning
 To clone this repository and its submodules run
 ```
-git clone --recursive https://github.com/eniac/otti.git
+git clone https://github.com/eniac/otti.git
+git checkout testcases
+git submodule update --init
 ```
 
 # Building

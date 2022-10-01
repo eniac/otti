@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+# Run a set of tests, based on the config.json file
+
+import sys
+from pathlib import Path
+import json
+import subprocess 
+
+# Map descriptors to files
+desc_to_script = {}
+desc_to_script["lp"] = "testcase-generation/lp.py"
+desc_to_script["sdp"] = "testcase-generation/sdp.py"
+desc_to_script["sgd"] = "testcase-generation/sgd.py"
+
+if __name__ == "__main__":
+
+    if len(sys.argv) > 2:
+        print("Expecting generate_statements <config file>")
+        print("  <config file> default is config.json")
+        exit(1)
+
+    if len(sys.argv) > 1:
+        config_file = sys.argv[1]
+    else:
+        config_file = "config.json"
+        
+    with open(config_file, 'r') as f:
+      cf = json.load(f)
+      
+    # Extract metadata
+    target = cf['target']
+    Path(target).mkdir(parents=True, exist_ok=True)
+    for name, family in cf['test-families'].items():
+      script = desc_to_script[name]
+      min_size = str(family['min_size'])
+      max_size = str(family['max_size'])
+      for prime in family['primes']:
+        this_ex = 'python3 ' + script + ' ' + target + ' ' + prime + ' ' + min_size + ' ' + max_size
+        print("* Generating " + script + ' ' + prime + ' ' + min_size + ' ' + max_size)
+        try:
+          retcode = subprocess.call(this_ex, shell=True)
+          if retcode < 0:
+            print(script + " was terminated by signal", -retcode, file=sys.stderr)
+        except OSError as e:
+          print("Error:", e, file=sys.stderr)

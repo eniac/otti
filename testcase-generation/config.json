@@ -1,0 +1,29 @@
+{
+  "target_note": "Base directory where tests are created",
+  "target": "../tests",
+
+  "test-families" : {
+  
+    "lp": {
+      "primes": ["p0", "p1", "p2", "p3", "p4"],
+      "size_note": "N equations, N variables",
+      "min_size": 2,
+      "max_size": 5000
+    },
+    
+    "sdp": {
+      "primes": ["p0", "p1", "p2", "p3", "p4"],
+      "size_note": "N equations, NxN matrices",
+      "min_size": 2,
+      "max_size": 20
+    },
+    
+    "sgd": {
+      "primes": ["p0", "p1", "p2", "p3", "p4"],
+      "size_notes": "5N samples, N features",
+      "min_size": 2,
+      "max_size": 10000
+    },
+        
+  }
+}
