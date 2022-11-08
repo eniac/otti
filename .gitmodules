@@ -7,7 +7,7 @@
 [submodule "rust-circ"]
 	path = rust-circ
 	url = https://github.com/jkwoods/circ
-  branch = r1cs_out
+  branch = custom_mod
 [submodule "circ-haskell"]
 	path = compiler
 	url = git@github.com:elefthei/circ-haskell.git
