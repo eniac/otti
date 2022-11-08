@@ -8,8 +8,6 @@ import subprocess
 
 # Map descriptors to files
 desc_to_script = {}
-desc_to_script["lp"] = "testcase-generation/lp.py"
-desc_to_script["sdp"] = "testcase-generation/sdp.py"
 desc_to_script["sgd"] = "testcase-generation/sgd.py"
 
 if __name__ == "__main__":

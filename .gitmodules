@@ -1,13 +1,4 @@
-[submodule "spartan-zkinterface"]
-	path = spartan-zkinterface
-	url = git@github.com:elefthei/spartan-zkinterface.git
-[submodule "Spartan"]
-	path = Spartan
-  url = git@github.com:elefthei/Spartan.git
 [submodule "rust-circ"]
 	path = rust-circ
 	url = https://github.com/jkwoods/circ
   branch = custom_mod
-[submodule "circ-haskell"]
-	path = compiler
-	url = git@github.com:elefthei/circ-haskell.git
