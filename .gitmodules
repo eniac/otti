@@ -1,4 +1,4 @@
 [submodule "circ"]
 	path = circ
 	url = https://github.com/jkwoods/circ
-  branch = r1cs_out
+	branch = r1cs_out
