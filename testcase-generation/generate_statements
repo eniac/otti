@@ -9,6 +9,8 @@ import subprocess
 # Map descriptors to files
 desc_to_script = {}
 desc_to_script["sgd"] = "testcase-generation/sgd.py"
+desc_to_script["sgd_samples"] = "testcase-generation/sgd.py"
+desc_to_script["sgd_features"] = "testcase-generation/sgd.py"
 
 if __name__ == "__main__":
 
