@@ -1,4 +1,4 @@
-[submodule "rust-circ"]
-	path = rust-circ
+[submodule "circ"]
+	path = circ
 	url = https://github.com/jkwoods/circ
-  branch = custom_mod
+  branch = r1cs_out
