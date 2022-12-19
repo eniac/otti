@@ -31,7 +31,10 @@ def generate_test_family(generation_fuction, base_test_directory, test_family_na
             continue
 
         with open(instance_path, "w") as insf, open(witness_path, "w") as witf, open(relation_path, "w") as relf:
-            generation_fuction(text_path, test_name_str, test_modulus[0], sizes, insf, witf, relf)
+            generation_fuction(flatbuffer_path, test_name_str, test_modulus[0], sizes, insf, witf, relf)
+        subprocess.run("zki_sieve to-yaml "+str(flat_instance_path)+" > "+str(instance_path), shell=True, stderr=subprocess.DEVNULL) 
+        subprocess.run("zki_sieve to-yaml "+str(flat_witness_path)+" > "+str(witness_path), shell=True, stderr=subprocess.DEVNULL)
+        subprocess.run("zki_sieve to-yaml "+str(flat_relation_path)+" > "+str(relation_path), shell=True, stderr=subprocess.DEVNULL)
         #subprocess.run(["wtk-press", "t2b", str(instance_path), str(flat_instance_path)])
         #subprocess.run(["wtk-press", "t2b", str(witness_path), str(flat_witness_path)])
         #subprocess.run(["wtk-press", "t2b", str(relation_path), str(flat_relation_path)])
@@ -67,7 +70,7 @@ def create_test_family_directory(base_test_directory, test_family_name, test_mod
         else:
             return test_family_path
     else: 
-        print("Test directory provided does not exist")
+        print("Test directory provided does not exist: ", testdir_path)
         exit(1)
         
 # Create a directory for a test instance
@@ -87,7 +90,7 @@ def create_test_instance_directory(test_family_path, test_name_str):
             print("Test instance directory path exists, is not a directory")
             exit(1)
     else: 
-        print("Test directory provided does not exist")
+        print("Test directory provided does not exist: ", test_family_path)
         exit(1)
 
 

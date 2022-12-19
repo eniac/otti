@@ -1,6 +1,6 @@
 {
   "target_note": "Base directory where tests are created",
-  "target": "../tests",
+  "target": "./tests/",
 
   "test-families" : {
   
@@ -23,7 +23,6 @@
       "size_notes": "N samples, 10N features",
       "min_size": 2,
       "max_size": 10000
-    },
-        
+    }   
   }
 }

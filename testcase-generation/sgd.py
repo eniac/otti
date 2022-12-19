@@ -8,27 +8,41 @@ from utils.sieve_test_aux import *
 import random
 import sys
 from pathlib import Path
-from bitstring import BitArray
+import os
 
+def generate_sgd(test_instance_fb_path, test_name_str, test_modulus, sizes, insf, witf, relf):
 
-def generate_sgd(test_instance_text_path, test_name_str, test_modulus, sizes, insf, witf, relf):
+    num_samples = str(sizes[0])
+    num_features = str(sizes[1])
+    
+    home = str(os.getcwd())
 
-    num_samples = sizes[0]
-    num_features = sizes[1]
-    test_name_str = test_family_name + "_" + str(sz_vars) + "_" + str(sz_clauses)
-    random.seed(test_name_str)
+    name = str(num_features)+"_feat_"+str(num_samples)+"_samples_"+str(test_modulus)[:10]
 
-    # Create a random synthetic instance first
-    subprocess.run(["python3", home+"/codegen/syntheticsgd.py", insf, witf, \
-        num_samples num_features])
+    print("Generate inputs for " + name)
+    cfile = "sgd_synthetic_"+name+".c"
+    wfile = "sgd_synthetic_"+name+".in"
 
-    # run CirC to compile and generate seive ir
-    os.chdir(home+"/rust-circ/")
-    subprocess.run("./target/release/examples/circ --inputs \
-            "+home+"/out/wit/"+wfile+" "+home+"/out/cfiles/"+cfile+" r1cs \
-            --action seive --custom_mod"+test_modulus, shell=True)
+    subprocess.run(["python3", home+"/codegen/syntheticsgd.py", cfile,\
+        wfile, num_samples, num_features])
+    subprocess.run(["mv", cfile, home+"/out/cfiles/"])
+    subprocess.run(["mv", wfile, home+"/out/wit/"])
 
-    # naming ?
+    print("Compile, solve, and prove " + name)
+    os.chdir(home+"/circ/")
+    subprocess.run("./target/release/examples/circ --inputs "\
+        +home+"/out/wit/"+wfile+" "+home+"/out/cfiles/"+cfile+" r1cs --action sieve"\
+        +" --custom-mod "+str(test_modulus)+" --outdir "+home+"/out/sieve/"+name, shell=True)
+
+    os.chdir(home)
+    # TODO MV
+    subprocess.run(["cp", home+"/out/sieve/"+name+"/000_instance.sieve",\
+            home+"/"+str(test_instance_fb_path)+"/instance/instance.sieve"])
+    subprocess.run(["cp", home+"/out/sieve/"+name+"/001_witness.sieve",\
+            home+"/"+str(test_instance_fb_path)+"/witness/witness.sieve"])
+    subprocess.run(["cp", home+"/out/sieve/"+name+"/002_relation.sieve",\
+            home+"/"+str(test_instance_fb_path)+"/relation/relation.sieve"])
+
 
 if __name__ == "__main__":
 
@@ -36,7 +50,7 @@ if __name__ == "__main__":
         print("Expecting sgd.py <base_directory_name> <test_modulus> <size> optional: <max_range>")
         print("  <base_directory_name> is the target directory for the tests")
         print("  <test_modulus> is one of ", test_modulus_strings)
-        print("  <size> is an N for 3SAT instance with 2**N variables, 2*2**N clauses")
+        print("  <size> is an N for sgd instance with N samples, N features")
         print("  <max_range> if provided, creates tests for size through max_range, inclusive")
         exit(1)
 
@@ -58,12 +72,20 @@ if __name__ == "__main__":
       test_n_max = test_n_min
     else:
       test_n_max = int(sys.argv[4])
-      
+
+    home = str(os.getcwd())
+    if not os.path.isdir(home+"/out"):
+        subprocess.run(["mkdir", home+"/out"])
+    if not os.path.isdir(home+"/out/cfiles"):
+        subprocess.run(["mkdir", home+"/out/cfiles"])
+    if not os.path.isdir(home+"/out/wit"):
+        subprocess.run(["mkdir", home+"/out/wit"])
+    if not os.path.isdir(home+"/out/sieve"):
+        subprocess.run(["mkdir", home+"/out/sieve"])
     
     # Creates SGD instance with n variables, m clauses
     def gen_for_n(n):
-        first = n
-        return (first, first)
-    test_sizes = map(gen_for_n, range(test_n_min, test_n_max+1))
+        return (n, n)
+    test_sizes = map(gen_for_n, range(test_n_min, test_n_max+1, 100))
 
     generate_test_family(generate_sgd, base_test_directory, test_family_name, test_modulus, gate_set_str, test_sizes)

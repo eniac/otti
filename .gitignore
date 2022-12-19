@@ -13,3 +13,4 @@ scratch
 /deps/modified-csdp-6.2.0
 *.zkif
 /out
+/tests
