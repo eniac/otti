@@ -14,7 +14,7 @@ locals { timestamp = regex_replace(timestamp(), "[- TZ:]", "") }
 # post-processors on an instance created by the source.
 source "amazon-ebs" "example" {
   ami_name      = "sieve_ami_exampleteam_ta1 ${local.timestamp}"
-  instance_type = "t2.micro"
+  instance_type = "m6i.16xlarge"
   region        = "us-east-1"
   source_ami_filter {
     filters = {
