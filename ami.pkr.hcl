@@ -60,7 +60,7 @@ build {
   }
   
   provisioner "file" {
-    source = "rust-circ"
+    source = "circ"
     destination = "/tmp/circ"
   }
 
