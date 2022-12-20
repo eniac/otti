@@ -123,7 +123,7 @@ bool main($existentials) {
 
     substitutions = {
       'change' : negs,
-      'existentials' : ", ".join(["__attribute__((public(0))) int {}".format(w) for w in ws]),
+      'existentials' : ", ".join(["__attribute__((private(0))) int {}".format(w) for w in ws]),
 #          'dataset': ", ".join(["%d" % x for x in np.append(X.flatten() ,y)]),
 #          'd': str(d),
 #          'ws': ", ".join([ "long int " + w for w in ws]),

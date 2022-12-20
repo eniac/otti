@@ -86,6 +86,6 @@ if __name__ == "__main__":
     # Creates SGD instance with n variables, m clauses
     def gen_for_n(n):
         return (n, n)
-    test_sizes = map(gen_for_n, range(test_n_min, test_n_max+1, 100))
+    test_sizes = map(gen_for_n, range(test_n_min, test_n_max+1, 1))
 
     generate_test_family(generate_sgd, base_test_directory, test_family_name, test_modulus, gate_set_str, test_sizes)
