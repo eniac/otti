@@ -13,7 +13,7 @@ locals { timestamp = regex_replace(timestamp(), "[- TZ:]", "") }
 # build blocks to create resources. A build block runs provisioners and
 # post-processors on an instance created by the source.
 source "amazon-ebs" "example" {
-  ami_name      = "sieve_ami_exampleteam_ta1 ${local.timestamp}"
+  ami_name      = "sieve_ami_zkunbound_ta1 ${local.timestamp}"
   instance_type = "m6i.16xlarge"
   region        = "us-east-1"
   source_ami_filter {
@@ -40,14 +40,13 @@ build {
   provisioner "shell" {
     inline = [
       "sudo yum update -y",
-      "sudo yum install -y curl git python3 python3-pip m4",
+      "sudo yum install -y curl git python3 python3-pip m4 patch libffi-devel gmp-devel ncurses-devel gcc gcc-c++ autoconf",
       "pip3 install pysmps numpy pmlb scikit-learn",
       "curl https://sh.rustup.rs -sSf | bash -s -- -y",
       "wget https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew",
       "chmod u+x coinbrew",
       "./coinbrew fetch Cbc@master",
       "./coinbrew build Cbc",
-
       "mkdir /tmp/gen",      
       ""
     ]
@@ -84,9 +83,9 @@ build {
       "chmod -R 777 ~/codegen",
 
       # build circ
-      "cd /files/circ",
+      "cd ~/circ",
       "rustup override set stable",
-      "cargo build --release --example circ --features c r1cs",
+      "cargo build --release --example circ --features 'c r1cs'",
       ""
     ]
   }
