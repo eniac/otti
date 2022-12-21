@@ -2,6 +2,10 @@
   "target_note": "Base directory where tests are created",
   "target": "./tests/",
 
+  "note": "The location of the CCC file to use during generation. It is not relevant for us.",
+  "ccc": "./ccc.txt",
+
+
   "test-families" : {
   
     "sgd": {

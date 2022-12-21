@@ -52,10 +52,24 @@ build {
     ]
   }
   
-    
+  provisioner "file" {
+    source = "config.json"
+    destination = "/tmp/config.json"
+  }
+
+  provisioner "file" {
+    source = "generate_statements"
+    destination = "/tmp/generate_statements"
+  }
+
+  provisioner "file" {
+    source = "ccc.txt"
+    destination = "/tmp/ccc.txt"
+  }
+
   provisioner "file" {
     source = "testcase-generation"
-    destination = "/tmp/gen"
+    destination = "/tmp/testcase-generation"
   }
   
   provisioner "file" {
@@ -72,21 +86,26 @@ build {
   provisioner "shell" {
     inline = [
       # mode into home
-      "mv /tmp/gen ~/testcase-generation",
+      "mv /tmp/testcase-generation ~/testcase-generation",
       "mv /tmp/circ ~/circ",
       "mv /tmp/codegen ~/codegen",    
+      "mv /tmp/generate_statements ~/generate_statements",    
+      "mv /tmp/ccc.txt ~/ccc.txt",    
+      "mv /tmp/config.json ~/config.json",
 
       # Set permissions
       # "chmod 777 ~/generate_statements",
       "chmod -R 777 ~/testcase-generation",  
       "chmod -R 777 ~/circ",
       "chmod -R 777 ~/codegen",
+      "chmod 777 ~/generate_statements",
+      "chmod 666 ~/ccc",
+      "chmod 666 ~/config.json",
 
       # build circ
       "cd ~/circ",
       "rustup override set stable",
       "cargo build --release --example circ --features 'c r1cs'",
-      ""
     ]
   }
 
