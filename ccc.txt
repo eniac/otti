@@ -1,0 +1,7 @@
+version 2.0.0;
+configuration;
+@field (equals
+(21888242871839275222246405745257275088548364400416034343698204186575808495617));
+//BN128 curve order. Although this is totally irrelevant for us
+
+// no plugins supported; no @plugin...@end blocks
