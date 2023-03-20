@@ -99,7 +99,7 @@ build {
       "chmod -R 777 ~/circ",
       "chmod -R 777 ~/codegen",
       "chmod 777 ~/generate_statements",
-      "chmod 666 ~/ccc",
+      "chmod 666 ~/ccc.txt",
       "chmod 666 ~/config.json",
 
       # build circ
