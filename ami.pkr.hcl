@@ -83,8 +83,8 @@ build {
   }
 
  provisioner "file" {
-    source = "zki_sieve.tar.gz"
-    destination = "/tmp/zki_sieve.tar.gz"
+    source = "zkinterface-sieve.tar.gz"
+    destination = "/tmp/zkinterface-sieve.tar.gz"
   }
 
   
@@ -97,19 +97,19 @@ build {
       "mv /tmp/generate_statements ~/generate_statements",    
       "mv /tmp/ccc.txt ~/ccc.txt",    
       "mv /tmp/config.json ~/config.json",
-      "mv /tmp/zki_sieve.tar.gz ~/zki_sieve.tar.gz"
+      "mv /tmp/zkinterface-sieve.tar.gz ~/zkinterface-sieve.tar.gz"
 
       # Set permissions
-      # "chmod 777 ~/generate_statements",
       "chmod -R 777 ~/testcase-generation",  
       "chmod -R 777 ~/circ",
+      "chmod -R 777 ~/zkinterface-sieve.tar.gz",
       "chmod -R 777 ~/codegen",
       "chmod 777 ~/generate_statements",
       "chmod 666 ~/ccc.txt",
       "chmod 666 ~/config.json",
 
-      # unpack zki_sieve
-      "tar -xzvf zki_sieve.tar.gz"
+      # unpack zkinterface-sieve
+      "tar -xzvf zkinterface-sieve.tar.gz"
 
       # build circ
       "cd ~/circ",
@@ -117,9 +117,9 @@ build {
       "cargo build --release --example circ --features 'c r1cs'",
 
       # build zki_sieve (need for txt conversion)
-      "cd ~/zki_sieve/rust"
+      "cd ~/zkinterface-sieve/rust"
       "cargo build --release"
-      "export PATH=$PATH:~/zki_sieve/rust/target/release"
+      "export PATH=$PATH:~/zkinterface-sieve/rust/target/release"
 
     ]
   }
