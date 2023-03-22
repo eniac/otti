@@ -36,13 +36,12 @@ def generate_sgd(test_instance_fb_path, test_name_str, test_modulus, sizes, insf
 
     os.chdir(home)
     # TODO MV
-    subprocess.run(["cp", home+"/out/sieve/"+name+"/000_instance.sieve",\
-            home+"/"+str(test_instance_fb_path)+"/instance/instance.sieve"])
-    subprocess.run(["cp", home+"/out/sieve/"+name+"/001_witness.sieve",\
-            home+"/"+str(test_instance_fb_path)+"/witness/witness.sieve"])
+    subprocess.run(["cp", home+"/out/sieve/"+name+"/000_public_inputs_0.sieve",\
+                            home+"/"+str(test_instance_fb_path)+"/instance/"])
+    subprocess.run(["cp", home+"/out/sieve/"+name+"/001_private_inputs_0.sieve",\
+                            home+"/"+str(test_instance_fb_path)+"/witness/"])
     subprocess.run(["cp", home+"/out/sieve/"+name+"/002_relation.sieve",\
-            home+"/"+str(test_instance_fb_path)+"/relation/relation.sieve"])
-
+                            home+"/"+str(test_instance_fb_path)+"/relation/"])
 
 if __name__ == "__main__":
 
@@ -86,6 +85,6 @@ if __name__ == "__main__":
     # Creates SGD instance with n variables, m clauses
     def gen_for_n(n):
         return (10*n, n)
-    test_sizes = map(gen_for_n, range(test_n_min, test_n_max+1, 100))
+    test_sizes = map(gen_for_n, range(test_n_min, test_n_max+1, 1))
 
     generate_test_family(generate_sgd, base_test_directory, test_family_name, test_modulus, gate_set_str, test_sizes)
