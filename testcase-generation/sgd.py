@@ -1,8 +1,3 @@
-# 3SAT
-# Instance:  <nothing>
-# Witness:  truth assignment (1/0) to n variables
-# Relation:  verification of a randomly-generated 3SAT instance with n variables, m clauses
-
 from utils.sieve_test_constants import *
 from utils.sieve_test_aux import *
 import random
@@ -36,12 +31,14 @@ def generate_sgd(test_instance_fb_path, test_name_str, test_modulus, sizes, insf
 
     os.chdir(home)
     # TODO MV
-    subprocess.run(["cp", home+"/out/sieve/"+name+"/000_instance.sieve",\
-            home+"/"+str(test_instance_fb_path)+"/instance/instance.sieve"])
-    subprocess.run(["cp", home+"/out/sieve/"+name+"/001_witness.sieve",\
-            home+"/"+str(test_instance_fb_path)+"/witness/witness.sieve"])
+    subprocess.run(["cp", home+"/out/sieve/"+name+"/000_public_inputs_0.sieve",\
+            home+"/"+str(test_instance_fb_path)+"/instance/"])
+    subprocess.run(["cp", home+"/out/sieve/"+name+"/001_private_inputs_0.sieve",\
+            home+"/"+str(test_instance_fb_path)+"/witness/"])
     subprocess.run(["cp", home+"/out/sieve/"+name+"/002_relation.sieve",\
-            home+"/"+str(test_instance_fb_path)+"/relation/relation.sieve"])
+            home+"/"+str(test_instance_fb_path)+"/relation/"])
+    
+
 
 
 if __name__ == "__main__":

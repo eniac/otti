@@ -24,21 +24,20 @@ def generate_test_family(generation_fuction, base_test_directory, test_family_na
         instance_path = text_path / "instance/instance.txt"
         witness_path = text_path / "witness/witness.txt"
         relation_path = text_path / "relation/relation.txt"
-        flat_instance_path = flatbuffer_path / "instance/000_instance.sieve"
-        flat_witness_path = flatbuffer_path / "witness/001_witness.sieve"
+        flat_instance_path = flatbuffer_path / "instance/000_public_inputs_0.sieve"
+        flat_witness_path = flatbuffer_path / "witness/001_private_inputs_0.sieve"
         flat_relation_path = flatbuffer_path / "relation/002_relation.sieve"
         if (witness_path.is_file() and relation_path.is_file() and instance_path.is_file() and flat_witness_path.is_file() and flat_relation_path.is_file() and flat_instance_path.is_file()):
             continue
 
         with open(instance_path, "w") as insf, open(witness_path, "w") as witf, open(relation_path, "w") as relf:
             generation_fuction(flatbuffer_path, test_name_str, test_modulus[0], sizes, insf, witf, relf)
-        subprocess.run("zki_sieve to-yaml "+str(flat_instance_path)+" > "+str(instance_path), shell=True, stderr=subprocess.DEVNULL) 
-        subprocess.run("zki_sieve to-yaml "+str(flat_witness_path)+" > "+str(witness_path), shell=True, stderr=subprocess.DEVNULL)
-        subprocess.run("zki_sieve to-yaml "+str(flat_relation_path)+" > "+str(relation_path), shell=True, stderr=subprocess.DEVNULL)
-        #subprocess.run(["wtk-press", "t2b", str(instance_path), str(flat_instance_path)])
-        #subprocess.run(["wtk-press", "t2b", str(witness_path), str(flat_witness_path)])
-        #subprocess.run(["wtk-press", "t2b", str(relation_path), str(flat_relation_path)])
-
+        subprocess.run(["zki_sieve","to-yaml", str(flat_instance_path)], stdout=open(str(instance_path), 'w'))
+        subprocess.run(["zki_sieve","to-yaml", str(flat_witness_path)],
+                stdout=open(str(witness_path), 'w'))
+        subprocess.run(["zki_sieve","to-yaml", str(flat_relation_path)],
+                stdout=open(str(relation_path), 'w'))
+        
 
 # Takes a Path object and creates subdirectories for instance, witness, and relation
 def populate_subfolders(base_directory):
