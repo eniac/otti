@@ -97,7 +97,7 @@ build {
       "mv /tmp/generate_statements ~/generate_statements",    
       "mv /tmp/ccc.txt ~/ccc.txt",    
       "mv /tmp/config.json ~/config.json",
-      "mv /tmp/zkinterface-sieve.tar.gz ~/zkinterface-sieve.tar.gz"
+      "mv /tmp/zkinterface-sieve.tar.gz ~/zkinterface-sieve.tar.gz",
 
       # Set permissions
       "chmod -R 777 ~/testcase-generation",  
@@ -109,7 +109,7 @@ build {
       "chmod 666 ~/config.json",
 
       # unpack zkinterface-sieve
-      "tar -xzvf zkinterface-sieve.tar.gz"
+      "tar -xzvf zkinterface-sieve.tar.gz",
 
       # build circ
       "cd ~/circ",
@@ -117,9 +117,9 @@ build {
       "cargo build --release --example circ --features 'c r1cs'",
 
       # build zki_sieve (need for txt conversion)
-      "cd ~/zkinterface-sieve/rust"
-      "cargo build --release"
-      "export PATH=$PATH:~/zkinterface-sieve/rust/target/release"
+      "cd ~/zkinterface-sieve/rust",
+      "cargo build --release",
+      "export PATH=$PATH:~/zkinterface-sieve/rust/target/release",
 
     ]
   }
