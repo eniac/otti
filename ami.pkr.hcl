@@ -119,7 +119,6 @@ build {
       # build zki_sieve (need for txt conversion)
       "cd ~/zkinterface-sieve/rust",
       "cargo build --release",
-      "export PATH=$PATH:~/zkinterface-sieve/rust/target/release",
 
     ]
   }

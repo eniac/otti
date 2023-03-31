@@ -32,10 +32,10 @@ def generate_test_family(generation_fuction, base_test_directory, test_family_na
 
         with open(instance_path, "w") as insf, open(witness_path, "w") as witf, open(relation_path, "w") as relf:
             generation_fuction(flatbuffer_path, test_name_str, test_modulus[0], sizes, insf, witf, relf)
-        subprocess.run(["zki_sieve","to-yaml", str(flat_instance_path)], stdout=open(str(instance_path), 'w'))
-        subprocess.run(["zki_sieve","to-yaml", str(flat_witness_path)],
+        subprocess.run(["~/zkinterface-sieve/rust/target/release/zki_sieve","to-yaml", str(flat_instance_path)], stdout=open(str(instance_path), 'w'))
+        subprocess.run(["~/zkinterface-sieve/rust/target/release/zki_sieve","to-yaml", str(flat_witness_path)],
                 stdout=open(str(witness_path), 'w'))
-        subprocess.run(["zki_sieve","to-yaml", str(flat_relation_path)],
+        subprocess.run(["~/zkinterface-sieve/rust/target/release/zki_sieve","to-yaml", str(flat_relation_path)],
                 stdout=open(str(relation_path), 'w'))
         
 
